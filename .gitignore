@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.eggs/
+*.egg-info/
+dist/
+build/
+
+# Virtual env
+venv/
+.venv/
+
+# Models (too large)
+models/
+
+# Outputs (generated)
+output/
+output_*/
+/tmp/onda_test/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Old/deprecated
+inference_*.py
+demucs_local_old/
+convert_mp3.py
+validate_models.py
