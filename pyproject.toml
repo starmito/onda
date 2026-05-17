@@ -1,0 +1,20 @@
+[project]
+name = "onda"
+version = "0.1.0"
+description = "Audio source separation pipeline: BS-Roformer → HTDemucs → Rubberband"
+requires-python = ">=3.10"
+dependencies = [
+    "torch>=2.0",
+    "torchaudio",
+    "demucs",
+    "librosa",
+    "soundfile",
+    "numpy",
+    "pyyaml",
+]
+
+[project.scripts]
+onda = "onda.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["."]

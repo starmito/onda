@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""Headless MelBand RoFormer inference for audio separation."""
+import sys, os, yaml, warnings
+import torch
+import torch.nn as nn
+import numpy as np
+import librosa
+import soundfile as sf
+
+# Add project root to path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from lib_v5.mel_band_roformer import MelBandRoformer
+
+warnings.filterwarnings("ignore")
+
+def separate(model_dir, input_path, output_dir="output"):
+    """Separate vocals+instrumental from input audio using MelBand RoFormer."""
+    
+    # Find checkpoint and config
+    ckpt_files = [f for f in os.listdir(model_dir) if f.endswith('.ckpt')]
+    yaml_files = [f for f in os.listdir(model_dir) if f.endswith('.yaml')]
+    
+    if not ckpt_files or not yaml_files:
+        print(f"Error: No .ckpt or .yaml files in {model_dir}")
+        print(f"  ckpts: {ckpt_files}")
+        print(f"  yamls: {yaml_files}")
+        return False
+    
+    # Use first available checkpoint + its matching config
+    ckpt_name = ckpt_files[0]
+    # Try to find matching yaml (same prefix)
+    prefix = ckpt_name.replace('.ckpt', '')
+    yaml_name = f"{prefix}.yaml"
+    if yaml_name not in yaml_files:
+        yaml_name = yaml_files[0]  # fallback
+    
+    ckpt_path = os.path.join(model_dir, ckpt_name)
+    config_path = os.path.join(model_dir, yaml_name)
+    
+    print(f"Model checkpoint: {ckpt_name}")
+    print(f"Config: {yaml_name}")
+    
+    # Load config
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
+    
+    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    print(f"Device: {device}")
+    
+    # Create model
+    model = MelBandRoformer(**config['model'])
+    checkpoint = torch.load(ckpt_path, map_location='cpu', weights_only=True)
+    model.load_state_dict(checkpoint, strict=False)
+    model = model.to(device).eval()
+    print(f"Model loaded: {sum(p.numel() for p in model.parameters())/1e6:.1f}M params")
+    
+    # Load audio
+    audio, sr = librosa.load(input_path, sr=44100, mono=False)
+    if audio.ndim == 1:
+        audio = np.stack([audio, audio], axis=0)  # mono -> stereo
+    elif audio.shape[0] > 2:
+        audio = audio[:2]  # take first 2 channels
+    
+    print(f"Audio: {audio.shape}, sr={sr}, duration={audio.shape[1]/sr:.1f}s")
+    
+    # Convert to tensor
+    mix = torch.tensor(audio, dtype=torch.float32).to(device)
+    
+    # Inference (chunked with overlap)
+    chunk_size = config['inference']['dim_t']
+    hop_length = config['audio']['hop_length']
+    C = hop_length * (chunk_size - 1)
+    overlap = config['inference']['num_overlap']
+    step = C // overlap
+    batch_size = config['inference']['batch_size']
+    
+    print(f"chunk_size={chunk_size}, C={C}, step={step}, overlap={overlap}")
+    
+    # Pad
+    pad_len = C - step
+    if audio.shape[1] > 2 * pad_len:
+        mix = nn.functional.pad(mix, (pad_len, pad_len), mode='reflect')
+    
+    # Process in batches
+    num_stems = config['training'].get('num_stems', 1)
+    instruments = config['training'].get('instruments', ['vocals', 'other'])
+    S = len(instruments) if num_stems == 1 else num_stems
+    
+    result = torch.zeros((S,) + tuple(mix.shape), dtype=torch.float32, device=device)
+    counter = torch.zeros((S,) + tuple(mix.shape), dtype=torch.float32, device=device)
+    
+    # Window for overlap-add
+    fade_size = C // 10
+    fadein = torch.linspace(0, 1, fade_size, device=device)
+    fadeout = torch.linspace(1, 0, fade_size, device=device)
+    
+    batch_data, batch_starts = [], []
+    total_chunks = int(np.ceil(mix.shape[1] / step))
+    
+    print(f"Processing {total_chunks} chunks in batches of {batch_size}...")
+    
+    with torch.inference_mode():
+        i = 0
+        chunk_idx = 0
+        while i < mix.shape[1]:
+            part = mix[:, i:i + C]
+            length = part.shape[-1]
+            if length < C:
+                if length > C // 2 + 1:
+                    part = nn.functional.pad(part, (0, C - length), mode='reflect')
+                else:
+                    part = nn.functional.pad(part, (0, C - length), mode='constant', value=0)
+            
+            batch_data.append(part)
+            batch_starts.append((i, length))
+            i += step
+            
+            if len(batch_data) >= batch_size or i >= mix.shape[1]:
+                arr = torch.stack(batch_data, dim=0)
+                x = model(arr)
+                
+                if isinstance(x, dict):
+                    x = x.get('output', x.get('audio', list(x.values())[0]))
+                
+                for j in range(len(batch_starts)):
+                    start, l = batch_starts[j]
+                    # Build window
+                    win = torch.ones(C, device=device)
+                    if chunk_idx > 0:
+                        win[:fade_size] *= fadein
+                    if start + C < mix.shape[1] - C + step:
+                        win[-fade_size:] *= fadeout
+                    elif start + C > mix.shape[1]:
+                        pass  # last chunk, keep full
+                    
+                    for s in range(S):
+                        stem_out = x[j, s:s+1] if x.dim() == 3 else x[j]
+                        if stem_out.dim() == 1:
+                            stem_out = stem_out.unsqueeze(0)
+                        actual_len = stem_out.shape[-1]
+                        w = win[:actual_len]
+                        result[s, :, start:start+actual_len] += stem_out * w
+                        counter[s, :, start:start+actual_len] += w
+                    chunk_idx += 1
+                
+                batch_data, batch_starts = [], []
+    
+    # Normalize
+    result = result / (counter + 1e-8)
+    
+    # Remove padding
+    if audio.shape[1] > 2 * pad_len:
+        result = result[:, :, pad_len:-pad_len]
+    
+    result = result.cpu().numpy()
+    
+    # Save stems
+    os.makedirs(output_dir, exist_ok=True)
+    basename = os.path.splitext(os.path.basename(input_path))[0]
+    
+    for s, name in enumerate(instruments):
+        stem = result[s]
+        # If mono output, expand to stereo
+        if stem.shape[0] == 1:
+            stem = np.repeat(stem, 2, axis=0)
+        out_path = os.path.join(output_dir, f"{basename}_{name}.wav")
+        sf.write(out_path, stem.T, sr)
+        print(f"  ✓ {out_path} ({stem.shape})")
+    
+    # Also save instrumental if only vocals extracted
+    if S == 1 and instruments[0] == 'vocals':
+        inst = audio - result[0]
+        out_path = os.path.join(output_dir, f"{basename}_instrumental.wav")
+        sf.write(out_path, inst.T, sr)
+        print(f"  ✓ {out_path} (instrumental)")
+    
+    print("\nDone!")
+    return True
+
+if __name__ == '__main__':
+    model_dir = sys.argv[1] if len(sys.argv) > 1 else 'models/VR_Models/MelBand_Karaoke'
+    input_path = sys.argv[2] if len(sys.argv) > 2 else 'prueba_onda.mp3'
+    output_dir = sys.argv[3] if len(sys.argv) > 3 else 'output'
+    
+    success = separate(model_dir, input_path, output_dir)
+    sys.exit(0 if success else 1)
