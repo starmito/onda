@@ -814,3 +814,126 @@ input[type="range"]::-webkit-slider-thumb:hover {
   text-transform: uppercase;
   opacity: 0.7;
 }
+/* Queue row (per song) */
+.queue-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: var(--bg-base);
+  border-radius: var(--radius-md);
+  margin-top: 6px;
+  border: 1px solid var(--border-subtle);
+  transition: all 0.2s;
+}
+
+.queue-row:hover {
+  border-color: var(--border-default);
+}
+
+.queue-check {
+  width: 18px;
+  height: 18px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.queue-name {
+  flex: 1;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.queue-status {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+  min-width: 70px;
+  text-align: center;
+  background: var(--bg-elevated);
+  color: var(--text-tertiary);
+}
+
+.queue-status.running {
+  background: var(--accent-soft);
+  color: var(--accent-glow);
+}
+
+.queue-status.done {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.queue-progress {
+  width: 80px;
+  height: 5px;
+  background: var(--bg-elevated);
+  border-radius: 3px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.queue-progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 3px;
+  transition: width 0.5s ease;
+}
+
+.queue-remove {
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  font-size: 14px;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+  transition: all 0.15s;
+  flex-shrink: 0;
+}
+
+.queue-remove:hover {
+  color: var(--red);
+  background: var(--red-soft);
+}
+
+/* Clear button */
+#btn-clear {
+  width: 74px;
+  min-height: 100px;
+  background: var(--bg-elevated);
+  color: var(--text-tertiary);
+  border: 2px dashed var(--border-default);
+  border-radius: var(--radius-lg);
+  font-size: 18px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+}
+
+#btn-clear:hover {
+  border-color: var(--red);
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+#btn-clear small {
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  opacity: 0.7;
+}

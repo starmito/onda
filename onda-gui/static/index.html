@@ -8,7 +8,6 @@
 </head>
 <body>
 <div id="app">
-  <!-- Header -->
   <div class="app-header">
     <div class="app-logo">🎵</div>
     <div>
@@ -17,37 +16,31 @@
     </div>
   </div>
 
-  <!-- Progress -->
   <div id="progress-bar">
     <div class="progress-fill" id="progress-fill"></div>
   </div>
 
-  <!-- Queue + File picker -->
+  <!-- Queue -->
   <div id="queue-area">
     <div id="drop-zone">
-      <div class="drop-icon">📂</div>
       <div class="drop-message" id="drop-msg">Drop audio files here or click to browse</div>
       <div id="queue-list"></div>
     </div>
-    <input type="file" id="file-picker" accept=".wav,.mp3,.flac,.ogg,.aac,.m4a,.aiff" multiple
-           style="display:none" onchange="handleFilePicker(event)">
-    <button id="btn-start" onclick="document.getElementById(\"file-picker\").click()">
-      ＋<small>Add</small>
-    </button>
+    <input type="file" id="file-picker" accept=".wav,.mp3,.flac,.ogg,.aac,.m4a,.aiff" multiple style="display:none" onchange="handleFilePicker(event)">
+    <button id="btn-clear" onclick="clearQueue()" title="Clear all">🗑<small>Clear</small></button>
   </div>
 
   <!-- Pipeline -->
   <div id="pipeline">
     <h2>Pipeline</h2>
 
-    <!-- Step 1: Viperx -->
     <div class="step-block">
       <div class="pipeline-row">
         <label class="toggle">
           <input type="checkbox" id="enable-viperx" checked onchange="toggleViperx()">
           Vocal Separation · Viperx
         </label>
-        <button class="step-run" onclick="runStep(\"viperx\")" title="Run only this step">▶</button>
+        <button class="step-run" onclick="runStep('viperx')" title="Run only this step">▶</button>
         <span class="step-badge">Step 1</span>
       </div>
       <div id="viperx-options" class="step-options">
@@ -57,14 +50,13 @@
       </div>
     </div>
 
-    <!-- Step 2: Demucs -->
     <div class="step-block">
       <div class="pipeline-row">
         <label class="toggle">
           <input type="checkbox" id="enable-demucs" checked onchange="toggleDemucs()">
           Stem Separation · HTDemucs
         </label>
-        <button class="step-run" onclick="runStep(\"demucs\")" title="Run only this step">▶</button>
+        <button class="step-run" onclick="runStep('demucs')" title="Run only this step">▶</button>
         <span class="step-badge">Step 2</span>
       </div>
       <div id="demucs-options" class="step-options">
@@ -76,14 +68,13 @@
       </div>
     </div>
 
-    <!-- Step 3: Pitch -->
     <div class="step-block">
       <div class="pipeline-row">
         <label class="toggle">
           <input type="checkbox" id="enable-rubberband" onchange="toggleRubberband()">
           Pitch Shift · Rubberband
         </label>
-        <button class="step-run" onclick="runStep(\"rubberband\")" title="Run only this step">▶</button>
+        <button class="step-run" onclick="runStep('rubberband')" title="Run only this step">▶</button>
         <span class="step-badge">Step 3</span>
       </div>
       <div id="rubberband-options" class="step-options hidden">
@@ -94,26 +85,11 @@
       </div>
     </div>
 
-    <!-- START PIPELINE button -->
     <button class="btn-pipeline-start" onclick="startAll()">
       ▶ Start Pipeline
     </button>
-
-    <!-- Track + Format row -->
-    <div class="bottom-row">
-      <label>Track</label>
-      <select id="select-track" onchange="updateStartButton()">
-        <option value="">— select audio file —</option>
-      </select>
-      <label>Format</label>
-      <select id="format"><option>WAV</option><option>FLAC</option><option>MP3</option></select>
-      <label>Quality</label>
-      <select id="quality"><option>16-bit</option><option>24-bit</option><option>32-bit float</option></select>
-      <button id="btn-export" onclick="exportStems()">Export</button>
-    </div>
   </div>
 
-  <!-- Results -->
   <div id="results">
     <h2>Results</h2>
     <div id="waveform-area">
