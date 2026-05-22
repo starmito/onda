@@ -29,6 +29,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=builder /deps /usr/local/lib/python3.12/site-packages/
 
+# Create demucs CLI entry point (pip --target skips console scripts)
+# Run from /tmp to avoid local /app/demucs/ shadowing the pip version
+RUN printf '#!/bin/bash\ncd /tmp\nexec env PYTHONPATH=/usr/local/lib/python3.12/site-packages python -m demucs "$@"\n' > /usr/local/bin/demucs && \
+    chmod +x /usr/local/bin/demucs
+
 WORKDIR /app
 COPY . .
 
