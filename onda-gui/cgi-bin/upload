@@ -1,0 +1,58 @@
+#!/usr/bin/env python3
+"""CGI: Upload file to /input — handles multipart form data."""
+
+import os, sys
+
+content_type = os.environ.get("CONTENT_TYPE", "")
+content_length = int(os.environ.get("CONTENT_LENGTH", "0"))
+
+print("Content-Type: application/json")
+print("")
+
+if not content_length:
+    print('{"success":false,"error":"No content"}')
+    sys.exit(0)
+
+body = sys.stdin.buffer.read(content_length)
+
+# Parse boundary
+if "boundary=" not in content_type:
+    print('{"success":false,"error":"No boundary"}')
+    sys.exit(0)
+
+boundary = content_type.split("boundary=")[1].strip().encode()
+if boundary.startswith(b'"'):
+    boundary = boundary[1:-1]
+
+# Find filename
+header_end = body.find(b"\r\n\r\n")
+if header_end < 0:
+    print('{"success":false,"error":"Bad format"}')
+    sys.exit(0)
+
+headers = body[:header_end].decode(errors="replace")
+filename = "unknown"
+for line in headers.split("\r\n"):
+    if "filename=" in line:
+        fn = line.split("filename=")[1].strip().strip('"')
+        filename = os.path.basename(fn)
+        break
+
+# Extract file content
+content_start = header_end + 4
+file_data = body[content_start:]
+
+# Trim trailing boundary
+boundary_marker = b"\r\n--" + boundary
+idx = file_data.find(boundary_marker)
+if idx >= 0:
+    file_data = file_data[:idx]
+
+file_data = file_data.rstrip(b"\r\n")
+
+# Write to /input
+dest = f"/input/{filename}"
+with open(dest, "wb") as f:
+    f.write(file_data)
+
+print(f'{{"success":true,"message":"{filename} uploaded"}}')

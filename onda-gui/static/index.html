@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Onda</title>
+<link rel="stylesheet" href="/static/dark-theme.css">
+</head>
+<body>
+<div id="app">
+  <!-- Progress bar -->
+  <div id="progress-bar">
+    <div class="progress-fill" id="progress-fill"></div>
+  </div>
+
+  <!-- Queue + Start -->
+  <div id="queue-area">
+    <div id="drop-zone">
+      <div class="drop-message" id="drop-msg">🎵 Drag & drop audio files here</div>
+      <div id="queue-list"></div>
+    </div>
+    <button id="btn-start" onclick="startAll()" disabled>▶<br><small>START</small></button>
+  </div>
+
+  <!-- Pipeline -->
+  <div id="pipeline">
+    <h2>PIPELINE</h2>
+
+    <!-- Step 1: Viperx (vocal separation) -->
+    <div class="step-block">
+      <div class="pipeline-row">
+        <label class="toggle">
+          <input type="checkbox" id="enable-viperx" checked onchange="toggleViperx()">
+          🔪 Separador vocal (Viperx)
+        </label>
+        <span class="step-badge">Step 1</span>
+      </div>
+      <div id="viperx-options" class="step-options">
+        <span class="keep-label">Keep:</span>
+        <label class="keep-check"><input type="checkbox" id="keep-instrumental" checked> Instrumental</label>
+        <label class="keep-check"><input type="checkbox" id="keep-vocals" checked> Vocals</label>
+      </div>
+    </div>
+
+    <!-- Step 2: Demucs (stem separation) -->
+    <div class="step-block">
+      <div class="pipeline-row">
+        <label class="toggle">
+          <input type="checkbox" id="enable-demucs" checked onchange="toggleDemucs()">
+          🥁 Separador stems (HTDemucs)
+        </label>
+        <span class="step-badge">Step 2</span>
+      </div>
+      <div id="demucs-options" class="step-options">
+        <span class="keep-label">Keep:</span>
+        <label class="keep-check"><input type="checkbox" id="keep-drums" checked> Drums</label>
+        <label class="keep-check"><input type="checkbox" id="keep-bass" checked> Bass</label>
+        <label class="keep-check"><input type="checkbox" id="keep-other"> Other</label>
+        <label class="keep-check"><input type="checkbox" id="keep-demucs-vocals" checked> Vocals</label>
+      </div>
+    </div>
+
+    <!-- Step 3: Pitch shift -->
+    <div class="step-block">
+      <div class="pipeline-row">
+        <label class="toggle">
+          <input type="checkbox" id="enable-rubberband" onchange="toggleRubberband()">
+          🐙 Pitch shift (Rubberband)
+        </label>
+        <span class="step-badge">Step 3</span>
+      </div>
+      <div id="rubberband-options" class="step-options hidden">
+        <div class="pipeline-row">
+          <label>Semitones</label>
+          <input type="range" id="pitch" min="-12" max="12" value="0" oninput="updatePitch()">
+          <span id="pitch-val">±0</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Track selector + Format/Export -->
+    <div class="pipeline-row" style="margin-top:12px">
+      <label>🎵 Pista</label>
+      <select id="select-track" onchange="updateStartButton()">
+        <option value="">— choose a file —</option>
+      </select>
+    </div>
+
+    <div class="pipeline-row">
+      <label>Formato</label>
+      <select id="format"><option>WAV</option><option>FLAC</option><option>MP3</option></select>
+      <label>Calidad</label>
+      <select id="quality"><option>16-bit</option><option>24-bit</option><option>32-bit float</option></select>
+      <button id="btn-export" onclick="alert("Export: TODO")">📤 EXPORTAR</button>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div id="results">
+    <h2>RESULTS</h2>
+    <div id="waveform-area">
+      <p>Process a track to see results here</p>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

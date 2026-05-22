@@ -1,0 +1,32 @@
+#!/bin/bash
+# CGI: List vocal models → JSON
+echo "Content-Type: application/json"
+echo ""
+
+MODELS_DIR="/models/VR_Models"
+
+echo -n '{"models":['
+first=true
+if [ -d "$MODELS_DIR" ]; then
+    for d in "$MODELS_DIR"/*/; do
+        [ -d "$d" ] || continue
+        name=$(basename "$d")
+
+        # Build ckpts array manually (no jq)
+        ckpts_json="["
+        first_ckpt=true
+        for c in "$d"/*.ckpt "$d"/*.pth; do
+            [ -f "$c" ] || continue
+            cname=$(basename "$c")
+            $first_ckpt || ckpts_json+=","
+            ckpts_json+="\"$cname\""
+            first_ckpt=false
+        done
+        ckpts_json+="]"
+
+        $first || echo -n ','
+        echo -n "{\"name\":\"$name\",\"path\":\"$d\",\"ckpts\":$ckpts_json}"
+        first=false
+    done
+fi
+echo ']}'

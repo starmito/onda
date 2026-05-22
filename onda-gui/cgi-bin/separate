@@ -1,0 +1,65 @@
+#!/bin/bash
+# CGI: Launch pipeline.sh async via docker exec
+echo "Content-Type: application/json"
+echo ""
+
+# URL-decode
+urldecode() {
+    local data="${1//+/ }"
+    printf "%b" "${data//%/\\x}"
+}
+
+read -r -n "$CONTENT_LENGTH" BODY
+
+get_param() {
+    echo "$BODY" | sed -n "s/.*${1}=\([^&]*\).*/\1/p"
+}
+
+INPUT_ENC=$(get_param "input_file")
+ENABLE_VIPERX=$(get_param "viperx")
+VIPERX_KEEP_ENC=$(get_param "viperx_keep")
+ENABLE_DEMUCS=$(get_param "demucs")
+DEMUCS_KEEP_ENC=$(get_param "demucs_keep")
+ENABLE_RUBBERBAND=$(get_param "rubberband")
+PITCH=$(get_param "pitch")
+
+INPUT=$(urldecode "$INPUT_ENC")
+
+if [ -z "$INPUT" ]; then
+    echo "{\"success\":false,\"error\":\"No input file selected\"}"
+    exit 0
+fi
+
+case "$INPUT" in
+    /*) INPUT_PATH="$INPUT" ;;
+    *)  INPUT_PATH="/input/$INPUT" ;;
+esac
+
+VIPERX_KEEP=$(urldecode "$VIPERX_KEEP_ENC")
+DEMUCS_KEEP=$(urldecode "$DEMUCS_KEEP_ENC")
+
+# Build args
+ARGS=()
+
+[ "$ENABLE_VIPERX" = "on" ] || [ "$ENABLE_VIPERX" = "true" ] && {
+    ARGS+=(--viperx)
+    [ -n "$VIPERX_KEEP" ] && ARGS+=(--viperx-keep "$VIPERX_KEEP")
+}
+
+[ "$ENABLE_DEMUCS" = "on" ] || [ "$ENABLE_DEMUCS" = "true" ] && {
+    ARGS+=(--demucs)
+    [ -n "$DEMUCS_KEEP" ] && ARGS+=(--demucs-keep "$DEMUCS_KEEP")
+}
+
+[ "$ENABLE_RUBBERBAND" = "on" ] || [ "$ENABLE_RUBBERBAND" = "true" ] && {
+    ARGS+=(--rubberband)
+    [ -n "$PITCH" ] && [ "$PITCH" != "0" ] && ARGS+=(--pitch "$PITCH")
+}
+
+ARGS+=("$INPUT_PATH")
+
+# Run async in background — write output to log
+LOGFILE="/tmp/pipeline_$(date +%s).log"
+nohup docker exec onda /app/pipeline.sh "${ARGS[@]}" > "$LOGFILE" 2>&1 &
+
+echo "{\"success\":true,\"message\":\"Pipeline started\",\"log\":\"$LOGFILE\"}"
