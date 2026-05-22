@@ -3,12 +3,21 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Onda</title>
-<link rel="stylesheet" href="/static/dark-theme.css">
+<title>Onda — Audio Separation</title>
+<link rel="stylesheet" href="/dark-theme.css">
 </head>
 <body>
 <div id="app">
-  <!-- Progress bar -->
+  <!-- Header -->
+  <div class="app-header">
+    <div class="app-logo">🎵</div>
+    <div>
+      <div class="app-title">Onda</div>
+      <div class="app-subtitle">Audio Separation Studio</div>
+    </div>
+  </div>
+
+  <!-- Progress -->
   <div id="progress-bar">
     <div class="progress-fill" id="progress-fill"></div>
   </div>
@@ -16,43 +25,46 @@
   <!-- Queue + Start -->
   <div id="queue-area">
     <div id="drop-zone">
-      <div class="drop-message" id="drop-msg">🎵 Drag & drop audio files here</div>
+      <div class="drop-icon">📂</div>
+      <div class="drop-message" id="drop-msg">Drop audio files here</div>
       <div id="queue-list"></div>
     </div>
-    <button id="btn-start" onclick="startAll()" disabled>▶<br><small>START</small></button>
+    <button id="btn-start" onclick="startAll()" disabled>
+      ▶<small>Start</small>
+    </button>
   </div>
 
   <!-- Pipeline -->
   <div id="pipeline">
-    <h2>PIPELINE</h2>
+    <h2>Pipeline</h2>
 
-    <!-- Step 1: Viperx (vocal separation) -->
+    <!-- Step 1: Viperx -->
     <div class="step-block">
       <div class="pipeline-row">
         <label class="toggle">
           <input type="checkbox" id="enable-viperx" checked onchange="toggleViperx()">
-          🔪 Separador vocal (Viperx)
+          Vocal Separation · Viperx
         </label>
         <span class="step-badge">Step 1</span>
       </div>
       <div id="viperx-options" class="step-options">
-        <span class="keep-label">Keep:</span>
-        <label class="keep-check"><input type="checkbox" id="keep-instrumental" checked> Instrumental</label>
+        <span class="keep-label">Keep</span>
         <label class="keep-check"><input type="checkbox" id="keep-vocals" checked> Vocals</label>
+        <label class="keep-check"><input type="checkbox" id="keep-instrumental" checked> Instrumental</label>
       </div>
     </div>
 
-    <!-- Step 2: Demucs (stem separation) -->
+    <!-- Step 2: Demucs -->
     <div class="step-block">
       <div class="pipeline-row">
         <label class="toggle">
           <input type="checkbox" id="enable-demucs" checked onchange="toggleDemucs()">
-          🥁 Separador stems (HTDemucs)
+          Stem Separation · HTDemucs
         </label>
         <span class="step-badge">Step 2</span>
       </div>
       <div id="demucs-options" class="step-options">
-        <span class="keep-label">Keep:</span>
+        <span class="keep-label">Keep</span>
         <label class="keep-check"><input type="checkbox" id="keep-drums" checked> Drums</label>
         <label class="keep-check"><input type="checkbox" id="keep-bass" checked> Bass</label>
         <label class="keep-check"><input type="checkbox" id="keep-other"> Other</label>
@@ -60,50 +72,46 @@
       </div>
     </div>
 
-    <!-- Step 3: Pitch shift -->
+    <!-- Step 3: Pitch -->
     <div class="step-block">
       <div class="pipeline-row">
         <label class="toggle">
           <input type="checkbox" id="enable-rubberband" onchange="toggleRubberband()">
-          🐙 Pitch shift (Rubberband)
+          Pitch Shift · Rubberband
         </label>
         <span class="step-badge">Step 3</span>
       </div>
       <div id="rubberband-options" class="step-options hidden">
-        <div class="pipeline-row">
-          <label>Semitones</label>
+        <div class="pipeline-row" style="width:100%">
           <input type="range" id="pitch" min="-12" max="12" value="0" oninput="updatePitch()">
-          <span id="pitch-val">±0</span>
+          <span id="pitch-val">±0 semitones</span>
         </div>
       </div>
     </div>
 
-    <!-- Track selector + Format/Export -->
-    <div class="pipeline-row" style="margin-top:12px">
-      <label>🎵 Pista</label>
+    <!-- Track + Format row -->
+    <div class="bottom-row">
+      <label>Track</label>
       <select id="select-track" onchange="updateStartButton()">
-        <option value="">— choose a file —</option>
+        <option value="">— select audio file —</option>
       </select>
-    </div>
-
-    <div class="pipeline-row">
-      <label>Formato</label>
+      <label>Format</label>
       <select id="format"><option>WAV</option><option>FLAC</option><option>MP3</option></select>
-      <label>Calidad</label>
+      <label>Quality</label>
       <select id="quality"><option>16-bit</option><option>24-bit</option><option>32-bit float</option></select>
-      <button id="btn-export" onclick="alert("Export: TODO")">📤 EXPORTAR</button>
+      <button id="btn-export" onclick="alert("Export: coming soon")">Export</button>
     </div>
   </div>
 
   <!-- Results -->
   <div id="results">
-    <h2>RESULTS</h2>
+    <h2>Results</h2>
     <div id="waveform-area">
-      <p>Process a track to see results here</p>
+      <p>Process a track to see stems here</p>
     </div>
   </div>
 </div>
 
-<script src="/static/app.js"></script>
+<script src="/app.js"></script>
 </body>
 </html>

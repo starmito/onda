@@ -9,26 +9,24 @@ async function init() {
   updateStartButton();
 }
 
-// ── Load input files into track selector ──
+// ── Load input files ──
 async function loadInputFiles() {
   try {
     const res = await fetch("/cgi-bin/input");
     const data = await res.json();
     const sel = document.getElementById("select-track");
-    sel.innerHTML = "<option value=\"\">— choose a file —</option>";
+    sel.innerHTML = "<option value=\"\">— select audio file —</option>";
     data.files.forEach(f => {
       const opt = document.createElement("option");
       opt.value = f.name;
-      opt.textContent = "🎵 " + f.name;
+      opt.textContent = f.name;
       sel.appendChild(opt);
     });
     updateStartButton();
-  } catch (e) {
-    console.error("Error loading input:", e);
-  }
+  } catch (e) { console.error("Error loading input:", e); }
 }
 
-// ── Drag & drop upload ──
+// ── Drag & drop ──
 function setupDragDrop() {
   const zone = document.getElementById("drop-zone");
   const msg = document.getElementById("drop-msg");
@@ -52,31 +50,25 @@ function setupDragDrop() {
   });
 }
 
-// ── Upload single file ──
+// ── Upload ──
 async function uploadFile(file) {
   const msg = document.getElementById("drop-msg");
   msg.textContent = "Uploading " + file.name + "...";
   try {
     const form = new FormData();
     form.append("file", file);
-
     const res = await fetch("/cgi-bin/upload", {
-      method: "POST",
-      body: form
+      method: "POST", body: form
     });
     const data = await res.json();
-    if (data.success) {
-      msg.textContent = "✅ " + data.message;
-    } else {
-      msg.textContent = "❌ " + (data.error || "Upload failed");
-    }
+    msg.textContent = data.success ? "Uploaded: " + file.name : "Upload failed";
   } catch (e) {
-    msg.textContent = "❌ Upload error";
+    msg.textContent = "Upload error";
     console.error(e);
   }
 }
 
-// ── Toggle step options ──
+// ── Toggles ──
 function toggleViperx() {
   document.getElementById("viperx-options").classList.toggle(
     "hidden", !document.getElementById("enable-viperx").checked
@@ -93,21 +85,21 @@ function toggleRubberband() {
   );
 }
 
-// ── Pitch display ──
+// ── Pitch ──
 function updatePitch() {
   const v = document.getElementById("pitch").value;
-  document.getElementById("pitch-val").textContent =
-    (v >= 0 ? "+" : "") + v + " semitones";
+  const sign = v >= 0 ? "+" : "";
+  document.getElementById("pitch-val").textContent = sign + v + " semitones";
 }
 
-// ── Enable START ──
+// ── Start button ──
 function updateStartButton() {
   const sel = document.getElementById("select-track");
   const btn = document.getElementById("btn-start");
   btn.disabled = !sel.value;
 }
 
-// ── Get viperx-keep value ──
+// ── Keep values ──
 function getViperxKeep() {
   const inst = document.getElementById("keep-instrumental").checked;
   const voc = document.getElementById("keep-vocals").checked;
@@ -117,7 +109,6 @@ function getViperxKeep() {
   return "";
 }
 
-// ── Get demucs-keep value ──
 function getDemucsKeep() {
   const stems = [];
   if (document.getElementById("keep-drums").checked) stems.push("drums");
@@ -134,12 +125,11 @@ async function startAll() {
 
   const btn = document.getElementById("btn-start");
   btn.disabled = true;
-  btn.textContent = "⏳";
+  btn.innerHTML = "<span class=\"spinner\"></span>";
 
   const prog = document.getElementById("progress-fill");
   const area = document.getElementById("waveform-area");
 
-  // Show what we"re running
   const steps = [];
   if (document.getElementById("enable-viperx").checked)
     steps.push("Viperx → " + getViperxKeep());
@@ -148,13 +138,14 @@ async function startAll() {
   if (document.getElementById("enable-rubberband").checked)
     steps.push("Rubberband ±" + document.getElementById("pitch").value);
 
-  prog.style.width = "10%";
-  area.innerHTML = "<p class=\"status-msg running\">⏳ " + steps.join(" → ") + "</p>";
+  prog.style.width = "8%";
+  area.innerHTML =
+    "<div class=\"status-msg running\">" +
+    "<span class=\"spinner\"></span> " +
+    steps.join(" → ") + "</div>";
 
-  // Build form
   const form = new URLSearchParams();
   form.append("input_file", input);
-
   if (document.getElementById("enable-viperx").checked) {
     form.append("viperx", "on");
     form.append("viperx_keep", getViperxKeep());
@@ -177,19 +168,22 @@ async function startAll() {
     const data = await res.json();
 
     if (data.success) {
-      area.innerHTML += "<p class=\"status-msg running\" style=\"margin-top:8px\">🔄 Processing... (polling for results)</p>";
-      prog.style.width = "30%";
+      prog.style.width = "20%";
+      area.innerHTML +=
+        "<div class=\"status-msg running\" style=\"margin-top:8px\">" +
+        "<span class=\"spinner\"></span> Processing...</div>";
       startPolling();
     } else {
-      area.innerHTML = "<p class=\"status-msg error\">❌ " +
-        (data.error || "Failed to start") + "</p>";
+      area.innerHTML =
+        "<div class=\"status-msg error\">Failed: " +
+        (data.error || "Unknown") + "</div>";
       prog.style.width = "0%";
-      resetStartButton();
+      resetButton();
     }
   } catch (e) {
-    area.innerHTML = "<p class=\"status-msg error\">❌ Connection error</p>";
+    area.innerHTML = "<div class=\"status-msg error\">Connection error</div>";
     prog.style.width = "0%";
-    resetStartButton();
+    resetButton();
     console.error(e);
   }
 }
@@ -203,32 +197,27 @@ function startPolling() {
     try {
       const res = await fetch("/cgi-bin/output");
       const data = await res.json();
-
       count++;
-      // Animate progress from 30% to 90% while waiting
-      prog.style.width = Math.min(30 + count * 3, 90) + "%";
+      prog.style.width = Math.min(20 + count * 4, 92) + "%";
 
       if (data.files && data.files.length > 0) {
         clearInterval(pollTimer);
         pollTimer = null;
         prog.style.width = "100%";
         showResults(data);
-        resetStartButton();
+        resetButton();
       }
-    } catch (e) {
-      console.error("Poll error:", e);
-    }
-  }, 3000); // poll every 3 seconds
+    } catch (e) { console.error("Poll error:", e); }
+  }, 3000);
 
-  // Stop after 15 minutes
   setTimeout(() => {
     if (pollTimer) {
       clearInterval(pollTimer);
       pollTimer = null;
       document.getElementById("waveform-area").innerHTML +=
-        "<p class=\"status-msg error\">⏰ Timed out waiting for results</p>";
+        "<div class=\"status-msg error\">Timed out</div>";
       prog.style.width = "0%";
-      resetStartButton();
+      resetButton();
     }
   }, 900000);
 }
@@ -237,27 +226,46 @@ function startPolling() {
 function showResults(data) {
   const area = document.getElementById("waveform-area");
 
-  let html = "<div class=\"status-msg done\">✅ Pipeline complete — " +
-    data.files.length + " stem(s) generated:</div>";
+  // Get stem category from filename
+  function stemType(name) {
+    const n = name.toLowerCase();
+    if (n.includes("drum")) return "drums";
+    if (n.includes("bass")) return "bass";
+    if (n.includes("vocal")) return "vocals";
+    if (n.includes("instrumental")) return "instrumental_viperx";
+    if (n.includes("other")) return "other";
+    return "other";
+  }
 
-  data.files.forEach(f => {
+  function stemEmoji(type) {
+    return { drums: "🥁", bass: "🎸", other: "🎹", vocals: "🎤", instrumental_viperx: "🎵", vocals_viperx: "🎤" }[type] || "🎵";
+  }
+
+  let html = "<div class=\"status-msg done\">✓ Pipeline complete — " +
+    data.files.length + " stems</div>";
+
+  // Show only newest files (last 10)
+  const recent = data.files.slice(0, 10);
+  recent.forEach(f => {
+    const type = stemType(f.name);
     const mb = (f.size / (1024 * 1024)).toFixed(1);
-    html += `<div class="queue-item">
-      <span>🎵</span>
-      <span class="name">${f.name}</span>
-      <span style="color:var(--text-dim);font-size:12px">${mb} MB</span>
-      <a href="${f.url}" download style="color:var(--accent-glow);text-decoration:none;font-size:13px">⬇</a>
+    html += `<div class="result-item">
+      <div class="result-icon ${type}">${stemEmoji(type)}</div>
+      <div class="result-info">
+        <div class="result-name">${f.name}</div>
+        <div class="result-meta">${mb} MB · ${type.replace("_", " ")}</div>
+      </div>
+      <a href="${f.url}" download class="result-download">Download</a>
     </div>`;
   });
   area.innerHTML = html;
 }
 
-// ── Reset start button ──
-function resetStartButton() {
+// ── Reset ──
+function resetButton() {
   const btn = document.getElementById("btn-start");
   btn.disabled = false;
-  btn.innerHTML = "▶<br><small>START</small>";
+  btn.innerHTML = "▶<small>Start</small>";
 }
 
-// ── DOM ready ──
 document.addEventListener("DOMContentLoaded", init);
