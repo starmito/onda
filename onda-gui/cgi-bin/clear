@@ -1,0 +1,8 @@
+#!/bin/bash
+# CGI: Clear all files from /input
+echo "Content-Type: application/json"
+echo ""
+
+# Delete all files in /input (not subdirs)
+rm -f /input/* 2>/dev/null
+echo "{\"success\":true,\"message\":\"Input cleared\"}"
