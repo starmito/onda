@@ -1,0 +1,37 @@
+#!/bin/bash
+# CGI: List output stems → JSON (recursive)
+# BusyBox find: no -iname, no -printf
+echo "Content-Type: application/json"
+echo ""
+
+OUTPUT_DIR="/output"
+
+# Collect all audio files
+FILES=$(find "$OUTPUT_DIR" -type f \
+  \( -name "*.wav" -o -name "*.WAV" \
+     -o -name "*.mp3" -o -name "*.MP3" \
+     -o -name "*.flac" -o -name "*.FLAC" \) 2>/dev/null)
+
+# Sort by modification time (newest first) using stat
+SORTED=""
+if [ -n "$FILES" ]; then
+    SORTED=$(echo "$FILES" | while read -r f; do
+        t=$(stat -c "%Y" "$f" 2>/dev/null || echo 0)
+        echo "$t $f"
+    done | sort -rn | head -50)
+fi
+
+echo -n "{\"files\":["
+first=true
+if [ -n "$SORTED" ]; then
+    echo "$SORTED" | while read -r t f; do
+        [ -z "$f" ] && continue
+        name=$(basename "$f")
+        size=$(stat -c "%s" "$f" 2>/dev/null || echo 0)
+        rel="${f#$OUTPUT_DIR/}"
+        $first || echo -n ","
+        echo -n "{\"name\":\"$name\",\"size\":$size,\"url\":\"/output/$rel\"}"
+        first=false
+    done
+fi
+echo "]}"
