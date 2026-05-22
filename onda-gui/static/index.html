@@ -25,9 +25,12 @@
     <div id="drop-zone">
       <div class="drop-message" id="drop-msg">Drop audio files here or click to browse</div>
       <div id="queue-list"></div>
+      <button id="btn-add-more" class="btn-add-more hidden" onclick="event.stopPropagation(); document.getElementById('file-picker').click()">
+        ＋ Add more files
+      </button>
     </div>
     <input type="file" id="file-picker" accept=".wav,.mp3,.flac,.ogg,.aac,.m4a,.aiff" multiple style="display:none" onchange="handleFilePicker(event)">
-    <button id="btn-clear" onclick="clearQueue()" title="Clear all">🗑<small>Clear</small></button>
+    <button id="btn-clear" onclick="clearQueue()" title="Clear input files">🗑<small>Clear</small></button>
   </div>
 
   <!-- Pipeline -->
@@ -77,11 +80,9 @@
         <button class="step-run" onclick="runStep('rubberband')" title="Run only this step">▶</button>
         <span class="step-badge">Step 3</span>
       </div>
-      <div id="rubberband-options" class="step-options hidden">
-        <div class="pipeline-row" style="width:100%">
-          <input type="range" id="pitch" min="-12" max="12" value="0" oninput="updatePitch()">
-          <span id="pitch-val">±0 semitones</span>
-        </div>
+      <div id="rubberband-options" class="step-options">
+        <input type="range" id="pitch" min="-12" max="12" value="0" oninput="updatePitch()">
+        <span id="pitch-val">±0 semitones</span>
       </div>
     </div>
 
