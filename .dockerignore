@@ -1,0 +1,13 @@
+# Onda .dockerignore — exclude host-only files from Docker build
+venv/
+__pycache__/
+*.pyc
+models/
+input/
+output/
+output_*/
+gui_data/
+*.egg-info/
+.git/
+.hermes/
+tmp/
