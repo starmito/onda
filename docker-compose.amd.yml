@@ -1,0 +1,11 @@
+# Onda — AMD ROCm GPU override
+# Usage: docker compose -f docker-compose.yml -f docker-compose.amd.yml up
+
+services:
+  onda:
+    devices:
+      - /dev/kfd:/dev/kfd
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+      - render
