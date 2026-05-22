@@ -1,0 +1,41 @@
+# Onda Docker — Requisitos mínimos para inferencia (sin deps transitivas infladas)
+# torch + torchaudio se instalan aparte con CUDA wheel
+
+# -- Core científico --
+numpy
+scipy
+soundfile
+librosa
+
+# -- PyTorch ecosystem --
+einops
+PyYAML
+psutil
+pydub
+resampy
+
+# -- Demucs --
+demucs
+torchcodec
+diffq
+omegaconf
+pytorch_lightning
+ml_collections
+
+# -- ONNX --
+onnx
+onnxruntime-gpu
+onnx2pytorch
+
+# -- Modelos específicos --
+beartype
+rotary_embedding_torch
+segmentation_models_pytorch
+transformers
+spafe
+audiomentations
+torch_audiomentations
+asteroid
+julius
+samplerate
+Dora
