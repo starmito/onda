@@ -1,13 +1,14 @@
-// Onda GUI v2 — File picker, step runners, pipeline start
+// Onda GUI v3 — Queue with checkboxes, per-song status, step runners
 
 let pollTimer = null;
+let queueFiles = []; // {name, checked, status: 'waiting'|'processing'|'done', progress: 0}
 
 // ── Init ──
 async function init() {
   await loadInputFiles();
   setupDragDrop();
   setupDropZoneClick();
-  updateStartButton();
+  renderQueue();
 }
 
 // ── Load input files ──
@@ -15,16 +16,69 @@ async function loadInputFiles() {
   try {
     const res = await fetch("/cgi-bin/input");
     const data = await res.json();
-    const sel = document.getElementById("select-track");
-    sel.innerHTML = "<option value=\"\">— select audio file —</option>";
-    data.files.forEach(f => {
-      const opt = document.createElement("option");
-      opt.value = f.name;
-      opt.textContent = f.name;
-      sel.appendChild(opt);
-    });
-    updateStartButton();
+    // Merge with existing queue (preserve status)
+    const existing = {};
+    queueFiles.forEach(f => { existing[f.name] = f; });
+    queueFiles = data.files.map(f => ({
+      name: f.name,
+      checked: existing[f.name] ? existing[f.name].checked : false,
+      status: existing[f.name] ? existing[f.name].status : "waiting",
+      progress: existing[f.name] ? existing[f.name].progress : 0
+    }));
+    renderQueue();
   } catch (e) { console.error("Error loading input:", e); }
+}
+
+// ── Render queue ──
+function renderQueue() {
+  const list = document.getElementById("queue-list");
+  const msg = document.getElementById("drop-msg");
+
+  if (queueFiles.length === 0) {
+    msg.style.display = "block";
+    list.innerHTML = "";
+    return;
+  }
+
+  msg.style.display = "none";
+  list.innerHTML = queueFiles.map((f, i) => {
+    const statusText = { waiting: "Waiting", processing: "Processing", done: "Done ✓" };
+    const statusClass = { waiting: "", processing: "running", done: "done" };
+    return '<div class="queue-row">' +
+      '<input type="checkbox" class="queue-check" ' + (f.checked ? "checked" : "") +
+      ' onchange="toggleQueueCheck(' + i + ')" title="Select for processing">' +
+      '<span class="queue-name">' + f.name + '</span>' +
+      '<span class="queue-status ' + (statusClass[f.status] || "") + '">' +
+        (statusText[f.status] || "Waiting") + '</span>' +
+      '<div class="queue-progress"><div class="queue-progress-fill" style="width:' +
+        f.progress + '%"></div></div>' +
+      '<button class="queue-remove" onclick="removeFromQueue(' + i + ')">✕</button>' +
+      '</div>';
+  }).join("");
+}
+
+// ── Toggle queue checkbox ──
+function toggleQueueCheck(i) {
+  queueFiles[i].checked = !queueFiles[i].checked;
+  renderQueue();
+}
+
+// ── Remove from queue ──
+function removeFromQueue(i) {
+  queueFiles.splice(i, 1);
+  renderQueue();
+}
+
+// ── Clear queue ──
+function clearQueue() {
+  queueFiles = [];
+  renderQueue();
+}
+
+// ── Get first checked file name ──
+function getCheckedFile() {
+  const checked = queueFiles.filter(f => f.checked);
+  return checked.length > 0 ? checked[0].name : null;
 }
 
 // ── Drop zone click → file picker ──
@@ -60,31 +114,24 @@ function setupDragDrop() {
     e.preventDefault();
     zone.classList.remove("drag-over");
     const files = e.dataTransfer.files;
+    msg.textContent = "Uploading...";
     for (const file of files) {
       await uploadFile(file);
     }
     await loadInputFiles();
+    msg.textContent = "Drop audio files here or click to browse";
   });
 }
 
-// ── Upload raw POST body + X-Filename header ──
+// ── Upload ──
 async function uploadFile(file) {
-  const msg = document.getElementById("drop-msg");
-  msg.textContent = "Uploading " + file.name + "...";
   try {
-    const res = await fetch("/cgi-bin/upload", {
+    await fetch("/cgi-bin/upload", {
       method: "POST",
       headers: { "X-Filename": file.name },
       body: file
     });
-    const data = await res.json();
-    msg.textContent = data.success
-      ? "Uploaded: " + file.name
-      : "Upload failed: " + (data.error || "unknown");
-  } catch (e) {
-    msg.textContent = "Upload error";
-    console.error(e);
-  }
+  } catch (e) { console.error(e); }
 }
 
 // ── Toggles ──
@@ -111,13 +158,6 @@ function updatePitch() {
   document.getElementById("pitch-val").textContent = sign + v + " semitones";
 }
 
-// ── Start button state ──
-function updateStartButton() {
-  const sel = document.getElementById("select-track");
-  const btn = document.getElementById("btn-start");
-  btn.disabled = !sel.value;
-}
-
 // ── Keep values ──
 function getViperxKeep() {
   const inst = document.getElementById("keep-instrumental").checked;
@@ -137,7 +177,7 @@ function getDemucsKeep() {
   return stems.join(",");
 }
 
-// ── Build form for a given set of steps ──
+// ── Build form ──
 function buildForm(input, viperx, demucs, rubberband) {
   const form = new URLSearchParams();
   form.append("input_file", input);
@@ -156,10 +196,29 @@ function buildForm(input, viperx, demucs, rubberband) {
   return form;
 }
 
+// ── Mark checked files as processing ──
+function markProcessing() {
+  queueFiles.forEach(f => {
+    if (f.checked) { f.status = "processing"; f.progress = 10; }
+  });
+  renderQueue();
+}
+
+// ── Mark checked files as done ──
+function markDone() {
+  queueFiles.forEach(f => {
+    if (f.checked && f.status === "processing") {
+      f.status = "done";
+      f.progress = 100;
+    }
+  });
+  renderQueue();
+}
+
 // ── Run a single step ──
 async function runStep(step) {
-  const input = document.getElementById("select-track").value;
-  if (!input) { alert("Select a track first"); return; }
+  const input = getCheckedFile();
+  if (!input) { alert("Check a song in the queue first"); return; }
 
   const prog = document.getElementById("progress-fill");
   const area = document.getElementById("waveform-area");
@@ -175,6 +234,7 @@ async function runStep(step) {
   if (step === "demucs") label = "HTDemucs → " + getDemucsKeep();
   if (step === "rubberband") label = "Rubberband ±" + document.getElementById("pitch").value;
 
+  markProcessing();
   prog.style.width = "8%";
   area.innerHTML = "<div class=\"status-msg running\"><span class=\"spinner\"></span> " + label + "</div>";
 
@@ -200,18 +260,13 @@ async function runStep(step) {
   }
 }
 
-// ── Start pipeline (all selected steps) ──
+// ── Start pipeline (all selected steps for checked songs) ──
 async function startAll() {
-  const input = document.getElementById("select-track").value;
-  if (!input) { alert("Select a track first"); return; }
+  const input = getCheckedFile();
+  if (!input) { alert("Check a song in the queue first"); return; }
 
   const prog = document.getElementById("progress-fill");
   const area = document.getElementById("waveform-area");
-
-  // Disable start button
-  const btn = document.querySelector(".btn-pipeline-start");
-  btn.disabled = true;
-  btn.innerHTML = "<span class=\"spinner\"></span> Starting...";
 
   const steps = [];
   if (document.getElementById("enable-viperx").checked)
@@ -223,11 +278,14 @@ async function startAll() {
 
   if (steps.length === 0) {
     alert("Enable at least one step");
-    btn.disabled = false;
-    btn.innerHTML = "▶ Start Pipeline";
     return;
   }
 
+  const btn = document.querySelector(".btn-pipeline-start");
+  btn.disabled = true;
+  btn.innerHTML = "<span class=\"spinner\"></span> Starting...";
+
+  markProcessing();
   prog.style.width = "8%";
   area.innerHTML = "<div class=\"status-msg running\"><span class=\"spinner\"></span> " +
     steps.join(" → ") + "</div>";
@@ -281,12 +339,20 @@ function startPolling() {
       const res = await fetch("/cgi-bin/output");
       const data = await res.json();
       count++;
-      prog.style.width = Math.min(20 + count * 4, 92) + "%";
+
+      // Update queue progress
+      const pct = Math.min(20 + count * 4, 92);
+      prog.style.width = pct + "%";
+      queueFiles.forEach(f => {
+        if (f.status === "processing") f.progress = pct;
+      });
+      renderQueue();
 
       if (data.files && data.files.length > 0) {
         clearInterval(pollTimer);
         pollTimer = null;
         prog.style.width = "100%";
+        markDone();
         showResults(data);
         resetPipelineButton();
       }
@@ -351,7 +417,6 @@ async function exportStems() {
       return;
     }
 
-    // Download each stem file
     const recent = data.files.slice(0, 10);
     for (const f of recent) {
       const a = document.createElement("a");
@@ -360,7 +425,6 @@ async function exportStems() {
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      // Small delay between downloads
       await new Promise(r => setTimeout(r, 300));
     }
   } catch (e) {
