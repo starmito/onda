@@ -22,15 +22,17 @@
     <div class="progress-fill" id="progress-fill"></div>
   </div>
 
-  <!-- Queue + Start -->
+  <!-- Queue + File picker -->
   <div id="queue-area">
     <div id="drop-zone">
       <div class="drop-icon">📂</div>
-      <div class="drop-message" id="drop-msg">Drop audio files here</div>
+      <div class="drop-message" id="drop-msg">Drop audio files here or click to browse</div>
       <div id="queue-list"></div>
     </div>
-    <button id="btn-start" onclick="startAll()" disabled>
-      ▶<small>Start</small>
+    <input type="file" id="file-picker" accept=".wav,.mp3,.flac,.ogg,.aac,.m4a,.aiff" multiple
+           style="display:none" onchange="handleFilePicker(event)">
+    <button id="btn-start" onclick="document.getElementById(\"file-picker\").click()">
+      ＋<small>Add</small>
     </button>
   </div>
 
@@ -45,6 +47,7 @@
           <input type="checkbox" id="enable-viperx" checked onchange="toggleViperx()">
           Vocal Separation · Viperx
         </label>
+        <button class="step-run" onclick="runStep(\"viperx\")" title="Run only this step">▶</button>
         <span class="step-badge">Step 1</span>
       </div>
       <div id="viperx-options" class="step-options">
@@ -61,6 +64,7 @@
           <input type="checkbox" id="enable-demucs" checked onchange="toggleDemucs()">
           Stem Separation · HTDemucs
         </label>
+        <button class="step-run" onclick="runStep(\"demucs\")" title="Run only this step">▶</button>
         <span class="step-badge">Step 2</span>
       </div>
       <div id="demucs-options" class="step-options">
@@ -79,6 +83,7 @@
           <input type="checkbox" id="enable-rubberband" onchange="toggleRubberband()">
           Pitch Shift · Rubberband
         </label>
+        <button class="step-run" onclick="runStep(\"rubberband\")" title="Run only this step">▶</button>
         <span class="step-badge">Step 3</span>
       </div>
       <div id="rubberband-options" class="step-options hidden">
@@ -88,6 +93,11 @@
         </div>
       </div>
     </div>
+
+    <!-- START PIPELINE button -->
+    <button class="btn-pipeline-start" onclick="startAll()">
+      ▶ Start Pipeline
+    </button>
 
     <!-- Track + Format row -->
     <div class="bottom-row">
@@ -99,7 +109,7 @@
       <select id="format"><option>WAV</option><option>FLAC</option><option>MP3</option></select>
       <label>Quality</label>
       <select id="quality"><option>16-bit</option><option>24-bit</option><option>32-bit float</option></select>
-      <button id="btn-export" onclick="alert("Export: coming soon")">Export</button>
+      <button id="btn-export" onclick="exportStems()">Export</button>
     </div>
   </div>
 
