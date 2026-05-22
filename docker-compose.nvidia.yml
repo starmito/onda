@@ -1,0 +1,8 @@
+# Onda — NVIDIA GPU override
+# Usage: docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up
+
+services:
+  onda:
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all

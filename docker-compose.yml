@@ -1,33 +1,13 @@
-# Onda docker-compose — backend + GUI
-#
-# Auto-detection: set GPU_TYPE=nvidia|amd or it auto-detects via lspci
-#
-# Usage:
-#   docker compose up -d                    # auto-detect
-#   GPU_TYPE=amd docker compose up -d       # force AMD
-#   ./onda pipeline cancion.mp3             # CLI wrapper (recommended)
-
-x-gpu-config: &gpu-config
-  nvidia:
-    runtime: nvidia
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-  amd:
-    devices:
-      - /dev/kfd:/dev/kfd
-      - /dev/dri:/dev/dri
-    group_add:
-      - video
-      - render
+# Onda — Base compose (sin GPU)
+# Override con docker-compose.nvidia.yml o docker-compose.amd.yml
 
 services:
-  # ── Backend: inferencia con GPU ──
+  # ── Backend: inferencia ──
   onda:
     image: onda:${GPU_TYPE:-nvidia}
     build:
       dockerfile: ${GPU_DOCKERFILE:-Dockerfile}
     container_name: onda
-    <<: *gpu-config
     volumes:
       - ./models:/app/models:ro
       - ./input:/input
