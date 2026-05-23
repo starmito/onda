@@ -526,9 +526,9 @@
       return;
     }
 
-    if (btn.classList.contains("song-play")) { playGroup(btn.dataset.song); return; }
-    if (btn.classList.contains("song-pause")) { pauseGroup(btn.dataset.song); return; }
-    if (btn.classList.contains("song-stop")) { stopGroup(btn.dataset.song); return; }
+    if (btn.classList.contains("song-play")) { activateGroup(btn.dataset.song); playGroup(btn.dataset.song); return; }
+    if (btn.classList.contains("song-pause")) { activateGroup(btn.dataset.song); pauseGroup(btn.dataset.song); return; }
+    if (btn.classList.contains("song-stop")) { activateGroup(btn.dataset.song); stopGroup(btn.dataset.song); return; }
 
     const row = btn.closest(".stem-row");
     const idx = parseInt(btn.dataset.idx);
@@ -579,8 +579,10 @@
 
   // ── Group Activation ──
   function activateGroup(song) {
+    // Already active — do nothing
+    if (state.activeGroup === song) return;
     // Stop previous group
-    if (state.activeGroup && state.activeGroup !== song) {
+    if (state.activeGroup) {
       const prevIsPitch = state.activeGroup.endsWith("_pitch");
       if (prevIsPitch) {
         // Stop pitch audio
@@ -628,7 +630,6 @@
 
   // ── Audio: Per-Group ──
   function playGroup(song) {
-    if (state.activeGroup !== song) activateGroup(song);
     state.audioElements.filter((s) => s.song === song).forEach((s) => {
       if (!(s.audio.paused && s.audio.currentTime > 0)) s.audio.currentTime = 0;
       s.audio.play().catch(() => {});
@@ -636,7 +637,6 @@
   }
 
   function pauseGroup(song) {
-    if (state.activeGroup !== song) activateGroup(song);
     state.audioElements.filter((s) => s.song === song).forEach((s) => s.audio.pause());
   }
 
@@ -650,7 +650,6 @@
   }
 
   function seekGroup(song, time) {
-    if (state.activeGroup !== song) activateGroup(song);
     state.audioElements.filter((s) => s.song === song).forEach((s) => { s.audio.currentTime = time; });
   }
 
@@ -893,7 +892,7 @@
       pSeek.addEventListener("input", () => {
         pSeeking = true;
         const t = parseInt(pSeek.value) / 1000;
-        if (state.activeGroup !== song + "_pitch") activateGroup(song + "_pitch");
+        activateGroup(song + "_pitch");
         pitchAudioElements.forEach(e => { e.audio.currentTime = t; });
         pTime.textContent = fmtTimeSec(t) + " / " + fmtTimeSec((parseInt(pSeek.max) || 1000) / 1000);
       });
