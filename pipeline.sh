@@ -27,6 +27,7 @@ set -euo pipefail
 # ── Progress reporting ──────────────────────────
 START_TIME=$(date +%s)
 STATUS_FILE="/tmp/pipeline_status.json"
+rm -f "$STATUS_FILE"
 CURRENT_STEP=""
 
 report_progress() {
