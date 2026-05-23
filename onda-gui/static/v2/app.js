@@ -609,9 +609,10 @@
             const ctx = s.canvas.getContext("2d");
             const imgData = ctx.getImageData(0, 0, 1, 1);
             if (imgData.data[3] < 10) {
+              const capturedSong = song;
               drawWaveform(s).then(() => {
-                if (s.duration && s.duration > 0) {
-                  initSeekSliderForGroup(song);
+                if (state.activeGroup === capturedSong && s.duration && s.duration > 0) {
+                  initSeekSliderForGroup(capturedSong);
                 }
               });
             }
@@ -641,11 +642,9 @@
             const row = canvas.closest(".stem-row");
             if (row) {
               const audio = row.querySelector("audio");
-              if (audio && audio.src) {
-                const nameEl = row.querySelector(".stem-name");
+              const nameEl = row.querySelector(".stem-name");
                 const sName = nameEl ? nameEl.textContent : "";
                 drawWaveformFromAudio(canvas, audio.src, stemColor(sName));
-              }
             }
           }
         });
