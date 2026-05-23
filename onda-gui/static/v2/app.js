@@ -317,50 +317,24 @@
         };
         state.audioElements.push(entry);
 
-        // Draw waveform async
-        drawWaveform(entry);
+        // Draw waveform async — stores entry.duration, then inits seek slider
+        drawWaveform(entry).then(() => {
+          if (entry.duration && entry.duration > 0) {
+            initSeekSliderForGroup(song);
+          }
+        });
 
-        // Sync seek slider — use waveform duration as primary source
+        // Sync seek slider (timeupdate only, no duration dependency)
         if (globalIdx === state.audioElements.length - stems.length) {
-          // Try audio element first, fall back to waveform duration
-          const tryInitSlider = () => {
-            const dur = audio.duration;
-            if (dur && !isNaN(dur) && dur > 0) {
-              seekSlider.max = Math.floor(dur * 1000);
-              seekTime.textContent = "0:00 / " + fmtTimeSec(dur);
-              return true;
-            }
-            // Fallback: check waveform durations from all stems in group
-            const wfDur = state.audioElements
-              .filter((s) => s.song === song)
-              .reduce((max, s) => Math.max(max, s.duration || 0), 0);
-            if (wfDur > 0) {
-              seekSlider.max = Math.floor(wfDur * 1000);
-              seekTime.textContent = "0:00 / " + fmtTimeSec(wfDur);
-              return true;
-            }
-            return false;
-          };
-
           audio.addEventListener("timeupdate", () => {
             if (isSeeking) return;
-            const dur = audio.duration || entry.duration;
-            if (!dur || isNaN(dur)) return;
+            // Use waveform duration if audio.duration unavailable
+            const dur = audio.duration || entry.duration || state.audioElements.find(s => s.song === song && s.duration)?.duration;
+            if (!dur || isNaN(dur) || dur <= 0) return;
             seekSlider.max = Math.floor(dur * 1000);
             seekSlider.value = Math.floor(audio.currentTime * 1000);
             seekTime.textContent = fmtTimeSec(audio.currentTime) + " / " + fmtTimeSec(dur);
           });
-
-          audio.addEventListener("loadedmetadata", tryInitSlider);
-          audio.addEventListener("durationchange", tryInitSlider);
-
-          if (!tryInitSlider()) {
-            // Retry when waveform loads (every 500ms, up to 10s)
-            let retries = 0;
-            const retry = setInterval(() => {
-              if (tryInitSlider() || ++retries > 20) clearInterval(retry);
-            }, 500);
-          }
         }
 
         globalIdx++;
@@ -451,21 +425,23 @@
     if (btn.classList.contains("song-pause")) { pauseGroup(btn.dataset.song); return; }
     if (btn.classList.contains("song-stop")) { stopGroup(btn.dataset.song); return; }
 
+    const row = btn.closest(".stem-row");
     const idx = parseInt(btn.dataset.idx);
-    if (isNaN(idx)) return;
+    if (isNaN(idx) || !row) return;
 
     if (btn.classList.contains("mute")) {
       toggleMute(idx);
-      // Update button directly from DOM (no index mismatch)
-      btn.classList.toggle("active", state.audioElements[idx]?.muted);
+      row.querySelector(".mute").classList.toggle("active", state.audioElements[idx]?.muted);
     } else if (btn.classList.contains("solo")) {
       toggleSolo(idx);
-      // Update all solo buttons via DOM
-      $$("#results-content .stem-row").forEach((row, i) => {
+      // Update ALL rows directly from DOM
+      $$("#results-content .stem-row").forEach((r, i) => {
         const s = state.audioElements[i];
         if (!s) return;
-        row.querySelector(".solo").classList.toggle("active", s.solo);
-        row.querySelector(".mute").classList.toggle("active", s.muted);
+        const muteBtn = r.querySelector(".mute");
+        const soloBtn = r.querySelector(".solo");
+        if (muteBtn) muteBtn.classList.toggle("active", s.muted);
+        if (soloBtn) soloBtn.classList.toggle("active", s.solo);
       });
     } else if (btn.classList.contains("stem-delete")) {
       deleteStem(idx, btn.dataset.file);
@@ -580,6 +556,23 @@
   function fmtTimeSec(s) {
     const m = Math.floor(s / 60), sec = Math.floor(s % 60);
     return m + ":" + (sec < 10 ? "0" : "") + sec;
+  }
+
+  // Called after waveform loads with real duration
+  function initSeekSliderForGroup(song) {
+    const wfDur = state.audioElements
+      .filter((s) => s.song === song)
+      .reduce((max, s) => Math.max(max, s.duration || 0), 0);
+    if (wfDur <= 0) return;
+    // Find the seek slider for this song group
+    const group = document.querySelector('.song-group[data-song="' + CSS.escape(song) + '"]');
+    if (!group) return;
+    const slider = group.querySelector(".seek-slider");
+    const time = group.querySelector(".seek-time");
+    if (slider && time) {
+      slider.max = Math.floor(wfDur * 1000);
+      time.textContent = "0:00 / " + fmtTimeSec(wfDur);
+    }
   }
 
   // ── Globals ──
