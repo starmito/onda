@@ -307,12 +307,8 @@
         };
         state.audioElements.push(entry);
 
-        // Draw waveform async — stores entry.duration, then inits seek slider
-        drawWaveform(entry).then(() => {
-          if (entry.duration && entry.duration > 0) {
-            initSeekSliderForGroup(song);
-          }
-        });
+        // Defer waveform to avoid HTTP competition with <audio> loading
+        // Will be drawn when group is activated (see activateGroup)
 
         // Sync seek slider — attach to first stem of this group
         if (isFirstStemInGroup) {
@@ -397,7 +393,7 @@
       // Click group area to activate for playback
       group.addEventListener("click", function (e) {
         if (e.target.closest("button, input, a, .seek-slider, .stem-vol-slider")) return;
-        activateGroup(song + "_pitch");
+        activateGroup(song);
       });
 
       // Click pitch area to activate pitch group
@@ -594,9 +590,27 @@
     }
     state.activeGroup = song;
 
-    // Highlight main groups
+    // Highlight main groups + draw waveforms on activation
     $$(".song-group").forEach(g => {
-      g.classList.toggle("active", g.dataset.song === song);
+      const isActive = g.dataset.song === song;
+      g.classList.toggle("active", isActive);
+      // Draw waveforms for main group when activated
+      if (isActive && !song.endsWith("_pitch")) {
+        const stems = state.audioElements.filter(s => s.song === song);
+        stems.forEach(s => {
+          if (s.canvas) {
+            const ctx = s.canvas.getContext("2d");
+            const imgData = ctx.getImageData(0, 0, 1, 1);
+            if (imgData.data[3] < 10) {
+              drawWaveform(s).then(() => {
+                if (s.duration && s.duration > 0) {
+                  initSeekSliderForGroup(song);
+                }
+              });
+            }
+          }
+        });
+      }
     });
     // Highlight pitch groups
     $$(".pitch-results").forEach(g => {
