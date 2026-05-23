@@ -304,14 +304,16 @@ class OndaAPI(BaseHTTPRequestHandler):
         if not file_param:
             return {"peaks": [], "error": "Missing file param"}
 
-        # Resolve path — handle both relative (/output/...) and absolute URLs
+        # Resolve path — handle relative, absolute, and URLs with query params
+        from urllib.parse import urlparse, unquote
         if "://" in file_param:
-            # Full URL like http://host:port/output/Song/stem.wav
-            from urllib.parse import urlparse, unquote
+            # Full URL: http://host:port/output/Song/stem.wav?cb=...
             file_param = unquote(urlparse(file_param).path)
+        elif file_param.startswith("/"):
+            # Relative URL: /output/Song/stem.wav?cb=...
+            file_param = unquote(urlparse("http://x" + file_param).path)
         else:
-            from urllib.parse import unquote
-            file_param = unquote(file_param)
+            file_param = unquote(file_param.split("?")[0])
         if "/output/" in file_param:
             rel = file_param[file_param.index("/output/") + len("/output/"):]
         elif file_param.startswith("output/"):
