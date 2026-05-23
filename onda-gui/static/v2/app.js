@@ -286,6 +286,7 @@
 
       const seekSlider = seekRow.querySelector(".seek-slider");
       const seekTime = seekRow.querySelector(".seek-time");
+      let isSeeking = false;
 
       stems.forEach((f) => {
         const row = document.createElement("div");
@@ -319,29 +320,46 @@
         // Draw waveform async
         drawWaveform(entry);
 
-        // Sync seek slider with first audio's timeupdate
+        // Sync seek slider with first audio
         if (globalIdx === state.audioElements.length - stems.length) {
-          // This is the first stem in the group — bind seek slider
           audio.addEventListener("timeupdate", () => {
-            const dur = audio.duration || 1;
+            if (isSeeking) return;
+            const dur = audio.duration;
+            if (!dur || isNaN(dur)) return;
             seekSlider.max = Math.floor(dur * 1000);
             seekSlider.value = Math.floor(audio.currentTime * 1000);
             seekTime.textContent = fmtTimeSec(audio.currentTime) + " / " + fmtTimeSec(dur);
           });
-          audio.addEventListener("loadedmetadata", () => {
-            seekSlider.max = Math.floor(audio.duration * 1000);
-            seekTime.textContent = "0:00 / " + fmtTimeSec(audio.duration);
-          });
+
+          const initSlider = () => {
+            const dur = audio.duration;
+            if (dur && !isNaN(dur) && dur > 0) {
+              seekSlider.max = Math.floor(dur * 1000);
+              seekTime.textContent = "0:00 / " + fmtTimeSec(dur);
+            }
+          };
+          audio.addEventListener("loadedmetadata", initSlider);
+          audio.addEventListener("durationchange", initSlider);
+          // Fallback: force load if metadata not available
+          if (!audio.duration || isNaN(audio.duration)) {
+            audio.load();
+          } else {
+            initSlider();
+          }
         }
 
         globalIdx++;
       });
 
-      // Seek slider input
+      // Seek slider: input = seeking, change = done seeking
       seekSlider.addEventListener("input", () => {
+        isSeeking = true;
         const t = parseInt(seekSlider.value) / 1000;
         seekGroup(song, t);
         seekTime.textContent = fmtTimeSec(t) + " / " + fmtTimeSec((parseInt(seekSlider.max) || 1000) / 1000);
+      });
+      seekSlider.addEventListener("change", () => {
+        isSeeking = false;
       });
 
       container.appendChild(group);
