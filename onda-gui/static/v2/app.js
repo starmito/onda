@@ -321,6 +321,7 @@
           muted: false, solo: false, url: f.url, vol: 100,
           canvas: row.querySelector(".waveform-canvas"),
         };
+        if (entry.canvas) entry.canvas.dataset.wfState = "";
         state.audioElements.push(entry);
 
         // Defer waveform to avoid HTTP competition with <audio> loading
@@ -429,6 +430,10 @@
   // ── Waveform from URL (for deferred pitch drawing) ──
   async function drawWaveformFromAudio(canvas, url, color) {
     if (!canvas || !url) return;
+    // Skip if already loaded or currently loading
+    if (canvas.dataset.wfState === "loaded" || canvas.dataset.wfState === "loading") return;
+    canvas.dataset.wfState = "loading";
+
     const ctx = canvas.getContext("2d");
     const w = canvas.width, h = canvas.height;
     const fillColor = color || "#8b5cf6";
@@ -461,9 +466,11 @@
         ctx.fillRect(i, mid - barH, 1, barH * 2);
       }
       ctx.globalAlpha = 1;
+      canvas.dataset.wfState = "loaded";
     } catch (e) {
       ctx.fillStyle = "rgba(255,255,255,0.05)";
       ctx.fillRect(0, 0, w, h);
+      canvas.dataset.wfState = "error";
     }
   }
 
@@ -504,6 +511,7 @@
         ctx.fillRect(i, mid - barH, 1, barH * 2);
       }
       ctx.globalAlpha = 1;
+      canvas.dataset.wfState = "loaded";
 
       // Get duration from the audio element for seek slider
       if (entry.audio) {
@@ -523,9 +531,10 @@
           });
         }
       }
-    } catch (e) {
+        } catch (e) {
       ctx.fillStyle = "rgba(255,255,255,0.05)";
       ctx.fillRect(0, 0, w, h);
+      canvas.dataset.wfState = "error";
     }
   }
 
@@ -628,17 +637,14 @@
       if (isActive && !song.endsWith("_pitch")) {
         const stems = state.audioElements.filter(s => s.song === song);
         stems.forEach(s => {
-          if (s.canvas) {
-            const ctx = s.canvas.getContext("2d");
-            const imgData = ctx.getImageData(0, 0, 1, 1);
-            if (imgData.data[3] < 10) {
-              const capturedSong = song;
-              drawWaveform(s).then(() => {
-                if (state.activeGroup === capturedSong && s.duration && s.duration > 0) {
-                  initSeekSliderForGroup(capturedSong);
-                }
-              });
-            }
+          if (s.canvas && s.canvas.dataset.wfState !== "loaded" && s.canvas.dataset.wfState !== "loading") {
+            const capturedSong = song;
+            s.canvas.dataset.wfState = "loading";
+            drawWaveform(s).then(() => {
+              if (state.activeGroup === capturedSong && s.duration && s.duration > 0) {
+                initSeekSliderForGroup(capturedSong);
+              }
+            });
           }
         });
       }
@@ -651,22 +657,21 @@
       g.classList.toggle("active", g.dataset.song === song);
     });
 
-    // Restore audio src + draw waveforms for pitch group when activated
+    // Draw waveforms for pitch group when activated
     if (song.endsWith("_pitch")) {
       const pitchDiv = document.querySelector('.pitch-results[data-song="' + CSS.escape(song) + '"]');
       if (pitchDiv) {
         pitchDiv.querySelectorAll("canvas.waveform-canvas").forEach(canvas => {
-          // Only draw if still has placeholder
-          const ctx = canvas.getContext("2d");
-          const imgData = ctx.getImageData(0, 0, 1, 1);
-          if (imgData.data[3] < 10) {
-            // Find the audio element sibling and draw its waveform
+          // Try drawing waveform — drawWaveformFromAudio handles dedup via dataset.wfState
+          if (canvas.dataset.wfState !== "loaded" && canvas.dataset.wfState !== "loading") {
             const row = canvas.closest(".stem-row");
             if (row) {
               const audio = row.querySelector("audio");
               const nameEl = row.querySelector(".stem-name");
-                const sName = nameEl ? nameEl.textContent : "";
+              const sName = nameEl ? nameEl.textContent : "";
+              if (audio && audio.src) {
                 drawWaveformFromAudio(canvas, audio.src, stemColor(sName));
+              }
             }
           }
         });
@@ -940,6 +945,7 @@
         });
 
         // Placeholder waveform — no fetch to avoid competing with <audio> loading
+        entry.canvas.dataset.wfState = "";
         const pctx = entry.canvas.getContext("2d");
         pctx.fillStyle = "rgba(255,255,255,0.03)";
         pctx.fillRect(0, 0, entry.canvas.width, entry.canvas.height);
@@ -1020,11 +1026,19 @@
 
       // Delete all pitch-shifted stems
       header.querySelector(".pitch-delete").addEventListener("click", async () => {
+        // Abort all audio connections before DOM removal
+        pitchDiv.querySelectorAll("audio").forEach(a => {
+          a.pause();
+          a.src = "";
+          a.load();
+        });
         for (const e of pitchAudioElements) {
           try { await fetch("/api/delete?file=" + encodeURIComponent(e.url)); } catch (_) {}
         }
         pitchDiv.innerHTML = "";
         pitchDiv.style.display = "none";
+        // Reset active group if it was this pitch
+        if (state.activeGroup === song + "_pitch") state.activeGroup = null;
         toast("Pitch group deleted", "success");
       });
 

@@ -5,6 +5,16 @@ Todas las modificaciones notables de este proyecto se documentan en este archivo
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [1.3.12-alpha] - 2025-05-23
+
+### Corregido
+- Conexiones HTTP residuales al borrar grupo pitch: ahora se abortan los audios
+  (src="" + load()) antes de eliminar el DOM, evitando saturar el límite de 6
+  conexiones del navegador
+- Waveform del pitch no se generaba: el check de alpha no permitía reintentos
+  tras un fallo. Reemplazado por sistema de flags (dataset.wfState) que permite
+  distinguir entre "sin cargar", "cargando", "cargado" y "error"
+
 ## [1.3.11-alpha] - 2025-05-23
 
 ### Corregido
