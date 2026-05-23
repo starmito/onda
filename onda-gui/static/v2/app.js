@@ -733,8 +733,10 @@
         };
         pitchAudioElements.push(entry);
 
-        // Waveform
-        drawWaveform(entry);
+        // Placeholder waveform — no fetch to avoid competing with <audio> loading
+        const pctx = entry.canvas.getContext("2d");
+        pctx.fillStyle = "rgba(255,255,255,0.03)";
+        pctx.fillRect(0, 0, entry.canvas.width, entry.canvas.height);
 
         // Timeupdate on first
         if (i === 0) {
