@@ -5,6 +5,13 @@ Todas las modificaciones notables de este proyecto se documentan en este archivo
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [1.3.11-alpha] - 2025-05-23
+
+### Corregido
+- Audio del pitch reproducía archivos antiguos tras reprocesar: caché HTTP del
+  navegador (max-age=3600 en nginx) servía el archivo viejo al tener la misma URL.
+  Fix: cache-busting con `?cb=timestamp` en todas las URLs de audio y descargas.
+
 ## [1.3.10-alpha] - 2025-05-23
 
 ### Añadido
