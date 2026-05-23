@@ -387,22 +387,28 @@
         }
       });
 
-      // ── Pitch-shifted results area (indented) ──
+      // ── Pitch-shifted results area (SIBLING, not child) ──
       const pitchResults = document.createElement("div");
       pitchResults.className = "pitch-results";
-      pitchResults.dataset.song = song;
+      pitchResults.dataset.song = song + "_pitch";
       pitchResults.style.display = "none";
       pitchResults.style.marginTop = "16px";
-      group.appendChild(pitchResults);
 
       // Click group area to activate for playback
       group.addEventListener("click", function (e) {
-        // Don't activate if clicking a button or input
         if (e.target.closest("button, input, a, .seek-slider, .stem-vol-slider")) return;
-        activateGroup(song);
+        activateGroup(song + "_pitch");
+      });
+
+      // Click pitch area to activate pitch group
+      pitchResults.addEventListener("click", function (e) {
+        if (e.target.closest("button, input, a, .seek-slider, .stem-vol-slider")) return;
+        e.stopPropagation();
+        activateGroup(song + "_pitch");
       });
 
       container.appendChild(group);
+      container.appendChild(pitchResults);
     });
 
     updateAllStemButtons();
@@ -538,15 +544,22 @@
   function activateGroup(song) {
     // Stop previous group
     if (state.activeGroup && state.activeGroup !== song) {
-      stopGroup(state.activeGroup);
+      const prevIsPitch = state.activeGroup.endsWith("_pitch");
+      if (prevIsPitch) {
+        // Stop pitch audio
+        const prevDiv = document.querySelector('.pitch-results[data-song="' + CSS.escape(state.activeGroup) + '"]');
+        if (prevDiv) prevDiv.querySelectorAll("audio").forEach(a => { a.pause(); a.currentTime = 0; });
+      } else {
+        stopGroup(state.activeGroup);
+      }
     }
     state.activeGroup = song;
 
-    // Highlight active group
+    // Highlight main groups
     $$(".song-group").forEach(g => {
       g.classList.toggle("active", g.dataset.song === song);
     });
-    // Also highlight pitch results
+    // Highlight pitch groups
     $$(".pitch-results").forEach(g => {
       g.classList.toggle("active", g.dataset.song === song);
     });
@@ -701,7 +714,7 @@
       }
 
       // Render pitch-shifted results in the indented area
-      const pitchDiv = document.querySelector('.pitch-results[data-song="' + CSS.escape(song) + '"]');
+      const pitchDiv = document.querySelector('.pitch-results[data-song="' + CSS.escape(song + '_pitch') + '"]');
       if (!pitchDiv) return;
 
       pitchDiv.style.display = "";
@@ -819,7 +832,7 @@
       pSeek.addEventListener("input", () => {
         pSeeking = true;
         const t = parseInt(pSeek.value) / 1000;
-        if (state.activeGroup === song) pitchAudioElements.forEach(e => { e.audio.currentTime = t; });
+        if (state.activeGroup === song + "_pitch") pitchAudioElements.forEach(e => { e.audio.currentTime = t; });
         pTime.textContent = fmtTimeSec(t) + " / " + fmtTimeSec((parseInt(pSeek.max) || 1000) / 1000);
       });
       pSeek.addEventListener("change", () => { pSeeking = false; });
@@ -827,14 +840,14 @@
       // Play/Pause/Stop buttons
       header.querySelector(".pitch-play").addEventListener("click", () => {
         // Activate the original group too
-        activateGroup(song);
+        activateGroup(song + "_pitch");
         pitchAudioElements.forEach(e => e.audio.play().catch(()=>{}));
       });
       header.querySelector(".pitch-pause").addEventListener("click", () => {
-        if (state.activeGroup === song) pitchAudioElements.forEach(e => e.audio.pause());
+        if (state.activeGroup === song + "_pitch") pitchAudioElements.forEach(e => e.audio.pause());
       });
       header.querySelector(".pitch-stop").addEventListener("click", () => {
-        if (state.activeGroup === song) pitchAudioElements.forEach(e => { e.audio.pause(); e.audio.currentTime = 0; });
+        if (state.activeGroup === song + "_pitch") pitchAudioElements.forEach(e => { e.audio.pause(); e.audio.currentTime = 0; });
       });
 
       // Export all pitch-shifted stems
