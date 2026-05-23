@@ -1083,15 +1083,15 @@
         const suffix = pitchMatch ? ' (' + pitchMatch[1] + ')' : '';
         const displayName = baseName + ' - ' + song + suffix;
         row.innerHTML =
-          '<button class="mute" data-idx="' + i + '">M</button>' +
-          '<button class="solo" data-idx="' + i + '">S</button>' +
+          '<button class="mute" data-idx="' + (state.stems.length + i) + '">M</button>' +
+          '<button class="solo" data-idx="' + (state.stems.length + i) + '">S</button>' +
           '<span class="stem-emoji">' + emoji + '</span>' +
           '<span class="stem-name">' + esc(displayName) + '</span>' +
           '<canvas class="waveform-canvas" width="200" height="32"></canvas>' +
-          '<input type="range" min="0" max="100" value="100" data-idx="' + i + '" class="stem-vol-slider">' +
+          '<input type="range" min="0" max="100" value="100" data-idx="' + (state.stems.length + i) + '" class="stem-vol-slider">' +
           '<span class="stem-vol">100%</span>' +
           '<a class="stem-dl" href="' + f.url + '?cb=' + Date.now() + '" download>⬇</a>' +
-          '<button class="stem-delete" data-file="' + escAttr(f.url) + '" title="Delete">✕</button>';
+          '<button class="stem-delete" data-idx="' + (state.stems.length + i) + '" data-file="' + escAttr(f.url) + '" title="Delete">✕</button>';
 
         pitchDiv.appendChild(row);
 
