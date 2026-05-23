@@ -30,8 +30,9 @@ body {
 }
 
 #app {
-  max-width: 720px;
-  margin: 0 auto;
+  max-width: 1160px;
+  margin: 0 40px 0 220px;
+  width: auto;
   padding: 20px 16px 60px;
 }
 
@@ -194,6 +195,116 @@ select {
   min-width: 32px;
 }
 
+/* ── Pitch controls in Results ── */
+.pitch-controls {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: var(--surface2);
+  border-radius: var(--radius);
+  font-size: 12px;
+}
+.pitch-label {
+  color: var(--dim);
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-right: 16px;
+}
+.pitch-slider {
+  flex: 1;
+  max-width: 500px;
+  height: 8px;
+  accent-color: var(--accent);
+  margin-right: 16px;
+}
+.pitch-val {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  min-width: 55px;
+  text-align: center;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 2px 6px;
+  cursor: text;
+  font-family: inherit;
+  transition: border-color 0.15s;
+  margin-right: 12px;
+}
+.pitch-val:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: var(--surface);
+}
+.pitch-apply {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  padding: 6px 18px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.pitch-apply:hover { background: #8b5cf6; }
+.pitch-status {
+  font-size: 11px;
+  color: var(--dim);
+  margin-left: 10px;
+  min-width: 60px;
+}
+
+/* ── Pitch results (indented) ── */
+.pitch-results {
+  margin-left: 20px;
+  margin-top: 18px;
+  padding: 12px;
+  border-left: 2px solid var(--accent);
+  background: rgba(124,58,237,0.04);
+  border-radius: 0 var(--radius) var(--radius) 0;
+}
+.pitch-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent);
+}
+.pitch-header .btn-sm {
+  font-size: 11px;
+  padding: 2px 8px;
+}
+.pitch-header .pitch-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+}
+.pitch-stem {
+  opacity: 0.9;
+}
+.pitch-results .seek-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+.pitch-results .seek-slider {
+  flex: 1;
+  accent-color: var(--accent);
+  height: 4px;
+  cursor: pointer;
+}
+
 /* ── Queue ── */
 #queue-list { margin-bottom: 8px; }
 .queue-row {
@@ -314,7 +425,8 @@ select {
   font-size: 13px;
 }
 .stem-row .mute,
-.stem-row .solo {
+.stem-row .solo,
+.stem-row .tone-btn {
   background: var(--surface2);
   color: var(--dim);
   border: 1px solid var(--border);
@@ -324,9 +436,14 @@ select {
   font-weight: 700;
   cursor: pointer;
   transition: all 0.15s;
+  font-family: inherit;
+  min-width: 28px;
 }
 .stem-row .mute.active { background: var(--red); color: #fff; border-color: var(--red); }
 .stem-row .solo.active { background: var(--amber); color: #000; border-color: var(--amber); }
+.stem-row .tone-btn.active { background: var(--green); color: #000; border-color: var(--green); }
+.stem-row .tone-btn:hover { border-color: var(--green); color: var(--green); }
+.stem-row .tone-btn.active:hover { color: #000; }
 .stem-emoji { font-size: 14px; width: 22px; text-align: center; flex-shrink: 0; }
 .stem-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .stem-row input[type="range"] { width: 70px; accent-color: var(--accent); flex-shrink: 0; }

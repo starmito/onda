@@ -623,14 +623,12 @@
 
     // Get pitch value from slider
     const slider = document.querySelector('.pitch-slider[data-song="' + CSS.escape(song) + '"]');
-    // Read pitch from either slider or input
+    // Read pitch from slider (authoritative), fallback to input
+    let pitch = slider ? parseInt(slider.value) : 0;
     const valInput = document.querySelector('.pitch-val[data-song="' + CSS.escape(song) + '"]');
-    let pitch = 0;
-    if (valInput) {
+    if (valInput && valInput.value) {
       const m = valInput.value.match(/[+-]?\d+/);
-      pitch = m ? parseInt(m[0]) : 0;
-    } else if (slider) {
-      pitch = parseInt(slider.value);
+      if (m) pitch = parseInt(m[0]);
     }
 
     // Collect checked tone stems
@@ -678,16 +676,16 @@
       // Make a mini-player for pitch-shifted group
       const pitchAudioElements = [];
       const header = document.createElement("div");
-      header.className = "pitch-header";
+      header.className = "song-title";  // Match main group style
       header.innerHTML =
         '<span>↕ ' + esc(song) + ' (' + (pitch >= 0 ? "+" : "") + pitch + ')</span>' +
+        '<div class="song-actions">' +
         '<button class="btn-sm pitch-play">▶ Play</button>' +
         '<button class="btn-sm pitch-pause">⏸ Pause</button>' +
         '<button class="btn-sm pitch-stop">⏹ Stop</button>' +
-        '<span class="pitch-actions">' +
         '<button class="btn-sm pitch-export">⬇ Export</button>' +
         '<button class="btn-sm btn-danger pitch-delete">🗑 Delete</button>' +
-        '</span>';
+        '</div>';
       pitchDiv.appendChild(header);
 
       // Seek slider for pitch group
