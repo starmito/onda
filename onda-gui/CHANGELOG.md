@@ -5,6 +5,17 @@ Todas las modificaciones notables de este proyecto se documentan en este archivo
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [1.3.10-alpha] - 2025-05-23
+
+### Añadido
+- Caché de peaks (.peaks.json junto al WAV) — 2ª carga instantánea
+- Posición de reproducción se mantiene al cambiar de grupo
+- Seek slider se sincroniza al activar un grupo
+
+### Corregido
+- Waveform del grupo pitch no se generaba (URL absoluta vs relativa en /api/peaks)
+- Reproducción volvía a 0:00 al cambiar de grupo
+
 ## [1.3.9-alpha] - 2025-05-23
 
 ### Añadido
