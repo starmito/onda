@@ -8,6 +8,7 @@
     queue: [],
     audioElements: [],
     currentJob: null,
+    activeGroup: null,  // which song group is active for playback
   };
 
   const $ = (s) => document.querySelector(s);
@@ -394,6 +395,13 @@
       pitchResults.style.marginTop = "16px";
       group.appendChild(pitchResults);
 
+      // Click group area to activate for playback
+      group.addEventListener("click", function (e) {
+        // Don't activate if clicking a button or input
+        if (e.target.closest("button, input, a, .seek-slider, .stem-vol-slider")) return;
+        activateGroup(song);
+      });
+
       container.appendChild(group);
     });
 
@@ -526,8 +534,27 @@
     toast("Results cleared", "success");
   }
 
+  // ── Group Activation ──
+  function activateGroup(song) {
+    // Stop previous group
+    if (state.activeGroup && state.activeGroup !== song) {
+      stopGroup(state.activeGroup);
+    }
+    state.activeGroup = song;
+
+    // Highlight active group
+    $$(".song-group").forEach(g => {
+      g.classList.toggle("active", g.dataset.song === song);
+    });
+    // Also highlight pitch results
+    $$(".pitch-results").forEach(g => {
+      g.classList.toggle("active", g.dataset.song === song);
+    });
+  }
+
   // ── Audio: Per-Group ──
   function playGroup(song) {
+    if (state.activeGroup !== song) return;
     state.audioElements.filter((s) => s.song === song).forEach((s) => {
       if (!(s.audio.paused && s.audio.currentTime > 0)) s.audio.currentTime = 0;
       s.audio.play().catch(() => {});
@@ -535,14 +562,21 @@
   }
 
   function pauseGroup(song) {
+    if (state.activeGroup !== song) return;
     state.audioElements.filter((s) => s.song === song).forEach((s) => s.audio.pause());
   }
 
   function stopGroup(song) {
     state.audioElements.filter((s) => s.song === song).forEach((s) => { s.audio.pause(); s.audio.currentTime = 0; });
+    // Also stop pitch group with same song
+    const pitchDiv = document.querySelector('.pitch-results[data-song="' + CSS.escape(song) + '"]');
+    if (pitchDiv) {
+      pitchDiv.querySelectorAll("audio").forEach(a => { a.pause(); a.currentTime = 0; });
+    }
   }
 
   function seekGroup(song, time) {
+    if (state.activeGroup !== song) return;
     state.audioElements.filter((s) => s.song === song).forEach((s) => { s.audio.currentTime = time; });
   }
 
@@ -785,20 +819,22 @@
       pSeek.addEventListener("input", () => {
         pSeeking = true;
         const t = parseInt(pSeek.value) / 1000;
-        pitchAudioElements.forEach(e => { e.audio.currentTime = t; });
+        if (state.activeGroup === song) pitchAudioElements.forEach(e => { e.audio.currentTime = t; });
         pTime.textContent = fmtTimeSec(t) + " / " + fmtTimeSec((parseInt(pSeek.max) || 1000) / 1000);
       });
       pSeek.addEventListener("change", () => { pSeeking = false; });
 
       // Play/Pause/Stop buttons
       header.querySelector(".pitch-play").addEventListener("click", () => {
+        // Activate the original group too
+        activateGroup(song);
         pitchAudioElements.forEach(e => e.audio.play().catch(()=>{}));
       });
       header.querySelector(".pitch-pause").addEventListener("click", () => {
-        pitchAudioElements.forEach(e => e.audio.pause());
+        if (state.activeGroup === song) pitchAudioElements.forEach(e => e.audio.pause());
       });
       header.querySelector(".pitch-stop").addEventListener("click", () => {
-        pitchAudioElements.forEach(e => { e.audio.pause(); e.audio.currentTime = 0; });
+        if (state.activeGroup === song) pitchAudioElements.forEach(e => { e.audio.pause(); e.audio.currentTime = 0; });
       });
 
       // Export all pitch-shifted stems
