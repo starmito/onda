@@ -413,14 +413,12 @@
           '<input type="range" min="0" max="100" value="100" data-idx="' + idx + '" class="stem-vol-slider">' +
           '<span class="stem-vol">100%</span>' +
           '<a class="stem-dl" href="' + f.url + '?cb=' + Date.now() + '" download title="Download">⬇</a>' +
-          '<button class="stem-delete" data-idx="' + idx + '" data-file="' + escAttr(f.url) + '" title="Delete">✕</button>' +
-          '<audio id="audio-' + idx + '" preload="auto" src="' + f.url + '?cb=' + Date.now() + '" crossorigin="anonymous"></audio>';
+          '<button class="stem-delete" data-idx="' + idx + '" data-file="' + escAttr(f.url) + '" title="Delete">✕</button>';
 
         group.appendChild(row);
 
-        // audio elements removed — Web Audio API handles playback
         const entry = {
-          name: f.name, song: song, audio: audio,
+          name: f.name, song: song,
           muted: false, solo: false, url: f.url, vol: 100,
           canvas: row.querySelector(".waveform-canvas"),
         };
@@ -764,8 +762,7 @@
           if (canvas.dataset.wfState !== "loaded" && canvas.dataset.wfState !== "loading") {
             const row = canvas.closest(".stem-row");
             if (row) {
-              // audio elements removed — Web Audio API handles playback
-              const nameEl = row.querySelector(".stem-name");
+                    const nameEl = row.querySelector(".stem-name");
               const sName = nameEl ? nameEl.textContent : "";
               if (true) {
                 // Get URL from stem entry for waveform
@@ -787,6 +784,7 @@
     // Ensure group is active
     if (state.activeGroup !== song) activateGroup(song);
 
+    stopGroupSources(song);
     const offset = getGroupOffset(song);
     const { startTime, totalDuration } = createAndStartSources(song, offset);
     if (state.stems.filter(s => s.song === song && s.buffer).length === 0) {
@@ -1084,14 +1082,12 @@
           '<input type="range" min="0" max="100" value="100" data-pitch-idx="' + i + '" class="stem-vol-slider">' +
           '<span class="stem-vol">100%</span>' +
           '<a class="stem-dl" href="' + f.url + '?cb=' + Date.now() + '" download>⬇</a>' +
-          '<button class="stem-delete" data-file="' + escAttr(f.url) + '" title="Delete">✕</button>' +
-          '<audio preload="none" src="' + f.url + '?cb=' + Date.now() + '" crossorigin="anonymous"></audio>';
+          '<button class="stem-delete" data-file="' + escAttr(f.url) + '" title="Delete">✕</button>';
 
         pitchDiv.appendChild(row);
 
-        // audio elements removed — Web Audio API handles playback
         const entry = {
-          name: f.name, song: song + "_pitch", audio: audio,
+          name: f.name, song: song + "_pitch",
           muted: false, solo: false, url: f.url, vol: 100,
           canvas: row.querySelector(".waveform-canvas"), duration: 0,
         };
