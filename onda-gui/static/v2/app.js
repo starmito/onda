@@ -357,7 +357,6 @@
       groups[song].push(f);
     });
 
-    state.audioElements = [];
     state.stems = [];
     state.groupOffsets = {};
     stopSeekSliderLoop();
@@ -422,7 +421,7 @@
           canvas: row.querySelector(".waveform-canvas"),
         };
         if (entry.canvas) entry.canvas.dataset.wfState = "";
-        state.audioElements.push(entry);
+        // (entry tracked in state.stems below)
         // Also track in Web Audio stems array
         state.stems.push({
           name: entry.name, song: entry.song, url: entry.url,
@@ -628,7 +627,6 @@
 
   function hideResults() {
     $("#results-panel").style.display = "none"; $("#results-empty").style.display = "";
-    state.audioElements = [];
     state.stems = [];
     state.groupOffsets = {};
     stopSeekSliderLoop();
@@ -664,14 +662,15 @@
 
     if (btn.classList.contains("mute")) {
       toggleMute(idx);
-      const stem = state.stems[idx] || state.audioElements[idx];
+      const stem = state.stems[idx];
       row.querySelector(".mute").classList.toggle("active", stem?.muted);
     } else if (btn.classList.contains("solo")) {
       toggleSolo(idx);
-      // Update ALL rows directly from DOM
+      // Update button states for all stems in the same group
+      const clickedSong = state.stems[idx]?.song;
       $$("#results-content .stem-row").forEach((r, i) => {
-        const s = state.stems[i] || state.audioElements[i];
-        if (!s) return;
+        const s = state.stems[i];
+        if (!s || s.song !== clickedSong) return;
         const muteBtn = r.querySelector(".mute");
         const soloBtn = r.querySelector(".solo");
         if (muteBtn) muteBtn.classList.toggle("active", s.muted);
@@ -690,7 +689,6 @@
   }
 
   async function clearResults() {
-    state.audioElements = [];
     state.stems = [];
     state.groupOffsets = {};
     stopSeekSliderLoop();
@@ -730,7 +728,7 @@
       g.classList.toggle("active", isActive);
       // Restore audio src + draw waveforms for main group when activated
       if (isActive && !song.endsWith("_pitch")) {
-        const stems = state.audioElements.filter(s => s.song === song);
+        const stems = state.stems.filter(s => s.song === song);
         stems.forEach(s => {
           if (s.canvas && s.canvas.dataset.wfState !== "loaded" && s.canvas.dataset.wfState !== "loading") {
             const capturedSong = song;
@@ -836,15 +834,18 @@
       const dur = stems[0].duration || stems[0].buffer?.duration || 0;
       if (dur <= 0) return;
 
-      // Main group slider
+      // Main group slider — find via song group, not global ID
       if (!song.endsWith("_pitch")) {
-        const seek = document.getElementById("seek-slider");
-        const timeDisplay = document.getElementById("time-display");
-        if (seek && !state.seeking) {
-          seek.max = Math.floor(dur * 1000);
-          seek.value = Math.floor(currentTime * 1000);
+        const group = document.querySelector('.song-group[data-song="' + CSS.escape(song) + '"]');
+        if (group) {
+          const seek = group.querySelector(".seek-slider");
+          const time = group.querySelector(".seek-time");
+          if (seek && !state.seeking) {
+            seek.max = Math.floor(dur * 1000);
+            seek.value = Math.floor(currentTime * 1000);
+          }
+          if (time) time.textContent = fmtTimeSec(currentTime) + " / " + fmtTimeSec(dur);
         }
-        if (timeDisplay) timeDisplay.textContent = fmtTimeSec(currentTime) + " / " + fmtTimeSec(dur);
       } else {
         // Pitch slider
         const pitchDiv = document.querySelector('.pitch-results[data-song="' + CSS.escape(song) + '"]');
@@ -870,7 +871,7 @@
     // Update seek slider and time display to reflect current position
     let currentTime = 0, duration = 0;
     if (song.endsWith("_pitch")) {
-      // Find pitch audio elements (stored in DOM, not state.audioElements)
+      // Find pitch stems in unified stems array
       const pitchDiv = document.querySelector('.pitch-results[data-song="' + CSS.escape(song) + '"]');
       if (pitchDiv) {
         const audios = pitchDiv.querySelectorAll("audio");
@@ -890,27 +891,31 @@
         }
       }
     } else {
-      const stems = state.audioElements.filter(s => s.song === song);
+      const stems = state.stems.filter(s => s.song === song);
       if (stems.length) {
         currentTime = getGroupOffset(song) || 0;
         duration = stems.find(s => s.duration && s.duration > 0)?.duration || stems[0].buffer?.duration || 0;
       }
-      const seek = document.getElementById("seek-slider");
-      const timeDisplay = document.getElementById("time-display");
-      if (seek && duration > 0) {
-        seek.max = Math.floor(duration * 1000);
-        seek.value = Math.floor(currentTime * 1000);
-      }
-      if (timeDisplay) {
-        timeDisplay.textContent = fmtTimeSec(currentTime) + " / " + fmtTimeSec(duration);
+      const group = document.querySelector('.song-group[data-song="' + CSS.escape(song) + '"]');
+      if (group) {
+        const seek = group.querySelector(".seek-slider");
+        const time = group.querySelector(".seek-time");
+        if (seek && duration > 0) {
+          seek.max = Math.floor(duration * 1000);
+          seek.value = Math.floor(currentTime * 1000);
+        }
+        if (time) {
+          time.textContent = fmtTimeSec(currentTime) + " / " + fmtTimeSec(duration);
+        }
       }
     }
   }
 
   function toggleMute(idx) {
-    const s = state.audioElements[idx]; if (!s) return;
+    const s = state.stems[idx]; if (!s) return;
     s.muted = !s.muted;
-    const anySolo = state.audioElements.some(x => x.solo);
+    const song = s.song;
+    const anySolo = state.stems.some(x => x.song === song && x.solo);
     // If any stem has solo active, only the solo'd stem controls volume — mute is cosmetic
     if (!anySolo) {
       updateGainForStem(s);
@@ -919,20 +924,23 @@
   }
 
   function toggleSolo(idx) {
-    const s = state.audioElements[idx]; if (!s) return;
+    const s = state.stems[idx]; if (!s) return;
     const wasSolo = s.solo;
-    state.audioElements.forEach((x) => (x.solo = false));
+    const song = s.song;
+    // Reset solo for all stems in the same group
+    state.stems.forEach((x) => { if (x.song === song) x.solo = false; });
     s.solo = !wasSolo;
-    state.audioElements.forEach((x, i) => {
-      updateGainForStem(x);
+    state.stems.forEach((x) => {
+      if (x.song === song) updateGainForStem(x);
     });
     updateAllStemButtons();
   }
 
   function setVolume(idx, vol) {
-    const s = state.audioElements[idx]; if (!s) return;
+    const s = state.stems[idx]; if (!s) return;
     s.vol = vol;
-    const isSolod = state.audioElements.some((x) => x.solo);
+    const song = s.song;
+    const isSolod = state.stems.some(x => x.song === song && x.solo);
     if (!s.muted && (!isSolod || s.solo)) updateGainForStem(s);
     const rows = $$("#results-content .stem-row");
     if (rows[idx]) rows[idx].querySelector(".stem-vol").textContent = vol + "%";
@@ -940,23 +948,25 @@
 
   function updateAllStemButtons() {
     const rows = $$("#results-content .stem-row");
-    state.audioElements.forEach((s, i) => {
+    state.stems.forEach((s, i) => {
       if (!rows[i]) return;
-      rows[i].querySelector(".mute").classList.toggle("active", s.muted);
-      rows[i].querySelector(".solo").classList.toggle("active", s.solo);
+      const muteBtn = rows[i].querySelector(".mute");
+      const soloBtn = rows[i].querySelector(".solo");
+      if (muteBtn) muteBtn.classList.toggle("active", s.muted);
+      if (soloBtn) soloBtn.classList.toggle("active", s.solo);
     });
   }
 
   function updateSingleStemButtons(idx) {
     const rows = $$("#results-content .stem-row");
     if (rows[idx]) {
-      const s = state.audioElements[idx]; if (!s) return;
+      const s = state.stems[idx]; if (!s) return;
       rows[idx].querySelector(".mute").classList.toggle("active", s.muted);
     }
   }
 
   async function deleteStem(idx, fileUrl) {
-    const s = state.audioElements[idx]; if (!s) return;
+    const s = state.stems[idx]; if (!s) return;
     try { await fetch("/api/delete?file=" + encodeURIComponent(fileUrl)); } catch (e) {}
     toast("Deleted: " + s.name, "success");
     loadResults();
@@ -969,14 +979,14 @@
   }
 
   function exportSong(song) {
-    state.audioElements.filter((s) => s.song === song).forEach((s) => {
+    state.stems.filter((s) => s.song === song).forEach((s) => {
       const a = document.createElement("a"); a.href = s.url; a.download = s.name; a.click();
     });
   }
 
   async function applyPitch(song) {
     // Collect all original stems for this song (not already pitch-shifted)
-    const allStems = state.audioElements.filter(s =>
+    const allStems = state.stems.filter(s =>
       s.song === song && !s.url.match(/\(\+[-\d]+\)/)
     );
 
@@ -996,7 +1006,7 @@
     const checkedIdx = new Set();
     const rows = $$("#results-content .stem-row");
     allStems.forEach((s) => {
-      const idx = state.audioElements.indexOf(s);
+      const idx = state.stems.indexOf(s);
       if (idx >= 0 && rows[idx]) {
         const tb = rows[idx].querySelector(".tone-btn");
         if (tb && tb.classList.contains("active")) checkedIdx.add(idx);
@@ -1006,7 +1016,7 @@
     const payload = {
       stems: allStems.map((s) => ({
         url: s.url,
-        pitch: checkedIdx.has(state.audioElements.indexOf(s)),
+        pitch: checkedIdx.has(state.stems.indexOf(s)),
       })),
       pitch: pitch,
     };
@@ -1073,12 +1083,12 @@
         const suffix = pitchMatch ? ' (' + pitchMatch[1] + ')' : '';
         const displayName = baseName + ' - ' + song + suffix;
         row.innerHTML =
-          '<button class="mute" data-pitch-idx="' + i + '">M</button>' +
-          '<button class="solo" data-pitch-idx="' + i + '">S</button>' +
+          '<button class="mute" data-idx="' + i + '">M</button>' +
+          '<button class="solo" data-idx="' + i + '">S</button>' +
           '<span class="stem-emoji">' + emoji + '</span>' +
           '<span class="stem-name">' + esc(displayName) + '</span>' +
           '<canvas class="waveform-canvas" width="200" height="32"></canvas>' +
-          '<input type="range" min="0" max="100" value="100" data-pitch-idx="' + i + '" class="stem-vol-slider">' +
+          '<input type="range" min="0" max="100" value="100" data-idx="' + i + '" class="stem-vol-slider">' +
           '<span class="stem-vol">100%</span>' +
           '<a class="stem-dl" href="' + f.url + '?cb=' + Date.now() + '" download>⬇</a>' +
           '<button class="stem-delete" data-file="' + escAttr(f.url) + '" title="Delete">✕</button>';
@@ -1112,31 +1122,7 @@
           // Timeupdate handled by Web Audio rAF loop
         }
 
-        // Mute/Solo
-        row.querySelector(".mute").addEventListener("click", function () {
-          entry.muted = !entry.muted;
-          updateGainForStem(entry);
-          this.classList.toggle("active", entry.muted);
-        });
-        row.querySelector(".solo").addEventListener("click", function () {
-          const wasSolo = entry.solo;
-          pitchAudioElements.forEach(x => x.solo = false);
-          entry.solo = !wasSolo;
-          pitchAudioElements.forEach(x => updateGainForStem(x));
-          $$(".pitch-stem .solo").forEach((b, j) => b.classList.toggle("active", pitchAudioElements[j]?.solo));
-          $$(".pitch-stem .mute").forEach((b, j) => b.classList.toggle("active", pitchAudioElements[j]?.muted));
-        });
-        row.querySelector(".stem-vol-slider").addEventListener("input", function () {
-          entry.vol = parseInt(this.value);
-          updateGainForStem(entry);
-          row.querySelector(".stem-vol").textContent = entry.vol + "%";
-        });
-        row.querySelector(".stem-delete").addEventListener("click", async function () {
-          const fu = this.dataset.file;
-          try { await fetch("/api/delete?file=" + encodeURIComponent(fu)); } catch(e) {}
-          row.remove();
-          pitchAudioElements.splice(i, 1);
-        });
+        // Mute/Solo/Vol/Delete handled by onResultsClick + onResultsInput (unified via data-idx)
       });
 
       // Seek slider events
