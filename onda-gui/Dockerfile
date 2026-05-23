@@ -14,6 +14,7 @@ COPY cgi-bin/ /usr/lib/cgi-bin/
 RUN chmod +x /usr/lib/cgi-bin/*
 
 COPY static/ /usr/share/nginx/html/
+COPY VERSION /usr/share/nginx/html/VERSION
 RUN mkdir -p /usr/share/nginx/html/output
 
 ENTRYPOINT ["/entrypoint.sh"]

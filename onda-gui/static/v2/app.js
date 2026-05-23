@@ -60,6 +60,22 @@
 
     toggleViperx();
     toggleDemucs();
+    loadVersion();
+  }
+
+  // ── Version ──
+  async function loadVersion() {
+    const el = document.getElementById("app-version");
+    if (!el) return;
+    try {
+      const r = await fetch("/VERSION");
+      if (r.ok) {
+        const v = (await r.text()).trim();
+        el.textContent = "v" + v;
+      }
+    } catch {
+      el.textContent = "desarrollo";
+    }
   }
 
   // ── Upload ──
@@ -586,7 +602,6 @@
         if (prevDiv) prevDiv.querySelectorAll("audio").forEach(a => {
           a.pause();
           a.currentTime = 0;
-          if (a.src) { a.dataset.origSrc = a.src; a.src = ""; }
         });
       } else {
         stopGroup(state.activeGroup);
@@ -602,7 +617,6 @@
       if (isActive && !song.endsWith("_pitch")) {
         const stems = state.audioElements.filter(s => s.song === song);
         stems.forEach(s => {
-          stems.forEach(s => {
           if (s.canvas) {
             const ctx = s.canvas.getContext("2d");
             const imgData = ctx.getImageData(0, 0, 1, 1);
