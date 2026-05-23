@@ -415,10 +415,11 @@
   }
 
   // ── Waveform from URL (for deferred pitch drawing) ──
-  async function drawWaveformFromAudio(canvas, url) {
+  async function drawWaveformFromAudio(canvas, url, color) {
     if (!canvas || !url) return;
     const ctx = canvas.getContext("2d");
     const w = canvas.width, h = canvas.height;
+    const fillColor = color || "#8b5cf6";
     ctx.fillStyle = "rgba(255,255,255,0.03)";
     ctx.fillRect(0, 0, w, h);
     try {
@@ -440,7 +441,7 @@
           if (v > max) max = v;
         }
         const barH = max * mid * 0.85;
-        ctx.fillStyle = "#8b5cf6";
+        ctx.fillStyle = fillColor;
         ctx.globalAlpha = 0.7;
         ctx.fillRect(i, mid - barH, 1, barH * 2);
       }
@@ -458,6 +459,7 @@
 
     // Draw placeholder
     const w = canvas.width, h = canvas.height;
+    const fillColor = color || "#8b5cf6";
     ctx.fillStyle = "rgba(255,255,255,0.03)";
     ctx.fillRect(0, 0, w, h);
 
@@ -613,7 +615,9 @@
             if (row) {
               const audio = row.querySelector("audio");
               if (audio && audio.src) {
-                drawWaveformFromAudio(canvas, audio.src);
+                const nameEl = row.querySelector(".stem-name");
+                const sName = nameEl ? nameEl.textContent : "";
+                drawWaveformFromAudio(canvas, audio.src, stemColor(sName));
               }
             }
           }
