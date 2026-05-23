@@ -288,6 +288,7 @@
       const seekTime = seekRow.querySelector(".seek-time");
       let isSeeking = false;
 
+      let isFirstStemInGroup = true;
       stems.forEach((f) => {
         const row = document.createElement("div");
         row.className = "stem-row";
@@ -324,17 +325,17 @@
           }
         });
 
-        // Sync seek slider (timeupdate only, no duration dependency)
-        if (globalIdx === state.audioElements.length - stems.length) {
+        // Sync seek slider — attach to first stem of this group
+        if (isFirstStemInGroup) {
           audio.addEventListener("timeupdate", () => {
             if (isSeeking) return;
-            // Use waveform duration if audio.duration unavailable
-            const dur = audio.duration || entry.duration || state.audioElements.find(s => s.song === song && s.duration)?.duration;
+            const dur = (isFinite(audio.duration) && audio.duration > 0) ? audio.duration : (entry.duration || state.audioElements.find(s => s.song === song && s.duration)?.duration);
             if (!dur || isNaN(dur) || dur <= 0) return;
             seekSlider.max = Math.floor(dur * 1000);
             seekSlider.value = Math.floor(audio.currentTime * 1000);
             seekTime.textContent = fmtTimeSec(audio.currentTime) + " / " + fmtTimeSec(dur);
           });
+          isFirstStemInGroup = false;
         }
 
         globalIdx++;
@@ -494,14 +495,20 @@
 
   function toggleMute(idx) {
     const s = state.audioElements[idx]; if (!s) return;
-    s.muted = !s.muted; s.audio.volume = s.muted ? 0 : s.vol / 100;
+    s.muted = !s.muted;
+    const anySolo = state.audioElements.some(x => x.solo);
+    // If any stem has solo active, only the solo'd stem controls volume — mute is cosmetic
+    if (!anySolo) {
+      s.audio.volume = s.muted ? 0 : s.vol / 100;
+    }
     updateSingleStemButtons(idx);
   }
 
   function toggleSolo(idx) {
     const s = state.audioElements[idx]; if (!s) return;
+    const wasSolo = s.solo;
     state.audioElements.forEach((x) => (x.solo = false));
-    s.solo = !s.solo;
+    s.solo = !wasSolo;
     state.audioElements.forEach((x, i) => {
       x.audio.volume = s.solo ? (i !== idx ? 0 : x.vol / 100) : (x.muted ? 0 : x.vol / 100);
     });
