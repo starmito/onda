@@ -721,7 +721,7 @@
           '<span class="stem-vol">100%</span>' +
           '<a class="stem-dl" href="' + f.url + '" download>⬇</a>' +
           '<button class="stem-delete" data-file="' + escAttr(f.url) + '" title="Delete">✕</button>' +
-          '<audio preload="auto" src="' + f.url + '" crossorigin="anonymous"></audio>';
+          '<audio preload="auto" src="' + encodeURI(f.url) + '" crossorigin="anonymous"></audio>';
 
         pitchDiv.appendChild(row);
 
@@ -733,7 +733,18 @@
         };
         pitchAudioElements.push(entry);
 
-        // Waveform
+        // Error detection on audio element
+        audio.addEventListener("error", function () {
+          console.warn("Pitch audio error:", f.url, audio.error);
+        });
+        audio.addEventListener("stalled", function () {
+          // Retry loading if stalled
+          if (audio.readyState === 0) {
+            audio.load();
+          }
+        });
+
+        // Waveform — no interfere con <audio>: solo para visual
         drawWaveform(entry);
 
         // Timeupdate on first
@@ -752,7 +763,7 @@
         row.querySelector(".mute").addEventListener("click", function () {
           entry.muted = !entry.muted;
           const anySolo = pitchAudioElements.some(x => x.solo);
-          if (!anySolo) entry.audio.volume = entry.muted ? 0 : entry.vol / 100;
+          if (!anySolo && entry.audio) entry.audio.volume = entry.muted ? 0 : entry.vol / 100;
           this.classList.toggle("active", entry.muted);
         });
         row.querySelector(".solo").addEventListener("click", function () {
@@ -760,7 +771,7 @@
           pitchAudioElements.forEach(x => x.solo = false);
           entry.solo = !wasSolo;
           pitchAudioElements.forEach((x, j) => {
-            x.audio.volume = entry.solo ? (j !== i ? 0 : x.vol / 100) : (x.muted ? 0 : x.vol / 100);
+            if (x.audio) x.audio.volume = entry.solo ? (j !== i ? 0 : x.vol / 100) : (x.muted ? 0 : x.vol / 100);
           });
           $$(".pitch-stem .solo").forEach((b, j) => b.classList.toggle("active", pitchAudioElements[j]?.solo));
           $$(".pitch-stem .mute").forEach((b, j) => b.classList.toggle("active", pitchAudioElements[j]?.muted));
@@ -768,7 +779,7 @@
         row.querySelector(".stem-vol-slider").addEventListener("input", function () {
           entry.vol = parseInt(this.value);
           const s = pitchAudioElements.some(x => x.solo);
-          if (!entry.muted && (!s || entry.solo)) entry.audio.volume = entry.vol / 100;
+          if (!entry.muted && (!s || entry.solo) && entry.audio) entry.audio.volume = entry.vol / 100;
           row.querySelector(".stem-vol").textContent = entry.vol + "%";
         });
         row.querySelector(".stem-delete").addEventListener("click", async function () {
@@ -783,20 +794,25 @@
       pSeek.addEventListener("input", () => {
         pSeeking = true;
         const t = parseInt(pSeek.value) / 1000;
-        pitchAudioElements.forEach(e => { e.audio.currentTime = t; });
+        pitchAudioElements.forEach(e => {
+          if (e.audio && e.audio.readyState >= 1) e.audio.currentTime = t;
+        });
         pTime.textContent = fmtTimeSec(t) + " / " + fmtTimeSec((parseInt(pSeek.max) || 1000) / 1000);
       });
       pSeek.addEventListener("change", () => { pSeeking = false; });
+      // Safety: reset pSeeking on mouseup too (some browsers skip change)
+      pSeek.addEventListener("mouseup", () => { pSeeking = false; });
+      pSeek.addEventListener("touchend", () => { pSeeking = false; });
 
       // Play/Pause/Stop buttons
       header.querySelector(".pitch-play").addEventListener("click", () => {
-        pitchAudioElements.forEach(e => e.audio.play().catch(()=>{}));
+        pitchAudioElements.forEach(e => { if (e.audio && e.audio.paused) e.audio.play().catch(()=>{}); });
       });
       header.querySelector(".pitch-pause").addEventListener("click", () => {
-        pitchAudioElements.forEach(e => e.audio.pause());
+        pitchAudioElements.forEach(e => { if (e.audio) e.audio.pause(); });
       });
       header.querySelector(".pitch-stop").addEventListener("click", () => {
-        pitchAudioElements.forEach(e => { e.audio.pause(); e.audio.currentTime = 0; });
+        pitchAudioElements.forEach(e => { if (e.audio) { e.audio.pause(); e.audio.currentTime = 0; } });
       });
 
       // Export all pitch-shifted stems
