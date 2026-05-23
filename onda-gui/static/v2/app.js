@@ -602,9 +602,7 @@
       if (isActive && !song.endsWith("_pitch")) {
         const stems = state.audioElements.filter(s => s.song === song);
         stems.forEach(s => {
-          if (!s.audio.src && s.url) { s.audio.src = s.url; s.audio.load(); }
-        });
-        stems.forEach(s => {
+          stems.forEach(s => {
           if (s.canvas) {
             const ctx = s.canvas.getContext("2d");
             const imgData = ctx.getImageData(0, 0, 1, 1);
@@ -629,10 +627,6 @@
     if (song.endsWith("_pitch")) {
       const pitchDiv = document.querySelector('.pitch-results[data-song="' + CSS.escape(song) + '"]');
       if (pitchDiv) {
-        // Restore audio connections
-        pitchDiv.querySelectorAll("audio").forEach(a => {
-          if (!a.src && a.dataset.origSrc) { a.src = a.dataset.origSrc; a.load(); }
-        });
         pitchDiv.querySelectorAll("canvas.waveform-canvas").forEach(canvas => {
           // Only draw if still has placeholder
           const ctx = canvas.getContext("2d");
@@ -668,15 +662,13 @@
     state.audioElements.filter((s) => s.song === song).forEach((s) => {
       s.audio.pause();
       s.audio.currentTime = 0;
-      s.audio.src = "";  // Abort HTTP connections
-    });
+      });
     // Also stop pitch group with same song
     const pitchDiv = document.querySelector('.pitch-results[data-song="' + CSS.escape(song) + '"]');
     if (pitchDiv) {
       pitchDiv.querySelectorAll("audio").forEach(a => {
         a.pause();
         a.currentTime = 0;
-        if (a.src) { a.dataset.origSrc = a.src; a.src = ""; }
       });
     }
   }
