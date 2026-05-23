@@ -52,7 +52,6 @@
     $("#clear-queue-btn").addEventListener("click", clearQueue);
     $("#clear-results-btn").addEventListener("click", clearResults);
     $("#btn-add-more").addEventListener("click", (e) => { e.stopPropagation(); $("#file-picker").click(); });
-    $("#pitch-slider").addEventListener("input", updatePitchLabel);
 
     const rp = $("#results-panel");
     rp.addEventListener("click", onResultsClick);
@@ -60,7 +59,6 @@
 
     toggleViperx();
     toggleDemucs();
-    toggleRubberband();
   }
 
   // ── Upload ──
@@ -100,8 +98,7 @@
     const flags = [];
     const vOn = forStep === "viperx" || (!forStep && $("#chk-viperx").checked);
     const dOn = forStep === "demucs" || (!forStep && $("#chk-demucs").checked);
-    const rOn = forStep === "rubberband" || (!forStep && $("#chk-rubberband").checked);
-    if (forStep && !vOn && !dOn && !rOn) return "";
+    if (forStep && !vOn && !dOn) return "";
 
     if (vOn) { flags.push("viperx=on"); flags.push("viperx_keep=" + $("#sel-viperx-keep").value); }
     if (dOn) {
@@ -109,7 +106,6 @@
       const keeps = []; $$("#demucs-keep-group input:checked").forEach((c) => keeps.push(c.value));
       flags.push("demucs_keep=" + (keeps.length ? keeps.join(",") : "all"));
     }
-    if (rOn) { flags.push("rubberband=on"); flags.push("pitch=" + $("#pitch-slider").value); }
     return flags.join("&");
   }
 
@@ -120,15 +116,6 @@
     const on = $("#chk-demucs").checked;
     $("#demucs-keep-group").classList.toggle("disabled", !on);
     $$("#demucs-keep-group input").forEach((c) => (c.disabled = !on));
-  }
-  function toggleRubberband() {
-    const on = $("#chk-rubberband").checked;
-    $("#rubberband-group").classList.toggle("disabled", !on);
-    $("#pitch-slider").disabled = !on;
-  }
-  function updatePitchLabel() {
-    const v = parseInt($("#pitch-slider").value);
-    $("#pitch-label").textContent = v > 0 ? "+" + v + " st" : v + " st";
   }
 
   // ── Queue ──
@@ -297,10 +284,11 @@
         const color = stemColor(f.name);
 
         row.innerHTML =
+          '<input type="checkbox" class="tone-cb" data-idx="' + idx + '" title="Tono">' +
           '<button class="mute" data-idx="' + idx + '">M</button>' +
           '<button class="solo" data-idx="' + idx + '">S</button>' +
           '<span class="stem-emoji">' + emoji + '</span>' +
-          '<span class="stem-name">' + esc(f.name) + '</span>' +
+          '<span class="stem-name">' + esc(f.name.replace(/\.[^.]+$/, '') + ' - ' + song) + '</span>' +
           '<canvas class="waveform-canvas" data-idx="' + idx + '" width="200" height="32"></canvas>' +
           '<input type="range" min="0" max="100" value="100" data-idx="' + idx + '" class="stem-vol-slider">' +
           '<span class="stem-vol">100%</span>' +
@@ -351,6 +339,32 @@
       seekSlider.addEventListener("change", () => {
         isSeeking = false;
       });
+
+      // ── Pitch controls per song ──
+      const pitchRow = document.createElement("div");
+      pitchRow.className = "pitch-controls";
+      pitchRow.innerHTML =
+        '<span class="pitch-label">🎹 Tono</span>' +
+        '<input type="range" class="pitch-slider" min="-12" max="12" value="0" step="1" data-song="' + escAttr(song) + '">' +
+        '<span class="pitch-val" data-song="' + escAttr(song) + '">0 st</span>' +
+        '<button class="btn-sm pitch-apply" data-song="' + escAttr(song) + '">Apply</button>' +
+        '<span class="pitch-status" data-song="' + escAttr(song) + '"></span>';
+      group.appendChild(pitchRow);
+
+      // Pitch slider label update
+      const pitchSlider = pitchRow.querySelector(".pitch-slider");
+      const pitchVal = pitchRow.querySelector(".pitch-val");
+      pitchSlider.addEventListener("input", function () {
+        const v = parseInt(this.value);
+        pitchVal.textContent = (v >= 0 ? "+" : "") + v + " st";
+      });
+
+      // ── Pitch-shifted results area (indented) ──
+      const pitchResults = document.createElement("div");
+      pitchResults.className = "pitch-results";
+      pitchResults.dataset.song = song;
+      pitchResults.style.display = "none";
+      group.appendChild(pitchResults);
 
       container.appendChild(group);
     });
@@ -420,6 +434,12 @@
   // ── Results event delegation ──
   function onResultsClick(e) {
     const btn = e.target.closest("button");
+    
+    if (btn && btn.classList.contains("pitch-apply")) {
+      applyPitch(btn.dataset.song);
+      return;
+    }
+
     if (!btn) return;
 
     if (btn.classList.contains("song-play")) { playGroup(btn.dataset.song); return; }
@@ -560,6 +580,184 @@
     });
   }
 
+  async function applyPitch(song) {
+    // Collect all original stems for this song (not already pitch-shifted)
+    const allStems = state.audioElements.filter(s =>
+      s.song === song && !s.url.match(/\(\+[-\d]+\)/)
+    );
+
+    if (allStems.length === 0) return;
+
+    // Get pitch value from slider
+    const slider = document.querySelector('.pitch-slider[data-song="' + CSS.escape(song) + '"]');
+    const pitch = slider ? parseInt(slider.value) : 0;
+
+    // Collect checked tone stems
+    const checkedIdx = new Set();
+    const rows = $$("#results-content .stem-row");
+    allStems.forEach((s) => {
+      const idx = state.audioElements.indexOf(s);
+      if (idx >= 0 && rows[idx]) {
+        const cb = rows[idx].querySelector(".tone-cb");
+        if (cb && cb.checked) checkedIdx.add(idx);
+      }
+    });
+
+    const payload = {
+      stems: allStems.map((s) => ({
+        url: s.url,
+        pitch: checkedIdx.has(state.audioElements.indexOf(s)),
+      })),
+      pitch: pitch,
+    };
+
+    const statusEl = document.querySelector('.pitch-status[data-song="' + CSS.escape(song) + '"]');
+    if (statusEl) statusEl.textContent = "Processing...";
+
+    try {
+      const res = await fetch("/api/rubberband", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!data.success || !data.files) {
+        if (statusEl) statusEl.textContent = "Error";
+        toast("Pitch shift failed", "error");
+        return;
+      }
+
+      // Render pitch-shifted results in the indented area
+      const pitchDiv = document.querySelector('.pitch-results[data-song="' + CSS.escape(song) + '"]');
+      if (!pitchDiv) return;
+
+      pitchDiv.style.display = "";
+      pitchDiv.innerHTML = "";
+
+      // Make a mini-player for pitch-shifted group
+      const pitchAudioElements = [];
+      const header = document.createElement("div");
+      header.className = "pitch-header";
+      header.innerHTML =
+        '<span>🎹 ' + esc(song) + ' (' + (pitch >= 0 ? "+" : "") + pitch + ' st)</span>' +
+        '<button class="btn-sm pitch-play">▶ Play</button>' +
+        '<button class="btn-sm pitch-pause">⏸ Pause</button>' +
+        '<button class="btn-sm pitch-stop">⏹ Stop</button>';
+      pitchDiv.appendChild(header);
+
+      // Seek slider for pitch group
+      const seekRow = document.createElement("div");
+      seekRow.className = "seek-row";
+      const pitchSliderId = "pitch-seek-" + song.replace(/[^a-zA-Z0-9]/g, "_");
+      seekRow.innerHTML =
+        '<input type="range" class="seek-slider" min="0" max="1000" value="0" id="' + pitchSliderId + '">' +
+        '<span class="seek-time">0:00 / 0:00</span>';
+      pitchDiv.appendChild(seekRow);
+
+      const pSeek = seekRow.querySelector(".seek-slider");
+      const pTime = seekRow.querySelector(".seek-time");
+      let pSeeking = false;
+
+      data.files.forEach((f, i) => {
+        const row = document.createElement("div");
+        row.className = "stem-row pitch-stem";
+        const color = stemColor(f.name);
+        row.innerHTML =
+          '<button class="mute" data-pitch-idx="' + i + '">M</button>' +
+          '<button class="solo" data-pitch-idx="' + i + '">S</button>' +
+          '<span class="stem-emoji">🎹</span>' +
+          '<span class="stem-name">' + esc(f.name) + '</span>' +
+          '<canvas class="waveform-canvas" width="200" height="32"></canvas>' +
+          '<input type="range" min="0" max="100" value="100" data-pitch-idx="' + i + '" class="stem-vol-slider">' +
+          '<span class="stem-vol">100%</span>' +
+          '<a class="stem-dl" href="' + f.url + '" download>⬇</a>' +
+          '<button class="stem-delete" data-file="' + escAttr(f.url) + '" title="Delete">✕</button>' +
+          '<audio preload="auto" src="' + f.url + '" crossorigin="anonymous"></audio>';
+
+        pitchDiv.appendChild(row);
+
+        const audio = row.querySelector("audio");
+        const entry = {
+          name: f.name, song: song + "_pitch", audio: audio,
+          muted: false, solo: false, url: f.url, vol: 100,
+          canvas: row.querySelector(".waveform-canvas"),
+        };
+        pitchAudioElements.push(entry);
+
+        // Waveform
+        drawWaveform(entry);
+
+        // Timeupdate on first
+        if (i === 0) {
+          audio.addEventListener("timeupdate", () => {
+            if (pSeeking) return;
+            const dur = entry.duration || pitchAudioElements.find(e => e.duration)?.duration;
+            if (!dur || dur <= 0) return;
+            pSeek.max = Math.floor(dur * 1000);
+            pSeek.value = Math.floor(audio.currentTime * 1000);
+            pTime.textContent = fmtTimeSec(audio.currentTime) + " / " + fmtTimeSec(dur);
+          });
+        }
+
+        // Mute/Solo
+        row.querySelector(".mute").addEventListener("click", function () {
+          entry.muted = !entry.muted;
+          const anySolo = pitchAudioElements.some(x => x.solo);
+          if (!anySolo) entry.audio.volume = entry.muted ? 0 : entry.vol / 100;
+          this.classList.toggle("active", entry.muted);
+        });
+        row.querySelector(".solo").addEventListener("click", function () {
+          const wasSolo = entry.solo;
+          pitchAudioElements.forEach(x => x.solo = false);
+          entry.solo = !wasSolo;
+          pitchAudioElements.forEach((x, j) => {
+            x.audio.volume = entry.solo ? (j !== i ? 0 : x.vol / 100) : (x.muted ? 0 : x.vol / 100);
+          });
+          $$(".pitch-stem .solo").forEach((b, j) => b.classList.toggle("active", pitchAudioElements[j]?.solo));
+          $$(".pitch-stem .mute").forEach((b, j) => b.classList.toggle("active", pitchAudioElements[j]?.muted));
+        });
+        row.querySelector(".stem-vol-slider").addEventListener("input", function () {
+          entry.vol = parseInt(this.value);
+          const s = pitchAudioElements.some(x => x.solo);
+          if (!entry.muted && (!s || entry.solo)) entry.audio.volume = entry.vol / 100;
+          row.querySelector(".stem-vol").textContent = entry.vol + "%";
+        });
+        row.querySelector(".stem-delete").addEventListener("click", async function () {
+          const fu = this.dataset.file;
+          try { await fetch("/api/delete?file=" + encodeURIComponent(fu)); } catch(e) {}
+          row.remove();
+          pitchAudioElements.splice(i, 1);
+        });
+      });
+
+      // Seek slider events
+      pSeek.addEventListener("input", () => {
+        pSeeking = true;
+        const t = parseInt(pSeek.value) / 1000;
+        pitchAudioElements.forEach(e => { e.audio.currentTime = t; });
+        pTime.textContent = fmtTimeSec(t) + " / " + fmtTimeSec((parseInt(pSeek.max) || 1000) / 1000);
+      });
+      pSeek.addEventListener("change", () => { pSeeking = false; });
+
+      // Play/Pause/Stop buttons
+      header.querySelector(".pitch-play").addEventListener("click", () => {
+        pitchAudioElements.forEach(e => e.audio.play().catch(()=>{}));
+      });
+      header.querySelector(".pitch-pause").addEventListener("click", () => {
+        pitchAudioElements.forEach(e => e.audio.pause());
+      });
+      header.querySelector(".pitch-stop").addEventListener("click", () => {
+        pitchAudioElements.forEach(e => { e.audio.pause(); e.audio.currentTime = 0; });
+      });
+
+      if (statusEl) statusEl.textContent = "Done ✓";
+      toast("Pitch shift complete", "success");
+    } catch (e) {
+      if (statusEl) statusEl.textContent = "Error";
+      toast("Pitch shift failed: " + e.message, "error");
+    }
+  }
+
   function fmtTimeSec(s) {
     const m = Math.floor(s / 60), sec = Math.floor(s % 60);
     return m + ":" + (sec < 10 ? "0" : "") + sec;
@@ -589,8 +787,6 @@
   window.startAll = startAll;
   window.toggleViperx = toggleViperx;
   window.toggleDemucs = toggleDemucs;
-  window.toggleRubberband = toggleRubberband;
-  window.updatePitchLabel = updatePitchLabel;
 
   // ── Toast ──
   function toast(msg, type) {

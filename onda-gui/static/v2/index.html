@@ -48,16 +48,7 @@
       </div>
       <button class="step-run" onclick="runStep('demucs')" title="Run only Demucs">▶</button>
     </div>
-    <div class="step-row">
-      <label class="step-check"><input type="checkbox" id="chk-rubberband" onchange="toggleRubberband()"> Rubberband</label>
-      <div class="pitch-group" id="rubberband-group">
-        <span>-12</span>
-        <input type="range" id="pitch-slider" min="-12" max="12" value="0" step="1">
-        <span>+12</span>
-        <span id="pitch-label" class="pitch-val">0 st</span>
-      </div>
-      <button class="step-run" onclick="runStep('rubberband')" title="Run only Rubberband">▶</button>
-    </div>
+
     <!-- START button — full width inside pipeline panel -->
     <button id="start-btn" class="btn-primary btn-full" disabled>▶ START Pipeline</button>
     <div id="progress-bar-container" style="display:none">
