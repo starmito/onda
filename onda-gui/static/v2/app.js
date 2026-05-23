@@ -284,7 +284,7 @@
         const color = stemColor(f.name);
 
         row.innerHTML =
-          '<input type="checkbox" class="tone-cb" data-idx="' + idx + '" title="Tono">' +
+          '<button class="tone-btn" data-idx="' + idx + '" title="Select for pitch">TONO</button>' +
           '<button class="mute" data-idx="' + idx + '">M</button>' +
           '<button class="solo" data-idx="' + idx + '">S</button>' +
           '<span class="stem-emoji">' + emoji + '</span>' +
@@ -344,9 +344,9 @@
       const pitchRow = document.createElement("div");
       pitchRow.className = "pitch-controls";
       pitchRow.innerHTML =
-        '<span class="pitch-label">🎹 Tono</span>' +
-        '<input type="range" class="pitch-slider" min="-12" max="12" value="0" step="1" data-song="' + escAttr(song) + '">' +
-        '<span class="pitch-val" data-song="' + escAttr(song) + '">0 st</span>' +
+        '<span class="pitch-label">↕ Tono</span>' +
+        '<input type="range" class="pitch-slider" min="-12" max="12" value="0" step="1" data-song="' + escAttr(song) + '" size="30">' +
+        '<input class="pitch-val" data-song="' + escAttr(song) + '" value="0 st" size="5">' +
         '<button class="btn-sm pitch-apply" data-song="' + escAttr(song) + '">Apply</button>' +
         '<span class="pitch-status" data-song="' + escAttr(song) + '"></span>';
       group.appendChild(pitchRow);
@@ -356,7 +356,34 @@
       const pitchVal = pitchRow.querySelector(".pitch-val");
       pitchSlider.addEventListener("input", function () {
         const v = parseInt(this.value);
-        pitchVal.textContent = (v >= 0 ? "+" : "") + v + " st";
+        pitchVal.value = (v >= 0 ? "+" : "") + v + " st";
+      });
+      // Editable pitch value: type number, Enter applies
+      pitchVal.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          const m = this.value.match(/[+-]?\d+/);
+          if (m) {
+            let v = parseInt(m[0]);
+            v = Math.max(-12, Math.min(12, v));
+            pitchSlider.value = v;
+            this.value = (v >= 0 ? "+" : "") + v + " st";
+            pitchSlider.dispatchEvent(new Event("input"));
+          } else {
+            this.value = (parseInt(pitchSlider.value) >= 0 ? "+" : "") + parseInt(pitchSlider.value) + " st";
+          }
+        }
+      });
+      pitchVal.addEventListener("blur", function () {
+        const m = this.value.match(/[+-]?\d+/);
+        if (m) {
+          let v = parseInt(m[0]);
+          v = Math.max(-12, Math.min(12, v));
+          pitchSlider.value = v;
+          this.value = (v >= 0 ? "+" : "") + v + " st";
+        } else {
+          this.value = (parseInt(pitchSlider.value) >= 0 ? "+" : "") + parseInt(pitchSlider.value) + " st";
+        }
       });
 
       // ── Pitch-shifted results area (indented) ──
@@ -364,6 +391,7 @@
       pitchResults.className = "pitch-results";
       pitchResults.dataset.song = song;
       pitchResults.style.display = "none";
+      pitchResults.style.marginTop = "16px";
       group.appendChild(pitchResults);
 
       container.appendChild(group);
@@ -441,6 +469,11 @@
     }
 
     if (!btn) return;
+
+    if (btn.classList.contains("tone-btn")) {
+      btn.classList.toggle("active");
+      return;
+    }
 
     if (btn.classList.contains("song-play")) { playGroup(btn.dataset.song); return; }
     if (btn.classList.contains("song-pause")) { pauseGroup(btn.dataset.song); return; }
@@ -590,7 +623,15 @@
 
     // Get pitch value from slider
     const slider = document.querySelector('.pitch-slider[data-song="' + CSS.escape(song) + '"]');
-    const pitch = slider ? parseInt(slider.value) : 0;
+    // Read pitch from either slider or input
+    const valInput = document.querySelector('.pitch-val[data-song="' + CSS.escape(song) + '"]');
+    let pitch = 0;
+    if (valInput) {
+      const m = valInput.value.match(/[+-]?\d+/);
+      pitch = m ? parseInt(m[0]) : 0;
+    } else if (slider) {
+      pitch = parseInt(slider.value);
+    }
 
     // Collect checked tone stems
     const checkedIdx = new Set();
@@ -598,8 +639,8 @@
     allStems.forEach((s) => {
       const idx = state.audioElements.indexOf(s);
       if (idx >= 0 && rows[idx]) {
-        const cb = rows[idx].querySelector(".tone-cb");
-        if (cb && cb.checked) checkedIdx.add(idx);
+        const tb = rows[idx].querySelector(".tone-btn");
+        if (tb && tb.classList.contains("active")) checkedIdx.add(idx);
       }
     });
 
@@ -639,10 +680,14 @@
       const header = document.createElement("div");
       header.className = "pitch-header";
       header.innerHTML =
-        '<span>🎹 ' + esc(song) + ' (' + (pitch >= 0 ? "+" : "") + pitch + ' st)</span>' +
+        '<span>↕ ' + esc(song) + ' (' + (pitch >= 0 ? "+" : "") + pitch + ')</span>' +
         '<button class="btn-sm pitch-play">▶ Play</button>' +
         '<button class="btn-sm pitch-pause">⏸ Pause</button>' +
-        '<button class="btn-sm pitch-stop">⏹ Stop</button>';
+        '<button class="btn-sm pitch-stop">⏹ Stop</button>' +
+        '<span class="pitch-actions">' +
+        '<button class="btn-sm pitch-export">⬇ Export</button>' +
+        '<button class="btn-sm btn-danger pitch-delete">🗑 Delete</button>' +
+        '</span>';
       pitchDiv.appendChild(header);
 
       // Seek slider for pitch group
@@ -662,11 +707,17 @@
         const row = document.createElement("div");
         row.className = "stem-row pitch-stem";
         const color = stemColor(f.name);
+        const emoji = stemEmoji(f.name);
+        // Display: "vocals (+2).wav" -> "vocals - Song Name (+2)"
+        const baseName = f.name.replace(/\s*\([+-]?\d+\)\.[^.]+$/, '');
+        const pitchMatch = f.name.match(/\(([+-]?\d+)\)/);
+        const suffix = pitchMatch ? ' (' + pitchMatch[1] + ')' : '';
+        const displayName = baseName + ' - ' + song + suffix;
         row.innerHTML =
           '<button class="mute" data-pitch-idx="' + i + '">M</button>' +
           '<button class="solo" data-pitch-idx="' + i + '">S</button>' +
-          '<span class="stem-emoji">🎹</span>' +
-          '<span class="stem-name">' + esc(f.name) + '</span>' +
+          '<span class="stem-emoji">' + emoji + '</span>' +
+          '<span class="stem-name">' + esc(displayName) + '</span>' +
           '<canvas class="waveform-canvas" width="200" height="32"></canvas>' +
           '<input type="range" min="0" max="100" value="100" data-pitch-idx="' + i + '" class="stem-vol-slider">' +
           '<span class="stem-vol">100%</span>' +
@@ -750,7 +801,25 @@
         pitchAudioElements.forEach(e => { e.audio.pause(); e.audio.currentTime = 0; });
       });
 
-      if (statusEl) statusEl.textContent = "Done ✓";
+      // Export all pitch-shifted stems
+      header.querySelector(".pitch-export").addEventListener("click", () => {
+        pitchAudioElements.forEach(e => {
+          const a = document.createElement("a");
+          a.href = e.url; a.download = e.name; a.click();
+        });
+      });
+
+      // Delete all pitch-shifted stems
+      header.querySelector(".pitch-delete").addEventListener("click", async () => {
+        for (const e of pitchAudioElements) {
+          try { await fetch("/api/delete?file=" + encodeURIComponent(e.url)); } catch (_) {}
+        }
+        pitchDiv.innerHTML = "";
+        pitchDiv.style.display = "none";
+        toast("Pitch group deleted", "success");
+      });
+
+      if (statusEl) { statusEl.textContent = "Done ✓"; statusEl.style.color = "#22c55e"; }
       toast("Pitch shift complete", "success");
     } catch (e) {
       if (statusEl) statusEl.textContent = "Error";
