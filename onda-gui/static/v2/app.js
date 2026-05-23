@@ -414,6 +414,41 @@
     updateAllStemButtons();
   }
 
+  // ── Waveform from URL (for deferred pitch drawing) ──
+  async function drawWaveformFromAudio(canvas, url) {
+    if (!canvas || !url) return;
+    const ctx = canvas.getContext("2d");
+    const w = canvas.width, h = canvas.height;
+    ctx.fillStyle = "rgba(255,255,255,0.03)";
+    ctx.fillRect(0, 0, w, h);
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return;
+      const buf = await res.arrayBuffer();
+      const actx = new (window.AudioContext || window.webkitAudioContext)();
+      const audioBuf = await actx.decodeAudioData(buf);
+      const channel = audioBuf.getChannelData(0);
+      const step = Math.floor(channel.length / w);
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = "rgba(255,255,255,0.03)";
+      ctx.fillRect(0, 0, w, h);
+      const mid = h / 2;
+      for (let i = 0; i < w; i++) {
+        let max = 0;
+        for (let j = 0; j < step; j++) {
+          const v = Math.abs(channel[i * step + j] || 0);
+          if (v > max) max = v;
+        }
+        const barH = max * mid * 0.85;
+        ctx.fillStyle = "#8b5cf6";
+        ctx.globalAlpha = 0.7;
+        ctx.fillRect(i, mid - barH, 1, barH * 2);
+      }
+      ctx.globalAlpha = 1;
+      actx.close();
+    } catch (e) {}
+  }
+
   // ── Waveform ──
   async function drawWaveform(entry) {
     const canvas = entry.canvas;
@@ -563,11 +598,33 @@
     $$(".pitch-results").forEach(g => {
       g.classList.toggle("active", g.dataset.song === song);
     });
+
+    // Draw waveforms for pitch group when activated (deferred to avoid connection competition)
+    if (song.endsWith("_pitch")) {
+      const pitchDiv = document.querySelector('.pitch-results[data-song="' + CSS.escape(song) + '"]');
+      if (pitchDiv) {
+        pitchDiv.querySelectorAll("canvas.waveform-canvas").forEach(canvas => {
+          // Only draw if still has placeholder
+          const ctx = canvas.getContext("2d");
+          const imgData = ctx.getImageData(0, 0, 1, 1);
+          if (imgData.data[3] < 10) {
+            // Find the audio element sibling and draw its waveform
+            const row = canvas.closest(".stem-row");
+            if (row) {
+              const audio = row.querySelector("audio");
+              if (audio && audio.src) {
+                drawWaveformFromAudio(canvas, audio.src);
+              }
+            }
+          }
+        });
+      }
+    }
   }
 
   // ── Audio: Per-Group ──
   function playGroup(song) {
-    if (state.activeGroup !== song) return;
+    if (state.activeGroup !== song) activateGroup(song);
     state.audioElements.filter((s) => s.song === song).forEach((s) => {
       if (!(s.audio.paused && s.audio.currentTime > 0)) s.audio.currentTime = 0;
       s.audio.play().catch(() => {});
@@ -575,7 +632,7 @@
   }
 
   function pauseGroup(song) {
-    if (state.activeGroup !== song) return;
+    if (state.activeGroup !== song) activateGroup(song);
     state.audioElements.filter((s) => s.song === song).forEach((s) => s.audio.pause());
   }
 
@@ -589,7 +646,7 @@
   }
 
   function seekGroup(song, time) {
-    if (state.activeGroup !== song) return;
+    if (state.activeGroup !== song) activateGroup(song);
     state.audioElements.filter((s) => s.song === song).forEach((s) => { s.audio.currentTime = time; });
   }
 
@@ -832,7 +889,8 @@
       pSeek.addEventListener("input", () => {
         pSeeking = true;
         const t = parseInt(pSeek.value) / 1000;
-        if (state.activeGroup === song + "_pitch") pitchAudioElements.forEach(e => { e.audio.currentTime = t; });
+        if (state.activeGroup !== song + "_pitch") activateGroup(song + "_pitch");
+        pitchAudioElements.forEach(e => { e.audio.currentTime = t; });
         pTime.textContent = fmtTimeSec(t) + " / " + fmtTimeSec((parseInt(pSeek.max) || 1000) / 1000);
       });
       pSeek.addEventListener("change", () => { pSeeking = false; });
