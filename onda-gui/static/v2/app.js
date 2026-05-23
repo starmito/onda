@@ -468,8 +468,14 @@
       ctx.globalAlpha = 1;
       canvas.dataset.wfState = "loaded";
     } catch (e) {
-      ctx.fillStyle = "rgba(255,255,255,0.05)";
+      // Error indicator — visible so user knows something went wrong
+      ctx.fillStyle = "rgba(255,0,0,0.08)";
       ctx.fillRect(0, 0, w, h);
+      ctx.fillStyle = "rgba(255,100,100,0.5)";
+      ctx.font = "8px monospace";
+      ctx.textAlign = "center";
+      ctx.fillText("err", w/2, h/2+3);
+      ctx.textAlign = "start";
       canvas.dataset.wfState = "error";
     }
   }
@@ -670,6 +676,11 @@
               const nameEl = row.querySelector(".stem-name");
               const sName = nameEl ? nameEl.textContent : "";
               if (audio && audio.src) {
+                // Lazy-load audio now that group is active
+                if (audio.preload === "none" || audio.readyState === 0) {
+                  audio.preload = "auto";
+                  audio.load();
+                }
                 drawWaveformFromAudio(canvas, audio.src, stemColor(sName));
               }
             }
@@ -924,7 +935,7 @@
           '<span class="stem-vol">100%</span>' +
           '<a class="stem-dl" href="' + f.url + '?cb=' + Date.now() + '" download>⬇</a>' +
           '<button class="stem-delete" data-file="' + escAttr(f.url) + '" title="Delete">✕</button>' +
-          '<audio preload="auto" src="' + f.url + '?cb=' + Date.now() + '" crossorigin="anonymous"></audio>';
+          '<audio preload="none" src="' + f.url + '?cb=' + Date.now() + '" crossorigin="anonymous"></audio>';
 
         pitchDiv.appendChild(row);
 
