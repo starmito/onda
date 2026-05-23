@@ -432,34 +432,39 @@
     const ctx = canvas.getContext("2d");
     const w = canvas.width, h = canvas.height;
     const fillColor = color || "#8b5cf6";
+
+    // Loading indicator
     ctx.fillStyle = "rgba(255,255,255,0.03)";
     ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = "rgba(255,255,255,0.15)";
+    ctx.font = "10px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("...", w/2, h/2+4);
+    ctx.textAlign = "start";
+
     try {
-      const res = await fetch(url);
-      if (!res.ok) return;
-      const buf = await res.arrayBuffer();
-      const actx = new (window.AudioContext || window.webkitAudioContext)();
-      const audioBuf = await actx.decodeAudioData(buf);
-      const channel = audioBuf.getChannelData(0);
-      const step = Math.floor(channel.length / w);
+      const peaksUrl = "/api/peaks?file=" + encodeURIComponent(url) + "&n=" + w;
+      const res = await fetch(peaksUrl);
+      if (!res.ok) throw new Error("peaks fetch failed");
+      const data = await res.json();
+      const peaks = data.peaks || [];
+      if (!peaks.length) throw new Error("no peaks");
+
       ctx.clearRect(0, 0, w, h);
       ctx.fillStyle = "rgba(255,255,255,0.03)";
       ctx.fillRect(0, 0, w, h);
       const mid = h / 2;
-      for (let i = 0; i < w; i++) {
-        let max = 0;
-        for (let j = 0; j < step; j++) {
-          const v = Math.abs(channel[i * step + j] || 0);
-          if (v > max) max = v;
-        }
-        const barH = max * mid * 0.85;
+      for (let i = 0; i < w && i < peaks.length; i++) {
+        const barH = peaks[i] * mid * 0.85;
         ctx.fillStyle = fillColor;
         ctx.globalAlpha = 0.7;
         ctx.fillRect(i, mid - barH, 1, barH * 2);
       }
       ctx.globalAlpha = 1;
-      actx.close();
-    } catch (e) {}
+    } catch (e) {
+      ctx.fillStyle = "rgba(255,255,255,0.05)";
+      ctx.fillRect(0, 0, w, h);
+    }
   }
 
   // ── Waveform ──
@@ -468,50 +473,57 @@
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     const color = stemColor(entry.name);
-
-    // Draw placeholder
     const w = canvas.width, h = canvas.height;
-    const fillColor = color || "#8b5cf6";
+
+    // Loading indicator
     ctx.fillStyle = "rgba(255,255,255,0.03)";
     ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = "rgba(255,255,255,0.15)";
+    ctx.font = "10px monospace";
+    ctx.textAlign = "center";
+    ctx.fillText("...", w/2, h/2+4);
+    ctx.textAlign = "start";
 
     try {
-      const res = await fetch(entry.url);
-      const buf = await res.arrayBuffer();
-      const actx = new (window.AudioContext || window.webkitAudioContext)();
-      const audioBuf = await actx.decodeAudioData(buf);
+      const peaksUrl = "/api/peaks?file=" + encodeURIComponent(entry.url) + "&n=" + w;
+      const res = await fetch(peaksUrl);
+      if (!res.ok) throw new Error("peaks fetch failed");
+      const data = await res.json();
+      const peaks = data.peaks || [];
+      if (!peaks.length) throw new Error("no peaks");
 
-      // Get peaks
-      const channel = audioBuf.getChannelData(0);
-      const step = Math.floor(channel.length / w);
-      const peaks = [];
-      for (let i = 0; i < w; i++) {
-        let max = 0;
-        for (let j = 0; j < step; j++) {
-          const v = Math.abs(channel[i * step + j] || 0);
-          if (v > max) max = v;
-        }
-        peaks.push(max);
-      }
-      actx.close();
-
-      // Store duration for seek slider
-      entry.duration = audioBuf.duration;
-
-      // Draw
+      // Draw peaks
       ctx.clearRect(0, 0, w, h);
       ctx.fillStyle = "rgba(255,255,255,0.03)";
       ctx.fillRect(0, 0, w, h);
       const mid = h / 2;
-      for (let i = 0; i < w; i++) {
+      for (let i = 0; i < w && i < peaks.length; i++) {
         const barH = peaks[i] * mid * 0.85;
         ctx.fillStyle = color;
         ctx.globalAlpha = 0.7;
         ctx.fillRect(i, mid - barH, 1, barH * 2);
       }
       ctx.globalAlpha = 1;
+
+      // Get duration from the audio element for seek slider
+      if (entry.audio) {
+        if (entry.audio.duration && isFinite(entry.audio.duration)) {
+          entry.duration = entry.audio.duration;
+        } else {
+          // Wait for metadata
+          await new Promise((resolve) => {
+            const onDur = () => { entry.duration = entry.audio.duration; resolve(); };
+            if (entry.audio.duration && isFinite(entry.audio.duration)) {
+              entry.duration = entry.audio.duration; resolve();
+            } else {
+              entry.audio.addEventListener("durationchange", onDur, {once: true});
+              entry.audio.addEventListener("loadedmetadata", onDur, {once: true});
+              setTimeout(resolve, 3000); // fallback
+            }
+          });
+        }
+      }
     } catch (e) {
-      // Draw error placeholder
       ctx.fillStyle = "rgba(255,255,255,0.05)";
       ctx.fillRect(0, 0, w, h);
     }
@@ -874,9 +886,17 @@
         const entry = {
           name: f.name, song: song + "_pitch", audio: audio,
           muted: false, solo: false, url: f.url, vol: 100,
-          canvas: row.querySelector(".waveform-canvas"),
+          canvas: row.querySelector(".waveform-canvas"), duration: 0,
         };
         pitchAudioElements.push(entry);
+
+        // Track duration for seek slider
+        audio.addEventListener("durationchange", () => {
+          if (audio.duration && isFinite(audio.duration)) entry.duration = audio.duration;
+        });
+        audio.addEventListener("loadedmetadata", () => {
+          if (audio.duration && isFinite(audio.duration)) entry.duration = audio.duration;
+        });
 
         // Placeholder waveform — no fetch to avoid competing with <audio> loading
         const pctx = entry.canvas.getContext("2d");

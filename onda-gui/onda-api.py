@@ -11,8 +11,10 @@ Fixes from v1 (feature/mini-daw):
 
 import os
 import json
+import struct
 import subprocess
 import urllib.parse
+import wave
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from pathlib import Path
 
@@ -46,6 +48,8 @@ class OndaAPI(BaseHTTPRequestHandler):
                 self._json(self._output_files(qs))
             elif path == "/api/health":
                 self._json({"ok": True})
+            elif path == "/api/peaks":
+                self._json(self._peaks(qs))
             elif path == "/api/delete":
                 self._json(self._delete(qs))
             else:
@@ -292,6 +296,59 @@ class OndaAPI(BaseHTTPRequestHandler):
                 if f.is_file():
                     f.unlink()
         return {"success": True}
+
+    def _peaks(self, qs):
+        """Generate waveform peak data for a WAV file. Returns JSON array of ~400 floats."""
+        file_param = qs.get("file", [""])[0]
+        if not file_param:
+            return {"peaks": [], "error": "Missing file param"}
+
+        # Resolve path
+        if file_param.startswith("/output/"):
+            rel = file_param[len("/output/"):]
+        elif file_param.startswith("output/"):
+            rel = file_param[len("output/"):]
+        else:
+            rel = file_param
+        target = OUTPUT_DIR / rel
+
+        if not target.exists() or not target.is_file():
+            return {"peaks": [], "error": "File not found"}
+
+        num_peaks = int(qs.get("n", ["400"])[0])
+        try:
+            with wave.open(str(target), 'rb') as wf:
+                nframes = wf.getnframes()
+                nchannels = wf.getnchannels()
+                sampwidth = wf.getsampwidth()
+                frames = wf.readframes(nframes)
+
+            # Decode based on sample width
+            if sampwidth == 2:
+                fmt = f'{len(frames)//2}h'
+                samples = struct.unpack(fmt, frames)
+            elif sampwidth == 4:
+                fmt = f'{len(frames)//4}i'
+                samples = struct.unpack(fmt, frames)
+            else:
+                return {"peaks": [], "error": f"Unsupported sample width: {sampwidth}"}
+
+            # If stereo, take left channel (every other sample)
+            if nchannels == 2:
+                samples = samples[::2]
+
+            # Compute peaks
+            step = max(1, len(samples) // num_peaks)
+            peaks = []
+            abs_max = 32768.0 if sampwidth == 2 else 2147483648.0
+            for i in range(0, len(samples), step):
+                chunk = samples[i:i+step]
+                peak = max(abs(s) for s in chunk) / abs_max
+                peaks.append(round(peak, 4))
+
+            return {"peaks": peaks[:num_peaks]}
+        except Exception as e:
+            return {"peaks": [], "error": str(e)}
 
     def _delete(self, qs):
         """Delete stem file or song directory via docker exec (permissions)."""
