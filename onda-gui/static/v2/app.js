@@ -6,7 +6,6 @@
 
   const state = {
     queue: [],
-    audioElements: [],    // kept for waveform/duration tracking
     stems: [],            // Web Audio API: {name, song, url, canvas, muted, solo, vol, duration, buffer, gainNode}
     currentJob: null,
     activeGroup: null,
