@@ -583,7 +583,11 @@
       if (prevIsPitch) {
         // Stop pitch audio
         const prevDiv = document.querySelector('.pitch-results[data-song="' + CSS.escape(state.activeGroup) + '"]');
-        if (prevDiv) prevDiv.querySelectorAll("audio").forEach(a => { a.pause(); a.currentTime = 0; });
+        if (prevDiv) prevDiv.querySelectorAll("audio").forEach(a => {
+          a.pause();
+          a.currentTime = 0;
+          if (a.src) { a.dataset.origSrc = a.src; a.src = ""; }
+        });
       } else {
         stopGroup(state.activeGroup);
       }
@@ -594,9 +598,12 @@
     $$(".song-group").forEach(g => {
       const isActive = g.dataset.song === song;
       g.classList.toggle("active", isActive);
-      // Draw waveforms for main group when activated
+      // Restore audio src + draw waveforms for main group when activated
       if (isActive && !song.endsWith("_pitch")) {
         const stems = state.audioElements.filter(s => s.song === song);
+        stems.forEach(s => {
+          if (!s.audio.src && s.url) { s.audio.src = s.url; s.audio.load(); }
+        });
         stems.forEach(s => {
           if (s.canvas) {
             const ctx = s.canvas.getContext("2d");
@@ -617,10 +624,14 @@
       g.classList.toggle("active", g.dataset.song === song);
     });
 
-    // Draw waveforms for pitch group when activated (deferred to avoid connection competition)
+    // Restore audio src + draw waveforms for pitch group when activated
     if (song.endsWith("_pitch")) {
       const pitchDiv = document.querySelector('.pitch-results[data-song="' + CSS.escape(song) + '"]');
       if (pitchDiv) {
+        // Restore audio connections
+        pitchDiv.querySelectorAll("audio").forEach(a => {
+          if (!a.src && a.dataset.origSrc) { a.src = a.dataset.origSrc; a.load(); }
+        });
         pitchDiv.querySelectorAll("canvas.waveform-canvas").forEach(canvas => {
           // Only draw if still has placeholder
           const ctx = canvas.getContext("2d");
@@ -655,11 +666,19 @@
   }
 
   function stopGroup(song) {
-    state.audioElements.filter((s) => s.song === song).forEach((s) => { s.audio.pause(); s.audio.currentTime = 0; });
+    state.audioElements.filter((s) => s.song === song).forEach((s) => {
+      s.audio.pause();
+      s.audio.currentTime = 0;
+      s.audio.src = "";  // Abort HTTP connections
+    });
     // Also stop pitch group with same song
     const pitchDiv = document.querySelector('.pitch-results[data-song="' + CSS.escape(song) + '"]');
     if (pitchDiv) {
-      pitchDiv.querySelectorAll("audio").forEach(a => { a.pause(); a.currentTime = 0; });
+      pitchDiv.querySelectorAll("audio").forEach(a => {
+        a.pause();
+        a.currentTime = 0;
+        if (a.src) { a.dataset.origSrc = a.src; a.src = ""; }
+      });
     }
   }
 
