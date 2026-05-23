@@ -267,9 +267,17 @@ select {
   margin-left: 20px;
   margin-top: 18px;
   padding: 12px;
-  border-left: 2px solid var(--accent);
+  border: 2px solid transparent;
   background: rgba(124,58,237,0.04);
-  border-radius: 0 var(--radius) var(--radius) 0;
+  border-radius: var(--radius);
+  transition: border-color 0.2s;
+  cursor: pointer;
+}
+.pitch-results.active {
+  border-color: var(--accent);
+}
+.pitch-results:hover:not(.active) {
+  border-color: var(--border);
 }
 .pitch-header {
   display: flex;
@@ -381,10 +389,20 @@ select {
 /* ── Results ── */
 .song-group {
   margin-bottom: 16px;
-  padding-bottom: 8px;
-  border-bottom: 1px solid var(--border);
+  padding: 8px;
+  border: 2px solid transparent;
+  border-radius: var(--radius);
+  transition: border-color 0.2s;
+  cursor: pointer;
 }
-.song-group:last-child { border-bottom: none; margin-bottom: 0; }
+.song-group.active {
+  border-color: var(--accent);
+  background: rgba(124,58,237,0.03);
+}
+.song-group:hover:not(.active) {
+  border-color: var(--border);
+}
+.song-group:last-child { margin-bottom: 0; }
 .song-title {
   font-size: 13px;
   font-weight: 600;
