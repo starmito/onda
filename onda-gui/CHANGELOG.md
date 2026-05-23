@@ -5,6 +5,18 @@ Todas las modificaciones notables de este proyecto se documentan en este archivo
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.1.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/lang/es/).
 
+## [1.3.9-alpha] - 2025-05-23
+
+### Añadido
+- Endpoint `/api/peaks` para generar waveform en servidor (~2 KB en vez de 30 MB)
+- Indicador de carga `...` en waveforms mientras se generan
+- Fase de desarrollo en número de versión (`-alpha`, `-beta`, `-rc`, `-stable`)
+
+### Corregido
+- Waveforms tardaban ~30s en aparecer (descargaban el WAV completo)
+- Seek slider del grupo pitch mostraba 0:00 / 0:00 (faltaba tracking de duration)
+- Grupo pitch no reproducía al reactivar (`src=""` residual en activateGroup)
+
 ## [1.3.9] - 2025-05-23
 
 ### Corregido
