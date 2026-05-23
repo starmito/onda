@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Onda v2 — Audio Separator</title>
+<link rel="stylesheet" href="dark-theme.css">
+</head>
+<body>
+<div id="app">
+  <!-- Upload Area -->
+  <div id="drop-zone">
+    <div class="drop-icon">🎵</div>
+    <div class="drop-text">Drop audio files here or click to browse</div>
+    <div class="drop-hint">WAV, MP3, FLAC, OGG, AAC, M4A — up to 500 MB</div>
+    <input type="file" id="file-picker" accept=".wav,.mp3,.flac,.ogg,.aac,.m4a" multiple hidden>
+  </div>
+
+  <!-- Queue -->
+  <div class="panel" id="queue-panel" style="display:none">
+    <div class="panel-header">
+      <h2>📋 Queue</h2>
+      <button id="clear-queue-btn" class="btn-sm btn-danger" title="Clear all files">🗑 Clear All</button>
+    </div>
+    <div id="queue-list"></div>
+    <button id="btn-add-more" class="btn-secondary" style="display:none">＋ Add More Files</button>
+  </div>
+
+  <!-- Pipeline Config -->
+  <div class="panel">
+    <h2>⚙️ Pipeline</h2>
+    <div class="step-row">
+      <label class="step-check"><input type="checkbox" id="chk-viperx" checked onchange="toggleViperx()"> Viperx</label>
+      <select id="sel-viperx-keep">
+        <option value="both">Both</option>
+        <option value="vocals">Vocals</option>
+        <option value="instrumental">Instrumental</option>
+      </select>
+      <button class="step-run" onclick="runStep('viperx')" title="Run only Viperx">▶</button>
+    </div>
+    <div class="step-row">
+      <label class="step-check"><input type="checkbox" id="chk-demucs" checked onchange="toggleDemucs()"> HTDemucs</label>
+      <div class="keep-group" id="demucs-keep-group">
+        <label><input type="checkbox" value="drums" checked> Drums</label>
+        <label><input type="checkbox" value="bass" checked> Bass</label>
+        <label><input type="checkbox" value="other" checked> Other</label>
+        <label><input type="checkbox" value="vocals" checked> Vocals</label>
+      </div>
+      <button class="step-run" onclick="runStep('demucs')" title="Run only Demucs">▶</button>
+    </div>
+    <div class="step-row">
+      <label class="step-check"><input type="checkbox" id="chk-rubberband" onchange="toggleRubberband()"> Rubberband</label>
+      <div class="pitch-group" id="rubberband-group">
+        <span>-12</span>
+        <input type="range" id="pitch-slider" min="-12" max="12" value="0" step="1">
+        <span>+12</span>
+        <span id="pitch-label" class="pitch-val">0 st</span>
+      </div>
+      <button class="step-run" onclick="runStep('rubberband')" title="Run only Rubberband">▶</button>
+    </div>
+    <!-- START button — full width inside pipeline panel -->
+    <button id="start-btn" class="btn-primary btn-full" disabled>▶ START Pipeline</button>
+    <div id="progress-bar-container" style="display:none">
+      <div id="progress-bar"><div id="progress-fill"></div></div>
+      <div id="progress-text">Processing...</div>
+    </div>
+  </div>
+
+  <!-- Results -->
+  <div class="panel" id="results-panel" style="display:none">
+    <div class="panel-header">
+      <h2>🎧 Results</h2>
+      <button id="clear-results-btn" class="btn-sm btn-danger" title="Clear all results">🗑 Clear All</button>
+    </div>
+    <div id="results-content"></div>
+  </div>
+
+  <!-- Empty state -->
+  <div id="results-empty" class="panel">
+    <h2>🎧 Results</h2>
+    <div class="empty">Run the pipeline to see stems here</div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
