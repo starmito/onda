@@ -675,13 +675,17 @@
               const audio = row.querySelector("audio");
               const nameEl = row.querySelector(".stem-name");
               const sName = nameEl ? nameEl.textContent : "";
-              if (audio && audio.src) {
+              if (audio) {
                 // Lazy-load audio now that group is active
                 if (audio.preload === "none" || audio.readyState === 0) {
                   audio.preload = "auto";
                   audio.load();
                 }
-                drawWaveformFromAudio(canvas, audio.src, stemColor(sName));
+                // Use raw src attribute to avoid double-encoding
+                const rawSrc = audio.getAttribute("src");
+                if (rawSrc) {
+                  drawWaveformFromAudio(canvas, rawSrc, stemColor(sName));
+                }
               }
             }
           }
