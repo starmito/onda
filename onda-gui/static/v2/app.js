@@ -320,31 +320,46 @@
         // Draw waveform async
         drawWaveform(entry);
 
-        // Sync seek slider with first audio
+        // Sync seek slider — use waveform duration as primary source
         if (globalIdx === state.audioElements.length - stems.length) {
+          // Try audio element first, fall back to waveform duration
+          const tryInitSlider = () => {
+            const dur = audio.duration;
+            if (dur && !isNaN(dur) && dur > 0) {
+              seekSlider.max = Math.floor(dur * 1000);
+              seekTime.textContent = "0:00 / " + fmtTimeSec(dur);
+              return true;
+            }
+            // Fallback: check waveform durations from all stems in group
+            const wfDur = state.audioElements
+              .filter((s) => s.song === song)
+              .reduce((max, s) => Math.max(max, s.duration || 0), 0);
+            if (wfDur > 0) {
+              seekSlider.max = Math.floor(wfDur * 1000);
+              seekTime.textContent = "0:00 / " + fmtTimeSec(wfDur);
+              return true;
+            }
+            return false;
+          };
+
           audio.addEventListener("timeupdate", () => {
             if (isSeeking) return;
-            const dur = audio.duration;
+            const dur = audio.duration || entry.duration;
             if (!dur || isNaN(dur)) return;
             seekSlider.max = Math.floor(dur * 1000);
             seekSlider.value = Math.floor(audio.currentTime * 1000);
             seekTime.textContent = fmtTimeSec(audio.currentTime) + " / " + fmtTimeSec(dur);
           });
 
-          const initSlider = () => {
-            const dur = audio.duration;
-            if (dur && !isNaN(dur) && dur > 0) {
-              seekSlider.max = Math.floor(dur * 1000);
-              seekTime.textContent = "0:00 / " + fmtTimeSec(dur);
-            }
-          };
-          audio.addEventListener("loadedmetadata", initSlider);
-          audio.addEventListener("durationchange", initSlider);
-          // Fallback: force load if metadata not available
-          if (!audio.duration || isNaN(audio.duration)) {
-            audio.load();
-          } else {
-            initSlider();
+          audio.addEventListener("loadedmetadata", tryInitSlider);
+          audio.addEventListener("durationchange", tryInitSlider);
+
+          if (!tryInitSlider()) {
+            // Retry when waveform loads (every 500ms, up to 10s)
+            let retries = 0;
+            const retry = setInterval(() => {
+              if (tryInitSlider() || ++retries > 20) clearInterval(retry);
+            }, 500);
           }
         }
 
@@ -400,6 +415,9 @@
       }
       actx.close();
 
+      // Store duration for seek slider
+      entry.duration = audioBuf.duration;
+
       // Draw
       ctx.clearRect(0, 0, w, h);
       ctx.fillStyle = "rgba(255,255,255,0.03)";
@@ -436,9 +454,22 @@
     const idx = parseInt(btn.dataset.idx);
     if (isNaN(idx)) return;
 
-    if (btn.classList.contains("mute")) toggleMute(idx);
-    else if (btn.classList.contains("solo")) toggleSolo(idx);
-    else if (btn.classList.contains("stem-delete")) deleteStem(idx, btn.dataset.file);
+    if (btn.classList.contains("mute")) {
+      toggleMute(idx);
+      // Update button directly from DOM (no index mismatch)
+      btn.classList.toggle("active", state.audioElements[idx]?.muted);
+    } else if (btn.classList.contains("solo")) {
+      toggleSolo(idx);
+      // Update all solo buttons via DOM
+      $$("#results-content .stem-row").forEach((row, i) => {
+        const s = state.audioElements[i];
+        if (!s) return;
+        row.querySelector(".solo").classList.toggle("active", s.solo);
+        row.querySelector(".mute").classList.toggle("active", s.muted);
+      });
+    } else if (btn.classList.contains("stem-delete")) {
+      deleteStem(idx, btn.dataset.file);
+    }
   }
 
   function onResultsInput(e) {

@@ -146,7 +146,7 @@ class OndaAPI(BaseHTTPRequestHandler):
 
         # Collect dirs first, then files. Capped at 100 total.
         dirs = sorted(
-            [d for d in OUTPUT_DIR.iterdir() if d.is_dir()],
+            [d for d in OUTPUT_DIR.iterdir() if d.is_dir() and not d.name.startswith("_")),
             key=lambda d: d.stat().st_mtime, reverse=True
         )
         count = 0
