@@ -972,3 +972,77 @@ input[type="range"]::-webkit-slider-thumb:hover {
 .btn-add-more.hidden {
   display: none;
 }
+
+/* ── Tone checkbox in stem rows ── */
+.tone-cb {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+  margin-right: 2px;
+}
+
+/* ── Pitch controls per song ── */
+.pitch-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: var(--bg-hover);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+}
+.pitch-label {
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.pitch-slider {
+  flex: 1;
+  max-width: 200px;
+}
+.pitch-val {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent-glow);
+  min-width: 45px;
+  text-align: center;
+}
+.pitch-apply {
+  flex-shrink: 0;
+}
+.pitch-status {
+  font-size: 11px;
+  color: var(--text-muted);
+  min-width: 70px;
+}
+
+/* ── Pitch-shifted results (indented) ── */
+.pitch-results {
+  margin-left: 20px;
+  margin-top: 10px;
+  padding: 10px;
+  border-left: 2px solid var(--accent);
+  background: rgba(139,92,246,0.04);
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+.pitch-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--accent-glow);
+}
+.pitch-header .btn-sm {
+  font-size: 11px;
+  padding: 2px 8px;
+}
+.pitch-stem {
+  opacity: 0.9;
+}
+.pitch-stem .waveform-canvas {
+  opacity: 0.7;
+}

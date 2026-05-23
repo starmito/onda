@@ -65,6 +65,8 @@ class OndaAPI(BaseHTTPRequestHandler):
                 self._json(self._upload(body))
             elif path == "/api/clear":
                 self._json(self._clear())
+            elif path == "/api/rubberband":
+                self._json(self._rubberband(body))
             elif path == "/api/delete":
                 qs = urllib.parse.parse_qs(self.path.split("?")[1] if "?" in self.path else "")
                 self._json(self._delete(qs))
@@ -171,8 +173,6 @@ class OndaAPI(BaseHTTPRequestHandler):
         input_file = data.get("input_file", [""])[0]
         viperx = data.get("viperx", ["false"])[0] in ("true", "on")
         demucs = data.get("demucs", ["false"])[0] in ("true", "on")
-        rubberband = data.get("rubberband", ["false"])[0] in ("true", "on")
-        pitch = data.get("pitch", ["0"])[0]
         viperx_keep = data.get("viperx_keep", ["both"])[0]
         demucs_keep = data.get("demucs_keep", ["all"])[0]
 
@@ -193,10 +193,6 @@ class OndaAPI(BaseHTTPRequestHandler):
             args += ["--demucs"]
             if demucs_keep:
                 args += ["--demucs-keep", demucs_keep]
-        if rubberband:
-            args += ["--rubberband"]
-            if pitch and pitch != "0":
-                args += ["--pitch", pitch]
         args.append(input_path)
 
         cmd = ["docker", "exec", "onda", "/app/pipeline.sh"] + args
@@ -213,6 +209,66 @@ class OndaAPI(BaseHTTPRequestHandler):
             return {"success": False, "error": "docker not found"}
         except Exception as e:
             return {"success": False, "error": str(e)}
+
+    def _rubberband(self, body):
+        """Pitch-shift selected stems via rubberband. Returns new file URLs."""
+        try:
+            req = json.loads(body.decode())
+        except (json.JSONDecodeError, UnicodeDecodeError):
+            return {"success": False, "error": "Invalid JSON"}
+
+        stems = req.get("stems", [])
+        pitch = int(req.get("pitch", 0))
+        if not stems:
+            return {"success": False, "error": "No stems provided"}
+
+        suffix = f" (+{pitch})" if pitch >= 0 else f" ({pitch})"
+        new_files = []
+
+        for item in stems:
+            url = item.get("url", "")
+            do_pitch = item.get("pitch", False)
+
+            # Resolve path: /output/Song/stem.wav -> /output/Song/stem (+N).wav
+            if url.startswith("/output/"):
+                rel = url[len("/output/"):]
+            elif url.startswith("output/"):
+                rel = url[len("output/"):]
+            else:
+                rel = url
+
+            rel_path = Path(rel)
+            song_dir = rel_path.parent
+            stem_name = rel_path.stem
+            ext = rel_path.suffix
+            new_name = f"{stem_name}{suffix}{ext}"
+            new_rel = str(song_dir / new_name) if str(song_dir) != "." else new_name
+
+            src_path = f"/output/{rel}"
+            dst_path = f"/output/{new_rel}"
+
+            try:
+                if do_pitch:
+                    ret, stdout, stderr = self._docker_exec(
+                        "rubberband", "--pitch", str(pitch), "--quiet",
+                        src_path, dst_path
+                    )
+                    if ret != 0:
+                        return {"success": False, "error": f"Rubberband failed on {rel}: {stderr.strip()}"}
+                else:
+                    ret, stdout, stderr = self._docker_exec("cp", src_path, dst_path)
+                    if ret != 0:
+                        return {"success": False, "error": f"Copy failed on {rel}: {stderr.strip()}"}
+
+                new_files.append({
+                    "name": new_name,
+                    "url": f"/output/{new_rel}",
+                    "pitch": pitch if do_pitch else 0,
+                })
+            except Exception as e:
+                return {"success": False, "error": f"Failed on {rel}: {str(e)}"}
+
+        return {"success": True, "files": new_files}
 
     def _upload(self, body):
         filename = self.headers.get("X-Filename", "").strip()
