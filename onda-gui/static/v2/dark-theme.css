@@ -350,6 +350,35 @@ select {
 }
 .stem-delete:hover { color: var(--red); }
 
+/* Seek slider per group */
+.seek-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+  padding: 2px 0;
+}
+.seek-slider {
+  flex: 1;
+  accent-color: var(--accent);
+  height: 4px;
+  cursor: pointer;
+}
+.seek-time {
+  font-size: 11px;
+  color: var(--dim);
+  min-width: 80px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Waveform canvas per stem */
+.waveform-canvas {
+  border-radius: 3px;
+  flex-shrink: 0;
+  background: rgba(255,255,255,0.02);
+}
+
 .empty {
   text-align: center;
   color: var(--dimmer);

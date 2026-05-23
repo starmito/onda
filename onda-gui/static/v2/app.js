@@ -1,6 +1,5 @@
-// Onda v2 — app.js v4
-// Fixes: removeFromQueue deletes file, per-group play/pause/stop,
-//        mute/solo working, pause→play resumes, no listener leak
+// Onda v2 — app.js v0.1.0
+// + Seek slider per group + waveform canvas per stem
 
 (function () {
   "use strict";
@@ -25,6 +24,17 @@
     return "🎵";
   }
 
+  function stemColor(name) {
+    const n = name.toLowerCase();
+    if (n.includes("drums")) return "#ef4444";
+    if (n.includes("bass")) return "#3b82f6";
+    if (n.includes("other")) return "#22c55e";
+    if (n.includes("vocals")) return "#f59e0b";
+    if (n.includes("instrumental")) return "#8b5cf6";
+    if (n.includes("viperx")) return "#ec4899";
+    return "#888";
+  }
+
   // ── Init ──
   function init() {
     const dz = $("#drop-zone");
@@ -44,7 +54,6 @@
     $("#btn-add-more").addEventListener("click", (e) => { e.stopPropagation(); $("#file-picker").click(); });
     $("#pitch-slider").addEventListener("input", updatePitchLabel);
 
-    // Results delegation — only attach ONCE to #results-panel (never innerHTML'd)
     const rp = $("#results-panel");
     rp.addEventListener("click", onResultsClick);
     rp.addEventListener("input", onResultsInput);
@@ -61,26 +70,19 @@
       state.queue.push({ name: file.name, checked: true, status: "waiting", progress: 0 });
       try {
         const res = await fetch("/api/upload", {
-          method: "POST",
-          headers: { "X-Filename": file.name },
-          body: file,
+          method: "POST", headers: { "X-Filename": file.name }, body: file,
         });
         const data = await res.json();
         if (!data.success) toast("Upload failed: " + file.name, "error");
-      } catch (e) {
-        toast("Upload error: " + file.name, "error");
-      }
+      } catch (e) { toast("Upload error: " + file.name, "error"); }
     }
     renderQueue();
     toast("Uploaded " + fileList.length + " file(s)", "success");
   }
 
   async function clearQueue() {
-    state.queue = [];
-    state.currentJob = null;
-    stopPolling();
-    renderQueue();
-    hideResults();
+    state.queue = []; state.currentJob = null; stopPolling();
+    renderQueue(); hideResults();
     try { await fetch("/api/clear", { method: "POST" }); } catch (e) {}
     toast("Queue cleared", "success");
   }
@@ -89,7 +91,6 @@
     const f = state.queue[idx];
     if (!f) return;
     state.queue.splice(idx, 1);
-    // Also delete from /input
     try { await fetch("/api/delete?file=" + encodeURIComponent(f.name)); } catch (e) {}
     renderQueue();
   }
@@ -102,26 +103,17 @@
     const rOn = forStep === "rubberband" || (!forStep && $("#chk-rubberband").checked);
     if (forStep && !vOn && !dOn && !rOn) return "";
 
-    if (vOn) {
-      flags.push("viperx=on");
-      flags.push("viperx_keep=" + $("#sel-viperx-keep").value);
-    }
+    if (vOn) { flags.push("viperx=on"); flags.push("viperx_keep=" + $("#sel-viperx-keep").value); }
     if (dOn) {
       flags.push("demucs=on");
-      const keeps = [];
-      $$("#demucs-keep-group input:checked").forEach((c) => keeps.push(c.value));
+      const keeps = []; $$("#demucs-keep-group input:checked").forEach((c) => keeps.push(c.value));
       flags.push("demucs_keep=" + (keeps.length ? keeps.join(",") : "all"));
     }
-    if (rOn) {
-      flags.push("rubberband=on");
-      flags.push("pitch=" + $("#pitch-slider").value);
-    }
+    if (rOn) { flags.push("rubberband=on"); flags.push("pitch=" + $("#pitch-slider").value); }
     return flags.join("&");
   }
 
-  function getCheckedFiles() {
-    return state.queue.filter((f) => f.checked && f.status !== "done");
-  }
+  function getCheckedFiles() { return state.queue.filter((f) => f.checked && f.status !== "done"); }
 
   function toggleViperx() { $("#sel-viperx-keep").disabled = !$("#chk-viperx").checked; }
   function toggleDemucs() {
@@ -141,55 +133,29 @@
 
   // ── Queue ──
   function renderQueue() {
-    const panel = $("#queue-panel");
-    const list = $("#queue-list");
-    const addBtn = $("#btn-add-more");
-
-    if (state.queue.length === 0) {
-      panel.style.display = "none";
-      addBtn.style.display = "none";
-      enableStart();
-      return;
-    }
-    panel.style.display = "";
-    addBtn.style.display = "block";
-    list.innerHTML = "";
+    const panel = $("#queue-panel"), list = $("#queue-list"), addBtn = $("#btn-add-more");
+    if (state.queue.length === 0) { panel.style.display = "none"; addBtn.style.display = "none"; enableStart(); return; }
+    panel.style.display = ""; addBtn.style.display = "block"; list.innerHTML = "";
 
     state.queue.forEach((f, i) => {
-      const row = document.createElement("div");
-      row.className = "queue-row";
+      const row = document.createElement("div"); row.className = "queue-row";
       const pct = f.progress || 0;
       const miniBar = f.status === "processing"
-        ? '<div class="queue-progress"><div class="queue-progress-fill" style="width:' + pct + '%"></div></div>'
-        : "";
-
+        ? '<div class="queue-progress"><div class="queue-progress-fill" style="width:' + pct + '%"></div></div>' : "";
       row.innerHTML =
         '<input type="checkbox" ' + (f.checked ? "checked" : "") + ' data-idx="' + i + '">' +
-        '<span class="queue-name">' + esc(f.name) + "</span>" +
-        miniBar +
+        '<span class="queue-name">' + esc(f.name) + "</span>" + miniBar +
         '<span class="queue-status ' + f.status + '">' + statusLabel(f) + "</span>" +
-        '<button class="queue-remove" data-idx="' + i + '" title="Remove & delete file">✕</button>';
-
-      row.querySelector("input[type=checkbox]").addEventListener("change", function () {
-        state.queue[i].checked = this.checked;
-        enableStart();
-      });
-      row.querySelector(".queue-remove").addEventListener("click", function (e) {
-        e.stopPropagation();
-        removeFromQueue(i);
-      });
+        '<button class="queue-remove" data-idx="' + i + '" title="Remove & delete">✕</button>';
+      row.querySelector("input[type=checkbox]").addEventListener("change", function () { state.queue[i].checked = this.checked; enableStart(); });
+      row.querySelector(".queue-remove").addEventListener("click", function (e) { e.stopPropagation(); removeFromQueue(i); });
       list.appendChild(row);
     });
     enableStart();
   }
 
   function statusLabel(f) {
-    switch (f.status) {
-      case "processing": return "Running";
-      case "done": return "✓ Done";
-      case "error": return "✗ Error";
-      default: return "Waiting";
-    }
+    switch (f.status) { case "processing": return "Running"; case "done": return "✓ Done"; case "error": return "✗ Error"; default: return "Waiting"; }
   }
 
   function enableStart() {
@@ -200,51 +166,32 @@
 
   // ── Pipeline ──
   async function runStep(step) {
-    const files = getCheckedFiles();
-    if (files.length === 0) { toast("Check at least one file", "error"); return; }
-    const flags = getPipelineFlags(step);
-    if (!flags) return;
+    const files = getCheckedFiles(); if (files.length === 0) { toast("Check at least one file", "error"); return; }
+    const flags = getPipelineFlags(step); if (!flags) return;
     await processFiles(files, step, flags);
   }
 
   async function startAll() {
-    const files = getCheckedFiles();
-    if (files.length === 0) { toast("Check at least one file", "error"); return; }
-    const flags = getPipelineFlags(null);
-    if (!flags) { toast("No steps selected", "error"); return; }
+    const files = getCheckedFiles(); if (files.length === 0) { toast("Check at least one file", "error"); return; }
+    const flags = getPipelineFlags(null); if (!flags) { toast("No steps selected", "error"); return; }
     await processFiles(files, "pipeline", flags);
   }
 
   async function processFiles(files, mode, flags) {
-    $("#start-btn").disabled = true;
-    $$(".step-run").forEach((b) => (b.disabled = true));
-    showProgress();
-
+    $("#start-btn").disabled = true; $$(".step-run").forEach((b) => (b.disabled = true)); showProgress();
     for (const f of files) {
-      f.status = "processing";
-      f.progress = 0;
-      state.currentJob = f.name;
-      renderQueue();
-
+      f.status = "processing"; f.progress = 0; state.currentJob = f.name; renderQueue();
       const body = flags + "&input_file=" + encodeURIComponent(f.name);
       try {
-        const res = await fetch("/api/separate", {
-          method: "POST",
-          headers: { "Content-Type": "application/x-www-form-urlencoded" },
-          body: body,
-        });
+        const res = await fetch("/api/separate", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body });
         const data = await res.json();
         if (!data.success) { f.status = "error"; renderQueue(); continue; }
       } catch (e) { f.status = "error"; renderQueue(); continue; }
-
       await pollUntilDone(f);
     }
-
-    state.currentJob = null;
-    hideProgress();
+    state.currentJob = null; hideProgress();
     $$(".step-run").forEach((b) => (b.disabled = false));
-    renderQueue();
-    loadResults();
+    renderQueue(); loadResults();
   }
 
   function pollUntilDone(f) {
@@ -253,19 +200,11 @@
       const timer = setInterval(async () => {
         attempts++;
         try {
-          const res = await fetch("/api/status");
-          const data = await res.json();
-          if (data.status === "running") {
-            f.progress = data.progress || 0;
-            updateProgressBar(data);
-            updateQueueTrackProgress(f);
-          } else if (data.status === "done" || data.status === "error") {
-            clearInterval(timer);
-            f.progress = 100;
-            f.status = data.status === "error" ? "error" : "done";
-            updateProgressBar({ progress: 100, step: "complete" });
-            renderQueue();
-            resolve();
+          const res = await fetch("/api/status"); const data = await res.json();
+          if (data.status === "running") { f.progress = data.progress || 0; updateProgressBar(data); updateQueueTrackProgress(f); }
+          else if (data.status === "done" || data.status === "error") {
+            clearInterval(timer); f.progress = 100; f.status = data.status === "error" ? "error" : "done";
+            updateProgressBar({ progress: 100, step: "complete" }); renderQueue(); resolve();
           }
           if (attempts > 900) { clearInterval(timer); f.status = "error"; renderQueue(); resolve(); }
         } catch (e) {}
@@ -277,28 +216,19 @@
     const rows = $$("#queue-list .queue-row");
     state.queue.forEach((q, i) => {
       if (q.name === f.name && rows[i]) {
-        const bar = rows[i].querySelector(".queue-progress-fill");
-        if (bar) bar.style.width = (q.progress || 0) + "%";
-        const st = rows[i].querySelector(".queue-status");
-        if (st) st.textContent = statusLabel(q);
+        const bar = rows[i].querySelector(".queue-progress-fill"); if (bar) bar.style.width = (q.progress || 0) + "%";
+        const st = rows[i].querySelector(".queue-status"); if (st) st.textContent = statusLabel(q);
       }
     });
   }
 
   function stopPolling() {}
 
-  // ── Progress ──
-  function showProgress() {
-    $("#progress-bar-container").style.display = "";
-    $("#progress-fill").style.width = "0%";
-    $("#progress-text").textContent = "Starting...";
-  }
+  function showProgress() { $("#progress-bar-container").style.display = ""; $("#progress-fill").style.width = "0%"; $("#progress-text").textContent = "Starting..."; }
   function hideProgress() { $("#progress-bar-container").style.display = "none"; }
   function updateProgressBar(data) {
     $("#progress-fill").style.width = (data.progress || 0) + "%";
-    const step = data.step || "";
-    const elapsed = data.elapsed ? " · " + fmtTime(data.elapsed) : "";
-    const eta = data.eta && data.eta > 0 ? " · ETA " + fmtTime(data.eta) : "";
+    const step = data.step || "", elapsed = data.elapsed ? " · " + fmtTime(data.elapsed) : "", eta = data.eta && data.eta > 0 ? " · ETA " + fmtTime(data.eta) : "";
     $("#progress-text").textContent = (step || "Processing") + " — " + (data.progress || 0) + "%" + elapsed + eta;
   }
   function fmtTime(s) { const m = Math.floor(s / 60); return m > 0 ? m + "m " + (s % 60) + "s" : (s % 60) + "s"; }
@@ -306,20 +236,16 @@
   // ── Results ──
   async function loadResults() {
     try {
-      const res = await fetch("/api/output");
-      const data = await res.json();
+      const res = await fetch("/api/output"); const data = await res.json();
       if (!data.files || data.files.length === 0) { hideResults(); return; }
       renderResults(data.files);
     } catch (e) { hideResults(); }
   }
 
   function renderResults(files) {
-    $("#results-panel").style.display = "";
-    $("#results-empty").style.display = "none";
-    const container = $("#results-content");
-    container.innerHTML = "";
+    $("#results-panel").style.display = ""; $("#results-empty").style.display = "none";
+    const container = $("#results-content"); container.innerHTML = "";
 
-    // Group by song
     const groups = {};
     files.forEach((f) => {
       const parts = f.url.replace("/output/", "").split("/");
@@ -336,9 +262,10 @@
       group.className = "song-group";
       group.dataset.song = song;
 
-      // Per-group controls
-      group.innerHTML =
-        '<div class="song-title">' +
+      // Song header with per-group controls
+      const header = document.createElement("div");
+      header.className = "song-title";
+      header.innerHTML =
         '<span>🎵 ' + esc(song) + '</span>' +
         '<div class="song-actions">' +
         '<button class="btn-sm song-play" data-song="' + escAttr(song) + '">▶ Play</button>' +
@@ -346,32 +273,75 @@
         '<button class="btn-sm song-stop" data-song="' + escAttr(song) + '">⏹ Stop</button>' +
         '<button class="btn-sm" onclick="window._ondaExportSong(\'' + escAttr(song) + '\')">⬇ Export</button>' +
         '<button class="btn-sm btn-danger" onclick="window._ondaDeleteSong(\'' + escAttr(song) + '\')">🗑 Delete</button>' +
-        '</div></div>';
+        '</div>';
+      group.appendChild(header);
+
+      // Seek slider for this group
+      const seekRow = document.createElement("div");
+      seekRow.className = "seek-row";
+      seekRow.innerHTML =
+        '<input type="range" class="seek-slider" min="0" max="1000" value="0" data-song="' + escAttr(song) + '">' +
+        '<span class="seek-time" data-song="' + escAttr(song) + '">0:00 / 0:00</span>';
+      group.appendChild(seekRow);
+
+      const seekSlider = seekRow.querySelector(".seek-slider");
+      const seekTime = seekRow.querySelector(".seek-time");
 
       stems.forEach((f) => {
         const row = document.createElement("div");
         row.className = "stem-row";
         const idx = globalIdx;
         const emoji = stemEmoji(f.name);
+        const color = stemColor(f.name);
+
         row.innerHTML =
           '<button class="mute" data-idx="' + idx + '">M</button>' +
           '<button class="solo" data-idx="' + idx + '">S</button>' +
           '<span class="stem-emoji">' + emoji + '</span>' +
           '<span class="stem-name">' + esc(f.name) + '</span>' +
+          '<canvas class="waveform-canvas" data-idx="' + idx + '" width="200" height="32"></canvas>' +
           '<input type="range" min="0" max="100" value="100" data-idx="' + idx + '" class="stem-vol-slider">' +
           '<span class="stem-vol">100%</span>' +
           '<a class="stem-dl" href="' + f.url + '" download title="Download">⬇</a>' +
           '<button class="stem-delete" data-idx="' + idx + '" data-file="' + escAttr(f.url) + '" title="Delete">✕</button>' +
-          '<audio id="audio-' + idx + '" preload="auto" src="' + f.url + '"></audio>';
+          '<audio id="audio-' + idx + '" preload="auto" src="' + f.url + '" crossorigin="anonymous"></audio>';
 
         group.appendChild(row);
 
         const audio = row.querySelector("audio");
-        state.audioElements.push({
+        const entry = {
           name: f.name, song: song, audio: audio,
           muted: false, solo: false, url: f.url, vol: 100,
-        });
+          canvas: row.querySelector(".waveform-canvas"),
+        };
+        state.audioElements.push(entry);
+
+        // Draw waveform async
+        drawWaveform(entry);
+
+        // Sync seek slider with first audio's timeupdate
+        if (globalIdx === state.audioElements.length - stems.length) {
+          // This is the first stem in the group — bind seek slider
+          audio.addEventListener("timeupdate", () => {
+            const dur = audio.duration || 1;
+            seekSlider.max = Math.floor(dur * 1000);
+            seekSlider.value = Math.floor(audio.currentTime * 1000);
+            seekTime.textContent = fmtTimeSec(audio.currentTime) + " / " + fmtTimeSec(dur);
+          });
+          audio.addEventListener("loadedmetadata", () => {
+            seekSlider.max = Math.floor(audio.duration * 1000);
+            seekTime.textContent = "0:00 / " + fmtTimeSec(audio.duration);
+          });
+        }
+
         globalIdx++;
+      });
+
+      // Seek slider input
+      seekSlider.addEventListener("input", () => {
+        const t = parseInt(seekSlider.value) / 1000;
+        seekGroup(song, t);
+        seekTime.textContent = fmtTimeSec(t) + " / " + fmtTimeSec((parseInt(seekSlider.max) || 1000) / 1000);
       });
 
       container.appendChild(group);
@@ -380,18 +350,67 @@
     updateAllStemButtons();
   }
 
+  // ── Waveform ──
+  async function drawWaveform(entry) {
+    const canvas = entry.canvas;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    const color = stemColor(entry.name);
+
+    // Draw placeholder
+    const w = canvas.width, h = canvas.height;
+    ctx.fillStyle = "rgba(255,255,255,0.03)";
+    ctx.fillRect(0, 0, w, h);
+
+    try {
+      const res = await fetch(entry.url);
+      const buf = await res.arrayBuffer();
+      const actx = new (window.AudioContext || window.webkitAudioContext)();
+      const audioBuf = await actx.decodeAudioData(buf);
+
+      // Get peaks
+      const channel = audioBuf.getChannelData(0);
+      const step = Math.floor(channel.length / w);
+      const peaks = [];
+      for (let i = 0; i < w; i++) {
+        let max = 0;
+        for (let j = 0; j < step; j++) {
+          const v = Math.abs(channel[i * step + j] || 0);
+          if (v > max) max = v;
+        }
+        peaks.push(max);
+      }
+      actx.close();
+
+      // Draw
+      ctx.clearRect(0, 0, w, h);
+      ctx.fillStyle = "rgba(255,255,255,0.03)";
+      ctx.fillRect(0, 0, w, h);
+      const mid = h / 2;
+      for (let i = 0; i < w; i++) {
+        const barH = peaks[i] * mid * 0.85;
+        ctx.fillStyle = color;
+        ctx.globalAlpha = 0.7;
+        ctx.fillRect(i, mid - barH, 1, barH * 2);
+      }
+      ctx.globalAlpha = 1;
+    } catch (e) {
+      // Draw error placeholder
+      ctx.fillStyle = "rgba(255,255,255,0.05)";
+      ctx.fillRect(0, 0, w, h);
+    }
+  }
+
   function hideResults() {
-    $("#results-panel").style.display = "none";
-    $("#results-empty").style.display = "";
+    $("#results-panel").style.display = "none"; $("#results-empty").style.display = "";
     state.audioElements = [];
   }
 
-  // ── Results event delegation (attached ONCE in init) ──
+  // ── Results event delegation ──
   function onResultsClick(e) {
     const btn = e.target.closest("button");
     if (!btn) return;
 
-    // Per-group controls
     if (btn.classList.contains("song-play")) { playGroup(btn.dataset.song); return; }
     if (btn.classList.contains("song-pause")) { pauseGroup(btn.dataset.song); return; }
     if (btn.classList.contains("song-stop")) { stopGroup(btn.dataset.song); return; }
@@ -413,93 +432,64 @@
 
   async function clearResults() {
     state.audioElements = [];
-    // Delete all output via API
     try {
-      const res = await fetch("/api/output");
-      const data = await res.json();
+      const res = await fetch("/api/output"); const data = await res.json();
       if (data.files) {
         const songs = new Set();
         data.files.forEach((f) => {
           const parts = f.url.replace("/output/", "").split("/");
           if (parts[0]) songs.add(parts[0]);
         });
-        for (const song of songs) {
-          await fetch("/api/delete?file=" + encodeURIComponent(song));
-        }
+        for (const song of songs) { await fetch("/api/delete?file=" + encodeURIComponent(song)); }
       }
     } catch (e) {}
     hideResults();
     toast("Results cleared", "success");
   }
 
-  // ── Audio: Per-Group Controls ──
+  // ── Audio: Per-Group ──
   function playGroup(song) {
-    state.audioElements
-      .filter((s) => s.song === song)
-      .forEach((s) => {
-        // Resume if paused (don't reset currentTime if > 0)
-        if (s.audio.paused && s.audio.currentTime > 0) {
-          // Already has position — just play
-        } else {
-          s.audio.currentTime = 0;
-        }
-        s.audio.play().catch(() => {});
-      });
+    state.audioElements.filter((s) => s.song === song).forEach((s) => {
+      if (!(s.audio.paused && s.audio.currentTime > 0)) s.audio.currentTime = 0;
+      s.audio.play().catch(() => {});
+    });
   }
 
   function pauseGroup(song) {
-    state.audioElements
-      .filter((s) => s.song === song)
-      .forEach((s) => s.audio.pause());
+    state.audioElements.filter((s) => s.song === song).forEach((s) => s.audio.pause());
   }
 
   function stopGroup(song) {
-    state.audioElements
-      .filter((s) => s.song === song)
-      .forEach((s) => {
-        s.audio.pause();
-        s.audio.currentTime = 0;
-      });
+    state.audioElements.filter((s) => s.song === song).forEach((s) => { s.audio.pause(); s.audio.currentTime = 0; });
+  }
+
+  function seekGroup(song, time) {
+    state.audioElements.filter((s) => s.song === song).forEach((s) => { s.audio.currentTime = time; });
   }
 
   function toggleMute(idx) {
-    const s = state.audioElements[idx];
-    if (!s) return;
-    s.muted = !s.muted;
-    s.audio.volume = s.muted ? 0 : s.vol / 100;
+    const s = state.audioElements[idx]; if (!s) return;
+    s.muted = !s.muted; s.audio.volume = s.muted ? 0 : s.vol / 100;
     updateSingleStemButtons(idx);
   }
 
   function toggleSolo(idx) {
-    const s = state.audioElements[idx];
-    if (!s) return;
-    const wasSolo = s.solo;
+    const s = state.audioElements[idx]; if (!s) return;
     state.audioElements.forEach((x) => (x.solo = false));
-    s.solo = !wasSolo;
-
+    s.solo = !s.solo;
     state.audioElements.forEach((x, i) => {
-      if (s.solo) {
-        x.audio.volume = (i !== idx) ? 0 : x.vol / 100;
-      } else {
-        x.audio.volume = x.muted ? 0 : x.vol / 100;
-      }
+      x.audio.volume = s.solo ? (i !== idx ? 0 : x.vol / 100) : (x.muted ? 0 : x.vol / 100);
     });
     updateAllStemButtons();
   }
 
   function setVolume(idx, vol) {
-    const s = state.audioElements[idx];
-    if (!s) return;
+    const s = state.audioElements[idx]; if (!s) return;
     s.vol = vol;
     const isSolod = state.audioElements.some((x) => x.solo);
-    if (!s.muted && (!isSolod || s.solo)) {
-      s.audio.volume = vol / 100;
-    }
-    // Update DOM label
+    if (!s.muted && (!isSolod || s.solo)) s.audio.volume = vol / 100;
     const rows = $$("#results-content .stem-row");
-    if (rows[idx]) {
-      rows[idx].querySelector(".stem-vol").textContent = vol + "%";
-    }
+    if (rows[idx]) rows[idx].querySelector(".stem-vol").textContent = vol + "%";
   }
 
   function updateAllStemButtons() {
@@ -514,18 +504,16 @@
   function updateSingleStemButtons(idx) {
     const rows = $$("#results-content .stem-row");
     if (rows[idx]) {
-      const s = state.audioElements[idx];
-      if (!s) return;
+      const s = state.audioElements[idx]; if (!s) return;
       rows[idx].querySelector(".mute").classList.toggle("active", s.muted);
     }
   }
 
   async function deleteStem(idx, fileUrl) {
-    const s = state.audioElements[idx];
-    if (!s) return;
+    const s = state.audioElements[idx]; if (!s) return;
     try { await fetch("/api/delete?file=" + encodeURIComponent(fileUrl)); } catch (e) {}
     toast("Deleted: " + s.name, "success");
-    loadResults(); // refresh UI
+    loadResults();
   }
 
   async function deleteSong(song) {
@@ -535,17 +523,17 @@
   }
 
   function exportSong(song) {
-    state.audioElements
-      .filter((s) => s.song === song)
-      .forEach((s) => {
-        const a = document.createElement("a");
-        a.href = s.url;
-        a.download = s.name;
-        a.click();
-      });
+    state.audioElements.filter((s) => s.song === song).forEach((s) => {
+      const a = document.createElement("a"); a.href = s.url; a.download = s.name; a.click();
+    });
   }
 
-  // ── Globals for inline onclick ──
+  function fmtTimeSec(s) {
+    const m = Math.floor(s / 60), sec = Math.floor(s % 60);
+    return m + ":" + (sec < 10 ? "0" : "") + sec;
+  }
+
+  // ── Globals ──
   window._ondaExportSong = exportSong;
   window._ondaDeleteSong = deleteSong;
   window.runStep = runStep;
@@ -554,29 +542,14 @@
   // ── Toast ──
   function toast(msg, type) {
     let el = $("#toast");
-    if (!el) {
-      el = document.createElement("div");
-      el.id = "toast";
-      document.body.appendChild(el);
-    }
-    el.textContent = msg;
-    el.className = "show " + (type || "");
-    clearTimeout(el._timeout);
-    el._timeout = setTimeout(() => el.classList.remove("show"), 2500);
+    if (!el) { el = document.createElement("div"); el.id = "toast"; document.body.appendChild(el); }
+    el.textContent = msg; el.className = "show " + (type || "");
+    clearTimeout(el._timeout); el._timeout = setTimeout(() => el.classList.remove("show"), 2500);
   }
 
-  function esc(s) {
-    const d = document.createElement("div");
-    d.textContent = s;
-    return d.innerHTML;
-  }
-  function escAttr(s) {
-    return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  }
+  function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
+  function escAttr(s) { return s.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
 
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", init);
-  } else {
-    init();
-  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+  else init();
 })();
