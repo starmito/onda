@@ -738,25 +738,11 @@
         pctx.fillStyle = "rgba(255,255,255,0.03)";
         pctx.fillRect(0, 0, entry.canvas.width, entry.canvas.height);
 
-        // Get duration from audio element (no separate fetch)
-        audio.addEventListener("durationchange", function () {
-          if (isFinite(audio.duration) && audio.duration > 0) {
-            entry.duration = audio.duration;
-            // Update seek slider max once we know duration
-            if (entry.duration > 0) {
-              pSeek.max = Math.floor(entry.duration * 1000);
-              pTime.textContent = "0:00 / " + fmtTimeSec(entry.duration);
-            }
-          }
-        });
-
-        // Timeupdate on first stem drives seek slider
+        // Timeupdate on first
         if (i === 0) {
           audio.addEventListener("timeupdate", () => {
             if (pSeeking) return;
-            const dur = (isFinite(audio.duration) && audio.duration > 0)
-              ? audio.duration
-              : (entry.duration || pitchAudioElements.find(e => e.duration)?.duration);
+            const dur = entry.duration || pitchAudioElements.find(e => e.duration)?.duration;
             if (!dur || dur <= 0) return;
             pSeek.max = Math.floor(dur * 1000);
             pSeek.value = Math.floor(audio.currentTime * 1000);
