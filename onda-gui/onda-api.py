@@ -307,8 +307,11 @@ class OndaAPI(BaseHTTPRequestHandler):
         # Resolve path — handle both relative (/output/...) and absolute URLs
         if "://" in file_param:
             # Full URL like http://host:port/output/Song/stem.wav
-            from urllib.parse import urlparse
-            file_param = urlparse(file_param).path
+            from urllib.parse import urlparse, unquote
+            file_param = unquote(urlparse(file_param).path)
+        else:
+            from urllib.parse import unquote
+            file_param = unquote(file_param)
         if "/output/" in file_param:
             rel = file_param[file_param.index("/output/") + len("/output/"):]
         elif file_param.startswith("output/"):
