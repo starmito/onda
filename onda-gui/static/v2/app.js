@@ -613,7 +613,6 @@
         const prevDiv = document.querySelector('.pitch-results[data-song="' + CSS.escape(state.activeGroup) + '"]');
         if (prevDiv) prevDiv.querySelectorAll("audio").forEach(a => {
           a.pause();
-          a.currentTime = 0;
         });
       } else {
         stopGroup(state.activeGroup);
@@ -644,6 +643,9 @@
         });
       }
     });
+    // Sync seek slider for the newly activated group
+    syncSeekSliderForGroup(song);
+
     // Highlight pitch groups
     $$(".pitch-results").forEach(g => {
       g.classList.toggle("active", g.dataset.song === song);
@@ -687,20 +689,59 @@
   function stopGroup(song) {
     state.audioElements.filter((s) => s.song === song).forEach((s) => {
       s.audio.pause();
-      s.audio.currentTime = 0;
       });
     // Also stop pitch group with same song
     const pitchDiv = document.querySelector('.pitch-results[data-song="' + CSS.escape(song) + '"]');
     if (pitchDiv) {
       pitchDiv.querySelectorAll("audio").forEach(a => {
         a.pause();
-        a.currentTime = 0;
       });
     }
   }
 
   function seekGroup(song, time) {
     state.audioElements.filter((s) => s.song === song).forEach((s) => { s.audio.currentTime = time; });
+  }
+
+  function syncSeekSliderForGroup(song) {
+    // Update seek slider and time display to reflect current position
+    let currentTime = 0, duration = 0;
+    if (song.endsWith("_pitch")) {
+      // Find pitch audio elements (stored in DOM, not state.audioElements)
+      const pitchDiv = document.querySelector('.pitch-results[data-song="' + CSS.escape(song) + '"]');
+      if (pitchDiv) {
+        const audios = pitchDiv.querySelectorAll("audio");
+        if (audios.length) {
+          currentTime = audios[0].currentTime || 0;
+          duration = audios[0].duration || 0;
+        }
+        // Navigate from pitchDiv to find seek controls
+        const pSeek = pitchDiv.querySelector(".seek-slider");
+        const pTime = pitchDiv.querySelector(".seek-time");
+        if (pSeek && duration > 0) {
+          pSeek.max = Math.floor(duration * 1000);
+          pSeek.value = Math.floor(currentTime * 1000);
+        }
+        if (pTime) {
+          pTime.textContent = fmtTimeSec(currentTime) + " / " + fmtTimeSec(duration);
+        }
+      }
+    } else {
+      const stems = state.audioElements.filter(s => s.song === song);
+      if (stems.length) {
+        currentTime = stems[0].audio.currentTime || 0;
+        duration = stems.find(s => s.duration && s.duration > 0)?.duration || stems[0].audio.duration || 0;
+      }
+      const seek = document.getElementById("seek-slider");
+      const timeDisplay = document.getElementById("time-display");
+      if (seek && duration > 0) {
+        seek.max = Math.floor(duration * 1000);
+        seek.value = Math.floor(currentTime * 1000);
+      }
+      if (timeDisplay) {
+        timeDisplay.textContent = fmtTimeSec(currentTime) + " / " + fmtTimeSec(duration);
+      }
+    }
   }
 
   function toggleMute(idx) {

@@ -298,14 +298,19 @@ class OndaAPI(BaseHTTPRequestHandler):
         return {"success": True}
 
     def _peaks(self, qs):
-        """Generate waveform peak data for a WAV file. Returns JSON array of ~400 floats."""
+        """Generate waveform peak data for a WAV file. Returns JSON array of ~400 floats.
+        Caches results as .peaks.json alongside the WAV for instant subsequent loads."""
         file_param = qs.get("file", [""])[0]
         if not file_param:
             return {"peaks": [], "error": "Missing file param"}
 
-        # Resolve path
-        if file_param.startswith("/output/"):
-            rel = file_param[len("/output/"):]
+        # Resolve path — handle both relative (/output/...) and absolute URLs
+        if "://" in file_param:
+            # Full URL like http://host:port/output/Song/stem.wav
+            from urllib.parse import urlparse
+            file_param = urlparse(file_param).path
+        if "/output/" in file_param:
+            rel = file_param[file_param.index("/output/") + len("/output/"):]
         elif file_param.startswith("output/"):
             rel = file_param[len("output/"):]
         else:
@@ -316,6 +321,18 @@ class OndaAPI(BaseHTTPRequestHandler):
             return {"peaks": [], "error": "File not found"}
 
         num_peaks = int(qs.get("n", ["400"])[0])
+
+        # Check cache
+        cache_path = target.with_suffix(target.suffix + ".peaks.json")
+        try:
+            if cache_path.exists():
+                with open(cache_path) as f:
+                    cached = json.load(f)
+                if cached.get("n") == num_peaks:
+                    return {"peaks": cached["peaks"]}
+        except Exception:
+            pass  # Cache miss, regenerate
+
         try:
             with wave.open(str(target), 'rb') as wf:
                 nframes = wf.getnframes()
@@ -346,7 +363,16 @@ class OndaAPI(BaseHTTPRequestHandler):
                 peak = max(abs(s) for s in chunk) / abs_max
                 peaks.append(round(peak, 4))
 
-            return {"peaks": peaks[:num_peaks]}
+            result = peaks[:num_peaks]
+
+            # Save cache
+            try:
+                with open(cache_path, 'w') as f:
+                    json.dump({"n": num_peaks, "peaks": result}, f)
+            except Exception:
+                pass  # Cache write failure is non-fatal
+
+            return {"peaks": result}
         except Exception as e:
             return {"peaks": [], "error": str(e)}
 
