@@ -538,6 +538,10 @@
   window._ondaDeleteSong = deleteSong;
   window.runStep = runStep;
   window.startAll = startAll;
+  window.toggleViperx = toggleViperx;
+  window.toggleDemucs = toggleDemucs;
+  window.toggleRubberband = toggleRubberband;
+  window.updatePitchLabel = updatePitchLabel;
 
   // ── Toast ──
   function toast(msg, type) {
