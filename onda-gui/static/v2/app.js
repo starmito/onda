@@ -309,9 +309,9 @@
           '<canvas class="waveform-canvas" data-idx="' + idx + '" width="200" height="32"></canvas>' +
           '<input type="range" min="0" max="100" value="100" data-idx="' + idx + '" class="stem-vol-slider">' +
           '<span class="stem-vol">100%</span>' +
-          '<a class="stem-dl" href="' + f.url + '" download title="Download">⬇</a>' +
+          '<a class="stem-dl" href="' + f.url + '?cb=' + Date.now() + '" download title="Download">⬇</a>' +
           '<button class="stem-delete" data-idx="' + idx + '" data-file="' + escAttr(f.url) + '" title="Delete">✕</button>' +
-          '<audio id="audio-' + idx + '" preload="auto" src="' + f.url + '" crossorigin="anonymous"></audio>';
+          '<audio id="audio-' + idx + '" preload="auto" src="' + f.url + '?cb=' + Date.now() + '" crossorigin="anonymous"></audio>';
 
         group.appendChild(row);
 
@@ -917,9 +917,9 @@
           '<canvas class="waveform-canvas" width="200" height="32"></canvas>' +
           '<input type="range" min="0" max="100" value="100" data-pitch-idx="' + i + '" class="stem-vol-slider">' +
           '<span class="stem-vol">100%</span>' +
-          '<a class="stem-dl" href="' + f.url + '" download>⬇</a>' +
+          '<a class="stem-dl" href="' + f.url + '?cb=' + Date.now() + '" download>⬇</a>' +
           '<button class="stem-delete" data-file="' + escAttr(f.url) + '" title="Delete">✕</button>' +
-          '<audio preload="auto" src="' + f.url + '" crossorigin="anonymous"></audio>';
+          '<audio preload="auto" src="' + f.url + '?cb=' + Date.now() + '" crossorigin="anonymous"></audio>';
 
         pitchDiv.appendChild(row);
 
