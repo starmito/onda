@@ -1,3 +1,29 @@
+## [1.4.1-alpha] - 2026-05-24
+
+### Corregido
+- **Unified stems**: refactor `state.audioElements` → `state.stems[]`.
+  mute/solo scoped al mismo song group. Seek bar funcional en todos los grupos
+- Pitch stems usan índice global `state.stems.length + i` para `data-idx`,
+  eliminando contaminación cruzada entre grupos principal y pitch
+
+### Infraestructura
+- Versión generada automáticamente desde `git describe --tags` durante el build
+  (Dockerfile `ARG ONDA_VERSION`). Eliminado archivo `VERSION` manual del repo
+
+## [1.4.0-alpha] - 2026-05-23
+
+### Añadido
+- **Web Audio API** (AudioContext + source nodes) — elimina el límite de
+  6 conexiones HTTP simultáneas. Reproducción nativa vía
+  `createMediaElementSource()` + `AudioContext`
+
+### Corregido
+- Lazy-load de audio en pitch para evitar saturación de conexiones
+- Waveform pitch mostraba "err" por doble encoding de URLs con espacios
+- `_peaks()` no limpiaba `?cb=` en URLs relativas → 404 en `/api/peaks`
+- `playGroup()` ahora llama `stopGroupSources()` antes de crear fuentes,
+  evitando solapamiento de reproducciones
+- Eliminado `+` residual en `innerHTML` → `[object HTMLDivElement]`
 # Changelog
 
 Todas las modificaciones notables de este proyecto se documentan en este archivo.
