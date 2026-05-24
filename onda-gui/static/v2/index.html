@@ -8,10 +8,24 @@
 </head>
 <body>
 <div id="brand">
-  <div class="brand-logo">🌊</div>
-  <div class="brand-name">Onda</div>
-  <div class="brand-version" id="app-version">cargando...</div>
+  <div class="brand-left">
+    <span class="brand-logo">🌊</span>
+    <span class="brand-name">Onda</span>
+    <span class="brand-version" id="app-version">cargando...</span>
+  </div>
+  <div class="brand-center" id="brand-controls">
+    <button id="btn-start-backend" class="btn-backend" title="Start processing backend">▶ Start</button>
+    <button id="btn-restart-backend" class="btn-backend" title="Restart processing backend">🔄 Restart</button>
+    <button id="btn-stop-backend" class="btn-backend btn-backend-danger" title="Stop processing backend">⏹ Stop</button>
+  </div>
+  <div class="brand-right" id="health-indicators">
+    <span id="health-backend" class="health-dot" title="Backend">◉ BE</span>
+    <span id="health-gpu" class="health-dot" title="GPU">◉ GPU</span>
+    <span id="health-disk" class="health-dot" title="Disk">◉ Disk</span>
+    <span id="health-docker" class="health-dot" title="Docker">◉ Docker</span>
+  </div>
 </div>
+<div id="sys-banner" class="sys-banner hidden"></div>
 <div id="app">
   <!-- Upload Area -->
   <div id="drop-zone">
