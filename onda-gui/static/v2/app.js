@@ -1255,10 +1255,15 @@
       const data = await r.json();
       renderHealthIndicators(data);
       checkBanner(data);
+      if (data.backend) {
+        setBackendStatus(data.backend.ok ? "on" : "off",
+          data.backend.ok ? "Running" : "Stopped");
+      }
     } catch (e) {
       ["backend","gpu","disk","docker"].forEach(function(c) {
         setHealthDot(c, false, "");
       });
+      setBackendStatus("off", "API error");
     }
   }
 
@@ -1317,18 +1322,29 @@
   }
 
   async function backendAction(url, label) {
+    setBackendStatus("transition", label + "...");
     try {
       var r = await fetch(url, { method: "POST" });
       var data = await r.json();
       if (data.success) {
         toast(label, "success");
+        setBackendStatus("transition", label + "...");
         setTimeout(fetchHealth, 2000);
       } else {
         toast((data.detail || "Failed"), "error");
+        setBackendStatus("off", "Error");
       }
     } catch (e) {
       toast("Backend action failed: " + e.message, "error");
+      setBackendStatus("off", "Error");
     }
+  }
+
+  function setBackendStatus(state, text) {
+    var el = document.getElementById("backend-status");
+    if (!el) return;
+    el.textContent = text || (state === "on" ? "Running" : state === "off" ? "Stopped" : "...");
+    el.className = "backend-status backend-" + state;
   }
 
   function toast(msg, type) {
