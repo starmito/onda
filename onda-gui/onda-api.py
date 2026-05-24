@@ -47,7 +47,7 @@ class OndaAPI(BaseHTTPRequestHandler):
             elif path == "/api/output":
                 self._json(self._output_files(qs))
             elif path == "/api/health":
-                self._json({"ok": True})
+                self._json(self._health())
             elif path == "/api/peaks":
                 self._json(self._peaks(qs))
             elif path == "/api/delete":
@@ -71,6 +71,12 @@ class OndaAPI(BaseHTTPRequestHandler):
                 self._json(self._clear())
             elif path == "/api/rubberband":
                 self._json(self._rubberband(body))
+            elif path == "/api/backend/start":
+                self._json(self._backend_start())
+            elif path == "/api/backend/stop":
+                self._json(self._backend_stop())
+            elif path == "/api/backend/restart":
+                self._json(self._backend_restart())
             elif path == "/api/delete":
                 qs = urllib.parse.parse_qs(self.path.split("?")[1] if "?" in self.path else "")
                 self._json(self._delete(qs))
@@ -96,6 +102,79 @@ class OndaAPI(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+
+    def _health(self):
+        """Check all system dependencies. Returns { component: {ok, code, detail} }."""
+        import shutil as _shutil
+        result = {}
+
+        # ── Backend (onda container) ──
+        rc, out, _ = self._run("docker", "ps", "-a", "--filter", "name=^onda$", "--format", "{{.Status}}")
+        if rc != 0:
+            result["backend"] = {"ok": False, "code": "E6", "detail": "Docker not accessible"}
+        elif not out.strip():
+            result["backend"] = {"ok": False, "code": "E1", "detail": "Onda container not found"}
+        elif out.strip().startswith("Up"):
+            result["backend"] = {"ok": True, "code": "", "detail": out.strip()}
+        else:
+            result["backend"] = {"ok": False, "code": "E2", "detail": out.strip()}
+
+        # ── GPU ──
+        rc, out, _ = self._run("docker", "run", "--rm", "--gpus", "all", "alpine", "echo", "GPU_OK")
+        if rc == 0 and "GPU_OK" in out:
+            result["gpu"] = {"ok": True, "code": "", "detail": "NVIDIA GPU available"}
+        else:
+            # Check if nvidia runtime exists at all
+            rc2, info, _ = self._run("docker", "info", "--format", "{{json .Runtimes}}")
+            if rc2 == 0 and "nvidia" in info:
+                result["gpu"] = {"ok": False, "code": "E3", "detail": "NVIDIA runtime present but GPU check failed"}
+            else:
+                result["gpu"] = {"ok": False, "code": "E3", "detail": "NVIDIA runtime not available"}
+
+        # ── Disk ──
+        try:
+            usage = _shutil.disk_usage("/output")
+            free_mb = usage.free // (1024 * 1024)
+            if free_mb < 500:
+                result["disk"] = {"ok": False, "code": "E5", "detail": f"Only {free_mb} MB free on /output"}
+            else:
+                result["disk"] = {"ok": True, "code": "", "detail": f"{free_mb} MB free"}
+        except Exception:
+            result["disk"] = {"ok": True, "code": "", "detail": "Disk check unavailable"}
+
+        # ── Docker socket ──
+        rc, _, _ = self._run("docker", "ps")
+        result["docker"] = {"ok": rc == 0, "code": "" if rc == 0 else "E6", "detail": "OK" if rc == 0 else "Docker socket not accessible"}
+
+        return result
+
+    def _backend_start(self):
+        """Start the onda processing container."""
+        rc, out, err = self._run("docker", "start", "onda")
+        if rc == 0:
+            return {"success": True, "detail": "Backend started"}
+        return {"success": False, "detail": err.strip() or out.strip() or "Failed to start backend"}
+
+    def _backend_stop(self):
+        """Stop the onda processing container."""
+        rc, out, err = self._run("docker", "stop", "onda")
+        if rc == 0:
+            return {"success": True, "detail": "Backend stopped"}
+        return {"success": False, "detail": err.strip() or out.strip() or "Failed to stop backend"}
+
+    def _backend_restart(self):
+        """Restart the onda processing container."""
+        rc, out, err = self._run("docker", "restart", "onda")
+        if rc == 0:
+            return {"success": True, "detail": "Backend restarted"}
+        return {"success": False, "detail": err.strip() or out.strip() or "Failed to restart backend"}
+
+    def _run(self, *args):
+        """Run a command on the host (not inside onda container). Returns (rc, stdout, stderr)."""
+        import subprocess as _sp
+        r = _sp.run(list(args), capture_output=True, text=True, timeout=30)
+        return r.returncode, r.stdout, r.stderr
 
     def _docker_exec(self, *args):
         """Run a command inside the onda container. Returns (returncode, stdout, stderr)."""

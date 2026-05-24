@@ -64,6 +64,9 @@
     toggleViperx();
     toggleDemucs();
     loadVersion();
+    fetchHealth();
+    setInterval(fetchHealth, 15000);
+    setupBackendControls();
   }
 
   // ── Version ──
@@ -1214,6 +1217,100 @@
   window.toggleDemucs = toggleDemucs;
 
   // ── Toast ──
+
+  // ── Health Check ──
+  const HEALTH_CODES = {
+    E1: ["Onda container not found", "Run: docker run -d --name onda --gpus all onda:nvidia"],
+    E2: ["Backend container stopped", "Click Start Backend or run: docker start onda"],
+    E3: ["NVIDIA GPU not available", "Check nvidia-smi on host. Install nvidia-container-toolkit"],
+    E4: ["GPU out of memory", "Close other GPU processes or reduce batch size"],
+    E5: ["Low disk space on /output", "Free up space in /home/starmito/projects/onda/output"],
+    E6: ["Docker socket not accessible", "Check /var/run/docker.sock permissions"]
+  };
+
+  async function fetchHealth() {
+    try {
+      const r = await fetch("/api/health");
+      const data = await r.json();
+      renderHealthIndicators(data);
+      checkBanner(data);
+    } catch (e) {
+      // API not reachable — show all red
+      ["backend","gpu","disk","docker"].forEach(function(c) {
+        setHealthDot(c, false, "");
+      });
+    }
+  }
+
+  function renderHealthIndicators(data) {
+    ["backend","gpu","disk","docker"].forEach(function(c) {
+      const s = data[c];
+      setHealthDot(c, s && s.ok, s ? s.detail : "");
+    });
+  }
+
+  function setHealthDot(component, ok, detail) {
+    const el = document.getElementById("health-" + component);
+    if (!el) return;
+    el.className = "health-dot " + (ok ? "ok" : "err");
+    el.title = (ok ? "✓ " : "✗ ") + component.toUpperCase() + (detail ? ": " + detail : "");
+  }
+
+  function checkBanner(data) {
+    const errors = [];
+    for (var c in data) {
+      if (data[c] && !data[c].ok) {
+        errors.push({ component: c, code: data[c].code, detail: data[c].detail });
+      }
+    }
+    if (errors.length > 0) {
+      var e = errors[0];
+      var fix = HEALTH_CODES[e.code] ? HEALTH_CODES[e.code][1] : "Check system status";
+      showBanner(e.code, e.detail || HEALTH_CODES[e.code][0], fix);
+    } else {
+      hideBanner();
+    }
+  }
+
+  function showBanner(code, msg, fix) {
+    var b = document.getElementById("sys-banner");
+    if (!b) return;
+    b.className = "sys-banner";
+    b.innerHTML = "<span class=\"banner-code\">" + esc(code) + "</span>"
+      + "<span class=\"banner-msg\">" + esc(msg || "") + "</span>"
+      + "<span class=\"banner-fix\">Solution: " + esc(fix || "") + "</span>";
+  }
+
+  function hideBanner() {
+    var b = document.getElementById("sys-banner");
+    if (b) b.className = "sys-banner hidden";
+  }
+
+  // ── Backend Controls ──
+  function setupBackendControls() {
+    var s = document.getElementById("btn-start-backend");
+    var r = document.getElementById("btn-restart-backend");
+    var t = document.getElementById("btn-stop-backend");
+    if (s) s.addEventListener("click", function() { backendAction("/api/backend/start", "Backend started"); });
+    if (r) r.addEventListener("click", function() { backendAction("/api/backend/restart", "Backend restarted"); });
+    if (t) t.addEventListener("click", function() { backendAction("/api/backend/stop", "Backend stopped"); });
+  }
+
+  async function backendAction(url, label) {
+    try {
+      var r = await fetch(url, { method: "POST" });
+      var data = await r.json();
+      if (data.success) {
+        toast(label, "success");
+        setTimeout(fetchHealth, 2000);
+      } else {
+        toast((data.detail || "Failed"), "error");
+      }
+    } catch (e) {
+      toast("Backend action failed: " + e.message, "error");
+    }
+  }
+
   function toast(msg, type) {
     let el = $("#toast");
     if (!el) { el = document.createElement("div"); el.id = "toast"; document.body.appendChild(el); }
