@@ -271,15 +271,37 @@
   }
 
   // ── Pipeline ──
+  async function ensureBackendReady() {
+    try {
+      const r = await fetch("/api/health");
+      const health = await r.json();
+      const errors = [];
+      if (health.backend && !health.backend.ok) errors.push("Backend (" + (health.backend.code || "?") + "): " + health.backend.detail);
+      if (health.gpu && !health.gpu.ok) errors.push("GPU (" + (health.gpu.code || "?") + "): " + health.gpu.detail);
+      if (health.docker && !health.docker.ok) errors.push("Docker (" + (health.docker.code || "?") + "): " + health.docker.detail);
+      if (errors.length > 0) {
+        showBanner(errors[0].match(/^\w+ \(([^)]+)\)/)?.[1] || "E0", errors.join("; "), "Fix the issues above and try again");
+        toast("Cannot start: " + errors[0].split(":")[0], "error");
+        return false;
+      }
+      return true;
+    } catch (e) {
+      toast("Health check failed: " + e.message, "error");
+      return false;
+    }
+  }
+
   async function runStep(step) {
     const files = getCheckedFiles(); if (files.length === 0) { toast("Check at least one file", "error"); return; }
     const flags = getPipelineFlags(step); if (!flags) return;
+    if (!(await ensureBackendReady())) return;
     await processFiles(files, step, flags);
   }
 
   async function startAll() {
     const files = getCheckedFiles(); if (files.length === 0) { toast("Check at least one file", "error"); return; }
     const flags = getPipelineFlags(null); if (!flags) { toast("No steps selected", "error"); return; }
+    if (!(await ensureBackendReady())) return;
     await processFiles(files, "pipeline", flags);
   }
 
@@ -493,38 +515,11 @@
           pitchSlider.value = v;
           this.value = (v >= 0 ? "+" : "") + v + " st";
         } else {
-          this.value = (parseInt(pitchSlider.value) >= 0 ? "+" : "") + parseInt(pitchSlider.value) + " st";
-        }
-      });
+          this.value = (parseInt(pitchSlider.value) >= 0 ? "+" : "") + parseInt(pitchSlider.value)
 
-      // ── Pitch-shifted results area (SIBLING, not child) ──
-      const pitchResults = document.createElement("div");
-      pitchResults.className = "pitch-results";
-      pitchResults.dataset.song = song + "_pitch";
-      pitchResults.style.display = "none";
-      pitchResults.style.marginTop = "16px";
+... [OUTPUT TRUNCATED - 1010 chars omitted out of 51010 total] ...
 
-      // Click group area to activate for playback
-      group.addEventListener("click", function (e) {
-        if (e.target.closest("button, input, a, .seek-slider, .stem-vol-slider")) return;
-        activateGroup(song);
-      });
-
-      // Click pitch area to activate pitch group
-      pitchResults.addEventListener("click", function (e) {
-        if (e.target.closest("button, input, a, .seek-slider, .stem-vol-slider")) return;
-        e.stopPropagation();
-        activateGroup(song + "_pitch");
-      });
-
-      container.appendChild(group);
-      container.appendChild(pitchResults);
-    });
-
-    updateAllStemButtons();
-  }
-
-  // ── Waveform from URL (for deferred pitch drawing) ──
+rred pitch drawing) ──
   async function drawWaveformFromAudio(canvas, url, color) {
     if (!canvas || !url) return;
     // Skip if already loaded or currently loading

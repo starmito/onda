@@ -27,7 +27,7 @@
   justify-content: space-between;
   gap: 8px;
   padding: 8px 20px;
-  max-width: 1160px;
+  max-width: min(90vw, 1600px);
   margin: 0 auto;
 }
 .brand-left {
@@ -86,7 +86,7 @@
 .health-dot.ok { color: var(--green); }
 .health-dot.err { color: var(--red); }
 #sys-banner {
-  max-width: 1160px;
+  max-width: min(90vw, 1600px);
   margin: 8px auto 0 auto;
   padding: 10px 20px;
   border-radius: 6px;
@@ -123,9 +123,8 @@ body {
 }
 
 #app {
-  max-width: 1160px;
-  margin: 0 40px 0 220px;
-  width: auto;
+  max-width: min(90vw, 1600px);
+  margin: 8px auto 0 auto;
   padding: 8px 16px 60px;
 }
 
