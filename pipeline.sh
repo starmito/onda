@@ -24,6 +24,30 @@
 
 set -euo pipefail
 
+# ── Progress reporting ──────────────────────────
+START_TIME=$(date +%s)
+STATUS_FILE="/tmp/pipeline_status.json"
+rm -f "$STATUS_FILE"
+CURRENT_STEP=""
+
+report_progress() {
+    local status="$1"
+    local step="$2"
+    local progress="$3"
+    local now elapsed eta
+    now=$(date +%s)
+    elapsed=$((now - START_TIME))
+    eta=0
+    if [ "$progress" -gt 0 ] && [ "$elapsed" -gt 0 ]; then
+        eta=$(( (elapsed * 100 / progress) - elapsed ))
+    fi
+    cat > "$STATUS_FILE" << JSONEOF
+{"status":"$status","step":"$step","progress":$progress,"song":"${SONG:-}","elapsed":$elapsed,"eta":$eta}
+JSONEOF
+}
+trap 'report_progress "error" "${CURRENT_STEP:-unknown}" 0' ERR
+
+
 # ── Parse flags ──────────────────────────────────
 VIPERX=false
 VIPERX_KEEP="both"
@@ -90,8 +114,11 @@ if $VIPERX; then
     echo ""
     echo "🔪 Viperx → vocal + instrumental..."
     TMP_VIP="${OUTPUT}/_viperx"
+    report_progress "running" "viperx" 5
     python /app/inference_universal.py "${VIPERX_MODEL}" "${INPUT}" "${TMP_VIP}" 8
     echo "   ✅ Viperx done"
+
+    report_progress "running" "viperx" 35
 
     # Find instrumental (for demucs)
     INSTRUMENTAL=$(find "${TMP_VIP}" -maxdepth 1 \( -iname "*instrumental*" -o -iname "*no_vocals*" \) | head -1)
@@ -135,11 +162,13 @@ if $DEMUCS; then
     echo "   input: ${DEMUCS_INPUT}"
 
     TMP_DEM="${OUTPUT}/_demucs"
+    report_progress "running" "demucs" 45
     demucs -n htdemucs_ft -o "${TMP_DEM}" "${DEMUCS_INPUT}"
     echo "   ✅ HTDemucs_ft done"
 
     # Find stem directory
     DEMUCS_OUT=$(find "${TMP_DEM}" -type d -name "htdemucs_ft" | head -1)
+    report_progress "running" "demucs" 75
     STEM_DIR=$(find "${DEMUCS_OUT}" -maxdepth 1 -type d ! -name "htdemucs_ft" | head -1)
     STEM_DIR="${STEM_DIR:-${DEMUCS_OUT}}"
 
@@ -167,6 +196,7 @@ if $RUBBERBAND; then
     echo "🎛️  Rubberband — pitch ${PITCH} semitones"
 
     if [ -n "${STEM_DIR}" ]; then
+        report_progress "running" "rubberband" 80
         # Stems from demucs or viperx — apply rubberband to selected stems
         for stem in bass other vocals; do
             if [[ "${DEMUCS_KEEP}" == "all" ]] || [[ ",${DEMUCS_KEEP}," == *",${stem},"* ]]; then
@@ -197,6 +227,8 @@ if $RUBBERBAND; then
         echo "   ✅ pitch shift → ${OUT_FILE}"
     fi
 fi
+
+report_progress "done" "complete" 100
 
 # ── Cleanup temps ────────────────────────────────
 rm -rf "${OUTPUT}/_viperx" "${OUTPUT}/_demucs" 2>/dev/null || true
