@@ -515,11 +515,38 @@
           pitchSlider.value = v;
           this.value = (v >= 0 ? "+" : "") + v + " st";
         } else {
-          this.value = (parseInt(pitchSlider.value) >= 0 ? "+" : "") + parseInt(pitchSlider.value)
+          this.value = (parseInt(pitchSlider.value) >= 0 ? "+" : "") + parseInt(pitchSlider.value) + " st";
+        }
+      });
 
-... [OUTPUT TRUNCATED - 1010 chars omitted out of 51010 total] ...
+      // ── Pitch-shifted results area (SIBLING, not child) ──
+      const pitchResults = document.createElement("div");
+      pitchResults.className = "pitch-results";
+      pitchResults.dataset.song = song + "_pitch";
+      pitchResults.style.display = "none";
+      pitchResults.style.marginTop = "16px";
 
-rred pitch drawing) ──
+      // Click group area to activate for playback
+      group.addEventListener("click", function (e) {
+        if (e.target.closest("button, input, a, .seek-slider, .stem-vol-slider")) return;
+        activateGroup(song);
+      });
+
+      // Click pitch area to activate pitch group
+      pitchResults.addEventListener("click", function (e) {
+        if (e.target.closest("button, input, a, .seek-slider, .stem-vol-slider")) return;
+        e.stopPropagation();
+        activateGroup(song + "_pitch");
+      });
+
+      container.appendChild(group);
+      container.appendChild(pitchResults);
+    });
+
+    updateAllStemButtons();
+  }
+
+  // ── Waveform from URL (for deferred pitch drawing) ──
   async function drawWaveformFromAudio(canvas, url, color) {
     if (!canvas || !url) return;
     // Skip if already loaded or currently loading
@@ -1212,7 +1239,6 @@ rred pitch drawing) ──
   window.toggleDemucs = toggleDemucs;
 
   // ── Toast ──
-
   // ── Health Check ──
   const HEALTH_CODES = {
     E1: ["Onda container not found", "Run: docker run -d --name onda --gpus all onda:nvidia"],
@@ -1230,7 +1256,6 @@ rred pitch drawing) ──
       renderHealthIndicators(data);
       checkBanner(data);
     } catch (e) {
-      // API not reachable — show all red
       ["backend","gpu","disk","docker"].forEach(function(c) {
         setHealthDot(c, false, "");
       });
@@ -1248,7 +1273,7 @@ rred pitch drawing) ──
     const el = document.getElementById("health-" + component);
     if (!el) return;
     el.className = "health-dot " + (ok ? "ok" : "err");
-    el.title = (ok ? "✓ " : "✗ ") + component.toUpperCase() + (detail ? ": " + detail : "");
+    el.title = (ok ? "OK " : "ERROR ") + component.toUpperCase() + (detail ? ": " + detail : "");
   }
 
   function checkBanner(data) {
@@ -1271,9 +1296,9 @@ rred pitch drawing) ──
     var b = document.getElementById("sys-banner");
     if (!b) return;
     b.className = "sys-banner";
-    b.innerHTML = "<span class=\"banner-code\">" + esc(code) + "</span>"
-      + "<span class=\"banner-msg\">" + esc(msg || "") + "</span>"
-      + "<span class=\"banner-fix\">Solution: " + esc(fix || "") + "</span>";
+    b.innerHTML = '<span class="banner-code">' + esc(code) + '</span>'
+      + '<span class="banner-msg">' + esc(msg || "") + '</span>'
+      + '<span class="banner-fix">Fix: ' + esc(fix || "") + '</span>';
   }
 
   function hideBanner() {
