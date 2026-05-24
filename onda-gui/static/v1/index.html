@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Onda — Audio Separation</title>
+<link rel="stylesheet" href="/dark-theme.css">
+</head>
+<body>
+<div id="app">
+  <div class="app-header">
+    <div class="app-logo">🎵</div>
+    <div>
+      <div class="app-title">Onda</div>
+      <div class="app-subtitle">Audio Separation Studio</div>
+    </div>
+  </div>
+
+  <div id="progress-bar">
+    <div class="progress-fill" id="progress-fill"></div>
+  </div>
+
+  <!-- Queue -->
+  <div id="queue-area">
+    <div id="drop-zone">
+      <div class="drop-message" id="drop-msg">Drop audio files here or click to browse</div>
+      <div id="queue-list"></div>
+      <button id="btn-add-more" class="btn-add-more hidden" onclick="event.stopPropagation(); document.getElementById('file-picker').click()">
+        ＋ Add more files
+      </button>
+    </div>
+    <input type="file" id="file-picker" accept=".wav,.mp3,.flac,.ogg,.aac,.m4a,.aiff" multiple style="display:none" onchange="handleFilePicker(event)">
+    <button id="btn-clear" onclick="clearQueue()" title="Clear input files">🗑<small>Clear</small></button>
+  </div>
+
+  <!-- Pipeline -->
+  <div id="pipeline">
+    <h2>Pipeline</h2>
+
+    <div class="step-block">
+      <div class="pipeline-row">
+        <label class="toggle">
+          <input type="checkbox" id="enable-viperx" checked onchange="toggleViperx()">
+          Vocal Separation · Viperx
+        </label>
+        <button class="step-run" onclick="runStep('viperx')" title="Run only this step">▶</button>
+        <span class="step-badge">Step 1</span>
+      </div>
+      <div id="viperx-options" class="step-options">
+        <span class="keep-label">Keep</span>
+        <label class="keep-check"><input type="checkbox" id="keep-vocals" checked> Vocals</label>
+        <label class="keep-check"><input type="checkbox" id="keep-instrumental" checked> Instrumental</label>
+      </div>
+    </div>
+
+    <div class="step-block">
+      <div class="pipeline-row">
+        <label class="toggle">
+          <input type="checkbox" id="enable-demucs" checked onchange="toggleDemucs()">
+          Stem Separation · HTDemucs
+        </label>
+        <button class="step-run" onclick="runStep('demucs')" title="Run only this step">▶</button>
+        <span class="step-badge">Step 2</span>
+      </div>
+      <div id="demucs-options" class="step-options">
+        <span class="keep-label">Keep</span>
+        <label class="keep-check"><input type="checkbox" id="keep-drums" checked> Drums</label>
+        <label class="keep-check"><input type="checkbox" id="keep-bass" checked> Bass</label>
+        <label class="keep-check"><input type="checkbox" id="keep-other"> Other</label>
+        <label class="keep-check"><input type="checkbox" id="keep-demucs-vocals" checked> Vocals</label>
+      </div>
+    </div>
+
+    <div class="step-block">
+      <div class="pipeline-row">
+        <label class="toggle">
+          <input type="checkbox" id="enable-rubberband" onchange="toggleRubberband()">
+          Pitch Shift · Rubberband
+        </label>
+        <button class="step-run" onclick="runStep('rubberband')" title="Run only this step">▶</button>
+        <span class="step-badge">Step 3</span>
+      </div>
+      <div id="rubberband-options" class="step-options">
+        <input type="range" id="pitch" min="-12" max="12" value="0" oninput="updatePitch()">
+        <span id="pitch-val">±0 semitones</span>
+      </div>
+    </div>
+
+    <button class="btn-pipeline-start" onclick="startAll()">
+      ▶ Start Pipeline
+    </button>
+  </div>
+
+  <div id="results">
+    <h2>Results</h2>
+    <div id="waveform-area">
+      <p>Process a track to see stems here</p>
+    </div>
+  </div>
+</div>
+
+<script src="/app.js"></script>
+</body>
+</html>
