@@ -1,0 +1,29 @@
+{
+  "$schema": "https://raw.githubusercontent.com/nicbarker/tauri/dev/crates/tauri-cli/config.schema.json",
+  "productName": "Onda",
+  "version": "2.0.0-alpha",
+  "identifier": "com.starmito.onda",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:1420",
+    "beforeDevCommand": "npm run dev",
+    "beforeBuildCommand": "npm run build"
+  },
+  "app": {
+    "windows": [{
+      "title": "Onda",
+      "width": 1200,
+      "height": 800,
+      "resizable": true,
+      "fullscreen": false
+    }],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.icns", "icons/icon.ico"]
+  }
+}
