@@ -26,6 +26,27 @@ export interface StatusResponse {
   song: string;
   elapsed: number;
   eta: number;
+  files?: { name: string; path: string }[];
+}
+
+export async function uploadAudio(file: File): Promise<{ path: string }> {
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch(`${API_BASE}/api/upload`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!res.ok) {
+      throw new Error(`Upload failed with status ${res.status}: ${res.statusText}`);
+    }
+    return (await res.json()) as { path: string };
+  } catch (err) {
+    if (err instanceof Error) {
+      throw err;
+    }
+    throw new Error(`Unexpected error during upload: ${String(err)}`);
+  }
 }
 
 export async function getHealth(): Promise<HealthResponse> {

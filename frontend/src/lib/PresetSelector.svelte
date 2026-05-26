@@ -7,7 +7,7 @@
 	}: {
 		presets: Record<string, { name: string; description: string }>;
 		disabled: boolean;
-		onseparate: (preset: string) => void;
+		onseparate: (preset: string) => void | Promise<void>;
 		modelsError?: boolean;
 	} = $props();
 
