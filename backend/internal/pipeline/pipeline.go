@@ -69,12 +69,12 @@ func StatusFile() string {
 	return statusFilePath
 }
 
-// findProjectRoot walks up from the current directory until it finds go.mod,
-// then returns the parent directory (the project root where output/ lives).
+// findProjectRoot walks up from the current directory until it finds a VERSION
+// file, then returns that directory. Returns "." if not found.
 func findProjectRoot() string {
 	dir, err := os.Getwd()
 	if err != nil {
-		return ""
+		return "."
 	}
 	for {
 		if _, err := os.Stat(filepath.Join(dir, "VERSION")); err == nil {
@@ -86,7 +86,7 @@ func findProjectRoot() string {
 		}
 		dir = parent
 	}
-	return ""
+	return "."
 }
 
 // New creates a new Pipeline from parsed CLI flags.
@@ -103,17 +103,22 @@ func New(flags *cli.PipelineFlags) *Pipeline {
 	hostPrefix := filepath.Join(projectRoot, "output") + "/"
 	var dockerOutput string
 	var copyFromDir string
-	if projectRoot != "" && strings.HasPrefix(outputDir, hostPrefix) {
-		dockerOutput = filepath.Join("/output", strings.TrimPrefix(outputDir, hostPrefix))
+	if projectRoot != "." {
+		absOutput, err := filepath.Abs(outputDir)
+		if err == nil && strings.HasPrefix(absOutput, hostPrefix) {
+			dockerOutput = filepath.Join("/output", strings.TrimPrefix(absOutput, hostPrefix))
+		} else {
+			dockerOutput = filepath.Join("/output", song)
+			// If the user-specified output directory is outside the project,
+			// the pipeline still writes inside the container to /output/<song>
+			// (which maps to <projectRoot>/output/<song> on the host).
+			// After the pipeline finishes, we copy everything to the actual outputDir.
+			if err == nil && !strings.HasPrefix(absOutput, hostPrefix) {
+				copyFromDir = filepath.Join(projectRoot, "output", song)
+			}
+		}
 	} else {
 		dockerOutput = filepath.Join("/output", song)
-		// If the user-specified output directory is outside the project,
-		// the pipeline still writes inside the container to /output/<song>
-		// (which maps to <projectRoot>/output/<song> on the host).
-		// After the pipeline finishes, we copy everything to the actual outputDir.
-		if projectRoot != "" && !strings.HasPrefix(outputDir, hostPrefix) {
-			copyFromDir = filepath.Join(projectRoot, "output", song)
-		}
 	}
 
 	return &Pipeline{
@@ -222,6 +227,17 @@ func (p *Pipeline) runVocalSeparation() error {
 			p.flags.VocalModel, err, string(output))
 	}
 
+	// Verify output files exist and are not empty
+	expectedFiles := []string{
+		p.song + "_vocals.wav",
+		p.song + "_instrumental.wav",
+	}
+	for _, f := range expectedFiles {
+		if err := p.verifyOutputFile(f); err != nil {
+			return fmt.Errorf("vocal separation produced invalid output: %w\nDocker output:\n%s", err, string(output))
+		}
+	}
+
 	// Handle vocal-keep: remove files we don't need
 	if p.flags.VocalKeep != "both" {
 		removeFile := p.song + "_instrumental.wav"
@@ -282,6 +298,14 @@ func (p *Pipeline) runStemSeparation() error {
 	// Apply --stem-keep filter on host side
 	if len(p.flags.StemKeep) > 0 {
 		p.filterStems()
+	}
+
+	// Verify stem output files exist and are not empty
+	stemFiles := []string{"vocals.wav", "no_vocals.wav"}
+	for _, f := range stemFiles {
+		if err := p.verifyOutputFile(f); err != nil {
+			return fmt.Errorf("demucs stem separation produced invalid output: %w\nDocker output:\n%s", err, string(output))
+		}
 	}
 
 	return nil
@@ -475,6 +499,22 @@ func (p *Pipeline) dockerExec(args ...string) (string, error) {
 		return "", fmt.Errorf("docker exec failed: %w\nOutput: %s", err, string(output))
 	}
 	return string(output), nil
+}
+
+// verifyOutputFile checks that a file exists in the host output directory and has non-zero size.
+func (p *Pipeline) verifyOutputFile(filename string) error {
+	hostPath := filepath.Join(p.outputDir, filename)
+	info, err := os.Stat(hostPath)
+	if os.IsNotExist(err) {
+		return fmt.Errorf("output file %q does not exist (expected at %s)", filename, hostPath)
+	}
+	if err != nil {
+		return fmt.Errorf("checking output file %q: %w", filename, err)
+	}
+	if info.Size() == 0 {
+		return fmt.Errorf("output file %q is empty (0 bytes)", filename)
+	}
+	return nil
 }
 
 // copyDir recursively copies all files and subdirectories from src to dst.
