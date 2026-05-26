@@ -3,10 +3,12 @@
 		presets,
 		disabled,
 		onseparate,
+		modelsError = false,
 	}: {
 		presets: Record<string, { name: string; description: string }>;
 		disabled: boolean;
 		onseparate: (preset: string) => void;
+		modelsError?: boolean;
 	} = $props();
 
 	let selectedPreset = $state("");
@@ -26,7 +28,9 @@
 </script>
 
 <div class="preset-selector">
-	{#if !presets || Object.keys(presets).length === 0}
+	{#if modelsError}
+		<p class="loading-text error-text">⚠️ No se pudieron cargar los presets (API no disponible)</p>
+	{:else if !presets || Object.keys(presets).length === 0}
 		<p class="loading-text">Cargando presets...</p>
 	{:else}
 		<label class="preset-label" for="preset-select">Preset:</label>
@@ -70,6 +74,10 @@
 		font-size: 0.95rem;
 		text-align: center;
 		width: 100%;
+	}
+
+	.error-text {
+		color: #f4a236;
 	}
 
 	.preset-label {

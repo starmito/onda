@@ -10,12 +10,15 @@
   let separating = $state(false);
   let results = $state<{ name: string; path: string }[]>([]);
   let progressRef = $state<any>(null);
+  let modelsError = $state(false);
 
   // Cargar presets al montar
   $effect(() => {
     getModels()
       .then((p) => (presets = p))
-      .catch(console.error);
+      .catch(() => {
+        modelsError = true;
+      });
   });
 
   function handleFile(f: File) {
@@ -68,7 +71,7 @@
   {#if file}
     <section class="controls">
       <p class="file-name">📁 {file.name}</p>
-      <PresetSelector {presets} disabled={separating} onseparate={handleSeparate} />
+      <PresetSelector {presets} disabled={separating} onseparate={handleSeparate} {modelsError} />
     </section>
   {/if}
 
