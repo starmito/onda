@@ -1,5 +1,5 @@
 # Onda Next — python:3.14-slim + CUDA 13.2 + ONNX GPU + demucs-onnx
-# Single-stage para máxima fiabilidad (sin bugs de paths multi-stage)
+# Single-stage para máxima fiabilidad
 
 FROM python:3.14-slim
 
@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     gnupg \
     && rm -rf /var/lib/apt/lists/*
 
-# ── NVIDIA CUDA repo (para libcuda.so) ───────────────
+# ── NVIDIA CUDA repo (Debian 13 Trixie, para libcuda.so) ──
 RUN wget -q https://developer.download.nvidia.com/compute/cuda/repos/debian13/x86_64/cuda-keyring_1.1-1_all.deb \
     && dpkg -i cuda-keyring_1.1-1_all.deb \
     && rm cuda-keyring_1.1-1_all.deb \
@@ -22,25 +22,34 @@ RUN wget -q https://developer.download.nvidia.com/compute/cuda/repos/debian13/x8
     && rm -rf /var/lib/apt/lists/*
 
 # ── PyTorch CUDA 13.2 ───────────────────────────────
-# torch + torchvision desde índice CUDA; torchaudio desde PyPI (no tiene wheel cu132 cp314 aún)
-# torch ya instala nvidia-cublas-cu13, nvidia-cudnn-cu13, etc. como dependencias
 RUN pip install --no-cache-dir \
     torch torchvision \
     --index-url https://download.pytorch.org/whl/cu132 \
     && pip install --no-cache-dir torchaudio
+
+# ── CUDA 12 libs (onnxruntime-gpu 1.26 necesita CUDA 12) ──
+RUN pip install --no-cache-dir \
+    nvidia-cublas-cu12 \
+    nvidia-cudnn-cu12 \
+    nvidia-curand-cu12 \
+    nvidia-cufft-cu12 \
+    nvidia-cusolver-cu12 \
+    nvidia-cusparse-cu12 \
+    nvidia-cuda-runtime-cu12 \
+    nvidia-nvjitlink-cu12
 
 # ── Dependencias Python del proyecto ────────────────
 COPY requirements-docker.txt /tmp/
 RUN SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True \
     pip install --no-cache-dir -r /tmp/requirements-docker.txt
 
-# ── ONNX Runtime GPU (CUDA libs ya instaladas por torch) ─
-RUN pip install --no-cache-dir onnxruntime-gpu==1.26.0
+# ── Demucs ONNX (primero) + ONNX Runtime GPU (después, fuerza) ──
+RUN pip install --no-cache-dir demucs-onnx \
+    && pip install --no-cache-dir --force-reinstall onnxruntime-gpu==1.26.0
 
-# ── Demucs ONNX wrapper ─────────────────────────────
-RUN pip install --no-cache-dir demucs-onnx
+# ── LD_LIBRARY_PATH para CUDA 12 + 13 ───────────────
+ENV LD_LIBRARY_PATH=/usr/local/cuda-13.2/compat:/usr/local/lib/python3.14/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.14/site-packages/nvidia/cudnn/lib:/usr/local/lib/python3.14/site-packages/nvidia/curand/lib:/usr/local/lib/python3.14/site-packages/nvidia/cufft/lib:/usr/local/lib/python3.14/site-packages/nvidia/cusolver/lib:/usr/local/lib/python3.14/site-packages/nvidia/cusparse/lib:/usr/local/lib/python3.14/site-packages/nvidia/cuda_runtime/lib:/usr/local/lib/python3.14/site-packages/nvidia/nvjitlink/lib
 
-# ── Finalizar ───────────────────────────────────────
 RUN ldconfig
 
 WORKDIR /app
