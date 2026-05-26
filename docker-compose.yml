@@ -8,6 +8,7 @@ services:
     build:
       dockerfile: ${GPU_DOCKERFILE:-Dockerfile}
     container_name: onda
+    user: "1000:1000"
     volumes:
       - /mnt/almacen/onda/models:/app/models:ro
       - ./input:/input

@@ -1,0 +1,14 @@
+{
+  "mdx-net": {
+    "rtf": 5.3,
+    "elapsed_s": 0.9,
+    "success": true,
+    "error": null
+  },
+  "demucs-pytorch": {
+    "rtf": 1.5,
+    "elapsed_s": 3.4,
+    "success": true,
+    "error": null
+  }
+}

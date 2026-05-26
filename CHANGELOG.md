@@ -2,6 +2,16 @@
 
 ## v2.0.0-alpha
 
+### v2.0.0-alpha.6 — Fix permisos output + documentación de testing
+
+#### Fixed
+- Docker: añadido `user: "1000:1000"` en `docker-compose.yml` para que archivos de output no se creen como root
+- Build: añadido `bin/` a `.gitignore` (binario compilado Go no debe committearse)
+
+#### Added
+- `docs/plans/`: planes de Fase 5 — testing integral, rebuild CUDA 12.8, demucs ONNX, MDX-Net, contenedor v2
+- `tests/integration/benchmark_results.json`: resultados comparativos de benchmark
+
 ### Rollback Demucs ONNX → Demucs PyTorch
 
 #### Removed
