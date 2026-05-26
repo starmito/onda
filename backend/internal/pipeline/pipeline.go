@@ -67,6 +67,27 @@ func StatusFile() string {
 	return statusFilePath
 }
 
+// findProjectRoot walks up from the current directory until it finds go.mod,
+// then returns the parent directory (the project root where output/ lives).
+func findProjectRoot() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return ""
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			// go.mod is in backend/ — project root is the parent directory
+			return filepath.Dir(dir)
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return ""
+}
+
 // New creates a new Pipeline from parsed CLI flags.
 func New(flags *cli.PipelineFlags) *Pipeline {
 	song := strings.TrimSuffix(filepath.Base(flags.Input), filepath.Ext(flags.Input))
@@ -76,10 +97,11 @@ func New(flags *cli.PipelineFlags) *Pipeline {
 	}
 
 	// Translate host output path to container output path.
-	// Docker bind mount: /home/starmito/projects/onda/output/ -> /output/
-	hostPrefix := "/home/starmito/projects/onda/output/"
+	// Docker bind mount: <project_root>/output/ -> /output/
+	projectRoot := findProjectRoot()
+	hostPrefix := filepath.Join(projectRoot, "output") + "/"
 	var dockerOutput string
-	if strings.HasPrefix(outputDir, hostPrefix) {
+	if projectRoot != "" && strings.HasPrefix(outputDir, hostPrefix) {
 		dockerOutput = filepath.Join("/output", strings.TrimPrefix(outputDir, hostPrefix))
 	} else {
 		dockerOutput = filepath.Join("/output", song)
@@ -181,9 +203,9 @@ func (p *Pipeline) runVocalSeparation() error {
 
 	// Handle vocal-keep: remove files we don't need
 	if p.flags.VocalKeep != "both" {
-		removeFile := "instrumental.wav"
+		removeFile := p.song + "_instrumental.wav"
 		if p.flags.VocalKeep == "instrumental" {
-			removeFile = "vocals.wav"
+			removeFile = p.song + "_vocals.wav"
 		}
 		// Remove on host side
 		hostPath := filepath.Join(p.outputDir, removeFile)
@@ -205,7 +227,7 @@ func (p *Pipeline) skipStemSeparation() bool {
 
 // runStemSeparation runs Demucs on the instrumental track to separate stems.
 func (p *Pipeline) runStemSeparation() error {
-	instrumentalPath := filepath.Join(p.dockerOutput, "instrumental.wav")
+	instrumentalPath := filepath.Join(p.dockerOutput, p.song+"_instrumental.wav")
 
 	args := []string{
 		"exec", dockerContainer, "demucs",
@@ -222,7 +244,7 @@ func (p *Pipeline) runStemSeparation() error {
 	}
 
 	// Demucs outputs to <model>/<trackname>/ with two stems: vocals.wav and no_vocals.wav
-	demucsSubDir := filepath.Join(p.dockerOutput, p.flags.StemModel, "instrumental")
+	demucsSubDir := filepath.Join(p.dockerOutput, p.flags.StemModel, p.song+"_instrumental")
 	stems := []string{"vocals.wav", "no_vocals.wav"}
 	for _, stem := range stems {
 		src := filepath.Join(demucsSubDir, stem)
@@ -247,7 +269,7 @@ func (p *Pipeline) runStemSeparation() error {
 // runDedicatedStems runs dedicated single-stem inference passes
 // for models that have been explicitly set (drums, bass, other).
 func (p *Pipeline) runDedicatedStems() error {
-	instrumentalPath := filepath.Join(p.dockerOutput, "instrumental.wav")
+	instrumentalPath := filepath.Join(p.dockerOutput, p.song+"_instrumental.wav")
 
 	// Dedicated drums pass
 	if p.flags.DrumsModel != "" {
@@ -283,10 +305,10 @@ func (p *Pipeline) runDedicatedStems() error {
 		// Rename output to other.wav if roformer produced a different name
 		// roformer outputs vocals.wav + instrumental.wav; we rename instrumental to other
 		exec.Command("docker", "exec", dockerContainer,
-			"mv", filepath.Join(p.dockerOutput, "instrumental.wav"), otherOutput).Run()
+			"mv", filepath.Join(p.dockerOutput, p.song+"_instrumental.wav"), otherOutput).Run()
 		// Remove the vocals.wav from the roformer run (it was re-separating from instrumental)
 		exec.Command("docker", "exec", dockerContainer,
-			"rm", "-f", filepath.Join(p.dockerOutput, "vocals.wav")).Run()
+			"rm", "-f", filepath.Join(p.dockerOutput, p.song+"_vocals.wav")).Run()
 	}
 
 	// Apply --stem-keep filter
@@ -381,12 +403,12 @@ func (p *Pipeline) collectPitchStems() []string {
 
 	// Always include vocals if vocal-keep says so
 	if p.flags.VocalKeep == "both" || p.flags.VocalKeep == "vocals" {
-		stems = append(stems, "vocals.wav")
+		stems = append(stems, p.song+"_vocals.wav")
 	}
 	if p.flags.VocalKeep == "both" || p.flags.VocalKeep == "instrumental" {
 		// Only pitch instrumental if no stem separation happened
 		if p.skipStemSeparation() && p.skipDedicatedStems() {
-			stems = append(stems, "instrumental.wav")
+			stems = append(stems, p.song+"_instrumental.wav")
 		}
 	}
 

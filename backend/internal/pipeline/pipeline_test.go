@@ -293,13 +293,13 @@ func TestCollectPitchStems(t *testing.T) {
 	}
 	foundVocals := false
 	for _, s := range stems {
-		if s == "vocals.wav" {
+		if s == "test_vocals.wav" {
 			foundVocals = true
 			break
 		}
 	}
 	if !foundVocals {
-		t.Error("collectPitchStems() should include vocals.wav")
+		t.Error("collectPitchStems() should include test_vocals.wav")
 	}
 }
 
