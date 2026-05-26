@@ -30,7 +30,7 @@ export interface StatusResponse {
 
 export async function getHealth(): Promise<HealthResponse> {
   try {
-    const res = await fetch(`${API_BASE}/health`);
+    const res = await fetch(`${API_BASE}/api/health`);
     if (!res.ok) {
       throw new Error(`Health check failed with status ${res.status}: ${res.statusText}`);
     }
@@ -45,7 +45,7 @@ export async function getHealth(): Promise<HealthResponse> {
 
 export async function getModels(): Promise<ModelsResponse> {
   try {
-    const res = await fetch(`${API_BASE}/models`);
+    const res = await fetch(`${API_BASE}/api/models`);
     if (!res.ok) {
       throw new Error(`Failed to fetch models (status ${res.status}): ${res.statusText}`);
     }
@@ -68,7 +68,7 @@ export async function separateAudio(
     if (output !== undefined) {
       body.output = output;
     }
-    const res = await fetch(`${API_BASE}/separate`, {
+    const res = await fetch(`${API_BASE}/api/separate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
@@ -87,7 +87,7 @@ export async function separateAudio(
 
 export async function getStatus(): Promise<StatusResponse> {
   try {
-    const res = await fetch(`${API_BASE}/status`);
+    const res = await fetch(`${API_BASE}/api/status`);
     if (!res.ok) {
       throw new Error(`Status check failed with status ${res.status}: ${res.statusText}`);
     }
