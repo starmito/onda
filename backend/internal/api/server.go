@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -31,6 +32,8 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("/api/models", s.handleModels)
 	s.mux.HandleFunc("/api/gpu", s.handleGPU)
 	s.mux.HandleFunc("/api/separate", s.handleSeparate)
+	s.mux.HandleFunc("POST /api/upload", s.handleUpload)
+	s.mux.HandleFunc("GET /api/files/{song}/{file}", s.handleFileServe)
 
 	return &http.Server{
 		Addr:    addr,
@@ -98,8 +101,43 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"status": "idle"})
 		return
 	}
+
+	// Build response map so we can add files when done
+	resp := map[string]interface{}{
+		"status":   status.Status,
+		"progress": status.Progress,
+		"step":     status.Step,
+		"song":     status.Song,
+		"elapsed":  status.Elapsed,
+		"eta":      status.ETA,
+	}
+	if status.Error != "" {
+		resp["error"] = status.Error
+	}
+
+	// When pipeline is done, include the list of generated files
+	if status.Status == "done" {
+		projectRoot := findProjectRoot()
+		outputDir := filepath.Join(projectRoot, "output", status.Song)
+		entries, _ := os.ReadDir(outputDir)
+		var fileList []map[string]string
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			name := entry.Name()
+			fileList = append(fileList, map[string]string{
+				"name": name,
+				"path": "/api/files/" + status.Song + "/" + name,
+			})
+		}
+		if fileList != nil {
+			resp["files"] = fileList
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(status)
+	json.NewEncoder(w).Encode(resp)
 }
 
 // readPipelineStatus reads and parses the pipeline status JSON file.
@@ -286,4 +324,92 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 		"status": "started",
 		"song":   song,
 	})
+}
+
+// handleUpload accepts a multipart file upload and saves it to disk.
+func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
+	// Limit to 500MB
+	r.ParseMultipartForm(500 << 20)
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "no file provided"})
+		return
+	}
+	defer file.Close()
+
+	// Determine input directory: prefer /home/starmito/projects/onda/input,
+	// fall back to a temp dir if it doesn't exist.
+	projectRoot := findProjectRoot()
+	inputDir := filepath.Join(projectRoot, "input")
+	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
+		os.MkdirAll(inputDir, 0755)
+	}
+
+	destPath := filepath.Join(inputDir, header.Filename)
+	dst, err := os.Create(destPath)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to save file"})
+		return
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, file); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to write file"})
+		return
+	}
+
+	// The path inside the container is /input/filename
+	containerPath := "/input/" + header.Filename
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"path": containerPath})
+}
+
+// handleFileServe serves generated output files from the project output directory.
+func (s *Server) handleFileServe(w http.ResponseWriter, r *http.Request) {
+	song := r.PathValue("song")
+	file := r.PathValue("file")
+
+	// Prevent directory traversal
+	song = filepath.Clean(song)
+	file = filepath.Clean(file)
+
+	projectRoot := findProjectRoot()
+	filePath := filepath.Join(projectRoot, "output", song, file)
+
+	// Verify the file is inside the output directory
+	outputPrefix := filepath.Join(projectRoot, "output")
+	absPath, err := filepath.Abs(filePath)
+	if err != nil || !strings.HasPrefix(absPath, outputPrefix) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	http.ServeFile(w, r, absPath)
+}
+
+// findProjectRoot walks up from the current directory until it finds a VERSION file,
+// then returns that directory. Returns "." if not found.
+func findProjectRoot() string {
+	dir, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "VERSION")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+	return "."
 }
