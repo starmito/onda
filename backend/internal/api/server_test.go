@@ -110,6 +110,35 @@ func TestHealthMethodNotAllowed(t *testing.T) {
 	}
 }
 
+func TestGPUEndpoint(t *testing.T) {
+	srv := NewServer(":0")
+	ts := httptest.NewServer(srv.Handler)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/gpu")
+	if err != nil {
+		t.Fatalf("failed to GET /api/gpu: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200, got %d", resp.StatusCode)
+	}
+
+	ct := resp.Header.Get("Content-Type")
+	if ct != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %s", ct)
+	}
+
+	var gpuResp struct {
+		Available bool   `json:"available"`
+		Info      string `json:"info"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&gpuResp); err != nil {
+		t.Fatalf("failed to decode JSON response: %v", err)
+	}
+}
+
 func TestModelsEndpoint(t *testing.T) {
 	srv := NewServer(":0")
 	ts := httptest.NewServer(srv.Handler)

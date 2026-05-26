@@ -25,6 +25,7 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("/api/health", s.handleHealth)
 	s.mux.HandleFunc("/api/status", s.handleStatus)
 	s.mux.HandleFunc("/api/models", s.handleModels)
+	s.mux.HandleFunc("/api/gpu", s.handleGPU)
 
 	return &http.Server{
 		Addr:    addr,
@@ -107,6 +108,29 @@ func readPipelineStatus() (*pipeline.Status, error) {
 		return nil, err
 	}
 	return &s, nil
+}
+
+// handleGPU returns GPU availability and info from the Docker container.
+func (s *Server) handleGPU(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("method %s not allowed", r.Method),
+		})
+		return
+	}
+
+	available, info, _ := checkGPU()
+
+	resp := GPUPresenceResponse{
+		Available: available,
+		Info:      info,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(resp)
 }
 
 // handleModels returns the available presets as JSON.
