@@ -3,7 +3,7 @@
   import PresetSelector from './lib/PresetSelector.svelte';
   import ProgressBar from './lib/ProgressBar.svelte';
   import ResultsList from './lib/ResultsList.svelte';
-  import { getModels, separateAudio, getStatus } from './lib/api';
+  import { getModels, separateAudio, getStatus, uploadAudio } from './lib/api';
 
   let file = $state<File | null>(null);
   let presets = $state<Record<string, any>>({});
@@ -26,27 +26,32 @@
     results = [];
   }
 
-  function handleSeparate(preset: string) {
+  async function handleSeparate(preset: string) {
     if (!file) return;
     separating = true;
     results = [];
 
-    separateAudio(preset, file.name)
-      .then(() => {
-        progressRef?.start();
-      })
-      .catch((err) => {
-        alert('Error: ' + err.message);
-        separating = false;
-      });
+    try {
+      // 1. Upload file first
+      const uploaded = await uploadAudio(file);
+      // 2. Start separation with the server-side path
+      await separateAudio(preset, uploaded.path);
+      progressRef?.start();
+    } catch (err: any) {
+      alert('Error: ' + err.message);
+      separating = false;
+    }
   }
 
   function handleComplete() {
     separating = false;
 
     getStatus()
-      .then(() => {
-        if (file) {
+      .then((status) => {
+        if (status.files && status.files.length > 0) {
+          results = status.files;
+        } else if (file) {
+          // Fallback if backend didn't return files
           const base = file.name.replace(/\.[^.]+$/, '');
           results = [
             { name: `${base}_vocals.wav`, path: '' },
