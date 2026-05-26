@@ -109,3 +109,40 @@ func TestHealthMethodNotAllowed(t *testing.T) {
 		t.Errorf("expected status 405 for POST, got %d", resp.StatusCode)
 	}
 }
+
+func TestModelsEndpoint(t *testing.T) {
+	srv := NewServer(":0")
+	ts := httptest.NewServer(srv.Handler)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/models")
+	if err != nil {
+		t.Fatalf("failed to GET /api/models: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200, got %d", resp.StatusCode)
+	}
+
+	ct := resp.Header.Get("Content-Type")
+	if ct != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %s", ct)
+	}
+
+	var models map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&models); err != nil {
+		t.Fatalf("failed to decode JSON response: %v", err)
+	}
+
+	if len(models) == 0 {
+		t.Error("expected non-empty models map")
+	}
+
+	expectedPresets := []string{"turbo", "balance", "master", "ultimate"}
+	for _, name := range expectedPresets {
+		if _, ok := models[name]; !ok {
+			t.Errorf("expected preset %q in models response", name)
+		}
+	}
+}
