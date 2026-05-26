@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -173,5 +174,75 @@ func TestModelsEndpoint(t *testing.T) {
 		if _, ok := models[name]; !ok {
 			t.Errorf("expected preset %q in models response", name)
 		}
+	}
+}
+
+func TestSeparateEndpoint_InvalidJSON(t *testing.T) {
+	srv := NewServer(":0")
+	ts := httptest.NewServer(srv.Handler)
+	defer ts.Close()
+
+	resp, err := http.Post(ts.URL+"/api/separate", "application/json",
+		strings.NewReader("not json"))
+	if err != nil {
+		t.Fatalf("failed to POST /api/separate: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected status 400 for invalid JSON, got %d", resp.StatusCode)
+	}
+}
+
+func TestSeparateEndpoint_InvalidPreset(t *testing.T) {
+	srv := NewServer(":0")
+	ts := httptest.NewServer(srv.Handler)
+	defer ts.Close()
+
+	body := `{"preset": "nonexistent", "input": "/tmp/test.wav"}`
+	resp, err := http.Post(ts.URL+"/api/separate", "application/json",
+		strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("failed to POST /api/separate: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("expected status 400 for invalid preset, got %d", resp.StatusCode)
+	}
+}
+
+func TestSeparateEndpoint_ValidInput(t *testing.T) {
+	srv := NewServer(":0")
+	ts := httptest.NewServer(srv.Handler)
+	defer ts.Close()
+
+	body := `{"preset": "turbo", "input": "/tmp/test_song.flac", "output": "/tmp/output/", "vocal_model": "melband_kj", "pitch": 0}`
+	resp, err := http.Post(ts.URL+"/api/separate", "application/json",
+		strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("failed to POST /api/separate: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusAccepted {
+		t.Errorf("expected status 202, got %d", resp.StatusCode)
+	}
+
+	ct := resp.Header.Get("Content-Type")
+	if ct != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %s", ct)
+	}
+
+	var result map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode JSON response: %v", err)
+	}
+
+	if result["status"] != "started" {
+		t.Errorf("expected status 'started', got %q", result["status"])
+	}
+	if result["song"] != "test_song" {
+		t.Errorf("expected song 'test_song', got %q", result["song"])
 	}
 }
