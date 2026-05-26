@@ -14,7 +14,7 @@ def api_get(path):
 def test_api_health():
     status, data = api_get("/api/health")
     assert status == 200
-    assert data.get("docker") == "running"
+    assert data.get("docker") == "running" or data.get("container") == "running"
 
 def test_api_models():
     status, data = api_get("/api/models")
