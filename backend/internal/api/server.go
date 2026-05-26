@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 
+	"github.com/starmito/onda/internal/cli"
 	"github.com/starmito/onda/internal/pipeline"
 )
 
@@ -23,6 +24,7 @@ func NewServer(addr string) *http.Server {
 	}
 	s.mux.HandleFunc("/api/health", s.handleHealth)
 	s.mux.HandleFunc("/api/status", s.handleStatus)
+	s.mux.HandleFunc("/api/models", s.handleModels)
 
 	return &http.Server{
 		Addr:    addr,
@@ -105,4 +107,20 @@ func readPipelineStatus() (*pipeline.Status, error) {
 		return nil, err
 	}
 	return &s, nil
+}
+
+// handleModels returns the available presets as JSON.
+func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("method %s not allowed", r.Method),
+		})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(cli.Presets)
 }
