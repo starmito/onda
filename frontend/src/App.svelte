@@ -1,18 +1,26 @@
 <script lang="ts">
   import DropZone from './lib/DropZone.svelte';
-  import PresetSelector from './lib/PresetSelector.svelte';
+  import PipelineConfig from './lib/PipelineConfig.svelte';
+  import type { PipelineConfig as PipelineConfigType } from './lib/PipelineConfig.svelte';
+  import PitchControl from './lib/PitchControl.svelte';
+  import FileQueue from './lib/FileQueue.svelte';
+  import type { QueueFile } from './lib/FileQueue.svelte';
   import ProgressBar from './lib/ProgressBar.svelte';
-  import ResultsList from './lib/ResultsList.svelte';
+  import ResultsPanel from './lib/ResultsPanel.svelte';
+  import type { ResultStem } from './lib/ResultsPanel.svelte';
+  import HealthBar from './lib/HealthBar.svelte';
   import { getModels, separateAudio, getStatus, uploadAudio } from './lib/api';
 
-  let file = $state<File | null>(null);
+  // ---- State ----
+  let queueFiles = $state<QueueFile[]>([]);
   let presets = $state<Record<string, any>>({});
   let separating = $state(false);
-  let results = $state<{ name: string; path: string }[]>([]);
+  let results = $state<ResultStem[]>([]);
   let progressRef = $state<any>(null);
   let modelsError = $state(false);
+  let pitchValue = $state(0);
 
-  // Cargar presets al montar
+  // Load presets on mount
   $effect(() => {
     getModels()
       .then((p) => (presets = p))
@@ -21,45 +29,131 @@
       });
   });
 
-  function handleFile(f: File) {
-    file = f;
+  // ---- File Queue handlers ----
+  function handleFilesAdded(newFiles: File[]) {
+    const newItems: QueueFile[] = newFiles.map((f) => ({
+      file: f,
+      id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
+      status: 'waiting',
+      checked: true,
+    }));
+    queueFiles = [...queueFiles, ...newItems];
+  }
+
+  function handleDropZoneFile(f: File) {
+    handleFilesAdded([f]);
+  }
+
+  function handleClearQueue() {
+    queueFiles = [];
     results = [];
   }
 
-  async function handleSeparate(preset: string) {
-    if (!file) return;
+  function handleToggleQueueFile(id: string) {
+    queueFiles = queueFiles.map((qf) =>
+      qf.id === id ? { ...qf, checked: !qf.checked } : qf,
+    );
+  }
+
+  function handlePitchApply(pitch: number) {
+    pitchValue = pitch;
+  }
+
+  // ---- Pipeline start ----
+  async function handlePipelineStart(config: PipelineConfigType) {
+    const checked = queueFiles.filter((qf) => qf.checked && qf.status !== 'done');
+    if (checked.length === 0) {
+      alert('No checked files in queue.');
+      return;
+    }
+
     separating = true;
     results = [];
 
+    // Mark checked files as uploading
+    for (const qf of checked) {
+      qf.status = 'uploading';
+      qf.progress = 0;
+    }
+
     try {
-      // 1. Upload file first
-      const uploaded = await uploadAudio(file);
-      // 2. Start separation with the server-side path
-      await separateAudio(preset, uploaded.path);
-      progressRef?.start();
+      // Upload all checked files
+      const uploaded: { qf: QueueFile; path: string }[] = [];
+      for (const qf of checked) {
+        try {
+          const res = await uploadAudio(qf.file);
+          qf.status = 'processing';
+          qf.path = res.path;
+          uploaded.push({ qf, path: res.path });
+        } catch (err: any) {
+          qf.status = 'error';
+          qf.errorMsg = err.message;
+        }
+      }
+
+      if (uploaded.length === 0) {
+        separating = false;
+        alert('No files uploaded successfully.');
+        return;
+      }
+
+      // Use the first preset (htdemucs) as default, or the first available
+      const presetKeys = Object.keys(presets);
+      const preset = presetKeys.length > 0 ? presetKeys[0] : 'htdemucs';
+
+      // Start separation for each uploaded file
+      for (const { qf, path } of uploaded) {
+        try {
+          await separateAudio({
+            preset,
+            input: path,
+            pitch: pitchValue !== 0 ? pitchValue : undefined,
+            viperx: config.viperx,
+            viperx_keep: config.viperxKeep,
+            demucs: config.demucs,
+            demucs_keep: config.demucsKeep,
+          });
+          progressRef?.start();
+          qf.status = 'done';
+          qf.progress = 1;
+        } catch (err: any) {
+          qf.status = 'error';
+          qf.errorMsg = err.message;
+        }
+      }
     } catch (err: any) {
-      alert('Error: ' + err.message);
+      alert('Pipeline error: ' + err.message);
+    } finally {
       separating = false;
+      // Fetch results
+      handleComplete();
     }
   }
 
   function handleComplete() {
-    separating = false;
-
     getStatus()
       .then((status) => {
         if (status.files && status.files.length > 0) {
-          results = status.files;
-        } else if (file) {
-          // Fallback if backend didn't return files
-          const base = file.name.replace(/\.[^.]+$/, '');
-          results = [
-            { name: `${base}_vocals.wav`, path: '' },
-            { name: `${base}_instrumental.wav`, path: '' },
-          ];
+          results = status.files.map((f) => ({
+            name: f.name,
+            path: f.path,
+            song: status.song || extractSongFromName(f.name),
+          }));
+        } else {
+          // Fallback from queue
+          const doneFiles = queueFiles.filter((qf) => qf.status === 'done' && qf.path);
+          results = doneFiles.map((qf) => ({
+            name: qf.file.name.replace(/\.[^.]+$/, '') + '_vocals.wav',
+            path: qf.path || '',
+            song: qf.file.name.replace(/\.[^.]+$/, ''),
+          }));
         }
       })
       .catch(console.error);
+  }
+
+  function extractSongFromName(name: string): string {
+    return name.replace(/_(vocals|drums|bass|other|instrumental)\.\w+$/i, '');
   }
 </script>
 
@@ -67,18 +161,31 @@
   <header>
     <h1>🎵 Onda</h1>
     <span class="version">v2.0.0-alpha</span>
+    <div class="header-right">
+      <HealthBar />
+    </div>
   </header>
 
   <section class="upload">
-    <DropZone onfile={handleFile} />
+    <DropZone onfile={handleDropZoneFile} />
   </section>
 
-  {#if file}
-    <section class="controls">
-      <p class="file-name">📁 {file.name}</p>
-      <PresetSelector {presets} disabled={separating} onseparate={handleSeparate} {modelsError} />
+  {#if queueFiles.length > 0}
+    <section class="queue-section">
+      <FileQueue
+        files={queueFiles}
+        disabled={separating}
+        onaddfiles={handleFilesAdded}
+        onclear={handleClearQueue}
+        ontoggle={handleToggleQueueFile}
+      />
     </section>
   {/if}
+
+  <section class="controls">
+    <PipelineConfig disabled={separating} onstart={handlePipelineStart} />
+    <PitchControl value={pitchValue} disabled={separating} onapply={handlePitchApply} />
+  </section>
 
   {#if separating}
     <section class="progress">
@@ -88,7 +195,7 @@
 
   {#if results.length > 0}
     <section class="results">
-      <ResultsList files={results} />
+      <ResultsPanel files={results} />
     </section>
   {/if}
 </main>
@@ -146,7 +253,15 @@
     letter-spacing: 0.5px;
   }
 
+  .header-right {
+    margin-left: auto;
+  }
+
   .upload {
+    width: 100%;
+  }
+
+  .queue-section {
     width: 100%;
   }
 
@@ -157,14 +272,6 @@
     gap: 0.75rem;
   }
 
-  .file-name {
-    margin: 0;
-    font-size: 0.95rem;
-    color: #00d4ff;
-    font-weight: 500;
-    word-break: break-all;
-  }
-
   .progress {
     width: 100%;
   }
@@ -173,7 +280,7 @@
     width: 100%;
   }
 
-  /* Transiciones suaves entre estados */
+  /* Smooth transitions between states */
   section {
     animation: fadeIn 0.3s ease;
   }

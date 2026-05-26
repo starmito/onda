@@ -4,6 +4,9 @@ export interface HealthResponse {
   status: string;
   container: string;
   gpu: boolean;
+  gpu_info?: string;
+  disk?: string;
+  docker?: string;
   version: string;
 }
 
@@ -19,6 +22,17 @@ export interface SeparateResponse {
   song: string;
 }
 
+export interface SeparateOptions {
+  preset: string;
+  input: string;
+  pitch?: number;
+  viperx?: boolean;
+  viperx_keep?: 'both' | 'vocals' | 'instrumental';
+  demucs?: boolean;
+  demucs_keep?: string[];
+  output?: string;
+}
+
 export interface StatusResponse {
   status: string;
   progress: number;
@@ -29,7 +43,15 @@ export interface StatusResponse {
   files?: { name: string; path: string }[];
 }
 
-export async function uploadAudio(file: File): Promise<{ path: string }> {
+export interface UploadResponse {
+  path: string;
+}
+
+export function downloadUrl(song: string, file: string): string {
+  return `${API_BASE}/api/files/${encodeURIComponent(song)}/${encodeURIComponent(file)}`;
+}
+
+export async function uploadAudio(file: File): Promise<UploadResponse> {
   try {
     const formData = new FormData();
     formData.append('file', file);
@@ -40,13 +62,21 @@ export async function uploadAudio(file: File): Promise<{ path: string }> {
     if (!res.ok) {
       throw new Error(`Upload failed with status ${res.status}: ${res.statusText}`);
     }
-    return (await res.json()) as { path: string };
+    return (await res.json()) as UploadResponse;
   } catch (err) {
     if (err instanceof Error) {
       throw err;
     }
     throw new Error(`Unexpected error during upload: ${String(err)}`);
   }
+}
+
+export async function uploadMultiple(files: File[]): Promise<UploadResponse[]> {
+  const results: UploadResponse[] = [];
+  for (const file of files) {
+    results.push(await uploadAudio(file));
+  }
+  return results;
 }
 
 export async function getHealth(): Promise<HealthResponse> {
@@ -79,15 +109,25 @@ export async function getModels(): Promise<ModelsResponse> {
   }
 }
 
-export async function separateAudio(
-  preset: string,
-  input: string,
-  output?: string,
-): Promise<SeparateResponse> {
+export async function separateAudio(opts: SeparateOptions): Promise<SeparateResponse> {
   try {
-    const body: Record<string, string> = { preset, input };
-    if (output !== undefined) {
-      body.output = output;
+    const body: Record<string, string> = {
+      preset: opts.preset,
+      input: opts.input,
+    };
+    if (opts.pitch !== undefined && opts.pitch !== 0) {
+      body.pitch = String(opts.pitch);
+    }
+    if (opts.viperx) {
+      body.viperx = 'on';
+      body.viperx_keep = opts.viperx_keep ?? 'both';
+    }
+    if (opts.demucs) {
+      body.demucs = 'on';
+      body.demucs_keep = (opts.demucs_keep ?? ['drums', 'bass', 'other', 'vocals']).join(',');
+    }
+    if (opts.output !== undefined) {
+      body.output = opts.output;
     }
     const res = await fetch(`${API_BASE}/api/separate`, {
       method: 'POST',
@@ -118,5 +158,14 @@ export async function getStatus(): Promise<StatusResponse> {
       throw err;
     }
     throw new Error(`Unexpected error during status check: ${String(err)}`);
+  }
+}
+
+export async function deleteSong(song: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/files/${encodeURIComponent(song)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    throw new Error(`Delete failed with status ${res.status}: ${res.statusText}`);
   }
 }
