@@ -76,6 +76,22 @@
 - MDX-Net Kim Vocal 2: 5.8s para 30s de audio, salida bit-identical entre contenedores
 - El más rápido de los 3 métodos de separación
 
+### Demucs ONNX — Migración PyTorch → ONNX
+
+#### Added
+- `inference/inference_demucs_onnx.py` — wrapper CLI para Demucs ONNX vía `demucs-onnx` (StemSplitio)
+- Dependencia `demucs-onnx==0.3.4` (0.1 MB, sin PyTorch para inferencia)
+- Modelos ONNX: 4 especialistas de htdemucs_ft (vocals, drums, bass, other) — 302 MB c/u, ~1.2 GB total
+- Fuente: StemSplitio/htdemucs-ft-onnx (calidad idéntica a PyTorch, SDR 9.19 dB vocals)
+- `.gitignore`: excluye `models/Demucs_ONNX/`
+
+#### Changed
+- Inferencia Demucs ahora puede usar ONNX en lugar de PyTorch (instalación 40× más ligera)
+- Bind mount `models/Demucs_ONNX/` accesible desde el contenedor vía `./models:/app/models`
+
+#### Performance
+- Demucs ONNX vocals: 19.4s para 30s de audio (1.5x realtime), ~270 MB VRAM pico
+
 ## v1.4.4
 
 Última versión estable. Inamovible en rama `main`.
