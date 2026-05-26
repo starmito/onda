@@ -10,11 +10,6 @@ FIXTURE = "/app/tests/integration/fixtures/chirp_5s.flac"
 DURATION = 5.0
 
 BENCHMARKS = {
-    "demucs-onnx-cpu": [
-        "ssh", ".87", "docker", "exec", CONTAINER, "python3",
-        "inference/inference_demucs_onnx.py", FIXTURE,
-        "/tmp/bench-demucs-onnx/", "--stems", "vocals"
-    ],
     "mdx-net": [
         "ssh", ".87", "docker", "exec", CONTAINER, "python3",
         "inference/inference_mdx.py", FIXTURE,
