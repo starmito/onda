@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/starmito/onda/internal/cli"
 	"github.com/starmito/onda/internal/pipeline"
@@ -26,6 +28,7 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("/api/status", s.handleStatus)
 	s.mux.HandleFunc("/api/models", s.handleModels)
 	s.mux.HandleFunc("/api/gpu", s.handleGPU)
+	s.mux.HandleFunc("/api/separate", s.handleSeparate)
 
 	return &http.Server{
 		Addr:    addr,
@@ -147,4 +150,77 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(cli.Presets)
+}
+
+// SeparateRequest is the JSON body for POST /api/separate.
+type SeparateRequest struct {
+	Preset     string `json:"preset"`
+	Input      string `json:"input"`
+	Output     string `json:"output,omitempty"`
+	VocalModel string `json:"vocal_model,omitempty"`
+	Pitch      int    `json:"pitch,omitempty"`
+}
+
+// handleSeparate launches the audio separation pipeline asynchronously.
+func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("method %s not allowed", r.Method),
+		})
+		return
+	}
+
+	var req SeparateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("invalid JSON: %v", err),
+		})
+		return
+	}
+
+	// Validate preset
+	preset, ok := cli.Presets[req.Preset]
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("unknown preset %q", req.Preset),
+		})
+		return
+	}
+
+	// Build PipelineFlags from preset + request overrides
+	flags := &cli.PipelineFlags{
+		Preset:       req.Preset,
+		VocalModel:   req.VocalModel,
+		VocalOverlap: preset.VocalOverlap,
+		VocalKeep:    "both",
+		StemModel:    preset.StemModel,
+		DrumsModel:   preset.DrumsModel,
+		BassModel:    preset.BassModel,
+		OtherModel:   preset.OtherModel,
+		Pitch:        req.Pitch,
+		Input:        req.Input,
+		Output:       req.Output,
+	}
+
+	// If no vocal model override, use the preset's default
+	if flags.VocalModel == "" {
+		flags.VocalModel = preset.VocalModel
+	}
+
+	// Launch pipeline in background
+	song := strings.TrimSuffix(filepath.Base(req.Input), filepath.Ext(req.Input))
+	go pipeline.Run(flags)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusAccepted)
+	json.NewEncoder(w).Encode(map[string]string{
+		"status": "started",
+		"song":   song,
+	})
 }
