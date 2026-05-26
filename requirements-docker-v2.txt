@@ -37,3 +37,5 @@ asteroid==0.7.0
 julius==0.2.7
 samplerate==0.2.4
 dora-search
+openunmix
+lameenc>=1.2
