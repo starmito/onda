@@ -28,6 +28,15 @@
 - **Bug #3**: Demucs sin `-n` — ahora pasa `-n htdemucs_ft` al comando
 - **Bug #4**: Demucs estructura output — corrige track subdirectory y stems esperados (`vocals.wav`/`no_vocals.wav`)
 
+### Fase 3 — Frontend Alpha MVP
+
+#### Changed
+- Frontend: actualizar dependencias a últimas versiones estables (vite 8.0.14, @sveltejs/vite-plugin-svelte 7.1.2, typescript 6.0.3, @tauri-apps/api 2.11.0, @tauri-apps/cli 2.11.2)
+
+#### Fixed
+- Frontend: usar `mount()` de Svelte 5 en lugar de `new App()` (API legacy de Svelte 4 causaba pantalla en blanco)
+- Frontend: mostrar mensaje de error cuando la API de presets no responde, en lugar de "Cargando presets..." infinito
+
 ## v1.4.4
 
 Última versión estable. Inamovible en rama `main`.
