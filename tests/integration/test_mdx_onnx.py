@@ -6,6 +6,7 @@ CONTAINER = "onda"
 SCRIPT = "inference/inference_mdx.py"
 FIXTURE_DIR = "/app/tests/integration/fixtures"
 OUTPUT = "/tmp/onda-test-mdx"
+MODEL_PATH = "/app/models/MDX_Net_ONNX/Kim_Vocal_2.onnx"
 
 def run_mdx(input_file, output_dir=None):
     """Run MDX-Net inside container."""
@@ -13,6 +14,7 @@ def run_mdx(input_file, output_dir=None):
     cmd = [
         "ssh", ".87", "docker", "exec", CONTAINER,
         "python3", SCRIPT,
+        MODEL_PATH,
         f"{FIXTURE_DIR}/{input_file}",
         out,
     ]
@@ -20,10 +22,14 @@ def run_mdx(input_file, output_dir=None):
 
 def test_mdx_sine():
     """Separate vocals from sine wave using MDX-Net."""
-    result = run_mdx("sine_440_5s.flac", "/tmp/onda-test-mdx-sine/")
+    import tempfile
+    out = tempfile.mkdtemp(prefix="onda-test-mdx-sine-")
+    result = run_mdx("sine_440_5s.flac", out)
     assert result.returncode == 0, f"MDX-Net failed: {result.stderr}"
 
 def test_mdx_chirp():
     """Separate vocals from chirp using MDX-Net."""
-    result = run_mdx("chirp_5s.flac", "/tmp/onda-test-mdx-chirp/")
+    import tempfile
+    out = tempfile.mkdtemp(prefix="onda-test-mdx-chirp-")
+    result = run_mdx("chirp_5s.flac", out)
     assert result.returncode == 0, f"MDX-Net chirp failed: {result.stderr}"
