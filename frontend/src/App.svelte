@@ -10,7 +10,11 @@
   import type { ResultStem } from './lib/ResultsPanel.svelte';
   import HealthBar from './lib/HealthBar.svelte';
   import BackendControls from './lib/BackendControls.svelte';
-  import { getModels, separateAudio, getStatus, uploadAudio } from './lib/api';
+  import PresetSelector from './lib/PresetSelector.svelte';
+  import ModelConfig from './lib/ModelConfig.svelte';
+  import GpuMonitor from './lib/GpuMonitor.svelte';
+  import { getModels, separateAudio, getStatus, uploadAudio, getModelList } from './lib/api';
+  import type { ModelInfo } from './lib/api';
 
   // ---- State ----
   let queueFiles = $state<QueueFile[]>([]);
@@ -21,13 +25,27 @@
   let modelsError = $state(false);
   let pitchValue = $state(0);
 
-  // Load presets on mount
+  // Advanced model config
+  let modelConfig = $state({
+    vocalModel: '',
+    stemModel: '',
+    drumsModel: '',
+    bassModel: '',
+    otherModel: '',
+    vocalOverlap: 4,
+  });
+  let modelInfos = $state<ModelInfo[]>([]);
+
+  // Load presets + model list on mount
   $effect(() => {
     getModels()
       .then((p) => (presets = p))
       .catch(() => {
         modelsError = true;
       });
+    getModelList()
+      .then((m) => (modelInfos = m))
+      .catch(() => {}); // silent fail — dropdowns just stay empty
   });
 
   // ---- File Queue handlers ----
@@ -58,6 +76,16 @@
 
   function handlePitchApply(pitch: number) {
     pitchValue = pitch;
+  }
+
+  // ---- Preset start (from PresetSelector) ----
+  function handlePresetStart(preset: string) {
+    handlePipelineStart({
+      viperx: false,
+      viperxKeep: 'both',
+      demucs: true,
+      demucsKeep: ['drums', 'bass', 'other', 'vocals'],
+    });
   }
 
   // ---- Pipeline start ----
@@ -163,6 +191,7 @@
     <h1>🎵 Onda</h1>
     <span class="version">v2.0.0-alpha</span>
     <div class="header-right">
+      <GpuMonitor />
       <HealthBar />
       <BackendControls />
     </div>
@@ -185,6 +214,19 @@
   {/if}
 
   <section class="controls">
+    <PresetSelector
+      presets={presets}
+      disabled={separating}
+      onseparate={(preset: string) => {
+        handlePresetStart(preset);
+      }}
+      modelsError={modelsError}
+    />
+    <ModelConfig
+      models={modelInfos}
+      config={modelConfig}
+      onchange={(cfg) => (modelConfig = cfg)}
+    />
     <PipelineConfig disabled={separating} onstart={handlePipelineStart} />
     <PitchControl value={pitchValue} disabled={separating} onapply={handlePitchApply} />
   </section>
