@@ -43,7 +43,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Runtime libraries path (onnxruntime-gpu busca aquí)
-ENV LD_LIBRARY_PATH=/usr/local/cuda-12.8/lib64:/usr/local/lib
+ENV LD_LIBRARY_PATH=/usr/local/cuda-12.8/lib64:/usr/local/lib/python3.12/site-packages/nvidia/cuda_runtime/lib:/usr/local/lib
 ENV PATH=/usr/local/cuda-12.8/bin:${PATH}
 
 COPY --from=builder /deps /usr/local/lib/python3.12/site-packages/
