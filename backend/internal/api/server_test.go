@@ -73,6 +73,22 @@ func TestCORSHeaders(t *testing.T) {
 	}
 }
 
+func TestStatusEndpoint_NoPipeline(t *testing.T) {
+	srv := NewServer(":0")
+	ts := httptest.NewServer(srv.Handler)
+	defer ts.Close()
+
+	resp, err := http.Get(ts.URL + "/api/status")
+	if err != nil {
+		t.Fatalf("failed to GET /api/status: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		t.Errorf("expected status 200, got %d", resp.StatusCode)
+	}
+}
+
 func TestHealthMethodNotAllowed(t *testing.T) {
 	srv := NewServer(":0")
 	ts := httptest.NewServer(srv.Handler)

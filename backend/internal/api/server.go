@@ -4,6 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+
+	"github.com/starmito/onda/internal/pipeline"
 )
 
 const version = "v2.0.0-alpha"
@@ -19,6 +22,7 @@ func NewServer(addr string) *http.Server {
 		mux: http.NewServeMux(),
 	}
 	s.mux.HandleFunc("/api/health", s.handleHealth)
+	s.mux.HandleFunc("/api/status", s.handleStatus)
 
 	return &http.Server{
 		Addr:    addr,
@@ -72,4 +76,33 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(resp)
+}
+
+// handleStatus returns the current pipeline progress from the JSON status file.
+func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	status, err := readPipelineStatus()
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "idle"})
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
+}
+
+// readPipelineStatus reads and parses the pipeline status JSON file.
+func readPipelineStatus() (*pipeline.Status, error) {
+	data, err := os.ReadFile(pipeline.StatusFile())
+	if err != nil {
+		return nil, err
+	}
+	var s pipeline.Status
+	if err := json.Unmarshal(data, &s); err != nil {
+		return nil, err
+	}
+	return &s, nil
 }
