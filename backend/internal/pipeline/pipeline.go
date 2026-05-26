@@ -3,6 +3,7 @@ package pipeline
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -33,6 +34,7 @@ type Pipeline struct {
 	outputDir    string // host output directory
 	dockerInput  string // path to input file inside container
 	dockerOutput string // output directory path inside container
+	copyFromDir  string // if outputDir is outside project, copy files from here after pipeline
 	start        time.Time
 }
 
@@ -101,10 +103,18 @@ func New(flags *cli.PipelineFlags) *Pipeline {
 	projectRoot := findProjectRoot()
 	hostPrefix := filepath.Join(projectRoot, "output") + "/"
 	var dockerOutput string
+	var copyFromDir string
 	if projectRoot != "" && strings.HasPrefix(outputDir, hostPrefix) {
 		dockerOutput = filepath.Join("/output", strings.TrimPrefix(outputDir, hostPrefix))
 	} else {
 		dockerOutput = filepath.Join("/output", song)
+		// If the user-specified output directory is outside the project,
+		// the pipeline still writes inside the container to /output/<song>
+		// (which maps to <projectRoot>/output/<song> on the host).
+		// After the pipeline finishes, we copy everything to the actual outputDir.
+		if projectRoot != "" && !strings.HasPrefix(outputDir, hostPrefix) {
+			copyFromDir = filepath.Join(projectRoot, "output", song)
+		}
 	}
 
 	return &Pipeline{
@@ -113,6 +123,7 @@ func New(flags *cli.PipelineFlags) *Pipeline {
 		outputDir:    outputDir,
 		dockerInput:  filepath.Join("/input", filepath.Base(flags.Input)),
 		dockerOutput: dockerOutput,
+		copyFromDir:  copyFromDir,
 		start:        time.Now(),
 	}
 }
@@ -170,6 +181,17 @@ func (p *Pipeline) Run() error {
 
 	// ---- Done ----
 	p.writeStatus("done", 1.0, "done")
+
+	// If the user requested an output directory outside the project root,
+	// copy the generated files from the internal output to the user's directory.
+	if p.copyFromDir != "" {
+		if err := copyDir(p.copyFromDir, p.outputDir); err != nil {
+			err = fmt.Errorf("copying output to %s: %w", p.outputDir, err)
+			p.writeError(err)
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -454,6 +476,63 @@ func (p *Pipeline) dockerExec(args ...string) (string, error) {
 		return "", fmt.Errorf("docker exec failed: %w\nOutput: %s", err, string(output))
 	}
 	return string(output), nil
+}
+
+// copyDir recursively copies all files and subdirectories from src to dst.
+// If dst already exists, files are overwritten.
+func copyDir(src, dst string) error {
+	// Ensure destination exists
+	if err := os.MkdirAll(dst, 0755); err != nil {
+		return fmt.Errorf("mkdir %s: %w", dst, err)
+	}
+
+	entries, err := os.ReadDir(src)
+	if err != nil {
+		return fmt.Errorf("reading source directory %s: %w", src, err)
+	}
+
+	for _, entry := range entries {
+		srcPath := filepath.Join(src, entry.Name())
+		dstPath := filepath.Join(dst, entry.Name())
+
+		if entry.IsDir() {
+			if err := copyDir(srcPath, dstPath); err != nil {
+				return err
+			}
+		} else {
+			if err := copyFile(srcPath, dstPath); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// copyFile copies a single file from src to dst.
+func copyFile(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("opening %s: %w", src, err)
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return fmt.Errorf("creating %s: %w", dst, err)
+	}
+	defer dstFile.Close()
+
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		return fmt.Errorf("copying %s -> %s: %w", src, dst, err)
+	}
+
+	// Preserve permissions
+	info, err := srcFile.Stat()
+	if err == nil {
+		os.Chmod(dst, info.Mode())
+	}
+
+	return nil
 }
 
 // writeStatus writes the current pipeline status to the JSON status file.
