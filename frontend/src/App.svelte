@@ -13,6 +13,9 @@
   import PresetSelector from './lib/PresetSelector.svelte';
   import ModelConfig from './lib/ModelConfig.svelte';
   import GpuMonitor from './lib/GpuMonitor.svelte';
+  import VramCalculator from './lib/VramCalculator.svelte';
+  import type { Preset } from './lib/VramCalculator.svelte';
+  import ModelLoader from './lib/ModelLoader.svelte';
   import { getModels, separateAudio, getStatus, uploadAudio, getModelList } from './lib/api';
   import type { ModelInfo } from './lib/api';
 
@@ -35,6 +38,25 @@
     vocalOverlap: 4,
   });
   let modelInfos = $state<ModelInfo[]>([]);
+
+  // VramCalculator integration
+  let selectedPresetKey = $state('');
+  let selectedPresetData = $derived.by((): Preset | null => {
+    if (!selectedPresetKey || !presets[selectedPresetKey]) return null;
+    const p = presets[selectedPresetKey];
+    return {
+      key: selectedPresetKey,
+      name: p.name,
+      description: p.description,
+      models: {
+        vocal: modelConfig.vocalModel,
+        stems: modelConfig.stemModel,
+        drums: modelConfig.drumsModel,
+        bass: modelConfig.bassModel,
+        other: modelConfig.otherModel,
+      },
+    };
+  });
 
   // Load presets + model list on mount
   $effect(() => {
@@ -220,6 +242,9 @@
       onseparate={(preset: string) => {
         handlePresetStart(preset);
       }}
+      onselect={(key: string) => {
+        selectedPresetKey = key;
+      }}
       modelsError={modelsError}
     />
     <ModelConfig
@@ -227,6 +252,7 @@
       config={modelConfig}
       onchange={(cfg) => (modelConfig = cfg)}
     />
+    <VramCalculator preset={selectedPresetData} />
     <PipelineConfig disabled={separating} onstart={handlePipelineStart} />
     <PitchControl value={pitchValue} disabled={separating} onapply={handlePitchApply} />
   </section>
@@ -242,6 +268,10 @@
       <ResultsPanel files={results} />
     </section>
   {/if}
+
+  <section class="model-loader">
+    <ModelLoader />
+  </section>
 </main>
 
 <style>
@@ -324,6 +354,10 @@
   }
 
   .results {
+    width: 100%;
+  }
+
+  .model-loader {
     width: 100%;
   }
 
