@@ -2,8 +2,12 @@ package api
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -49,4 +53,67 @@ func checkGPU() (bool, string, error) {
 	info := strings.TrimSpace(string(out))
 	available := info != "" && !strings.Contains(info, "NVIDIA-SMI has failed")
 	return available, info, nil
+}
+
+// checkDisk returns disk health for the project output directory.
+// ok=true if > 10 GB free; otherwise ok=false with code "E5".
+func checkDisk() map[string]interface{} {
+	projectRoot := findProjectRoot()
+	outputDir := filepath.Join(projectRoot, "output")
+
+	// Ensure the directory exists for Statfs; create if missing.
+	if _, err := os.Stat(outputDir); os.IsNotExist(err) {
+		os.MkdirAll(outputDir, 0755)
+	}
+
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(outputDir, &stat); err != nil {
+		return map[string]interface{}{
+			"ok":     false,
+			"code":   "E5",
+			"detail": fmt.Sprintf("cannot stat output dir: %v", err),
+		}
+	}
+
+	freeBytes := stat.Bavail * uint64(stat.Bsize)
+	freeGB := float64(freeBytes) / (1024 * 1024 * 1024)
+
+	if freeGB < 10 {
+		return map[string]interface{}{
+			"ok":     false,
+			"code":   "E5",
+			"detail": fmt.Sprintf("only %.1f GB free on /output", freeGB),
+		}
+	}
+
+	return map[string]interface{}{
+		"ok":     true,
+		"detail": fmt.Sprintf("%.1f GB free", freeGB),
+	}
+}
+
+// checkDocker returns docker socket health.
+// ok=true if /var/run/docker.sock is accessible and is a socket; otherwise ok=false with code "E6".
+func checkDocker() map[string]interface{} {
+	info, err := os.Stat("/var/run/docker.sock")
+	if err != nil {
+		return map[string]interface{}{
+			"ok":     false,
+			"code":   "E6",
+			"detail": "docker socket not accessible",
+		}
+	}
+
+	if info.Mode()&os.ModeSocket == 0 {
+		return map[string]interface{}{
+			"ok":     false,
+			"code":   "E6",
+			"detail": "docker socket exists but is not a socket",
+		}
+	}
+
+	return map[string]interface{}{
+		"ok":     true,
+		"detail": "docker socket accessible",
+	}
 }
