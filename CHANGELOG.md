@@ -114,6 +114,22 @@
 #### Performance
 - Demucs ONNX vocals: 19.4s para 30s de audio (1.5x realtime), ~270 MB VRAM pico
 
+### Fase 5 — Testing Integral
+
+#### Added
+- `tests/integration/`: suite completa E2E con audio sintético
+- `generate_test_audio.py`: generador de fixtures (sine 440Hz, chirp, silence, short 0.5s)
+- Tests por método: `test_demucs_onnx.py`, `test_mdx_onnx.py`, `test_pipeline_api.py`
+- `benchmark.py`: script comparativo RTF de todos los métodos
+- `test_edge_cases.py`: tests de silencio, audio corto, archivo inexistente
+- `run_all.sh`: ejecución completa de la suite
+
+#### Coverage
+- 4 fixtures de audio sintético (FLAC 44100 Hz)
+- End-to-end: Demucs ONNX, MDX-Net ONNX, Pipeline HTTP API
+- Edge cases: silencio, audio 0.5s, archivo inexistente
+- Benchmark: PyTorch vs ONNX vs MDX-Net
+
 ## v1.4.4
 
 Última versión estable. Inamovible en rama `main`.
