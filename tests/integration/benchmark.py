@@ -11,17 +11,17 @@ DURATION = 5.0
 
 BENCHMARKS = {
     "demucs-onnx-cpu": [
-        "docker", "exec", CONTAINER, "python3",
+        "ssh", ".87", "docker", "exec", CONTAINER, "python3",
         "inference/inference_demucs_onnx.py", FIXTURE,
         "/tmp/bench-demucs-onnx/", "--stems", "vocals"
     ],
     "mdx-net": [
-        "docker", "exec", CONTAINER, "python3",
+        "ssh", ".87", "docker", "exec", CONTAINER, "python3",
         "inference/inference_mdx.py", FIXTURE,
         "/tmp/bench-mdx/"
     ],
     "demucs-pytorch": [
-        "docker", "exec", CONTAINER, "demucs",
+        "ssh", ".87", "docker", "exec", CONTAINER, "demucs",
         "-n", "htdemucs_ft", "--two-stems", "vocals",
         "-o", "/tmp/bench-demucs-pt/", FIXTURE
     ],

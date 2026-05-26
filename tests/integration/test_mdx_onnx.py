@@ -11,7 +11,7 @@ def run_mdx(input_file, output_dir=None):
     """Run MDX-Net inside container."""
     out = output_dir or f"{OUTPUT}"
     cmd = [
-        "docker", "exec", CONTAINER,
+        "ssh", ".87", "docker", "exec", CONTAINER,
         "python3", SCRIPT,
         f"{FIXTURE_DIR}/{input_file}",
         out,

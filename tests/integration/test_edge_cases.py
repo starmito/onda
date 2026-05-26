@@ -7,7 +7,7 @@ FIXTURE_DIR = "/app/tests/integration/fixtures"
 
 def run_demucs_onnx(input_file, stems="vocals"):
     cmd = [
-        "docker", "exec", CONTAINER, "python3",
+        "ssh", ".87", "docker", "exec", CONTAINER, "python3",
         "inference/inference_demucs_onnx.py",
         f"{FIXTURE_DIR}/{input_file}",
         f"/tmp/onda-test-edge-{input_file}/",
@@ -35,7 +35,7 @@ def test_nonexistent_file():
 def test_mdx_short_audio():
     """MDX-Net with short audio should not crash."""
     cmd = [
-        "docker", "exec", CONTAINER, "python3",
+        "ssh", ".87", "docker", "exec", CONTAINER, "python3",
         "inference/inference_mdx.py",
         f"{FIXTURE_DIR}/short_05s.flac",
         "/tmp/onda-test-edge-mdx-short/",
