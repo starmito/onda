@@ -9,12 +9,18 @@ services:
       dockerfile: ${GPU_DOCKERFILE:-Dockerfile}
     container_name: onda
     user: "1000:1000"
+    environment:
+      - NUMBA_CACHE_DIR=/tmp/numba_cache
+      - TORCH_HOME=/tmp/torch_cache
+      - XDG_CACHE_HOME=/tmp/xdg_cache
+      - HF_HOME=/tmp/hf_cache
+      - HOME=/tmp
     volumes:
       - /mnt/almacen/onda/models:/app/models:ro
       - ./input:/input
       - ./output:/output
     working_dir: /app
-    entrypoint: ["tail", "-f", "/dev/null"]
+    entrypoint: ["sh", "-c", "mkdir -p /tmp/numba_cache /tmp/torch_cache /tmp/xdg_cache /tmp/hf_cache && exec tail -f /dev/null"]
 
   # ── Frontend: nginx + CGI bash ──
   onda-gui:
