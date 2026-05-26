@@ -11,7 +11,7 @@ FIXTURE_DIR = "/app/tests/integration/fixtures"
 def run_onnx(input_file, stems="vocals"):
     """Run Demucs ONNX inside container."""
     cmd = [
-        "docker", "exec", CONTAINER,
+        "ssh", ".87", "docker", "exec", CONTAINER,
         "python3", SCRIPT,
         f"{FIXTURE_DIR}/{input_file}",
         OUTPUT,
@@ -22,7 +22,7 @@ def run_onnx(input_file, stems="vocals"):
 def test_onnx_runtime_info():
     """Verify --runtime shows available providers."""
     result = subprocess.run(
-        ["docker", "exec", CONTAINER, "python3", SCRIPT, "--runtime"],
+        ["ssh", ".87", "docker", "exec", CONTAINER, "python3", SCRIPT, "--runtime"],
         capture_output=True, text=True, timeout=15
     )
     assert result.returncode == 0, f"runtime failed: {result.stderr}"
@@ -37,7 +37,7 @@ def test_onnx_sine_vocals():
     # Verify output file exists inside container
     output_file = f"{OUTPUT}/vocals.wav"
     check = subprocess.run(
-        ["docker", "exec", CONTAINER, "test", "-f", output_file],
+        ["ssh", ".87", "docker", "exec", CONTAINER, "test", "-f", output_file],
         capture_output=True
     )
     assert check.returncode == 0, f"Output file missing: {output_file}"
@@ -45,7 +45,7 @@ def test_onnx_sine_vocals():
 def test_onnx_list_models():
     """Verify --list-models works."""
     result = subprocess.run(
-        ["docker", "exec", CONTAINER, "python3", SCRIPT, "--list-models"],
+        ["ssh", ".87", "docker", "exec", CONTAINER, "python3", SCRIPT, "--list-models"],
         capture_output=True, text=True, timeout=15
     )
     assert result.returncode == 0, f"list-models failed: {result.stderr}"
