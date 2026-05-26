@@ -2,6 +2,25 @@
 
 ## v2.0.0-alpha
 
+### v2.0.0-alpha.8 — Backend controls + GPU monitor + Model loader
+
+#### Added (Backend — Go)
+- `/api/health`: respuesta estructurada `{backend, gpu, disk, docker}` con `{ok, code, detail}`
+- `/api/backend/start|stop|restart` (POST): control del contenedor de inferencia
+- `/api/gpu/info` (GET): VRAM, temperatura, utilización, runtime vía nvidia-smi
+- `/api/gpu/vram-calculator` (GET): estimación de VRAM por modelo + disponible
+- `/api/models/list` (GET): escaneo de modelos locales por categoría
+- `/api/models/download` (POST): descarga desde HuggingFace
+
+#### Added (Frontend — Svelte)
+- `BackendControls.svelte`: botones Start/Restart/Stop con estado
+- `HealthBar.svelte` (rewrite): dots BE/GPU/Disk/Docker con structured health
+- `PresetSelector.svelte`: dropdown de presets + botón START
+- `ModelConfig.svelte`: configuración por modelo (Vocal/Stems/Drums/Bass/Other)
+- `GpuMonitor.svelte`: barra VRAM + temp + utilización (polling 5s)
+- `VramCalculator.svelte`: consumo estimado por preset
+- `ModelLoader.svelte`: lista de modelos locales + descarga HuggingFace
+
 ### v2.0.0-alpha.7 — UI overhaul + GPU fix + JSON tags
 
 #### Fixed
