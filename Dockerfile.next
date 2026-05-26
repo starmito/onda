@@ -14,12 +14,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # ── NVIDIA CUDA repo (para libcuda.so) ───────────────
-RUN wget -q https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb \
+# Debian Trixie rechaza SHA1 → aceptar temporalmente
+RUN echo 'APT::Key::Assert-Pubkey-Algo ">=sha1";' > /etc/apt/apt.conf.d/99nvidia.conf \
+    && wget -q https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb \
     && dpkg -i cuda-keyring_1.1-1_all.deb \
     && rm cuda-keyring_1.1-1_all.deb \
     && apt-get update \
     && apt-get install -y --no-install-recommends cuda-compat-13-2 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* /etc/apt/apt.conf.d/99nvidia.conf
 
 # ── PyTorch CUDA 13.2 ───────────────────────────────
 # torch + torchvision desde índice CUDA; torchaudio desde PyPI (no tiene wheel cu132 cp314 aún)
