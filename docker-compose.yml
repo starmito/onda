@@ -15,12 +15,13 @@ services:
       - XDG_CACHE_HOME=/tmp/xdg_cache
       - HF_HOME=/tmp/hf_cache
       - HOME=/tmp
+      - TORCHINDUCTOR_CACHE_DIR=/tmp/torch_inductor_cache
     volumes:
       - /mnt/almacen/onda/models:/app/models:ro
       - ./input:/input
       - ./output:/output
     working_dir: /app
-    entrypoint: ["sh", "-c", "mkdir -p /tmp/numba_cache /tmp/torch_cache /tmp/xdg_cache /tmp/hf_cache && exec tail -f /dev/null"]
+    entrypoint: ["sh", "-c", "mkdir -p /tmp/numba_cache /tmp/torch_cache /tmp/xdg_cache /tmp/hf_cache /tmp/torch_inductor_cache && exec tail -f /dev/null"]
 
   # ── Frontend: nginx + CGI bash ──
   onda-gui:
