@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"os/exec"
 	"strings"
+	"time"
 )
 
 const dockerContainer = "onda"
@@ -18,7 +20,9 @@ type HealthResponse struct {
 
 // checkDockerContainer verifica si el contenedor está corriendo.
 func checkDockerContainer() (string, error) {
-	cmd := exec.Command("docker", "inspect", "-f", "{{.State.Status}}", dockerContainer)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.State.Status}}", dockerContainer)
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err
@@ -28,7 +32,9 @@ func checkDockerContainer() (string, error) {
 
 // checkGPU verifica si el contenedor tiene acceso a GPU NVIDIA.
 func checkGPU() (bool, string, error) {
-	cmd := exec.Command("docker", "exec", dockerContainer,
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", "exec", dockerContainer,
 		"nvidia-smi", "--query-gpu=name,memory.used,memory.total", "--format=csv,noheader")
 	out, err := cmd.Output()
 	if err != nil {
