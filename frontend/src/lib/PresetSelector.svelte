@@ -3,11 +3,13 @@
 		presets,
 		disabled,
 		onseparate,
+		onselect,
 		modelsError = false,
 	}: {
 		presets: Record<string, { name: string; description: string }>;
 		disabled: boolean;
 		onseparate: (preset: string) => void | Promise<void>;
+		onselect?: (presetKey: string) => void;
 		modelsError?: boolean;
 	} = $props();
 
@@ -18,6 +20,10 @@
 		if (presets && Object.keys(presets).length > 0 && !presets[selectedPreset]) {
 			selectedPreset = "";
 		}
+	});
+
+	$effect(() => {
+		onselect?.(selectedPreset);
 	});
 
 	function handleSeparate() {
