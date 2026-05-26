@@ -2,6 +2,25 @@
 
 ## v2.0.0-alpha
 
+### Rebuild CUDA 12.8 — onnxruntime-gpu con GPU real
+
+#### Fixed
+- Inferencia: `onnxruntime-gpu` ahora detecta CUDA 12.8 (antes solo CPU fallback)
+- Docker: añadidas librerías runtime CUDA 12.8 (cudnn9, cublas, cufft, curand, cusolver, cusparse)
+- Docker: `LD_LIBRARY_PATH` configurado para que ONNX Runtime encuentre CUDA y libcudart
+- Docker: `demucs-onnx==0.3.4` instalado (faltaba en requirements anteriores)
+- Docker: `onnxruntime` CPU ya no sobrescribe `onnxruntime-gpu` (eliminado post-install)
+
+#### Changed
+- Contenedor `onda:nvidia`: `python:3.12-slim` + CUDA 12.8 runtime (~500 MB extra)
+- Paquetes NVIDIA desde repositorio oficial (developer.download.nvidia.com)
+- `.dockerignore`: excluye `frontend/node_modules/` (reduce tamaño de imagen)
+
+#### Verification
+- `onnxruntime.get_available_providers()` → `['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']` ✅
+- `demucs-onnx` 0.3.4 funcional ✅
+- PyTorch CUDA RTX 5060 Ti sin regresión ✅
+
 > **Nota**: El historial de git anterior a este commit se perdió por un bug en la herramienta de desarrollo (subagente C creó un commit huérfano). El contenido del código está intacto. Este commit representa el estado completo de Fase 0 + Fase 1.
 
 ### Fase 0 — Estructura del proyecto
