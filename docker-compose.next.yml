@@ -1,0 +1,13 @@
+services:
+  onda-next:
+    build:
+      dockerfile: Dockerfile.next
+    image: onda:next
+    container_name: onda-next
+    runtime: nvidia
+    volumes:
+      - ./models:/app/models:ro
+      - ./input:/input
+      - ./output:/output
+    working_dir: /app
+    entrypoint: ["tail", "-f", "/dev/null"]
