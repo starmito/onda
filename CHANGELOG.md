@@ -55,6 +55,27 @@
 #### Performance
 - Separación: ~60x realtime en RTX 5060 Ti (canción de 3:54 en ~4s)
 
+### Roformer — Scripts de inferencia
+
+#### Added
+- `inference/inference_universal.py`: script standalone para todos los modelos Roformer (ViperX, MelBand, PolarFormer)
+- `inference/lib_v5/`: librerías core (bs_roformer.py, mel_band_roformer.py, attend.py, etc.)
+- Integración en Dockerfile.v2: scripts Roformer copiados a `/app/`
+
+#### Performance
+- ViperX: GPU 100%, ~2977 MiB VRAM, 59s para 30s de audio
+
+### MDX-Net — Modelos ONNX
+
+#### Added
+- Modelos MDX-Net ONNX: Kim_Vocal_2 (64 MB), Kim_Vocal_1 (64 MB), UVR_MDXNET_Main (64 MB)
+- `inference/inference_mdx.py`: script standalone con STFT manual, chunks fijos de 256 frames
+- Integración en ambos contenedores (onda y onda-v2)
+
+#### Performance
+- MDX-Net Kim Vocal 2: 5.8s para 30s de audio, salida bit-identical entre contenedores
+- El más rápido de los 3 métodos de separación
+
 ## v1.4.4
 
 Última versión estable. Inamovible en rama `main`.
