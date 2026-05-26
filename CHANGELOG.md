@@ -2,6 +2,22 @@
 
 ## v2.0.0-alpha
 
+### v2.0.0-alpha.7 — UI overhaul + GPU fix + JSON tags
+
+#### Fixed
+- **Bug #3 — GPU no detectada**: contenedor `onda` recreado con `docker-compose.nvidia.yml` (runtime nvidia). Health check ahora devuelve `"gpu":true`
+- **Bug #1 — Presets sin nombre**: añadidos `json` tags al struct `Preset` en Go backend. API responde `"name"`/`"description"` en camelCase
+
+#### Added
+- **Bug #2 — UI overhaul** (paridad con v1.4.4):
+  - `FileQueue.svelte`: cola multi-archivo con checkboxes y progreso por archivo
+  - `PipelineConfig.svelte`: checkboxes ViperX/HTDemucs con sub-opciones de stems
+  - `PitchControl.svelte`: slider -12 a +12 semitonos
+  - `ResultsPanel.svelte`: grupos por canción, mute/solo/volumen por stem, waveform, descarga
+  - `AudioControls.svelte`: Web Audio API playback, seek slider
+  - `HealthBar.svelte`: indicadores BE/GPU/Disk/Docker con polling 15s
+  - `App.svelte`: integración de todos los componentes + flujo multi-archivo
+
 ### v2.0.0-alpha.6 — Fix permisos output + documentación de testing
 
 #### Fixed
