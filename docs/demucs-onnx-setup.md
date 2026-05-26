@@ -161,6 +161,62 @@ files = separate(
 | CUDA out of memory | Modelo muy grande | Usar `--precision fp16` (mitad VRAM) |
 | Descarga lenta de modelos | Sin HF_TOKEN | `export HF_TOKEN=...` o descargar con wget |
 
+### Docker Build — Problemas conocidos (26-may-2026)
+
+**Contexto:** Construyendo contenedor `onda-next` con `python:3.14-slim` (Debian 13 Trixie) + CUDA 13.2.
+
+**Problema #1 — NVIDIA repo + Debian Trixie (SHA1)**
+- La keyring de NVIDIA usa SHA1, que Debian Trixie rechaza desde 2026-02-01
+- Error: `OpenPGP signature verification failed: SHA1 is not considered secure`
+- **Solución probada:** `--allow-unauthenticated` → no funcionó (problemas de quotes en Dockerfile)
+- **Solución final:** Usar el repo para Debian 13 (`debian13`) en lugar de Debian 12 (`debian12`)
+
+**Problema #2 — `libcuda.so` ausente en python:slim**
+- `onnxruntime-gpu` necesita `libcuda.so` (driver NVIDIA del host)
+- `python:3.12-slim` y `python:3.14-slim` no la incluyen
+- PyTorch sí funciona porque empaqueta sus propias bibliotecas CUDA
+- **Solución:** Instalar `cuda-compat-13-2` desde el repo NVIDIA → proporciona `libcuda.so`
+
+**Problema #3 — Bind mounts rotos tras recrear contenedor**
+- Al recrear con `docker compose down && docker compose up -d`, los mounts quedan vacíos
+- **Solución:** `docker stop && docker rm && docker compose up -d`
+
+### Dockerfile — Versión actual (`Dockerfile.next`)
+
+```dockerfile
+FROM python:3.14-slim
+
+# Sistema
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential libsndfile1 rubberband-cli ffmpeg wget gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# NVIDIA CUDA repo (Debian 13 Trixie)
+RUN wget -q https://developer.download.nvidia.com/compute/cuda/repos/debian13/x86_64/cuda-keyring_1.1-1_all.deb \
+    && dpkg -i cuda-keyring_1.1-1_all.deb \
+    && rm cuda-keyring_1.1-1_all.deb \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends cuda-compat-13-2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# PyTorch CUDA 13.2
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cu132 \
+    && pip install --no-cache-dir torchaudio
+
+# Dependencias del proyecto
+COPY requirements-docker.txt /tmp/
+RUN SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True \
+    pip install --no-cache-dir -r /tmp/requirements-docker.txt
+
+# ONNX GPU + Demucs ONNX
+RUN pip install --no-cache-dir onnxruntime-gpu==1.26.0 demucs-onnx
+
+RUN ldconfig
+WORKDIR /app
+COPY . .
+ENTRYPOINT ["tail", "-f", "/dev/null"]
+```
+
 ## Benchmarks (RTX 5060 Ti, 16 GB)
 
 | Método | Tiempo (30s audio) | Ratio | VRAM |
@@ -171,9 +227,11 @@ files = separate(
 
 ## Roadmap
 
-- [x] CPU inferencia funcional
+- [x] CPU inferencia funcional (1.6x realtime)
 - [x] Bind mounts estables
-- [ ] GPU inferencia (NVIDIA) — rebuild imagen con `nvidia-cublas-cu12`
-- [ ] GPU inferencia (AMD) — imagen alternativa con `onnxruntime-rocm`
-- [ ] Benchmarks GPU vs CPU vs PyTorch
+- [x] Documentación de setup y troubleshooting
+- [x] Dockerfile para python:3.14-slim + CUDA 13.2 (Dockerfile.next)
+- [x] Previsión AMD documentada (onnxruntime-rocm)
+- [ ] GPU inferencia (NVIDIA) — build en curso (`onda-next`, 4º intento)
+- [ ] Benchmark GPU vs CPU
 - [ ] Integración en pipeline Go (`onda pipeline --preset master --onnx`)
