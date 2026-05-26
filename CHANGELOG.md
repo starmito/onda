@@ -37,6 +37,24 @@
 - Frontend: usar `mount()` de Svelte 5 en lugar de `new App()` (API legacy de Svelte 4 causaba pantalla en blanco)
 - Frontend: mostrar mensaje de error cuando la API de presets no responde, en lugar de "Cargando presets..." infinito
 
+### Fase 4 — Contenedor de Inferencia v2
+
+#### Changed
+- Inferencia: nuevo contenedor `onda-v2` con CUDA 13.2, PyTorch 2.12.0, Demucs 4.0.1
+- Inferencia: todas las dependencias Python fijadas con versiones exactas (requirements-docker-v2.txt)
+- Inferencia: wheel unificado de PyTorch (sin sufijo cuXXX), incluye runtime CUDA 13.0
+
+#### Added
+- `Dockerfile.v2`: multi-stage con python:3.12-slim, PyTorch 2.12.0, Demucs 4.0.1
+- `requirements-docker-v2.txt`: 27+ dependencias con versiones exactas
+
+#### Fixed
+- Inferencia: añadidas dependencias faltantes openunmix y lameenc para Demucs 4.0.1
+- Infraestructura: liberados ~57 GB en .87 (build cache, imágenes sin uso, volúmenes huérfanos)
+
+#### Performance
+- Separación: ~60x realtime en RTX 5060 Ti (canción de 3:54 en ~4s)
+
 ## v1.4.4
 
 Última versión estable. Inamovible en rama `main`.
