@@ -1,0 +1,49 @@
+# Onda Next — python:3.14-slim + CUDA 13.2 + ONNX GPU + demucs-onnx
+# Single-stage para máxima fiabilidad (sin bugs de paths multi-stage)
+
+FROM python:3.14-slim
+
+# ── Sistema ──────────────────────────────────────────
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    libsndfile1 \
+    rubberband-cli \
+    ffmpeg \
+    wget \
+    gnupg \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── NVIDIA CUDA repo (para libcuda.so) ───────────────
+RUN wget -q https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb \
+    && dpkg -i cuda-keyring_1.1-1_all.deb \
+    && rm cuda-keyring_1.1-1_all.deb \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends cuda-compat-13-2 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── PyTorch CUDA 13.2 ───────────────────────────────
+# torch + torchvision desde índice CUDA; torchaudio desde PyPI (no tiene wheel cu132 cp314 aún)
+# torch ya instala nvidia-cublas-cu13, nvidia-cudnn-cu13, etc. como dependencias
+RUN pip install --no-cache-dir \
+    torch torchvision \
+    --index-url https://download.pytorch.org/whl/cu132 \
+    && pip install --no-cache-dir torchaudio
+
+# ── Dependencias Python del proyecto ────────────────
+COPY requirements-docker.txt /tmp/
+RUN SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True \
+    pip install --no-cache-dir -r /tmp/requirements-docker.txt
+
+# ── ONNX Runtime GPU (CUDA libs ya instaladas por torch) ─
+RUN pip install --no-cache-dir onnxruntime-gpu==1.26.0
+
+# ── Demucs ONNX wrapper ─────────────────────────────
+RUN pip install --no-cache-dir demucs-onnx
+
+# ── Finalizar ───────────────────────────────────────
+RUN ldconfig
+
+WORKDIR /app
+COPY . .
+
+ENTRYPOINT ["tail", "-f", "/dev/null"]
