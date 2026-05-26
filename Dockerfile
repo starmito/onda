@@ -17,6 +17,10 @@ COPY requirements-docker.txt /tmp/
 RUN SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True \
     pip install --no-cache-dir --target /deps -r /tmp/requirements-docker.txt
 
+# Remove CPU-only onnxruntime (pulled by demucs-onnx dep); keep onnxruntime-gpu
+RUN rm -rf /deps/onnxruntime /deps/onnxruntime-*.dist-info && \
+    pip install --no-cache-dir --target /deps --no-deps onnxruntime-gpu==1.26.0
+
 # ── Runtime stage ────────────────────────────────────
 FROM python:3.12-slim AS runtime
 
