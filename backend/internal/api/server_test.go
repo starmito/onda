@@ -30,13 +30,24 @@ func TestHealthEndpoint(t *testing.T) {
 		t.Errorf("expected Content-Type application/json, got %s", ct)
 	}
 
-	var health HealthResponse
+	var health map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&health); err != nil {
 		t.Fatalf("failed to decode JSON response: %v", err)
 	}
 
-	if health.Version == "" {
+	// Check top-level fields
+	if v, ok := health["version"].(string); !ok || v == "" {
 		t.Error("expected non-empty version in health response")
+	}
+	if _, ok := health["status"]; !ok {
+		t.Error("expected status field in health response")
+	}
+
+	// Verify nested objects exist
+	for _, key := range []string{"backend", "gpu", "disk", "docker"} {
+		if _, ok := health[key]; !ok {
+			t.Errorf("expected %q sub-object in health response", key)
+		}
 	}
 }
 

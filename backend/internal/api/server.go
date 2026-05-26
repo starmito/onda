@@ -1,11 +1,13 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -39,6 +41,9 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("/api/separate", s.handleSeparate)
 	s.mux.HandleFunc("POST /api/upload", s.handleUpload)
 	s.mux.HandleFunc("GET /api/files/{song}/{file}", s.handleFileServe)
+	s.mux.HandleFunc("POST /api/backend/start", s.handleBackendStart)
+	s.mux.HandleFunc("POST /api/backend/stop", s.handleBackendStop)
+	s.mux.HandleFunc("POST /api/backend/restart", s.handleBackendRestart)
 
 	return &http.Server{
 		Addr:    addr,
@@ -77,16 +82,34 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	gpuAvailable, gpuInfo, _ := checkGPU()
 
 	status := "ok"
-	if containerStatus != "running" {
+	if containerStatus != "running" || !gpuAvailable {
 		status = "degraded"
 	}
 
-	resp := HealthResponse{
-		Status:    status,
-		Container: containerStatus,
-		GPU:       gpuAvailable,
-		GPUInfo:   gpuInfo,
-		Version:   version,
+	// Build backend sub-object
+	backendDetail := "onda container " + containerStatus
+	if containerStatus == "" {
+		backendDetail = "onda container not found"
+	}
+
+	// Build gpu sub-object: code=E3 only when ok=false
+	var gpuObj map[string]interface{}
+	if gpuAvailable {
+		gpuObj = map[string]interface{}{"ok": true, "detail": gpuInfo}
+	} else {
+		gpuObj = map[string]interface{}{"ok": false, "code": "E3", "detail": gpuInfo}
+	}
+
+	resp := map[string]interface{}{
+		"status":  status,
+		"version": version,
+		"backend": map[string]interface{}{
+			"ok":     containerStatus == "running",
+			"detail": backendDetail,
+		},
+		"gpu":    gpuObj,
+		"disk":   checkDisk(),
+		"docker": checkDocker(),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -397,6 +420,87 @@ func (s *Server) handleFileServe(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.ServeFile(w, r, absPath)
+}
+
+// handleBackendStart starts the Onda Docker container.
+func (s *Server) handleBackendStart(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", "start", dockerContainer)
+	out, err := cmd.CombinedOutput()
+
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		detail := err.Error()
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			detail = fmt.Sprintf("exit code %d: %s", exitErr.ExitCode(), strings.TrimSpace(string(out)))
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"detail":  detail,
+		})
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"detail":  "Backend started",
+	})
+}
+
+// handleBackendStop stops the Onda Docker container.
+func (s *Server) handleBackendStop(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", "stop", dockerContainer)
+	out, err := cmd.CombinedOutput()
+
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		detail := err.Error()
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			detail = fmt.Sprintf("exit code %d: %s", exitErr.ExitCode(), strings.TrimSpace(string(out)))
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"detail":  detail,
+		})
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"detail":  "Backend stopped",
+	})
+}
+
+// handleBackendRestart restarts the Onda Docker container.
+func (s *Server) handleBackendRestart(w http.ResponseWriter, r *http.Request) {
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", "restart", dockerContainer)
+	out, err := cmd.CombinedOutput()
+
+	w.Header().Set("Content-Type", "application/json")
+	if err != nil {
+		detail := err.Error()
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			detail = fmt.Sprintf("exit code %d: %s", exitErr.ExitCode(), strings.TrimSpace(string(out)))
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": false,
+			"detail":  detail,
+		})
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success": true,
+		"detail":  "Backend restarted",
+	})
 }
 
 // findProjectRoot walks up from the current directory until it finds a VERSION file,
