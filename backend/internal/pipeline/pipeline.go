@@ -77,9 +77,8 @@ func findProjectRoot() string {
 		return ""
 	}
 	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			// go.mod is in backend/ — project root is the parent directory
-			return filepath.Dir(dir)
+		if _, err := os.Stat(filepath.Join(dir, "VERSION")); err == nil {
+			return dir
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
