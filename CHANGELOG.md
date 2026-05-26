@@ -2,6 +2,21 @@
 
 ## v2.0.0-alpha
 
+### Rollback Demucs ONNX → Demucs PyTorch
+
+#### Removed
+- `inference/inference_demucs_onnx.py` — script ONNX eliminado (bug #1: GPU hang en RTX 5060 Ti)
+- `tests/integration/test_demucs_onnx.py` — tests del script eliminado
+- `demucs-onnx` de `requirements-docker.txt` y `requirements-docker-v2.txt`
+
+#### Changed
+- `tests/integration/test_edge_cases.py` — reemplazado Demucs ONNX con Demucs PyTorch (`demucs` CLI)
+- `tests/integration/benchmark.py` — eliminada entrada `demucs-onnx-cpu`
+- `Dockerfile` y `Dockerfile.v2` — eliminado cleanup de onnxruntime CPU (ya no necesario sin `demucs-onnx`)
+
+#### Rationale
+`demucs-onnx==0.3.4` + `onnxruntime-gpu` en RTX 5060 Ti se cuelga (GPU al 100%, no genera output). Los modelos ONNX de StemSplitio son incompatibles con CUDAExecutionProvider en esta configuración. Demucs PyTorch funciona correctamente (~60x realtime). MDX-Net ONNX se mantiene (funciona en GPU sin problemas).
+
 ### Rebuild CUDA 12.8 — onnxruntime-gpu con GPU real
 
 #### Fixed
