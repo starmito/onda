@@ -26,7 +26,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && wget https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb \
     && dpkg -i cuda-keyring_1.1-1_all.deb \
     && rm cuda-keyring_1.1-1_all.deb \
-    && apt-get update \
+    && apt-get -o Acquire::AllowInsecureRepositories=true update \
     && apt-get install -y --no-install-recommends \
     cuda-cudnn-12-8 \
     libcublas-12-8 \
@@ -44,7 +44,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Runtime libraries path (onnxruntime-gpu busca aquí)
-ENV LD_LIBRARY_PATH=/usr/local/cuda-12.8/lib64:${LD_LIBRARY_PATH}
+ENV LD_LIBRARY_PATH=/usr/local/cuda-12.8/lib64:/usr/local/lib
 ENV PATH=/usr/local/cuda-12.8/bin:${PATH}
 
 COPY --from=builder /deps /usr/local/lib/python3.12/site-packages/
