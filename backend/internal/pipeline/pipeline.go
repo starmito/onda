@@ -210,7 +210,7 @@ func (p *Pipeline) runVocalSeparation() error {
 	// Model directory inside docker container
 	modelDir := filepath.Join("/app/models/VR_Models", modelDirs[p.flags.VocalModel])
 
-	args := []string{"exec", dockerContainer, "python3", script, modelDir, p.dockerInput, p.dockerOutput}
+	args := []string{"exec", "-e", "NUMBA_CACHE_DIR=/tmp/numba_cache", dockerContainer, "python3", script, modelDir, p.dockerInput, p.dockerOutput}
 	if p.flags.VocalOverlap > 0 {
 		args = append(args, fmt.Sprintf("%d", p.flags.VocalOverlap))
 	}
@@ -232,7 +232,7 @@ func (p *Pipeline) runVocalSeparation() error {
 		hostPath := filepath.Join(p.outputDir, removeFile)
 		os.Remove(hostPath)
 		// Also try removing inside container (best-effort)
-		exec.Command("docker", "exec", dockerContainer,
+		exec.Command("docker", "exec", "-e", "NUMBA_CACHE_DIR=/tmp/numba_cache", dockerContainer,
 			"rm", "-f", filepath.Join(p.dockerOutput, removeFile)).Run()
 	}
 
@@ -251,7 +251,7 @@ func (p *Pipeline) runStemSeparation() error {
 	instrumentalPath := filepath.Join(p.dockerOutput, p.song+"_instrumental.wav")
 
 	args := []string{
-		"exec", dockerContainer, "demucs",
+		"exec", "-e", "NUMBA_CACHE_DIR=/tmp/numba_cache", dockerContainer, "demucs",
 		"--two-stems=vocals",
 		"-n", p.flags.StemModel,
 		"-o", p.dockerOutput,
@@ -271,12 +271,12 @@ func (p *Pipeline) runStemSeparation() error {
 		src := filepath.Join(demucsSubDir, stem)
 		dst := filepath.Join(p.dockerOutput, stem)
 		// Copy inside container using cp
-		exec.Command("docker", "exec", dockerContainer,
+		exec.Command("docker", "exec", "-e", "NUMBA_CACHE_DIR=/tmp/numba_cache", dockerContainer,
 			"cp", src, dst).Run()
 	}
 
 	// Clean up the Demucs subdirectory
-	exec.Command("docker", "exec", dockerContainer,
+	exec.Command("docker", "exec", "-e", "NUMBA_CACHE_DIR=/tmp/numba_cache", dockerContainer,
 		"rm", "-rf", demucsSubDir).Run()
 
 	// Apply --stem-keep filter on host side
@@ -314,7 +314,7 @@ func (p *Pipeline) runDedicatedStems() error {
 	if p.flags.OtherModel != "" {
 		otherModelPath := filepath.Join("/app/models/VR_Models", modelDirs[p.flags.OtherModel])
 		otherOutput := filepath.Join(p.dockerOutput, "other.wav")
-		args := []string{"exec", dockerContainer, "python3", "inference/inference_universal.py", otherModelPath, instrumentalPath, p.dockerOutput}
+		args := []string{"exec", "-e", "NUMBA_CACHE_DIR=/tmp/numba_cache", dockerContainer, "python3", "inference/inference_universal.py", otherModelPath, instrumentalPath, p.dockerOutput}
 		if p.flags.VocalOverlap > 0 {
 			args = append(args, fmt.Sprintf("%d", p.flags.VocalOverlap))
 		}
@@ -325,10 +325,10 @@ func (p *Pipeline) runDedicatedStems() error {
 		}
 		// Rename output to other.wav if roformer produced a different name
 		// roformer outputs vocals.wav + instrumental.wav; we rename instrumental to other
-		exec.Command("docker", "exec", dockerContainer,
+		exec.Command("docker", "exec", "-e", "NUMBA_CACHE_DIR=/tmp/numba_cache", dockerContainer,
 			"mv", filepath.Join(p.dockerOutput, p.song+"_instrumental.wav"), otherOutput).Run()
 		// Remove the vocals.wav from the roformer run (it was re-separating from instrumental)
-		exec.Command("docker", "exec", dockerContainer,
+		exec.Command("docker", "exec", "-e", "NUMBA_CACHE_DIR=/tmp/numba_cache", dockerContainer,
 			"rm", "-f", filepath.Join(p.dockerOutput, p.song+"_vocals.wav")).Run()
 	}
 
@@ -344,7 +344,7 @@ func (p *Pipeline) runDedicatedStems() error {
 func (p *Pipeline) runSingleStem(inputFile, outputFile, checkpoint, script string) error {
 	outputPath := filepath.Join(p.dockerOutput, outputFile)
 	args := []string{
-		"exec", dockerContainer, "python3", script,
+		"exec", "-e", "NUMBA_CACHE_DIR=/tmp/numba_cache", dockerContainer, "python3", script,
 		"--checkpoint", checkpoint,
 		"--input", inputFile,
 		"--output", outputPath,
@@ -411,7 +411,7 @@ func (p *Pipeline) filterStems() {
 			hostPath := filepath.Join(p.outputDir, stem)
 			os.Remove(hostPath)
 			// Also clean up inside container
-			exec.Command("docker", "exec", dockerContainer,
+			exec.Command("docker", "exec", "-e", "NUMBA_CACHE_DIR=/tmp/numba_cache", dockerContainer,
 				"rm", "-f", filepath.Join(p.dockerOutput, stem)).Run()
 		}
 	}
@@ -468,7 +468,7 @@ func (p *Pipeline) skipDedicatedStems() bool {
 
 // dockerExec runs a command inside the onda container and returns the combined output.
 func (p *Pipeline) dockerExec(args ...string) (string, error) {
-	cmdArgs := append([]string{"exec", dockerContainer}, args...)
+	cmdArgs := append([]string{"exec", "-e", "NUMBA_CACHE_DIR=/tmp/numba_cache", dockerContainer}, args...)
 	cmd := exec.Command("docker", cmdArgs...)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
