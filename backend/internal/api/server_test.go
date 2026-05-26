@@ -1,11 +1,13 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestHealthEndpoint(t *testing.T) {
@@ -244,5 +246,35 @@ func TestSeparateEndpoint_ValidInput(t *testing.T) {
 	}
 	if result["song"] != "test_song" {
 		t.Errorf("expected song 'test_song', got %q", result["song"])
+	}
+}
+
+func TestEventsEndpoint_SSEHeaders(t *testing.T) {
+	srv := NewServer(":0")
+	ts := httptest.NewServer(srv.Handler)
+	defer ts.Close()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/events", nil)
+	if err != nil {
+		t.Fatalf("failed to create request: %v", err)
+	}
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("failed to GET /api/events: %v", err)
+	}
+	defer resp.Body.Close()
+
+	ct := resp.Header.Get("Content-Type")
+	if ct != "text/event-stream" {
+		t.Errorf("expected Content-Type text/event-stream, got %s", ct)
+	}
+
+	cc := resp.Header.Get("Cache-Control")
+	if cc != "no-cache" {
+		t.Errorf("expected Cache-Control no-cache, got %s", cc)
 	}
 }

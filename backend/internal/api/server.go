@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/starmito/onda/internal/cli"
 	"github.com/starmito/onda/internal/pipeline"
@@ -26,6 +27,7 @@ func NewServer(addr string) *http.Server {
 	}
 	s.mux.HandleFunc("/api/health", s.handleHealth)
 	s.mux.HandleFunc("/api/status", s.handleStatus)
+	s.mux.HandleFunc("/api/events", s.handleEvents)
 	s.mux.HandleFunc("/api/models", s.handleModels)
 	s.mux.HandleFunc("/api/gpu", s.handleGPU)
 	s.mux.HandleFunc("/api/separate", s.handleSeparate)
@@ -111,6 +113,67 @@ func readPipelineStatus() (*pipeline.Status, error) {
 		return nil, err
 	}
 	return &s, nil
+}
+
+// handleEvents streams pipeline progress via Server-Sent Events.
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Set SSE headers
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming not supported", http.StatusInternalServerError)
+		return
+	}
+
+	// Flush headers immediately so client receives them
+	flusher.Flush()
+
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	var lastData string
+
+	for {
+		select {
+		case <-r.Context().Done():
+			return
+		case <-ticker.C:
+			data, err := os.ReadFile(pipeline.StatusFile())
+			if err != nil {
+				continue
+			}
+			dataStr := string(data)
+			if dataStr == lastData {
+				continue
+			}
+			lastData = dataStr
+
+			var status pipeline.Status
+			if err := json.Unmarshal(data, &status); err != nil {
+				continue
+			}
+
+			eventData, _ := json.Marshal(map[string]interface{}{
+				"progress": status.Progress,
+				"step":     status.Step,
+				"status":   status.Status,
+			})
+			fmt.Fprintf(w, "data: %s\n\n", string(eventData))
+			flusher.Flush()
+
+			if status.Status == "done" || status.Status == "error" {
+				return
+			}
+		}
+	}
 }
 
 // handleGPU returns GPU availability and info from the Docker container.
