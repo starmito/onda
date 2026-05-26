@@ -43,9 +43,8 @@ COPY requirements-docker.txt /tmp/
 RUN SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True \
     pip install --no-cache-dir -r /tmp/requirements-docker.txt
 
-# ── Demucs ONNX (primero) + ONNX Runtime GPU (después, fuerza) ──
-RUN pip install --no-cache-dir demucs-onnx \
-    && pip install --no-cache-dir --force-reinstall onnxruntime-gpu==1.26.0
+# ── Demucs ONNX + ONNX Runtime GPU (juntos, pip resuelve) ──
+RUN pip install --no-cache-dir demucs-onnx onnxruntime-gpu==1.26.0
 
 # ── LD_LIBRARY_PATH para CUDA 12 + 13 ───────────────
 ENV LD_LIBRARY_PATH=/usr/local/cuda-13.2/compat:/usr/local/lib/python3.14/site-packages/nvidia/cublas/lib:/usr/local/lib/python3.14/site-packages/nvidia/cudnn/lib:/usr/local/lib/python3.14/site-packages/nvidia/curand/lib:/usr/local/lib/python3.14/site-packages/nvidia/cufft/lib:/usr/local/lib/python3.14/site-packages/nvidia/cusolver/lib:/usr/local/lib/python3.14/site-packages/nvidia/cusparse/lib:/usr/local/lib/python3.14/site-packages/nvidia/cuda_runtime/lib:/usr/local/lib/python3.14/site-packages/nvidia/nvjitlink/lib
