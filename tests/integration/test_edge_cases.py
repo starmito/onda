@@ -36,7 +36,9 @@ def test_nonexistent_file():
     """Missing input file should error clearly."""
     out = "/tmp/onda-test-edge-missing/"
     result = run_demucs("nonexistent.flac", out)
-    assert result.returncode != 0, "Should fail on missing file"
+    # Demucs prints error to stderr but may return 0
+    assert "does not exist" in result.stderr.lower() or result.returncode != 0, \
+        f"Should report missing file. stderr: {result.stderr}"
 
 
 def test_mdx_short_audio():
