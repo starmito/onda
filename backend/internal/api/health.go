@@ -18,6 +18,12 @@ type HealthResponse struct {
 	Version   string `json:"version"`
 }
 
+// GPUPresenceResponse es la respuesta del endpoint /api/gpu.
+type GPUPresenceResponse struct {
+	Available bool   `json:"available"`
+	Info      string `json:"info"`
+}
+
 // checkDockerContainer verifica si el contenedor está corriendo.
 func checkDockerContainer() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
