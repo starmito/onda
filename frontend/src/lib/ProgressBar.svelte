@@ -9,11 +9,11 @@
 
 	let eventSource: EventSource | null = null;
 
-	function start() {
+	export function start() {
 		if (eventSource) return;
 
 		status = 'running';
-		eventSource = new EventSource('http://localhost:3000/api/events');
+		eventSource = new EventSource('http://192.168.1.87:3000/api/events');
 
 		eventSource.onmessage = (event: MessageEvent) => {
 			try {
