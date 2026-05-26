@@ -5,32 +5,39 @@ import pytest
 CONTAINER = "onda"
 FIXTURE_DIR = "/app/tests/integration/fixtures"
 
-def run_demucs_onnx(input_file, stems="vocals"):
+
+def run_demucs(input_file, output_dir, stems="vocals", timeout=120):
+    """Run Demucs PyTorch inside container."""
     cmd = [
-        "ssh", ".87", "docker", "exec", CONTAINER, "python3",
-        "inference/inference_demucs_onnx.py",
+        "ssh", ".87", "docker", "exec", CONTAINER,
+        "demucs", "-n", "htdemucs_ft",
+        "--two-stems", stems,
+        "-o", output_dir,
         f"{FIXTURE_DIR}/{input_file}",
-        f"/tmp/onda-test-edge-{input_file}/",
-        "--stems", stems,
     ]
-    return subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+    return subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+
 
 def test_silence_handled():
     """Silence should not crash — produce output (silent stems)."""
-    result = run_demucs_onnx("silence_5s.flac")
-    # May exit 0 or 1 depending on model, but must not hang
+    out = "/tmp/onda-test-edge-silence/"
+    result = run_demucs("silence_5s.flac", out)
     assert result.returncode in (0, 1), f"Unexpected exit: {result.returncode}"
+
 
 def test_short_audio():
     """Very short audio (0.5s) should still process or fail gracefully."""
-    result = run_demucs_onnx("short_05s.flac")
-    # Short audio may fail but should not crash
+    out = "/tmp/onda-test-edge-short/"
+    result = run_demucs("short_05s.flac", out)
     assert result.returncode in (0, 1), f"Short audio crashed: {result.stderr}"
+
 
 def test_nonexistent_file():
     """Missing input file should error clearly."""
-    result = run_demucs_onnx("nonexistent.flac")
+    out = "/tmp/onda-test-edge-missing/"
+    result = run_demucs("nonexistent.flac", out)
     assert result.returncode != 0, "Should fail on missing file"
+
 
 def test_mdx_short_audio():
     """MDX-Net with short audio should not crash."""
