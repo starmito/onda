@@ -28,7 +28,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm cuda-keyring_1.1-1_all.deb \
     && apt-get -o Acquire::AllowInsecureRepositories=true update \
     && apt-get install -y --no-install-recommends \
-    cudnn9-cuda-12-8 \
+    libcudnn9-cuda-12 \
     libcublas-12-8 \
     libcufft-12-8 \
     libcurand-12-8 \
