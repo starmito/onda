@@ -39,4 +39,3 @@ samplerate==0.2.4
 dora-search
 openunmix
 lameenc>=1.2
-demucs-onnx==0.3.4
