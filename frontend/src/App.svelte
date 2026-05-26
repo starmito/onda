@@ -9,6 +9,7 @@
   import ResultsPanel from './lib/ResultsPanel.svelte';
   import type { ResultStem } from './lib/ResultsPanel.svelte';
   import HealthBar from './lib/HealthBar.svelte';
+  import BackendControls from './lib/BackendControls.svelte';
   import { getModels, separateAudio, getStatus, uploadAudio } from './lib/api';
 
   // ---- State ----
@@ -163,6 +164,7 @@
     <span class="version">v2.0.0-alpha</span>
     <div class="header-right">
       <HealthBar />
+      <BackendControls />
     </div>
   </header>
 
@@ -255,6 +257,9 @@
 
   .header-right {
     margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
   }
 
   .upload {
