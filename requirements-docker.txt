@@ -39,4 +39,3 @@ asteroid
 julius
 samplerate
 Dora
-demucs-onnx
