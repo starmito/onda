@@ -53,7 +53,7 @@
 			disabled={disabled || !selectedPreset}
 			onclick={handleSeparate}
 		>
-			Separar
+			▶ START
 		</button>
 	{/if}
 </div>
