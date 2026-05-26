@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/starmito/onda/internal/api"
 	"github.com/starmito/onda/internal/cli"
 	"github.com/starmito/onda/internal/pipeline"
 )
@@ -24,7 +25,12 @@ func main() {
 
 	switch os.Args[1] {
 	case "serve":
-		fmt.Println("onda serve — not implemented yet")
+		srv := api.NewServer(":3000")
+		fmt.Println("Onda API server listening on :3000")
+		if err := srv.ListenAndServe(); err != nil {
+			fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
+			os.Exit(1)
+		}
 	case "pipeline":
 		flags, err := cli.ParsePipelineFlags(os.Args[2:])
 		if err != nil {
