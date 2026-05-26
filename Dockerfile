@@ -35,18 +35,17 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libcurand-12-8 \
     libcusolver-12-8 \
     libcusparse-12-8 \
+    libsndfile1 \
+    rubberband-cli \
+    ffmpeg \
+    libtk8.6 \
+    && apt-get purge -y wget gnupg \
+    && apt-get autoremove --purge -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Runtime libraries path (onnxruntime-gpu busca aquí)
 ENV LD_LIBRARY_PATH=/usr/local/cuda-12.8/lib64:${LD_LIBRARY_PATH}
 ENV PATH=/usr/local/cuda-12.8/bin:${PATH}
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libsndfile1 \
-    rubberband-cli \
-    ffmpeg \
-    libtk8.6 \
-    && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /deps /usr/local/lib/python3.12/site-packages/
 

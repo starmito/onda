@@ -11,3 +11,4 @@ gui_data/
 .git/
 .hermes/
 tmp/
+frontend/node_modules/
