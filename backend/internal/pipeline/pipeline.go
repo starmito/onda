@@ -40,10 +40,10 @@ type Pipeline struct {
 
 // modelScripts maps vocal model names to their Python inference scripts inside the container.
 var modelScripts = map[string]string{
-	"viperx":           "inference_universal.py",
-	"polarformer":      "inference_universal.py",
-	"melband_kj":       "inference_universal.py",
-	"melband_karaoke":  "inference_universal.py",
+	"viperx":           "inference/inference_universal.py",
+	"polarformer":      "inference/inference_universal.py",
+	"melband_kj":       "inference/inference_universal.py",
+	"melband_karaoke":  "inference/inference_universal.py",
 }
 
 // modelDirs maps vocal model names to their checkpoint directory inside the container.
@@ -314,7 +314,7 @@ func (p *Pipeline) runDedicatedStems() error {
 	if p.flags.OtherModel != "" {
 		otherModelPath := filepath.Join("/app/models/VR_Models", modelDirs[p.flags.OtherModel])
 		otherOutput := filepath.Join(p.dockerOutput, "other.wav")
-		args := []string{"exec", dockerContainer, "python3", "inference_universal.py", otherModelPath, instrumentalPath, p.dockerOutput}
+		args := []string{"exec", dockerContainer, "python3", "inference/inference_universal.py", otherModelPath, instrumentalPath, p.dockerOutput}
 		if p.flags.VocalOverlap > 0 {
 			args = append(args, fmt.Sprintf("%d", p.flags.VocalOverlap))
 		}
