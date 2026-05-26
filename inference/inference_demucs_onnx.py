@@ -10,7 +10,6 @@ Usage:
   python3 -c "from inference_demucs_onnx import separate; separate(...)"
 """
 
-import sys
 import os
 import argparse
 import time
@@ -23,7 +22,7 @@ DEFAULT_STEMS = ['vocals', 'drums', 'bass', 'other']
 
 def separate(
     input_path,
-    output_dir="output",
+    output_dir=None,
     stems=None,
     model="htdemucs_ft",
     precision="fp32",
@@ -34,7 +33,7 @@ def separate(
 
     Args:
         input_path: Path to input audio file
-        output_dir: Directory for output stems
+        output_dir: Directory for output stems (default: "output")
         stems: List of stems to extract (default: all 4)
         model: Model name (htdemucs_ft, htdemucs, htdemucs_6s)
         precision: fp32 or fp16
@@ -47,8 +46,14 @@ def separate(
         stems = DEFAULT_STEMS
     if cache_dir is None:
         cache_dir = MODELS_DIR
+    if output_dir is None:
+        output_dir = "output"
 
     os.makedirs(output_dir, exist_ok=True)
+
+    # Validate input file exists
+    if not os.path.isfile(input_path):
+        raise FileNotFoundError(f"Archivo de entrada no encontrado: {input_path}")
 
     # Get input duration for RTF calculation
     try:
@@ -58,17 +63,25 @@ def separate(
         duration = 0
 
     start = time.time()
-    result = demucs_onnx.separate(
-        input=input_path,
-        output_dir=output_dir,
-        model=model,
-        stems=stems,
-        providers="auto",  # auto-detect CUDA/CPU
-        precision=precision,
-        cache_dir=cache_dir,
-        verbose=False,
-        progress=False,
-    )
+    try:
+        result = demucs_onnx.separate(
+            input=input_path,
+            output_dir=output_dir,
+            model=model,
+            stems=stems,
+            providers="auto",  # auto-detect CUDA/CPU
+            precision=precision,
+            cache_dir=cache_dir,
+            verbose=False,
+            progress=False,
+        )
+    except Exception as e:
+        raise RuntimeError(
+            f"Error durante la separación Demucs ONNX: {e}\n"
+            f"  Input: {input_path}\n"
+            f"  Modelo: {model}\n"
+            f"  Stems: {stems}"
+        ) from e
     elapsed = time.time() - start
 
     # Build output file paths (demucs_onnx already wrote them)
