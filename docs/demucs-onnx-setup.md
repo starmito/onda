@@ -166,7 +166,7 @@ files = separate(
 | Método | Tiempo (30s audio) | Ratio | VRAM |
 |---|---|---|---|
 | Demucs ONNX (CPU) | 19.3s | 1.6x | ~270 MB |
-| Demucs ONNX (GPU) | *pendiente — requiere onnxruntime compatible con CUDA* | | |
+| Demucs ONNX (GPU) | *pendiente — viable con CUDA 12.8 + onnxruntime-gpu 1.26* | | |
 | Demucs PyTorch (GPU) | ~4s | ~7.5x | ~3 GB |
 
 ## Roadmap
@@ -175,7 +175,7 @@ files = separate(
 - [x] Bind mounts estables
 - [x] Documentación de setup y troubleshooting
 - [x] Previsión AMD documentada (onnxruntime-rocm)
-- [ ] GPU inferencia (NVIDIA) — a la espera de onnxruntime-gpu con soporte CUDA 13
+- [ ] GPU inferencia (NVIDIA) — viable con CUDA 12.8, pendiente de rebuild del contenedor
 - [ ] GPU inferencia (AMD) — imagen con onnxruntime-rocm
 - [ ] Benchmark GPU vs CPU
 - [ ] Integración en pipeline Go (`onda pipeline --preset master --onnx`)
