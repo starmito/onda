@@ -13,10 +13,12 @@ func main() {
 		fmt.Println("Onda v2.0.0-alpha — Audio separation tool")
 		fmt.Println()
 		fmt.Println("Usage:")
-		fmt.Println("  onda serve              Start API server")
 		fmt.Println("  onda pipeline [flags]   Run separation pipeline")
-		fmt.Println("  onda models             Manage models")
 		fmt.Println("  onda version            Show version")
+		fmt.Println()
+		fmt.Println("Próximamente (Fase 2):")
+		fmt.Println("  onda serve              Start API server")
+		fmt.Println("  onda models             List available models and presets")
 		os.Exit(0)
 	}
 
