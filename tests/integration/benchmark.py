@@ -8,11 +8,12 @@ import os
 CONTAINER = "onda"
 FIXTURE = "/app/tests/integration/fixtures/chirp_5s.flac"
 DURATION = 5.0
+MDX_MODEL = "/mnt/almacen/onda/models/MDX_Net_Models/Kim_Vocal_2.onnx"
 
 BENCHMARKS = {
     "mdx-net": [
         "ssh", ".87", "docker", "exec", CONTAINER, "python3",
-        "inference/inference_mdx.py", FIXTURE,
+        "inference/inference_mdx.py", MDX_MODEL, FIXTURE,
         "/tmp/bench-mdx/"
     ],
     "demucs-pytorch": [
