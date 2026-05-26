@@ -9,8 +9,7 @@ services:
       dockerfile: ${GPU_DOCKERFILE:-Dockerfile}
     container_name: onda
     volumes:
-      - ./models:/app/models:ro
-      - /mnt/almacen/onda/models/MDX_Net_Models:/mnt/almacen/onda/models/MDX_Net_Models:ro
+      - /mnt/almacen/onda/models:/app/models:ro
       - ./input:/input
       - ./output:/output
     working_dir: /app
