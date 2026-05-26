@@ -20,6 +20,27 @@ RUN SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True \
 # ── Runtime stage ────────────────────────────────────
 FROM python:3.12-slim AS runtime
 
+# NVIDIA CUDA 12.8 runtime libraries for onnxruntime-gpu
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget gnupg \
+    && wget https://developer.download.nvidia.com/compute/cuda/repos/debian12/x86_64/cuda-keyring_1.1-1_all.deb \
+    && dpkg -i cuda-keyring_1.1-1_all.deb \
+    && rm cuda-keyring_1.1-1_all.deb \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+    cuda-cudnn-12-8 \
+    libcublas-12-8 \
+    libcublaslt-12-8 \
+    libcufft-12-8 \
+    libcurand-12-8 \
+    libcusolver-12-8 \
+    libcusparse-12-8 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Runtime libraries path (onnxruntime-gpu busca aquí)
+ENV LD_LIBRARY_PATH=/usr/local/cuda-12.8/lib64:${LD_LIBRARY_PATH}
+ENV PATH=/usr/local/cuda-12.8/bin:${PATH}
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libsndfile1 \
     rubberband-cli \
