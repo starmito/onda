@@ -134,6 +134,15 @@
     });
   }
 
+  // ---- Per-step handlers (PipelineConfig individual buttons) ----
+  async function handleViperxOnly(config: PipelineConfigType) {
+    await handlePipelineStart({ ...config, demucs: false });
+  }
+
+  async function handleDemucsOnly(config: PipelineConfigType) {
+    await handlePipelineStart({ ...config, viperx: false });
+  }
+
   // ---- Pipeline start ----
   async function handlePipelineStart(config: PipelineConfigType) {
     // Clear any existing polling
@@ -382,7 +391,12 @@
     >
       ⚙️ Configuración avanzada
     </button>
-    <PipelineConfig disabled={separating} onstart={handlePipelineStart} />
+    <PipelineConfig
+      disabled={separating}
+      onstart={handlePipelineStart}
+      onviperxonly={handleViperxOnly}
+      ondemucsonly={handleDemucsOnly}
+    />
     <PitchControl value={pitchValue} disabled={separating} onapply={handlePitchApply} />
   </section>
 
