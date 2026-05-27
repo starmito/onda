@@ -69,12 +69,42 @@ func detectCategory(subdir, relPath string) string {
 	return baseCat
 }
 
+// computeDisplayName derives a human-friendly display name from the file's
+// relative path and its parent directory structure.
+func computeDisplayName(subdir, rel, name string) string {
+	parentDir := filepath.Base(filepath.Dir(rel))
+	if parentDir == subdir {
+		// File sits directly in the category directory (no model-specific subdir).
+		// This happens for Demucs ONNX stems: htdemucs_ft_vocals → "htdemucs_ft (vocals)"
+		if subdir == "Demucs_ONNX" {
+			return demucsONNXDisplayName(name)
+		}
+		return name
+	}
+	// Use the model-specific subdirectory name (already friendly: "BS_Roformer_Viperx", etc.)
+	return parentDir
+}
+
+// demucsONNXDisplayName converts a Demucs ONNX stem filename to a display name.
+// E.g., "htdemucs_ft_vocals" → "htdemucs_ft (vocals)"
+func demucsONNXDisplayName(name string) string {
+	demucsStems := []string{"vocals", "drums", "bass", "other", "guitar", "piano"}
+	for _, stem := range demucsStems {
+		if strings.HasSuffix(name, "_"+stem) {
+			base := strings.TrimSuffix(name, "_"+stem)
+			return base + " (" + stem + ")"
+		}
+	}
+	return name
+}
+
 // ModelEntry describes a single model file found on disk.
 type ModelEntry struct {
-	Name     string `json:"name"`
-	Category string `json:"category"`
-	Path     string `json:"path"`
-	SizeMB   int64  `json:"size_mb"`
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+	Category    string `json:"category"`
+	Path        string `json:"path"`
+	SizeMB      int64  `json:"size_mb"`
 }
 
 // ModelsListResponse is the JSON body for GET /api/models/list.
@@ -152,12 +182,14 @@ func listModels() ModelsListResponse {
 
 			name := strings.TrimSuffix(info.Name(), ext)
 			category := detectCategory(subdir, rel)
+			displayName := computeDisplayName(subdir, rel, name)
 
 			models = append(models, ModelEntry{
-				Name:     name,
-				Category: category,
-				Path:     dockerPath,
-				SizeMB:   info.Size() / (1024 * 1024),
+				Name:        name,
+				DisplayName: displayName,
+				Category:    category,
+				Path:        dockerPath,
+				SizeMB:      info.Size() / (1024 * 1024),
 			})
 			categorySet[category] = true
 			return nil
