@@ -335,3 +335,32 @@ export async function stopBackend(): Promise<BackendActionResponse> {
   }
   return (await res.json()) as BackendActionResponse;
 }
+
+// ---- ModelConfig ----
+export interface ModelConfigResponse {
+  segment_size: number;
+  overlap: number;
+  chunk_size: number;
+  batch_size: number;
+  device: string;
+}
+
+export async function getModelConfig(): Promise<ModelConfigResponse> {
+  const res = await fetch(`${API_BASE}/api/models/config`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch model config (${res.status}): ${res.statusText}`);
+  }
+  return (await res.json()) as ModelConfigResponse;
+}
+
+export async function setModelConfig(cfg: ModelConfigResponse): Promise<{ ok: string; detail: string }> {
+  const res = await fetch(`${API_BASE}/api/models/config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(cfg),
+  });
+  if (!res.ok) {
+    throw new Error(`Failed to save model config (${res.status}): ${res.statusText}`);
+  }
+  return (await res.json()) as { ok: string; detail: string };
+}
