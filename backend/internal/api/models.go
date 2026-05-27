@@ -43,7 +43,7 @@ var categoryMap = map[string]string{
 	"MDX_Net_Models":  "MDX",
 	"RoFormer_Models": "Roformer",
 	"Demucs_Models":   "Demucs",
-	"Demucs_ONNX":     "Demucs",
+	"Demucs_ONNX":     "Demucs ONNX",
 }
 
 // detectCategory refines the category based on the model subdirectory name.
@@ -218,7 +218,7 @@ func listModels() ModelsListResponse {
 	}
 
 	var categories []string
-	for _, cat := range []string{"VR_Arch", "MDX", "Roformer", "Roformer/MelBand", "SCnet", "Demucs"} {
+	for _, cat := range []string{"VR_Arch", "MDX", "Roformer", "Roformer/MelBand", "SCnet", "Demucs", "Demucs ONNX"} {
 		if categorySet[cat] {
 			categories = append(categories, cat)
 		}
