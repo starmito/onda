@@ -16,16 +16,17 @@
       muted: boolean;
       solo: boolean;
       volume: number;
+      id: string;
     }[];
   }
 
   let {
     files = [],
-    onstemdeleted = (_song: string, _name: string) => {},
+    onstemdeleted = (_song: string, _name: string, _path: string) => {},
     ongroupdeleted = (_song: string) => {},
   }: {
     files?: ResultStem[];
-    onstemdeleted?: (song: string, name: string) => void;
+    onstemdeleted?: (song: string, name: string, path: string) => void;
     ongroupdeleted?: (song: string) => void;
   } = $props();
 
@@ -82,7 +83,7 @@
         const key = stemKey(s.song || song, s.name);
         // Read-only: never mutate $state inside $derived
         const state = stemStates[key] || { muted: false, solo: false, volume: 100 };
-        return { ...s, stemType: s.stemType || 'other', ...state };
+        return { ...s, stemType: s.stemType || 'other', ...state, id: key };
       }),
     }));
   }
@@ -426,12 +427,12 @@
     }
   }
 
-  async function deleteStem(song: string, name: string) {
+  async function deleteStem(song: string, name: string, path: string) {
     if (!confirm(`Delete "${name}"?`)) return;
     try {
       await deleteStemApi(song, name);
       showToast(`Stem "${name}" eliminado`, 'success');
-      onstemdeleted(song, name);
+      onstemdeleted(song, name, path);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       showToast('Delete fallido: ' + msg, 'error');
@@ -592,7 +593,7 @@
 
         <!-- Stem rows -->
         <div class="stems-list">
-          {#each group.stems as stem (stem.name)}
+          {#each group.stems as stem (stem.id)}
             {@const key = stemKey(group.song, stem.name)}
             {@const state = stemStates[key] ?? { muted: false, solo: false, volume: 100 }}
             <div class="stem-row" class:muted={state.muted}>
@@ -648,7 +649,7 @@
                 </a>
                 <button
                   class="stem-btn delete-stem-btn"
-                  onclick={() => deleteStem(group.song, stem.name)}
+                  onclick={() => deleteStem(group.song, stem.name, stem.path)}
                   title="Delete stem"
                 >
                   ✕

@@ -320,8 +320,8 @@
   }
 
   // ---- ResultsPanel delete callbacks ---- 
-  function handleStemDeleted(song: string, name: string) {
-    results = results.filter(s => !(s.song === song && s.name === name));
+  function handleStemDeleted(_song: string, _name: string, path: string) {
+    results = results.filter(s => s.path !== path);
   }
 
   function handleGroupDeleted(song: string) {
