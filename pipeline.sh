@@ -27,6 +27,23 @@ set -euo pipefail
 # ── Docker container ────────────────────────────
 ONDA_CONTAINER="onda"
 
+# ── Path conversion for Docker ──────────────────
+# pipeline.sh runs on the HOST and receives host paths (e.g. /home/.../onda/input/file.wav).
+# Docker exec commands run INSIDE the container and need container paths
+# because the bind mounts are: ./input -> /input, ./output -> /output.
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+to_container() {
+    local p="$1"
+    # Strip the host input dir prefix
+    if [[ "$p" == "${SCRIPT_DIR}/input/"* ]]; then
+        echo "/input/${p#${SCRIPT_DIR}/input/}"
+    elif [[ "$p" == "${SCRIPT_DIR}/output/"* ]]; then
+        echo "/output/${p#${SCRIPT_DIR}/output/}"
+    else
+        echo "$p"
+    fi
+}
+
 # ── Progress reporting ──────────────────────────
 START_TIME=$(date +%s)
 STATUS_FILE="/tmp/onda_pipeline_status.json"
@@ -118,7 +135,7 @@ if $VIPERX; then
     echo "🔪 Viperx → vocal + instrumental..."
     TMP_VIP="${OUTPUT}/_viperx"
     report_progress "running" "viperx" 5
-    docker exec $ONDA_CONTAINER python3 /app/inference/inference_universal.py "${VIPERX_MODEL}" "${INPUT}" "${TMP_VIP}" 8
+    docker exec $ONDA_CONTAINER python3 /app/inference/inference_universal.py "${VIPERX_MODEL}" "$(to_container "${INPUT}")" "$(to_container "${TMP_VIP}")" 8
     echo "   ✅ Viperx done"
 
     report_progress "running" "viperx" 35
@@ -166,7 +183,7 @@ if $DEMUCS; then
 
     TMP_DEM="${OUTPUT}/_demucs"
     report_progress "running" "demucs" 45
-    docker exec $ONDA_CONTAINER demucs -n htdemucs_ft -o "${TMP_DEM}" "${DEMUCS_INPUT}"
+    docker exec $ONDA_CONTAINER demucs -n htdemucs_ft -o "$(to_container "${TMP_DEM}")" "$(to_container "${DEMUCS_INPUT}")"
     echo "   ✅ HTDemucs_ft done"
 
     # Find stem directory
@@ -205,7 +222,7 @@ if $RUBBERBAND; then
             if [[ "${DEMUCS_KEEP}" == "all" ]] || [[ ",${DEMUCS_KEEP}," == *",${stem},"* ]]; then
                 SRC=$(find "${STEM_DIR}" -maxdepth 1 -iname "*${stem}*" | head -1)
                 if [ -n "${SRC}" ]; then
-                    docker exec $ONDA_CONTAINER rubberband --pitch "${PITCH}" --quiet "${SRC}" "${OUTPUT}/${stem}.wav"
+                    docker exec $ONDA_CONTAINER rubberband --pitch "${PITCH}" --quiet "$(to_container "${SRC}")" "$(to_container "${OUTPUT}/${stem}.wav")"
                     echo "   ✅ ${stem} → ${OUTPUT}/${stem}.wav"
                 fi
             else
@@ -226,7 +243,7 @@ if $RUBBERBAND; then
         # No prior steps: apply rubberband directly to input
         # Only pitch if it's a mono/stereo track (not stems)
         OUT_FILE="${OUTPUT}/${SONG}_pitch${PITCH}.wav"
-        docker exec $ONDA_CONTAINER rubberband --pitch "${PITCH}" --quiet "${INPUT}" "${OUT_FILE}"
+        docker exec $ONDA_CONTAINER rubberband --pitch "${PITCH}" --quiet "$(to_container "${INPUT}")" "$(to_container "${OUT_FILE}")"
         echo "   ✅ pitch shift → ${OUT_FILE}"
     fi
 fi
