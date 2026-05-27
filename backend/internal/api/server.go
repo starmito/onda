@@ -146,6 +146,26 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 		resp["error"] = status.Error
 	}
 
+	// Include model information so the UI can show which model is being used
+	if status.Preset != "" {
+		resp["preset"] = status.Preset
+	}
+	if status.VocalModel != "" {
+		resp["vocal_model"] = status.VocalModel
+	}
+	if status.StemModel != "" {
+		resp["stem_model"] = status.StemModel
+	}
+	if status.DrumsModel != "" {
+		resp["drums_model"] = status.DrumsModel
+	}
+	if status.BassModel != "" {
+		resp["bass_model"] = status.BassModel
+	}
+	if status.Pitch != 0 {
+		resp["pitch"] = status.Pitch
+	}
+
 	// When pipeline is done, include the list of generated files
 	if status.Status == "done" {
 		projectRoot := findProjectRoot()

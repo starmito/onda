@@ -49,6 +49,12 @@ export interface StatusResponse {
   eta: number;
   files?: { name: string; path: string }[];
   error?: string;
+  preset?: string;
+  vocal_model?: string;
+  stem_model?: string;
+  drums_model?: string;
+  bass_model?: string;
+  pitch?: number;
 }
 
 export interface UploadResponse {
