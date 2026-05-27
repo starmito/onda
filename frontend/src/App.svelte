@@ -11,13 +11,13 @@
   import HealthBar from './lib/HealthBar.svelte';
   import BackendControls from './lib/BackendControls.svelte';
   import PresetSelector from './lib/PresetSelector.svelte';
-  import ModelConfig from './lib/ModelConfig.svelte';
   import GpuMonitor from './lib/GpuMonitor.svelte';
   import VramCalculator from './lib/VramCalculator.svelte';
   import type { Preset } from './lib/VramCalculator.svelte';
   import ModelLoader from './lib/ModelLoader.svelte';
-  import { getModels, separateAudio, getStatus, uploadAudio, getModelList } from './lib/api';
-  import type { ModelInfo } from './lib/api';
+  import ModelConfigScreen from './lib/ModelConfigScreen.svelte';
+  import { getModels, separateAudio, getStatus, uploadAudio, getLocalModels } from './lib/api';
+  import type { LocalModel } from './lib/api';
 
   // ---- State ----
   let queueFiles = $state<QueueFile[]>([]);
@@ -37,7 +37,8 @@
     otherModel: '',
     vocalOverlap: 4,
   });
-  let modelInfos = $state<ModelInfo[]>([]);
+  let modelInfos = $state<LocalModel[]>([]);
+  let showModelConfig = $state(false);
 
   // VramCalculator integration
   let selectedPresetKey = $state('');
@@ -65,8 +66,8 @@
       .catch(() => {
         modelsError = true;
       });
-    getModelList()
-      .then((m) => (modelInfos = m))
+    getLocalModels()
+      .then((res) => (modelInfos = res.models || []))
       .catch(() => {}); // silent fail — dropdowns just stay empty
   });
 
@@ -209,6 +210,12 @@
 </script>
 
 <main>
+  {#if showModelConfig}
+    <ModelConfigScreen
+      modelInfos={modelInfos}
+      onclose={() => (showModelConfig = false)}
+    />
+  {:else}
   <header>
     <h1>🎵 Onda</h1>
     <span class="version">v2.0.0-alpha</span>
@@ -247,11 +254,12 @@
       }}
       modelsError={modelsError}
     />
-    <ModelConfig
-      models={modelInfos}
-      config={modelConfig}
-      onchange={(cfg) => (modelConfig = cfg)}
-    />
+    <button
+      class="advanced-config-btn"
+      onclick={() => (showModelConfig = true)}
+    >
+      ⚙️ Configuración avanzada
+    </button>
     <VramCalculator preset={selectedPresetData} />
     <PipelineConfig disabled={separating} onstart={handlePipelineStart} />
     <PitchControl value={pitchValue} disabled={separating} onapply={handlePitchApply} />
@@ -272,6 +280,7 @@
   <section class="model-loader">
     <ModelLoader />
   </section>
+  {/if}
 </main>
 
 <style>
@@ -359,6 +368,25 @@
 
   .model-loader {
     width: 100%;
+  }
+
+  .advanced-config-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1rem;
+    background: #1a1a2e;
+    border: none;
+    border-radius: 8px;
+    color: #e0e0e0;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .advanced-config-btn:hover {
+    background: #22223a;
   }
 
   /* Smooth transitions between states */
