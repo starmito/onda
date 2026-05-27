@@ -215,6 +215,12 @@ if $DEMUCS; then
     fi
 fi
 
+# ── Limpiar instrumental_viperx si fue solo paso intermedio para Demucs ──
+if $VIPERX && $DEMUCS; then
+    rm -f "${OUTPUT}/instrumental_viperx.wav"
+    echo "   🗑️  instrumental_viperx (intermedio, consumido por Demucs)"
+fi
+
 # ══════════════════════════════════════════════════════
 # STEP 3: Rubberband → pitch shift (skip drums)
 # ══════════════════════════════════════════════════════
