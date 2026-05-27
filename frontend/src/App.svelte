@@ -58,29 +58,35 @@
     // Cargar resultados existentes al iniciar (separación previa completada)
     getStatus()
       .then((status) => {
+        console.log('getStatus response:', status.status, status.files?.length);
         if (
           status.status === 'done' &&
           status.files &&
           status.files.length > 0
         ) {
-          for (const f of status.files) {
-            results.push({
-              name: f.name,
-              path: f.path,
-              song:
-                status.song ||
-                f.name.replace(/_.+/, ''),
-              stemType: detectStemType(f.name),
-            });
-          }
+          const newResults: ResultStem[] = status.files.map((f: any) => ({
+            name: f.name,
+            path: f.path,
+            song: status.song || f.name.replace(/_.+/, ''),
+            stemType: detectStemType(f.name),
+          }));
+          // Usar spread para forzar nueva referencia y reactividad
+          results = [...newResults];
           pipelineStatus = 'done';
           pipelineStep = 'completado';
           currentProgress = 1;
-          console.log('Loaded existing results:', results.length);
+          console.log('Loaded existing results:', results.length, results);
+        } else {
+          console.log('No results to load - status:', status.status, 'files:', status.files?.length);
         }
       })
-      .catch(() => {});
+      .catch((err) => {
+        console.error('Failed to load existing results:', err);
+      });
   });
+
+  // Debug: trace results reactivity for production diagnosis
+  $inspect('results changed:', results.length, results);
 
   // ---- File Queue handlers ----
   function handleFilesAdded(newFiles: File[]) {
