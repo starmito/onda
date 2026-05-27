@@ -17,19 +17,20 @@
   // ViperX models grouped by category
   interface ModelOption {
     name: string;
+    display_name: string;
     category: string;
   }
 
   const viperxDefault: ModelOption[] = [
-    { name: 'MelBand_Karaoke', category: 'Roformer' },
-    { name: 'BS_Roformer_Viperx', category: 'Roformer' },
-    { name: 'BS_PolarFormer', category: 'VR_Arch' },
+    { name: 'MelBand_Karaoke', display_name: 'MelBand Karaoke', category: 'Roformer' },
+    { name: 'BS_Roformer_Viperx', display_name: 'BS Roformer ViperX', category: 'Roformer' },
+    { name: 'BS_PolarFormer', display_name: 'BS PolarFormer', category: 'VR_Arch' },
   ];
 
   const demucsDefault: ModelOption[] = [
-    { name: 'htdemucs_ft', category: 'Demucs' },
-    { name: 'htdemucs_6s', category: 'Demucs' },
-    { name: 'Kim_Vocal_2', category: 'MDX' },
+    { name: 'htdemucs_ft', display_name: 'HTDemucs FT', category: 'Demucs' },
+    { name: 'htdemucs_6s', display_name: 'HTDemucs 6s', category: 'Demucs' },
+    { name: 'Kim_Vocal_2', display_name: 'Kim Vocal 2', category: 'MDX' },
   ];
 
   // ── State ──
@@ -71,7 +72,7 @@
               m.category === 'Roformer/MelBand' ||
               m.category === 'VR_Arch'
             )
-            .map((m: LocalModel) => ({ name: m.name, category: m.category }));
+            .map((m: LocalModel) => ({ name: m.name, display_name: m.display_name || m.name, category: m.category }));
           if (vxModels.length > 0) {
             viperxModels = vxModels;
             // Select default if available
@@ -84,7 +85,7 @@
             .filter((m: LocalModel) =>
               m.category === 'Demucs' || m.category === 'MDX'
             )
-            .map((m: LocalModel) => ({ name: m.name, category: m.category }));
+            .map((m: LocalModel) => ({ name: m.name, display_name: m.display_name || m.name, category: m.category }));
           if (dmModels.length > 0) {
             demucsModels = dmModels;
             const found = dmModels.find((m) => m.name === 'htdemucs_ft');
@@ -331,7 +332,7 @@
       {#each [...viperxGroups.entries()] as [cat, models]}
         <optgroup label={cat}>
           {#each models as m}
-            <option value={m.name}>{m.name}</option>
+            <option value={m.name}>{m.display_name || m.name}</option>
           {/each}
         </optgroup>
       {/each}
@@ -350,7 +351,7 @@
       {#each [...demucsGroups.entries()] as [cat, models]}
         <optgroup label={cat}>
           {#each models as m}
-            <option value={m.name}>{m.name}</option>
+            <option value={m.name}>{m.display_name || m.name}</option>
           {/each}
         </optgroup>
       {/each}
