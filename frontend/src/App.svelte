@@ -1,5 +1,8 @@
 <script lang="ts">
   import ResultsPanel from './lib/ResultsPanel.svelte';
+  import PipelinePanel from './lib/PipelinePanel.svelte';
+  import ConfigPanel from './lib/ConfigPanel.svelte';
+  import StatusBar from './lib/StatusBar.svelte';
   import type { ResultStem } from './lib/types';
   import { detectStemType } from './lib/types';
   import { getModels, separateAudio, getStatus, uploadAudio, getLocalModels } from './lib/api';
@@ -356,6 +359,48 @@
       console.error('Failed to refresh results after group delete:', err);
     }
   }
+
+  // ---- DropZone + FileQueue helpers ----
+  function handleDropZoneDragOver(e: DragEvent) {
+    e.preventDefault();
+  }
+
+  function handleDropZoneDrop(e: DragEvent) {
+    e.preventDefault();
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) {
+      for (let i = 0; i < files.length; i++) {
+        handleDropZoneFile(files[i]);
+      }
+    }
+  }
+
+  function handleDropZoneClick() {
+    const input = document.getElementById('dropzone-input') as HTMLInputElement;
+    input?.click();
+  }
+
+  function handleDropZoneInput(e: Event) {
+    const input = e.target as HTMLInputElement;
+    if (input.files) {
+      handleFilesAdded(Array.from(input.files));
+      input.value = '';
+    }
+  }
+
+  function handleRemoveQueueFile(id: string) {
+    queueFiles = queueFiles.filter((qf) => qf.id !== id);
+  }
+
+  function statusBadgeClass(status: string): string {
+    switch (status) {
+      case 'done': return 'badge badge-green';
+      case 'error': return 'badge badge-red';
+      case 'processing': return 'badge badge-yellow';
+      case 'uploading': return 'badge badge-blue';
+      default: return 'badge';
+    }
+  }
 </script>
 
 <main>
@@ -364,12 +409,118 @@
     <span class="version">v2.0.0-alpha</span>
   </header>
 
+  <!-- DropZone -->
+  <section class="dropzone-section">
+    <div
+      class="dropzone"
+      ondragover={handleDropZoneDragOver}
+      ondrop={handleDropZoneDrop}
+      onclick={handleDropZoneClick}
+      role="button"
+      tabindex="0"
+    >
+      <span class="dropzone-icon">📂</span>
+      <span class="dropzone-text">Arrastra archivos aquí o haz clic</span>
+      <span class="dropzone-hint">WAV, MP3, FLAC, OGG, M4A</span>
+    </div>
+    <input
+      id="dropzone-input"
+      type="file"
+      hidden
+      accept="audio/*"
+      multiple
+      onchange={handleDropZoneInput}
+    />
+  </section>
+
+  <!-- FileQueue -->
+  {#if queueFiles.length > 0}
+    <section class="queue-section">
+      <div class="queue-header">
+        <span class="queue-title">📋 Cola ({queueFiles.length})</span>
+        <button class="btn-clear" onclick={handleClearQueue}>Limpiar</button>
+      </div>
+      <div class="queue-list">
+        {#each queueFiles as qf (qf.id)}
+          <div class="queue-row">
+            <input
+              type="checkbox"
+              checked={qf.checked}
+              onchange={() => handleToggleQueueFile(qf.id)}
+              disabled={qf.status === 'done'}
+            />
+            <span class="queue-name" title={qf.file.name}>{qf.file.name}</span>
+            <span class={statusBadgeClass(qf.status)}>{qf.status}</span>
+            <button class="btn-remove" onclick={() => handleRemoveQueueFile(qf.id)}>✕</button>
+          </div>
+        {/each}
+      </div>
+    </section>
+  {/if}
+
+  <!-- PipelinePanel -->
+  <section class="pipeline-section">
+    <PipelinePanel
+      disabled={separating}
+      presets={presets}
+      onstart={handlePipelineStart}
+      onviperxonly={handleViperxOnly}
+      ondemucsonly={handleDemucsOnly}
+      onpitch={handlePitchApply}
+    />
+  </section>
+
+  <!-- ConfigPanel -->
+  <section class="config-section">
+    <ConfigPanel
+      disabled={separating}
+      onchange={(cfg) => (modelConfig = cfg)}
+    />
+  </section>
+
+  <!-- Progress -->
+  {#if pipelineStatus !== 'idle'}
+    <section class="progress-section">
+      <div class="progress-card">
+        <div class="progress-header">
+          <span class="progress-status">{pipelineStatus}</span>
+          {#if pipelineStep}
+            <span class="progress-step">{pipelineStep}</span>
+          {/if}
+          {#if pipelineModel}
+            <span class="progress-model">{pipelineModel}</span>
+          {/if}
+        </div>
+        <div class="progress-bar-wrap">
+          <div class="progress-bar-fill" style="width: {currentProgress * 100}%"></div>
+        </div>
+        <div class="progress-meta">
+          <span class="progress-pct">{Math.round(currentProgress * 100)}%</span>
+          {#if pipelineSong}
+            <span class="progress-song">{pipelineSong}</span>
+          {/if}
+          {#if pipelineEta > 0}
+            <span class="progress-eta">ETA: {pipelineEta}s</span>
+          {/if}
+        </div>
+        {#if pipelineError}
+          <div class="progress-error">{pipelineError}</div>
+        {/if}
+      </div>
+    </section>
+  {/if}
+
+  <!-- ResultsPanel -->
   {#if results.length > 0}
     <section class="results">
       <ResultsPanel files={results} onstemdeleted={handleStemDeleted} ongroupdeleted={handleGroupDeleted} />
     </section>
   {/if}
 
+  <!-- StatusBar -->
+  <StatusBar />
+
+  <!-- Toast -->
   {#if toastMessage}
     <div class="toast {toastType}">{toastMessage}</div>
   {/if}
@@ -394,6 +545,7 @@
     margin: 0 auto;
     padding: 2rem 1.5rem 4rem;
     gap: 1.5rem;
+    padding-bottom: 60px; /* space for StatusBar */
   }
 
   header {
@@ -428,29 +580,133 @@
     letter-spacing: 0.5px;
   }
 
-  .header-right {
-    margin-left: auto;
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-  }
-
-  .upload {
+  /* DropZone */
+  .dropzone-section {
     width: 100%;
   }
 
+  .dropzone {
+    width: 100%;
+    box-sizing: border-box;
+    border: 2px dashed #2a2a4a;
+    border-radius: 12px;
+    padding: 2rem 1rem;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.5rem;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    background: #0e0e1a;
+  }
+  .dropzone:hover {
+    border-color: #00d4ff;
+    background: #111128;
+  }
+  .dropzone-icon {
+    font-size: 2rem;
+  }
+  .dropzone-text {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #c0c0d0;
+  }
+  .dropzone-hint {
+    font-size: 0.75rem;
+    color: #606080;
+  }
+
+  /* FileQueue */
   .queue-section {
     width: 100%;
   }
-
-  .controls {
-    width: 100%;
+  .queue-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.5rem;
+  }
+  .queue-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #c0c0d0;
+  }
+  .btn-clear {
+    padding: 0.3rem 0.8rem;
+    background: #2a1a1a;
+    border: 1px solid #4a2a2a;
+    border-radius: 6px;
+    color: #e57373;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-clear:hover {
+    background: #3a1a1a;
+  }
+  .queue-list {
     display: flex;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.3rem;
+  }
+  .queue-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    background: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    border-radius: 8px;
+    font-size: 0.85rem;
+  }
+  .queue-row input[type="checkbox"] {
+    accent-color: #00d4ff;
+    flex-shrink: 0;
+  }
+  .queue-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    color: #e0e0e0;
+  }
+  .badge {
+    padding: 0.15rem 0.5rem;
+    border-radius: 10px;
+    font-size: 0.65rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    flex-shrink: 0;
+    background: #2a2a4a;
+    color: #888;
+  }
+  .badge-green { background: #1b3a1b; color: #81c784; }
+  .badge-red { background: #3a1b1b; color: #e57373; }
+  .badge-yellow { background: #3a3a1b; color: #ffd54f; }
+  .badge-blue { background: #1b2a3a; color: #64b5f6; }
+  .btn-remove {
+    background: none;
+    border: none;
+    color: #666;
+    font-size: 0.8rem;
+    cursor: pointer;
+    padding: 0.1rem 0.3rem;
+  }
+  .btn-remove:hover {
+    color: #e57373;
   }
 
-  .progress {
+  /* Sections */
+  .pipeline-section {
+    width: 100%;
+  }
+
+  .config-section {
+    width: 100%;
+  }
+
+  .progress-section {
     width: 100%;
   }
 
@@ -458,29 +714,76 @@
     width: 100%;
   }
 
-  .advanced-config-btn {
+  /* Progress card */
+  .progress-card {
     width: 100%;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.75rem 1rem;
     background: #1a1a2e;
-    border: none;
-    border-radius: 8px;
-    color: #e0e0e0;
-    font-size: 0.95rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: background 0.15s;
+    border: 1px solid #2a2a4a;
+    border-radius: 12px;
+    padding: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.6rem;
   }
-  .advanced-config-btn:hover {
-    background: #22223a;
+  .progress-header {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+  .progress-status {
+    font-weight: 700;
+    color: #00d4ff;
+    text-transform: uppercase;
+    font-size: 0.8rem;
+  }
+  .progress-step {
+    font-size: 0.8rem;
+    color: #c0c0d0;
+  }
+  .progress-model {
+    font-size: 0.7rem;
+    color: #606080;
+    margin-left: auto;
+  }
+  .progress-bar-wrap {
+    width: 100%;
+    height: 8px;
+    background: #0a0a14;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #00d4ff, #b388ff);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+  }
+  .progress-meta {
+    display: flex;
+    gap: 1rem;
+    font-size: 0.75rem;
+    color: #888;
+  }
+  .progress-pct {
+    font-weight: 700;
+    color: #00d4ff;
+  }
+  .progress-eta {
+    margin-left: auto;
+  }
+  .progress-error {
+    font-size: 0.8rem;
+    color: #e57373;
+    background: #2a1a1a;
+    padding: 0.5rem;
+    border-radius: 6px;
   }
 
   /* Toast */
   .toast {
     position: fixed;
-    bottom: 20px;
+    bottom: 60px;
     left: 50%;
     transform: translateX(-50%);
     padding: 12px 24px;
