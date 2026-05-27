@@ -19,6 +19,10 @@ output/
 output_*/
 /tmp/onda_test/
 
+# Model configs (per-model, data not code)
+model_configs/
+model_config.json
+
 # IDE
 .vscode/
 .idea/
