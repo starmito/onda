@@ -167,8 +167,10 @@
               step="64"
               bind:value={segmentSize}
             />
-            <div class="range-labels">
-              <span>64</span><span>1024</span>
+            <p class="param-desc">Tamaño del segmento de audio procesado. Valores altos = mejor calidad pero más VRAM y más lento.</p>
+            <div class="slider-labels">
+              <span>⚡ Fast / -VRAM</span>
+              <span>🎵 Quality / +VRAM</span>
             </div>
           </div>
 
@@ -185,8 +187,10 @@
               step="0.05"
               bind:value={overlap}
             />
-            <div class="range-labels">
-              <span>0.0</span><span>0.5</span>
+            <p class="param-desc">Solapamiento entre segmentos. Más overlap = transiciones más suaves pero más lento y más VRAM.</p>
+            <div class="slider-labels">
+              <span>⚡ Fast / -VRAM</span>
+              <span>🔄 Smooth / +VRAM</span>
             </div>
           </div>
 
@@ -203,8 +207,10 @@
               step="256"
               bind:value={chunkSize}
             />
-            <div class="range-labels">
-              <span>auto</span><span>4096</span>
+            <p class="param-desc">Tamaño del chunk para procesamiento por lotes. 0 = automático. Valores altos = más VRAM, potencialmente más rápido.</p>
+            <div class="slider-labels">
+              <span>🤖 Auto</span>
+              <span>📦 Large / +VRAM</span>
             </div>
           </div>
 
@@ -221,8 +227,10 @@
               step="1"
               bind:value={batchSize}
             />
-            <div class="range-labels">
-              <span>auto</span><span>32</span>
+            <p class="param-desc">Número de muestras procesadas en paralelo. Valores altos = más rápido en GPU pero mucha más VRAM. 0 = automático.</p>
+            <div class="slider-labels">
+              <span>🤖 Auto</span>
+              <span>⚡ GPU / ++VRAM</span>
             </div>
           </div>
 
@@ -233,6 +241,7 @@
               <option value="cuda">cuda</option>
               <option value="cpu">cpu</option>
             </select>
+            <p class="param-desc">Dispositivo de inferencia. CUDA usa la GPU (más rápido, requiere VRAM). CPU es más lento pero no usa VRAM.</p>
           </div>
 
           <button class="btn-apply" onclick={handleApply} disabled={saving}>
@@ -344,11 +353,18 @@
     height: 6px;
   }
 
-  .range-labels {
+  .slider-labels {
     display: flex;
     justify-content: space-between;
-    font-size: 0.65rem;
-    color: #606080;
+    font-size: 0.7rem;
+    color: #666;
+  }
+
+  .param-desc {
+    font-size: 0.75rem;
+    color: #888;
+    margin-top: 2px;
+    margin-bottom: 4px;
   }
 
   .field select {
