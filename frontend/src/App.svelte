@@ -194,7 +194,11 @@
 
     const checked = queueFiles.filter((qf) => qf.checked && qf.status !== 'done');
     if (checked.length === 0) {
-      alert('No checked files in queue.');
+      // Si no hay archivos en absoluto, el botón ya está oculto — no hacer nada.
+      // Si hay archivos pero ninguno marcado, mostrar toast.
+      if (queueFiles.length > 0) {
+        showToast('✅ Marca al menos un archivo en la cola', 'success');
+      }
       return;
     }
 
