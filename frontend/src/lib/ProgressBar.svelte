@@ -49,6 +49,18 @@
 		};
 	}
 
+	export function getProgress(): number {
+		return progress;
+	}
+
+	export function getEta(): number {
+		return eta;
+	}
+
+	export function getStatus(): string {
+		return status;
+	}
+
 	function reset() {
 		eventSource?.close();
 		eventSource = null;
