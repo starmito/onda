@@ -299,14 +299,24 @@ func (p *Pipeline) skipStemSeparation() bool {
 
 // runStemSeparation runs Demucs on the instrumental track to separate stems.
 func (p *Pipeline) runStemSeparation() error {
-	instrumentalPath := filepath.Join(p.dockerOutput, p.song+"_instrumental.wav")
+	var inputPath string
+	if p.skipVocalSeparation() {
+		// No ViperX — use original file directly
+		inputPath = p.dockerInput
+	} else {
+		inputPath = filepath.Join(p.dockerOutput, p.song+"_instrumental.wav")
+		// Verify instrumental exists before running Demucs
+		if err := p.verifyOutputFile(p.song + "_instrumental.wav"); err != nil {
+			return fmt.Errorf("instrumental track required for Demucs but not found: %w", err)
+		}
+	}
 
 	args := []string{
 		"exec", dockerContainer, "demucs",
 		"--two-stems=vocals",
 		"-n", p.flags.StemModel,
 		"-o", p.dockerOutput,
-		instrumentalPath,
+		inputPath,
 	}
 
 	cmd := exec.Command("docker", args...)
@@ -536,18 +546,26 @@ func (p *Pipeline) dockerExec(args ...string) (string, error) {
 	return string(output), nil
 }
 
-// verifyOutputFile checks that a file exists in the host output directory and has non-zero size.
+// verifyOutputFile checks that a file exists inside the Onda container and has non-zero size.
+// Using docker exec is the source of truth — avoids bind-mount sync delays.
 func (p *Pipeline) verifyOutputFile(filename string) error {
-	hostPath := filepath.Join(p.outputDir, filename)
-	info, err := os.Stat(hostPath)
-	if os.IsNotExist(err) {
-		return fmt.Errorf("output file %q does not exist (expected at %s)", filename, hostPath)
+	containerPath := filepath.Join(p.dockerOutput, filename)
+
+	// Check inside container first (source of truth)
+	cmd := exec.Command("docker", "exec", dockerContainer, "test", "-f", containerPath)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("output file %q does not exist (expected at %s)", filename, filepath.Join(p.outputDir, filename))
 	}
+
+	// Also verify file is not empty
+	cmd = exec.Command("docker", "exec", dockerContainer, "stat", "-c", "%s", containerPath)
+	out, err := cmd.Output()
 	if err != nil {
-		return fmt.Errorf("checking output file %q: %w", filename, err)
+		return fmt.Errorf("cannot stat output file %q", filename)
 	}
-	if info.Size() == 0 {
-		return fmt.Errorf("output file %q is empty (0 bytes)", filename)
+	size := strings.TrimSpace(string(out))
+	if size == "0" {
+		return fmt.Errorf("output file %q is empty", filename)
 	}
 	return nil
 }
