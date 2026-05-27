@@ -617,8 +617,14 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 }
 
 // findProjectRoot walks up from the current directory until it finds a VERSION file,
-// then returns that directory. Returns "." if not found.
+// then returns that directory. If ONDA_ROOT is set, it uses that directly.
+// Returns "." if not found.
 func findProjectRoot() string {
+	if root := os.Getenv("ONDA_ROOT"); root != "" {
+		if info, err := os.Stat(root); err == nil && info.IsDir() {
+			return root
+		}
+	}
 	dir, err := os.Getwd()
 	if err != nil {
 		return "."
