@@ -56,6 +56,8 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("GET /api/models/list", s.handleModelsList)
 	s.mux.HandleFunc("POST /api/models/download", s.handleModelsDownload)
 	s.mux.HandleFunc("GET /api/models/download/status", s.handleModelsDownloadStatus)
+	s.mux.HandleFunc("POST /api/models/config", s.handleModelsConfig)
+	s.mux.HandleFunc("GET /api/models/config", s.handleModelsConfig)
 	s.mux.HandleFunc("/api/gpu", s.handleGPU)
 	s.mux.HandleFunc("GET /api/gpu/info", s.handleGPUInfo)
 	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)
@@ -340,6 +342,15 @@ type SeparateRequest struct {
 	DemucsKeep []string `json:"demucs_keep,omitempty"`
 }
 
+// ModelConfig holds inference parameter configuration saved by the frontend.
+type ModelConfig struct {
+	SegmentSize int     `json:"segment_size"`
+	Overlap     float64 `json:"overlap"`
+	ChunkSize   int     `json:"chunk_size"`
+	BatchSize   int     `json:"batch_size"`
+	Device      string  `json:"device"`
+}
+
 // handleSeparate launches the audio separation pipeline asynchronously.
 func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -423,6 +434,25 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 		args = append(args, "--demucs-model", stemModel)
 	}
 
+	// Read model_config.json if it exists and pass inference flags
+	configPath := filepath.Join(projectRoot, "model_config.json")
+	if cfgData, err := os.ReadFile(configPath); err == nil {
+		var mcfg ModelConfig
+		if json.Unmarshal(cfgData, &mcfg) == nil {
+			args = append(args, "--segment-size", fmt.Sprintf("%d", mcfg.SegmentSize))
+			args = append(args, "--overlap", fmt.Sprintf("%.2f", mcfg.Overlap))
+			if mcfg.ChunkSize > 0 {
+				args = append(args, "--chunk-size", fmt.Sprintf("%d", mcfg.ChunkSize))
+			}
+			if mcfg.BatchSize > 0 {
+				args = append(args, "--batch-size", fmt.Sprintf("%d", mcfg.BatchSize))
+			}
+			if mcfg.Device != "" {
+				args = append(args, "--device", mcfg.Device)
+			}
+		}
+	}
+
 	args = append(args, "--output", hostOutput)
 	args = append(args, hostInput)
 
@@ -448,6 +478,86 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 		"status": "started",
 		"song":   song,
 	})
+}
+
+// handleModelsConfig saves or retrieves model inference configuration.
+func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method == http.MethodGet {
+		projectRoot := findProjectRoot()
+		configPath := filepath.Join(projectRoot, "model_config.json")
+		data, err := os.ReadFile(configPath)
+		if err != nil {
+			// Return defaults if file doesn't exist
+			json.NewEncoder(w).Encode(ModelConfig{
+				SegmentSize: 256,
+				Overlap:     0.25,
+				ChunkSize:   0,
+				BatchSize:   0,
+				Device:      "cuda",
+			})
+			return
+		}
+		var cfg ModelConfig
+		if err := json.Unmarshal(data, &cfg); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "invalid config file"})
+			return
+		}
+		json.NewEncoder(w).Encode(cfg)
+		return
+	}
+
+	if r.Method == http.MethodPost {
+		var cfg ModelConfig
+		if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON"})
+			return
+		}
+
+		// Validate
+		if cfg.SegmentSize <= 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "segment_size must be > 0"})
+			return
+		}
+		if cfg.Overlap < 0 || cfg.Overlap >= 1 {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "overlap must be >= 0 and < 1"})
+			return
+		}
+		if cfg.Device != "cpu" && cfg.Device != "cuda" {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "device must be 'cpu' or 'cuda'"})
+			return
+		}
+
+		projectRoot := findProjectRoot()
+		configPath := filepath.Join(projectRoot, "model_config.json")
+		data, err := json.Marshal(cfg)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "failed to serialize config"})
+			return
+		}
+		if err := os.WriteFile(configPath, data, 0644); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "failed to write config file"})
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(map[string]string{
+			"ok":     "true",
+			"detail": "config saved",
+		})
+		return
+	}
+
+	w.WriteHeader(http.StatusMethodNotAllowed)
+	json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 }
 
 // handleUpload accepts a multipart file upload and saves it to disk.
