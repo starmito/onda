@@ -16,6 +16,9 @@
   let chunkSize = $state(0);
   let batchSize = $state(0);
   let device = $state('cuda');
+  let shifts = $state(1);
+  let segment = $state(0);
+  let jobs = $state(0);
   let feedback = $state('');
   let feedbackType = $state<'success' | 'error'>('success');
   let loading = $state(true);
@@ -110,6 +113,9 @@
       chunkSize = cfg.chunk_size;
       batchSize = cfg.batch_size;
       device = cfg.device;
+      shifts = cfg.shifts ?? 1;
+      segment = cfg.segment ?? 0;
+      jobs = cfg.jobs ?? 0;
     } catch {
       // Use current values as defaults
     }
@@ -132,6 +138,12 @@
       batch_size: batchSize,
       device,
     };
+    // Include Demucs params only for htdemucs_ft
+    if (selectedModel === 'htdemucs_ft') {
+      cfg.shifts = shifts;
+      cfg.segment = segment;
+      cfg.jobs = jobs;
+    }
     saving = true;
     try {
       await setModelConfig(cfg, selectedModel);
@@ -290,6 +302,73 @@
             </select>
             <p class="param-desc">Dispositivo de inferencia. CUDA usa la GPU (más rápido, requiere VRAM). CPU es más lento pero no usa VRAM.</p>
           </div>
+
+          <!-- Demucs PyTorch params (only for htdemucs_ft) -->
+          {#if selectedModel === 'htdemucs_ft'}
+            <div class="demucs-section">
+              <h3 class="demucs-title">🎛️ Parámetros Demucs (htdemucs_ft)</h3>
+
+              <!-- Shifts -->
+              <div class="field">
+                <label for="demucs-shifts">
+                  Shifts: <strong>{shifts}</strong>
+                </label>
+                <input
+                  id="demucs-shifts"
+                  type="range"
+                  min="0"
+                  max="20"
+                  step="1"
+                  bind:value={shifts}
+                />
+                <p class="param-desc">Número de variaciones por shift para estabilización. Más shifts = mejor calidad pero más lento. Paper original usa 10.</p>
+                <div class="slider-labels">
+                  <span class="slider-min">0 — ⚡ Sin shifts / Fast</span>
+                  <span class="slider-max">🎵 Paper / Slow — 20</span>
+                </div>
+              </div>
+
+              <!-- Segment -->
+              <div class="field">
+                <label for="demucs-segment">
+                  Segment: <strong>{segment === 0 ? 'auto' : segment + 's'}</strong>
+                </label>
+                <input
+                  id="demucs-segment"
+                  type="range"
+                  min="0"
+                  max="60"
+                  step="1"
+                  bind:value={segment}
+                />
+                <p class="param-desc">Duración del segmento en segundos. 0 = automático. Valores bajos = menos VRAM pero posible pérdida de calidad.</p>
+                <div class="slider-labels">
+                  <span class="slider-min">0 — 🤖 Auto / -VRAM</span>
+                  <span class="slider-max">📦 Large / +VRAM — 60s</span>
+                </div>
+              </div>
+
+              <!-- Jobs -->
+              <div class="field">
+                <label for="demucs-jobs">
+                  Jobs: <strong>{jobs === 0 ? 'auto' : jobs}</strong>
+                </label>
+                <input
+                  id="demucs-jobs"
+                  type="range"
+                  min="0"
+                  max="8"
+                  step="1"
+                  bind:value={jobs}
+                />
+                <p class="param-desc">Número de workers paralelos. 0 = automático. Más workers = más rápido pero más VRAM.</p>
+                <div class="slider-labels">
+                  <span class="slider-min">0 — 🤖 Auto</span>
+                  <span class="slider-max">⚡ Parallel / ++VRAM — 8</span>
+                </div>
+              </div>
+            </div>
+          {/if}
 
           <!-- VRAM Estimation -->
           {#if estimatedVramMb !== null}
@@ -503,6 +582,23 @@
   .btn-apply:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  /* Demucs section */
+  .demucs-section {
+    border: 1px solid #2a2a4a;
+    border-radius: 8px;
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .demucs-title {
+    margin: 0;
+    font-size: 0.85rem;
+    color: #b388ff;
+    font-weight: 600;
   }
 
   .feedback {

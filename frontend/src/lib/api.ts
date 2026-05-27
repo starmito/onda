@@ -345,6 +345,10 @@ export interface ModelConfigResponse {
   chunk_size: number;
   batch_size: number;
   device: string;
+  // Demucs PyTorch-specific
+  shifts?: number;
+  segment?: number;
+  jobs?: number;
 }
 
 export async function getModelConfig(modelName: string): Promise<ModelConfigResponse> {

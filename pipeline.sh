@@ -19,6 +19,9 @@
 #   --chunk-size N        Processing chunk size (default: 0 = auto)
 #   --batch-size N        Processing batch size (default: 0 = auto)
 #   --device NAME         Inference device: cpu | cuda (default: cuda)
+#   --shifts N            Demucs shift-averaging passes (default: 1, paper uses 10)
+#   --demucs-segment N    Demucs segment duration in seconds (default: 0 = auto)
+#   --jobs N              Demucs parallel workers (default: 0 = auto)
 #
 # Default (no flags): --viperx --demucs --rubberband
 #
@@ -129,6 +132,9 @@ OVERLAP=0.25
 CHUNK_SIZE=0
 BATCH_SIZE=0
 DEVICE="cuda"
+SHIFTS=1
+DEMUCS_SEGMENT=0
+JOBS=0
 
 INPUT=""
 while [[ $# -gt 0 ]]; do
@@ -147,6 +153,9 @@ while [[ $# -gt 0 ]]; do
         --chunk-size)   CHUNK_SIZE="$2"; shift 2 ;;
         --batch-size)   BATCH_SIZE="$2"; shift 2 ;;
         --device)       DEVICE="$2"; shift 2 ;;
+        --shifts)       SHIFTS="$2"; shift 2 ;;
+        --demucs-segment) DEMUCS_SEGMENT="$2"; shift 2 ;;
+        --jobs)         JOBS="$2"; shift 2 ;;
         -*)             echo "Unknown flag: $1"; exit 1 ;;
         *)              INPUT="$1"; shift ;;
     esac
@@ -252,7 +261,12 @@ if $DEMUCS; then
     TMP_DEM="${OUTPUT}/_demucs"
     report_progress "running" "demucs" 45
     CURRENT_STEP="demucs"
-    run_with_elapsed docker exec $ONDA_CONTAINER demucs -n "${DEMUCS_MODEL}" --device "${DEVICE}" -o "$(to_container "${TMP_DEM}")" "$(to_container "${DEMUCS_INPUT}")"
+    # Build demucs args with optional shift/segment/jobs flags
+    DEMUCS_ARGS=(-n "${DEMUCS_MODEL}" --device "${DEVICE}" -o "$(to_container "${TMP_DEM}")")
+    [ "${SHIFTS}" -gt 0 ] && DEMUCS_ARGS+=(--shifts "${SHIFTS}")
+    [ "${DEMUCS_SEGMENT}" -gt 0 ] && DEMUCS_ARGS+=(--segment "${DEMUCS_SEGMENT}")
+    [ "${JOBS}" -gt 0 ] && DEMUCS_ARGS+=(-j "${JOBS}")
+    run_with_elapsed docker exec $ONDA_CONTAINER demucs "${DEMUCS_ARGS[@]}" "$(to_container "${DEMUCS_INPUT}")"
     echo "   ✅ HTDemucs_ft done"
 
     # Find stem directory

@@ -349,6 +349,10 @@ type ModelConfig struct {
 	ChunkSize   int     `json:"chunk_size"`
 	BatchSize   int     `json:"batch_size"`
 	Device      string  `json:"device"`
+	// Demucs PyTorch-specific parameters (only used when model is htdemucs_ft)
+	Shifts  int `json:"shifts"`  // number of shift-averaging passes (default 1, paper uses 10)
+	Segment int `json:"segment"` // demucs segment duration in seconds (0 = auto)
+	Jobs    int `json:"jobs"`    // number of parallel workers (0 = auto)
 }
 
 // handleSeparate launches the audio separation pipeline asynchronously.
@@ -485,6 +489,9 @@ func modelConfigDefaults() ModelConfig {
 		ChunkSize:   0,
 		BatchSize:   0,
 		Device:      "cuda",
+		Shifts:      1,
+		Segment:     0,
+		Jobs:        0,
 	}
 }
 
@@ -543,6 +550,16 @@ func applyModelConfigToArgs(args []string, cfg ModelConfig) []string {
 	if cfg.Device != "" {
 		args = append(args, "--device", cfg.Device)
 	}
+	// Demucs PyTorch-specific flags (only meaningful for htdemucs_ft)
+	if cfg.Shifts > 0 {
+		args = append(args, "--shifts", fmt.Sprintf("%d", cfg.Shifts))
+	}
+	if cfg.Segment > 0 {
+		args = append(args, "--demucs-segment", fmt.Sprintf("%d", cfg.Segment))
+	}
+	if cfg.Jobs > 0 {
+		args = append(args, "--jobs", fmt.Sprintf("%d", cfg.Jobs))
+	}
 	return args
 }
 
@@ -587,6 +604,21 @@ func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
 		if cfg.Device != "cpu" && cfg.Device != "cuda" {
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": "device must be 'cpu' or 'cuda'"})
+			return
+		}
+		if cfg.Shifts < 0 || cfg.Shifts > 20 {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "shifts must be between 0 and 20"})
+			return
+		}
+		if cfg.Segment < 0 || cfg.Segment > 60 {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "demucs segment must be between 0 and 60"})
+			return
+		}
+		if cfg.Jobs < 0 || cfg.Jobs > 8 {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "jobs must be between 0 and 8"})
 			return
 		}
 

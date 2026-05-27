@@ -3,5 +3,8 @@
   "overlap": 0.25,
   "chunk_size": 0,
   "batch_size": 0,
-  "device": "cuda"
+  "device": "cuda",
+  "shifts": 1,
+  "segment": 0,
+  "jobs": 0
 }
