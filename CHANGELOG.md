@@ -2,6 +2,11 @@
 
 ## v2.1.0-alpha — Fase 5: Modelos configurables + Editor visual de pipeline ✅
 
+### Fixes post-Fase 5 (27-may-2026)
+- **ModelManager → per-model config:** Refactorizado de `model_config.json` global a `model_configs/{model_name}.json`. Cada modelo (BS_Roformer_Viperx, htdemucs_ft, etc.) tiene su propia configuración independiente de segment_size, overlap, chunk_size, batch_size, device. Endpoints: `GET/POST /api/models/{name}/config`
+- **PipelineEditor interactividad:** Grafo SVG ahora muestra el nombre del modelo seleccionado bajo cada nodo. Prop `hasFiles` para feedback visual: mensaje "📁 Sube un archivo" cuando la cola está vacía. `handlePipelineStart` mejorado: toast en vez de alert.
+- **ModelManager UX:** Selector de modelo con optgroups por categoría al inicio del panel. Sliders se cargan/guardan por modelo individual.
+
 ### 5.1 — Cablear presets → pipeline
 - `pipeline.sh`: flags `--viperx-model PATH` (default: BS_Roformer_Viperx), `--demucs-model NAME` (default: htdemucs_ft), `--segment-size`, `--overlap`, `--batch-size`, `--device`
 - `server.go`: `SeparateRequest.StemModel`, pasa modelos como flags al pipeline. Endpoints `POST/GET /api/models/config`
