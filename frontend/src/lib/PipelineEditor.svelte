@@ -199,9 +199,9 @@
     return stems;
   });
 
-  const svgWidth = demucsOut.length > 0
+  const svgWidth = $derived(demucsOut.length > 0
     ? demucsOut[demucsOut.length - 1].x + STEM_W + 20
-    : demucsNode.x + NODE_W + 20;
+    : demucsNode.x + NODE_W + 20);
   const svgHeight = 80;
 
   function nodeColor(active: boolean): string {
@@ -415,7 +415,7 @@
 
   <!-- Presets: Save / Load / Delete -->
   <div class="section">
-    <label class="label">Presets</label>
+    <span class="label">Presets</span>
     <div class="preset-row">
       <input
         type="text"

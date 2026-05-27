@@ -37,8 +37,12 @@ export interface SeparateOptions {
   stem_model?: string;
   viperx?: boolean;
   viperx_keep?: 'both' | 'vocals' | 'instrumental';
+  viperx_model?: string;
+  viperx_stems?: string[];
   demucs?: boolean;
   demucs_keep?: string[];
+  demucs_model?: string;
+  demucs_stems?: string[];
   output?: string;
 }
 
@@ -141,7 +145,11 @@ export async function separateAudio(opts: SeparateOptions): Promise<SeparateResp
     if (opts.viperx !== undefined) body.viperx = opts.viperx;
     if (opts.demucs !== undefined) body.demucs = opts.demucs;
     if (opts.viperx_keep) body.viperx_keep = opts.viperx_keep;
+    if (opts.viperx_model) body.viperx_model = opts.viperx_model;
+    if (opts.viperx_stems && opts.viperx_stems.length > 0) body.viperx_stems = opts.viperx_stems;
     if (opts.demucs_keep && opts.demucs_keep.length > 0) body.demucs_keep = opts.demucs_keep;
+    if (opts.demucs_model) body.demucs_model = opts.demucs_model;
+    if (opts.demucs_stems && opts.demucs_stems.length > 0) body.demucs_stems = opts.demucs_stems;
     const res = await fetch(`${API_BASE}/api/separate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
