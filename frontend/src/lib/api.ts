@@ -179,6 +179,16 @@ export async function deleteSong(song: string): Promise<void> {
   }
 }
 
+export async function deleteStem(song: string, name: string): Promise<void> {
+  const res = await fetch(
+    `${API_BASE}/api/delete?file=${encodeURIComponent(song + '/' + name)}`,
+    { method: 'DELETE' },
+  );
+  if (!res.ok) {
+    throw new Error(`Delete failed with status ${res.status}: ${res.statusText}`);
+  }
+}
+
 // ---- VramCalculator ---- 
 export interface VramEstimateResponse {
   total_vram_mb: number;
