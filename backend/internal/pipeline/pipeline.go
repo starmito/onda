@@ -25,6 +25,14 @@ type Status struct {
 	Elapsed  int     `json:"elapsed"`           // seconds
 	ETA      int     `json:"eta"`               // seconds
 	Error    string  `json:"error,omitempty"`
+
+	Preset     string `json:"preset,omitempty"`
+	VocalModel string `json:"vocal_model,omitempty"`
+	StemModel  string `json:"stem_model,omitempty"`
+	DrumsModel string `json:"drums_model,omitempty"`
+	BassModel  string `json:"bass_model,omitempty"`
+	OtherModel string `json:"other_model,omitempty"`
+	Pitch      int    `json:"pitch,omitempty"`
 }
 
 // Pipeline orchestrates the audio separation process via docker exec commands.
@@ -154,7 +162,7 @@ func (p *Pipeline) Run() error {
 		p.writeError(err)
 		return err
 	}
-	p.writeStatus("running", 0.40, "vocals")
+	p.writeStatus("running", 0.40, "vocals:"+p.flags.VocalModel)
 
 	// ---- Step 2: Stem separation ----
 	if !p.skipStemSeparation() {
@@ -163,7 +171,7 @@ func (p *Pipeline) Run() error {
 			return err
 		}
 	}
-	p.writeStatus("running", 0.70, "stems")
+	p.writeStatus("running", 0.70, "stems:"+p.flags.StemModel)
 
 	// ---- Step 3: Dedicated stems (master/ultimate presets) ----
 	if !p.skipDedicatedStems() {
@@ -172,7 +180,7 @@ func (p *Pipeline) Run() error {
 			return err
 		}
 	}
-	p.writeStatus("running", 0.90, "dedicated")
+	p.writeStatus("running", 0.90, "dedicated:drums="+p.flags.DrumsModel+",bass="+p.flags.BassModel)
 
 	// ---- Step 4: Pitch shift ----
 	if p.flags.Pitch != 0 {
@@ -587,16 +595,32 @@ func (p *Pipeline) writeStatus(status string, progress float64, step string) {
 	}
 
 	s := Status{
-		Status:   status,
-		Progress: progress,
-		Step:     step,
-		Song:     p.song,
-		Elapsed:  elapsed,
-		ETA:      eta,
+		Status:     status,
+		Progress:   progress,
+		Step:       step,
+		Song:       p.song,
+		Elapsed:    elapsed,
+		ETA:        eta,
+		Preset:     p.flags.Preset,
+		VocalModel: p.flags.VocalModel,
+		StemModel:  p.flags.StemModel,
+		DrumsModel: p.flags.DrumsModel,
+		BassModel:  p.flags.BassModel,
+		OtherModel: p.flags.OtherModel,
+		Pitch:      p.flags.Pitch,
 	}
 
-	data, _ := json.Marshal(s)
-	os.WriteFile(statusFilePath, data, 0644)
+	data, err := json.Marshal(s)
+	if err != nil {
+		return
+	}
+
+	// Atomic write: temp file + rename
+	tmpPath := statusFilePath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		return
+	}
+	os.Rename(tmpPath, statusFilePath)
 }
 
 // writeError writes an error status to the JSON status file.
@@ -609,6 +633,15 @@ func (p *Pipeline) writeError(err error) {
 		Elapsed: elapsed,
 		Error:   err.Error(),
 	}
-	data, _ := json.Marshal(s)
-	os.WriteFile(statusFilePath, data, 0644)
+	data, err := json.Marshal(s)
+	if err != nil {
+		return
+	}
+
+	// Atomic write: temp file + rename
+	tmpPath := statusFilePath + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+		return
+	}
+	os.Rename(tmpPath, statusFilePath)
 }

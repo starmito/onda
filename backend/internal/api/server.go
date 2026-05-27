@@ -290,6 +290,11 @@ type SeparateRequest struct {
 	Output     string `json:"output,omitempty"`
 	VocalModel string `json:"vocal_model,omitempty"`
 	Pitch      int    `json:"pitch,omitempty"`
+
+	Viperx     bool     `json:"viperx"`
+	ViperxKeep string   `json:"viperx_keep,omitempty"`
+	Demucs     bool     `json:"demucs"`
+	DemucsKeep []string `json:"demucs_keep,omitempty"`
 }
 
 // handleSeparate launches the audio separation pipeline asynchronously.
@@ -342,6 +347,20 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	// If no vocal model override, use the preset's default
 	if flags.VocalModel == "" {
 		flags.VocalModel = preset.VocalModel
+	}
+
+	// Override with PipelineConfig flags from request
+	if !req.Viperx {
+		flags.VocalModel = "" // Skip vocal separation
+	}
+	if !req.Demucs {
+		flags.StemModel = "" // Skip Demucs stem separation
+	}
+	if len(req.DemucsKeep) > 0 {
+		flags.StemKeep = req.DemucsKeep
+	}
+	if req.ViperxKeep != "" {
+		flags.VocalKeep = req.ViperxKeep
 	}
 
 	// Clean previous status file before launching new pipeline
@@ -538,6 +557,11 @@ func (s *Server) handleDeleteSong(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Clear status file if it references the deleted song
+	if st, err := readPipelineStatus(); err == nil && st.Song == song {
+		os.Remove(pipeline.StatusFile())
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{"deleted": true, "song": song})
@@ -577,6 +601,14 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
+	}
+
+	// Clear status file if the deleted file's song matches current status
+	if st, err := readPipelineStatus(); err == nil {
+		parts := strings.SplitN(file, "/", 2)
+		if len(parts) > 0 && parts[0] == st.Song {
+			os.Remove(pipeline.StatusFile())
+		}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
