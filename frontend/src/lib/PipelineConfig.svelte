@@ -2,9 +2,13 @@
   let {
     disabled = false,
     onstart,
+    onviperxonly,
+    ondemucsonly,
   }: {
     disabled?: boolean;
     onstart?: (config: PipelineConfig) => void;
+    onviperxonly?: (config: PipelineConfig) => void;
+    ondemucsonly?: (config: PipelineConfig) => void;
   } = $props();
 
   export interface PipelineConfig {
@@ -40,6 +44,34 @@
       demucsKeep,
     });
   }
+
+  function canStartViperx(): boolean {
+    return viperx && !!viperxKeep;
+  }
+
+  function canStartDemucs(): boolean {
+    return demucs && demucsKeep.length > 0;
+  }
+
+  function handleViperxOnly() {
+    if (!canStartViperx()) return;
+    onviperxonly?.({
+      viperx: true,
+      viperxKeep,
+      demucs: false,
+      demucsKeep,
+    });
+  }
+
+  function handleDemucsOnly() {
+    if (!canStartDemucs()) return;
+    ondemucsonly?.({
+      viperx: false,
+      viperxKeep,
+      demucs: true,
+      demucsKeep,
+    });
+  }
 </script>
 
 <div class="pipeline-config">
@@ -53,12 +85,19 @@
   </label>
 
   {#if viperx}
-    <div class="sub-options">
+    <div class="sub-options viperx-options">
       <select bind:value={viperxKeep} disabled={disabled} class="sub-select">
         <option value="both">Both (Vocals + Instrumental)</option>
         <option value="vocals">Vocals Only</option>
         <option value="instrumental">Instrumental Only</option>
       </select>
+      <button
+        class="step-btn"
+        disabled={disabled || !canStartViperx()}
+        onclick={handleViperxOnly}
+      >
+        ▶ Run ViperX Only
+      </button>
     </div>
   {/if}
 
@@ -70,25 +109,34 @@
   </label>
 
   {#if demucs}
-    <div class="sub-options stems-grid">
-      {#each ['drums', 'bass', 'other', 'vocals'] as stem}
-        <label class="stem-check">
-          <input
-            type="checkbox"
-            checked={demucsKeep.includes(stem)}
-            disabled={disabled}
-            onchange={() => toggleDemucsStem(stem)}
-          />
-          <span class="stem-emoji">
-            {#if stem === 'drums'}🥁
-            {:else if stem === 'bass'}🎸
-            {:else if stem === 'other'}🎹
-            {:else}🎤
-            {/if}
-          </span>
-          {stem}
-        </label>
-      {/each}
+    <div class="sub-options demucs-options">
+      <div class="stems-grid">
+        {#each ['drums', 'bass', 'other', 'vocals'] as stem}
+          <label class="stem-check">
+            <input
+              type="checkbox"
+              checked={demucsKeep.includes(stem)}
+              disabled={disabled}
+              onchange={() => toggleDemucsStem(stem)}
+            />
+            <span class="stem-emoji">
+              {#if stem === 'drums'}🥁
+              {:else if stem === 'bass'}🎸
+              {:else if stem === 'other'}🎹
+              {:else}🎤
+              {/if}
+            </span>
+            {stem}
+          </label>
+        {/each}
+      </div>
+      <button
+        class="step-btn"
+        disabled={disabled || !canStartDemucs()}
+        onclick={handleDemucsOnly}
+      >
+        ▶ Run Demucs Only
+      </button>
     </div>
   {/if}
 
@@ -151,6 +199,42 @@
   .sub-options {
     padding-left: 2.25rem;
     animation: fadeIn 0.2s ease;
+  }
+
+  .viperx-options {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+
+  .demucs-options {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .step-btn {
+    padding: 0.35rem 0.75rem;
+    background: #22223a;
+    color: #00d4ff;
+    border: 1px solid #00d4ff44;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .step-btn:hover:not(:disabled) {
+    background: #2a2a4a;
+    border-color: #00d4ff;
+  }
+  .step-btn:disabled {
+    background: #1a1a2e;
+    color: #555;
+    border-color: #333;
+    cursor: not-allowed;
   }
 
   .sub-select {
