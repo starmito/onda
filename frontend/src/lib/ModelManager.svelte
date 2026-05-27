@@ -1,13 +1,16 @@
 <script lang="ts">
-  import { getModelConfig, setModelConfig, type ModelConfigResponse } from './api';
+  import { getModelConfig, setModelConfig, getLocalModels, type ModelConfigResponse, type LocalModel } from './api';
 
   interface Props {
     onclose?: () => void;
+    initialModel?: string;
   }
 
-  let { onclose }: Props = $props();
+  let { onclose, initialModel }: Props = $props();
 
   // ---- State ----
+  let models = $state<LocalModel[]>([]);
+  let selectedModel = $state('');
   let segmentSize = $state(256);
   let overlap = $state(0.25);
   let chunkSize = $state(0);
@@ -16,25 +19,75 @@
   let feedback = $state('');
   let feedbackType = $state<'success' | 'error'>('success');
   let loading = $state(true);
+  let saving = $state(false);
 
-  // Load config on mount
-  $effect(() => {
-    getModelConfig()
-      .then((cfg) => {
-        segmentSize = cfg.segment_size;
-        overlap = cfg.overlap;
-        chunkSize = cfg.chunk_size;
-        batchSize = cfg.batch_size;
-        device = cfg.device;
-        loading = false;
-      })
-      .catch(() => {
-        // Use defaults on error
-        loading = false;
-      });
+  // Group models by category for optgroup
+  let groupedModels = $derived.by(() => {
+    const groups: Record<string, LocalModel[]> = {};
+    for (const m of models) {
+      const cat = m.category || 'Other';
+      if (!groups[cat]) groups[cat] = [];
+      groups[cat].push(m);
+    }
+    // Sort categories
+    const order = ['Roformer', 'Roformer/MelBand', 'MDX', 'SCnet', 'Demucs', 'VR_Arch', 'Other'];
+    const sorted: { category: string; models: LocalModel[] }[] = [];
+    for (const cat of order) {
+      if (groups[cat] && groups[cat].length > 0) {
+        sorted.push({ category: cat, models: groups[cat] });
+        delete groups[cat];
+      }
+    }
+    for (const [cat, m] of Object.entries(groups)) {
+      sorted.push({ category: cat, models: m });
+    }
+    return sorted;
   });
 
+  // Load model list + optionally load config for initialModel
+  $effect(() => {
+    async function load() {
+      try {
+        const res = await getLocalModels();
+        models = res.models || [];
+        if (initialModel && models.some(m => m.name === initialModel)) {
+          selectedModel = initialModel;
+        }
+        // Load config if a model is selected
+        if (selectedModel) {
+          await loadConfig(selectedModel);
+        }
+      } catch {
+        // Keep defaults on error
+      }
+      loading = false;
+    }
+    load();
+  });
+
+  async function loadConfig(modelName: string): Promise<void> {
+    try {
+      const cfg = await getModelConfig(modelName);
+      segmentSize = cfg.segment_size;
+      overlap = cfg.overlap;
+      chunkSize = cfg.chunk_size;
+      batchSize = cfg.batch_size;
+      device = cfg.device;
+    } catch {
+      // Use current values as defaults
+    }
+  }
+
+  async function handleModelSelect(e: Event) {
+    const target = e.target as HTMLSelectElement;
+    selectedModel = target.value;
+    if (selectedModel) {
+      await loadConfig(selectedModel);
+    }
+  }
+
   async function handleApply() {
+    if (!selectedModel) return;
     const cfg: ModelConfigResponse = {
       segment_size: segmentSize,
       overlap,
@@ -42,14 +95,16 @@
       batch_size: batchSize,
       device,
     };
+    saving = true;
     try {
-      await setModelConfig(cfg);
+      await setModelConfig(cfg, selectedModel);
       feedback = '✅ Configuración guardada';
       feedbackType = 'success';
     } catch (e: any) {
       feedback = `❌ Error: ${e.message}`;
       feedbackType = 'error';
     }
+    saving = false;
     setTimeout(() => (feedback = ''), 3000);
   }
 
@@ -74,95 +129,116 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="panel" onclick={(e: MouseEvent) => e.stopPropagation()} role="dialog">
       <div class="panel-header">
-        <h2>⚙️ Modelos</h2>
+        <h2>⚙️ Modelos{selectedModel ? ` — ${selectedModel}` : ''}</h2>
         <button class="btn-close" onclick={onclose}>✕</button>
       </div>
 
       <div class="panel-body">
-        <!-- Segment Size -->
+        <!-- Model selector -->
         <div class="field">
-          <label for="seg-size">
-            Segment Size: <strong>{segmentSize}</strong>
-          </label>
-          <input
-            id="seg-size"
-            type="range"
-            min="64"
-            max="1024"
-            step="64"
-            bind:value={segmentSize}
-          />
-          <div class="range-labels">
-            <span>64</span><span>1024</span>
-          </div>
-        </div>
-
-        <!-- Overlap -->
-        <div class="field">
-          <label for="overlap">
-            Overlap: <strong>{formatOverlap(overlap)}</strong>
-          </label>
-          <input
-            id="overlap"
-            type="range"
-            min="0"
-            max="0.5"
-            step="0.05"
-            bind:value={overlap}
-          />
-          <div class="range-labels">
-            <span>0.0</span><span>0.5</span>
-          </div>
-        </div>
-
-        <!-- Chunk Size -->
-        <div class="field">
-          <label for="chunk-size">
-            Chunk Size: <strong>{chunkSize === 0 ? 'auto' : chunkSize}</strong>
-          </label>
-          <input
-            id="chunk-size"
-            type="range"
-            min="0"
-            max="4096"
-            step="256"
-            bind:value={chunkSize}
-          />
-          <div class="range-labels">
-            <span>auto</span><span>4096</span>
-          </div>
-        </div>
-
-        <!-- Batch Size -->
-        <div class="field">
-          <label for="batch-size">
-            Batch Size: <strong>{batchSize === 0 ? 'auto' : batchSize}</strong>
-          </label>
-          <input
-            id="batch-size"
-            type="range"
-            min="0"
-            max="32"
-            step="1"
-            bind:value={batchSize}
-          />
-          <div class="range-labels">
-            <span>auto</span><span>32</span>
-          </div>
-        </div>
-
-        <!-- Device -->
-        <div class="field">
-          <label for="device">Device:</label>
-          <select id="device" bind:value={device}>
-            <option value="cuda">cuda</option>
-            <option value="cpu">cpu</option>
+          <label for="model-select">Modelo:</label>
+          <select id="model-select" value={selectedModel} onchange={handleModelSelect}>
+            <option value="">-- Seleccionar modelo --</option>
+            {#each groupedModels as group}
+              <optgroup label={group.category}>
+                {#each group.models as m}
+                  <option value={m.name}>{m.name}</option>
+                {/each}
+              </optgroup>
+            {/each}
           </select>
+          {#if models.length === 0}
+            <div class="hint">No se encontraron modelos. Descarga uno primero.</div>
+          {/if}
         </div>
 
-        <button class="btn-apply" onclick={handleApply}>
-          Aplicar
-        </button>
+        <!-- Sliders (disabled when no model selected) -->
+        <fieldset class="sliders" disabled={!selectedModel}>
+          <!-- Segment Size -->
+          <div class="field">
+            <label for="seg-size">
+              Segment Size: <strong>{segmentSize}</strong>
+            </label>
+            <input
+              id="seg-size"
+              type="range"
+              min="64"
+              max="1024"
+              step="64"
+              bind:value={segmentSize}
+            />
+            <div class="range-labels">
+              <span>64</span><span>1024</span>
+            </div>
+          </div>
+
+          <!-- Overlap -->
+          <div class="field">
+            <label for="overlap">
+              Overlap: <strong>{formatOverlap(overlap)}</strong>
+            </label>
+            <input
+              id="overlap"
+              type="range"
+              min="0"
+              max="0.5"
+              step="0.05"
+              bind:value={overlap}
+            />
+            <div class="range-labels">
+              <span>0.0</span><span>0.5</span>
+            </div>
+          </div>
+
+          <!-- Chunk Size -->
+          <div class="field">
+            <label for="chunk-size">
+              Chunk Size: <strong>{chunkSize === 0 ? 'auto' : chunkSize}</strong>
+            </label>
+            <input
+              id="chunk-size"
+              type="range"
+              min="0"
+              max="4096"
+              step="256"
+              bind:value={chunkSize}
+            />
+            <div class="range-labels">
+              <span>auto</span><span>4096</span>
+            </div>
+          </div>
+
+          <!-- Batch Size -->
+          <div class="field">
+            <label for="batch-size">
+              Batch Size: <strong>{batchSize === 0 ? 'auto' : batchSize}</strong>
+            </label>
+            <input
+              id="batch-size"
+              type="range"
+              min="0"
+              max="32"
+              step="1"
+              bind:value={batchSize}
+            />
+            <div class="range-labels">
+              <span>auto</span><span>32</span>
+            </div>
+          </div>
+
+          <!-- Device -->
+          <div class="field">
+            <label for="device">Device:</label>
+            <select id="device" bind:value={device}>
+              <option value="cuda">cuda</option>
+              <option value="cpu">cpu</option>
+            </select>
+          </div>
+
+          <button class="btn-apply" onclick={handleApply} disabled={saving}>
+            {saving ? 'Guardando...' : 'Aplicar'}
+          </button>
+        </fieldset>
 
         {#if feedback}
           <div class="feedback" class:success={feedbackType === 'success'} class:error={feedbackType === 'error'}>
@@ -216,6 +292,9 @@
     margin: 0;
     font-size: 1.1rem;
     color: #e0e0e0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .btn-close {
@@ -225,6 +304,7 @@
     font-size: 1.1rem;
     cursor: pointer;
     padding: 0.25rem 0.5rem;
+    flex-shrink: 0;
   }
   .btn-close:hover {
     color: #e57373;
@@ -280,9 +360,30 @@
     font-size: 0.85rem;
     outline: none;
     cursor: pointer;
+    width: 100%;
   }
   .field select:focus {
     border-color: #00d4ff;
+  }
+
+  .sliders {
+    border: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 1.25rem;
+  }
+
+  .sliders:disabled {
+    opacity: 0.4;
+    pointer-events: none;
+  }
+
+  .hint {
+    font-size: 0.75rem;
+    color: #606080;
+    margin-top: 0.25rem;
   }
 
   .btn-apply {
@@ -298,6 +399,10 @@
   }
   .btn-apply:hover {
     opacity: 0.9;
+  }
+  .btn-apply:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 
   .feedback {
