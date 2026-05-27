@@ -24,9 +24,12 @@
 
 set -euo pipefail
 
+# ── Docker container ────────────────────────────
+ONDA_CONTAINER="onda"
+
 # ── Progress reporting ──────────────────────────
 START_TIME=$(date +%s)
-STATUS_FILE="/tmp/pipeline_status.json"
+STATUS_FILE="/tmp/onda_pipeline_status.json"
 rm -f "$STATUS_FILE"
 CURRENT_STEP=""
 
@@ -115,7 +118,7 @@ if $VIPERX; then
     echo "🔪 Viperx → vocal + instrumental..."
     TMP_VIP="${OUTPUT}/_viperx"
     report_progress "running" "viperx" 5
-    python /app/inference_universal.py "${VIPERX_MODEL}" "${INPUT}" "${TMP_VIP}" 8
+    docker exec $ONDA_CONTAINER python3 /app/inference/inference_universal.py "${VIPERX_MODEL}" "${INPUT}" "${TMP_VIP}" 8
     echo "   ✅ Viperx done"
 
     report_progress "running" "viperx" 35
@@ -163,7 +166,7 @@ if $DEMUCS; then
 
     TMP_DEM="${OUTPUT}/_demucs"
     report_progress "running" "demucs" 45
-    demucs -n htdemucs_ft -o "${TMP_DEM}" "${DEMUCS_INPUT}"
+    docker exec $ONDA_CONTAINER demucs -n htdemucs_ft -o "${TMP_DEM}" "${DEMUCS_INPUT}"
     echo "   ✅ HTDemucs_ft done"
 
     # Find stem directory
@@ -202,7 +205,7 @@ if $RUBBERBAND; then
             if [[ "${DEMUCS_KEEP}" == "all" ]] || [[ ",${DEMUCS_KEEP}," == *",${stem},"* ]]; then
                 SRC=$(find "${STEM_DIR}" -maxdepth 1 -iname "*${stem}*" | head -1)
                 if [ -n "${SRC}" ]; then
-                    rubberband --pitch "${PITCH}" --quiet "${SRC}" "${OUTPUT}/${stem}.wav"
+                    docker exec $ONDA_CONTAINER rubberband --pitch "${PITCH}" --quiet "${SRC}" "${OUTPUT}/${stem}.wav"
                     echo "   ✅ ${stem} → ${OUTPUT}/${stem}.wav"
                 fi
             else
@@ -223,7 +226,7 @@ if $RUBBERBAND; then
         # No prior steps: apply rubberband directly to input
         # Only pitch if it's a mono/stereo track (not stems)
         OUT_FILE="${OUTPUT}/${SONG}_pitch${PITCH}.wav"
-        rubberband --pitch "${PITCH}" --quiet "${INPUT}" "${OUT_FILE}"
+        docker exec $ONDA_CONTAINER rubberband --pitch "${PITCH}" --quiet "${INPUT}" "${OUT_FILE}"
         echo "   ✅ pitch shift → ${OUT_FILE}"
     fi
 fi
