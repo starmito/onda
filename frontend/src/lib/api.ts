@@ -221,6 +221,7 @@ export interface LocalModel {
   display_name?: string;
   category: string;
   size_mb: number;
+  vram_estimate_mb?: number;
   path: string;
 }
 
