@@ -13,8 +13,29 @@ import (
 	"time"
 
 	"github.com/starmito/onda/internal/cli"
-	"github.com/starmito/onda/internal/pipeline"
 )
+
+const pipelineStatusFile = "/tmp/onda_pipeline_status.json"
+
+// PipelineStatus represents the current state of the pipeline (mirrored from removed pipeline pkg).
+type PipelineStatus struct {
+	Status   string  `json:"status"`
+	Progress float64 `json:"progress"`
+	Step     string  `json:"step"`
+	Song     string  `json:"song"`
+	Elapsed  int     `json:"elapsed"`
+	ETA      int     `json:"eta"`
+	Error    string  `json:"error,omitempty"`
+	Preset     string `json:"preset,omitempty"`
+	VocalModel string `json:"vocal_model,omitempty"`
+	StemModel  string `json:"stem_model,omitempty"`
+	DrumsModel string `json:"drums_model,omitempty"`
+	BassModel  string `json:"bass_model,omitempty"`
+	OtherModel string `json:"other_model,omitempty"`
+	Pitch      int    `json:"pitch,omitempty"`
+}
+
+func pipelineStatusFilePath() string { return pipelineStatusFile }
 
 const version = "v2.0.0-alpha"
 
@@ -192,12 +213,12 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 }
 
 // readPipelineStatus reads and parses the pipeline status JSON file.
-func readPipelineStatus() (*pipeline.Status, error) {
-	data, err := os.ReadFile(pipeline.StatusFile())
+func readPipelineStatus() (*PipelineStatus, error) {
+	data, err := os.ReadFile(pipelineStatusFilePath())
 	if err != nil {
 		return nil, err
 	}
-	var s pipeline.Status
+	var s PipelineStatus
 	if err := json.Unmarshal(data, &s); err != nil {
 		return nil, err
 	}
@@ -235,7 +256,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 		case <-r.Context().Done():
 			return
 		case <-ticker.C:
-			data, err := os.ReadFile(pipeline.StatusFile())
+			data, err := os.ReadFile(pipelineStatusFilePath())
 			if err != nil {
 				continue
 			}
@@ -245,7 +266,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 			}
 			lastData = dataStr
 
-			var status pipeline.Status
+			var status PipelineStatus
 			if err := json.Unmarshal(data, &status); err != nil {
 				continue
 			}
@@ -385,11 +406,14 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Clean previous status file before launching new pipeline
-	os.Remove(pipeline.StatusFile())
+	os.Remove(pipelineStatusFilePath())
 
 	// Launch pipeline in background
 	song := strings.TrimSuffix(filepath.Base(req.Input), filepath.Ext(req.Input))
-	go pipeline.Run(flags)
+	// TODO: migrate to pipeline.sh
+	go func() {
+		// launchPipelineViaShell(flags)
+	}()
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
@@ -580,7 +604,7 @@ func (s *Server) handleDeleteSong(w http.ResponseWriter, r *http.Request) {
 
 	// Clear status file if it references the deleted song
 	if st, err := readPipelineStatus(); err == nil && st.Song == song {
-		os.Remove(pipeline.StatusFile())
+		os.Remove(pipelineStatusFilePath())
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -628,7 +652,7 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 	if st, err := readPipelineStatus(); err == nil {
 		parts := strings.SplitN(file, "/", 2)
 		if len(parts) > 0 && parts[0] == st.Song {
-			os.Remove(pipeline.StatusFile())
+			os.Remove(pipelineStatusFilePath())
 		}
 	}
 
