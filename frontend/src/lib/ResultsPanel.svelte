@@ -21,12 +21,12 @@
 
   let {
     files = [],
-    onstemdeleted = () => {},
-    ongroupdeleted = () => {},
+    onstemdeleted = (_song: string, _name: string) => {},
+    ongroupdeleted = (_song: string) => {},
   }: {
     files?: ResultStem[];
-    onstemdeleted?: () => void;
-    ongroupdeleted?: () => void;
+    onstemdeleted?: (song: string, name: string) => void;
+    ongroupdeleted?: (song: string) => void;
   } = $props();
 
   // Toast notification state
@@ -419,7 +419,7 @@
     try {
       await deleteSong(song);
       showToast('Grupo borrado correctamente', 'success');
-      ongroupdeleted();
+      ongroupdeleted(song);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       showToast('Error al borrar: ' + msg, 'error');
@@ -431,7 +431,7 @@
     try {
       await deleteStemApi(song, name);
       showToast(`Stem "${name}" eliminado`, 'success');
-      onstemdeleted();
+      onstemdeleted(song, name);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       showToast('Delete fallido: ' + msg, 'error');
