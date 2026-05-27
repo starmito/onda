@@ -100,14 +100,67 @@ func demucsONNXDisplayName(name string) string {
 
 // ModelEntry describes a single model file found on disk.
 type ModelEntry struct {
-	Name        string `json:"name"`
-	DisplayName string `json:"display_name"`
-	Category    string `json:"category"`
-	Path        string `json:"path"`
-	SizeMB      int64  `json:"size_mb"`
+	Name           string `json:"name"`
+	DisplayName    string `json:"display_name"`
+	Category       string `json:"category"`
+	Path           string `json:"path"`
+	SizeMB         int64  `json:"size_mb"`
+	VramEstimateMB int64  `json:"vram_estimate_mb"`
 }
 
-// ModelsListResponse is the JSON body for GET /api/models/list.
+// estimateVRAM returns an estimated VRAM usage in MB for a model based on its
+// name, category, and on-disk size. For well-known models we use hardcoded
+// realistic values; for unknown models we estimate based on category and size.
+func estimateVRAM(name string, category string, sizeMB int64) int64 {
+	lower := strings.ToLower(name)
+
+	// 1. Well-known models with verified VRAM footprints
+	switch {
+	case lower == "htdemucs_ft":
+		return 2800 // All stems loaded together
+	case strings.Contains(lower, "viperx") || strings.Contains(lower, "bs_roformer_ep"):
+		return 3200
+	case strings.Contains(lower, "melband") || strings.Contains(lower, "roformer"):
+		if sizeMB > 1000 {
+			return 4200
+		}
+		return 3200
+	case strings.Contains(lower, "polarformer"):
+		return 4800
+	case strings.Contains(lower, "scnet"):
+		return 1200
+	case strings.Contains(lower, "kim_vocal") || strings.Contains(lower, "mdx"):
+		return 800
+	}
+
+	// 2. Heuristic estimates based on category
+	switch category {
+	case "Demucs ONNX":
+		// Individual stem models (~301 MB on disk → ~800 MB in VRAM)
+		if sizeMB > 0 {
+			return sizeMB * 3
+		}
+		return 800
+	case "MDX":
+		if sizeMB > 0 {
+			return sizeMB * 5
+		}
+		return 800
+	case "Demucs":
+		return 2800
+	default:
+		// .ckpt or unknown: fp32 overhead ≈ 3× disk size
+		if sizeMB > 0 {
+			if sizeMB > 1000 {
+				return sizeMB * 3
+			} else if sizeMB > 500 {
+				return sizeMB * 7 // small .ckpt files expand heavily (int64*4)
+			}
+			return sizeMB * 3
+		}
+		return 2000
+	}
+}
 type ModelsListResponse struct {
 	Models     []ModelEntry `json:"models"`
 	Categories []string     `json:"categories"`
@@ -185,11 +238,12 @@ func listModels() ModelsListResponse {
 			displayName := computeDisplayName(subdir, rel, name)
 
 			models = append(models, ModelEntry{
-				Name:        name,
-				DisplayName: displayName,
-				Category:    category,
-				Path:        dockerPath,
-				SizeMB:      info.Size() / (1024 * 1024),
+				Name:           name,
+				DisplayName:    displayName,
+				Category:       category,
+				Path:           dockerPath,
+				SizeMB:         info.Size() / (1024 * 1024),
+				VramEstimateMB: estimateVRAM(name, category, info.Size()/(1024*1024)),
 			})
 			categorySet[category] = true
 			return nil
@@ -208,11 +262,12 @@ func listModels() ModelsListResponse {
 	}
 	if !hasHtdemucsFT {
 		models = append(models, ModelEntry{
-			Name:        "htdemucs_ft",
-			DisplayName: "HTDemucs FT",
-			Category:    "Demucs",
-			Path:        "",
-			SizeMB:      0,
+			Name:           "htdemucs_ft",
+			DisplayName:    "HTDemucs FT",
+			Category:       "Demucs",
+			Path:           "",
+			SizeMB:         0,
+			VramEstimateMB: 2800,
 		})
 		categorySet["Demucs"] = true
 	}
