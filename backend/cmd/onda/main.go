@@ -6,7 +6,6 @@ import (
 
 	"github.com/starmito/onda/internal/api"
 	"github.com/starmito/onda/internal/cli"
-	"github.com/starmito/onda/internal/pipeline"
 )
 
 func main() {
@@ -32,17 +31,14 @@ func main() {
 			os.Exit(1)
 		}
 	case "pipeline":
-		flags, err := cli.ParsePipelineFlags(os.Args[2:])
+		_, err := cli.ParsePipelineFlags(os.Args[2:])
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
 			os.Exit(1)
 		}
-		if err := pipeline.Run(flags); err != nil {
-			fmt.Fprintf(os.Stderr, "Pipeline failed: %v\n", err)
-			os.Exit(1)
-		}
-		fmt.Printf("Pipeline completed: preset=%s vocal=%s input=%s output=%s\n",
-			flags.Preset, flags.VocalModel, flags.Input, flags.Output)
+		// TODO: migrate to pipeline.sh
+		fmt.Fprintf(os.Stderr, "onda pipeline: not yet migrated to pipeline.sh\n")
+		os.Exit(1)
 	case "models":
 		fmt.Println("onda models — not implemented yet")
 	case "version":
