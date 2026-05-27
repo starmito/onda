@@ -22,6 +22,13 @@ type Preset struct {
 
 // Presets is the map of all available presets.
 var Presets = map[string]Preset{
+	"custom": {
+		Name:         "custom",
+		VocalModel:   "polarformer",
+		VocalOverlap: 4,
+		StemModel:    "htdemucs_ft",
+		Description:  "Configuración personalizada desde PipelineConfig",
+	},
 	"turbo": {
 		Name:         "turbo",
 		VocalModel:   "melband_kj",

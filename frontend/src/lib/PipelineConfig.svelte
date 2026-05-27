@@ -39,6 +39,7 @@
   function handleStart() {
     if (!canStart()) return;
     onstart?.({
+      preset: 'custom',
       viperx,
       viperxKeep,
       demucs,
@@ -57,6 +58,7 @@
   function handleViperxOnly() {
     if (!canStartViperx()) return;
     onviperxonly?.({
+      preset: 'custom',
       viperx: true,
       viperxKeep,
       demucs: false,
@@ -67,6 +69,7 @@
   function handleDemucsOnly() {
     if (!canStartDemucs()) return;
     ondemucsonly?.({
+      preset: 'custom',
       viperx: false,
       viperxKeep,
       demucs: true,
