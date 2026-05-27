@@ -155,6 +155,7 @@
       // Start separation for each uploaded file
       for (const { qf, path } of uploaded) {
         try {
+          progressRef?.start();
           await separateAudio({
             preset,
             input: path,
@@ -164,7 +165,6 @@
             demucs: config.demucs,
             demucs_keep: config.demucsKeep,
           });
-          progressRef?.start();
           qf.status = 'done';
           qf.progress = 1;
         } catch (err: any) {

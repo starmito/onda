@@ -44,8 +44,8 @@
 
     getVramEstimate(query)
       .then((res) => {
-        estimatedMb = res.estimated_mb;
-        availableMb = res.available_mb;
+        estimatedMb = res.total_vram_mb;
+        availableMb = res.available_vram_mb;
       })
       .catch((err) => {
         error = err.message || 'Error al estimar VRAM';

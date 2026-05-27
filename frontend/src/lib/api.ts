@@ -125,17 +125,6 @@ export async function separateAudio(opts: SeparateOptions): Promise<SeparateResp
     if (opts.pitch !== undefined && opts.pitch !== 0) {
       body.pitch = String(opts.pitch);
     }
-    if (opts.viperx) {
-      body.viperx = 'on';
-      body.viperx_keep = opts.viperx_keep ?? 'both';
-    }
-    if (opts.demucs) {
-      body.demucs = 'on';
-      body.demucs_keep = (opts.demucs_keep ?? ['drums', 'bass', 'other', 'vocals']).join(',');
-    }
-    if (opts.output !== undefined) {
-      body.output = opts.output;
-    }
     const res = await fetch(`${API_BASE}/api/separate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -179,8 +168,8 @@ export async function deleteSong(song: string): Promise<void> {
 
 // ---- VramCalculator ---- 
 export interface VramEstimateResponse {
-  estimated_mb: number;
-  available_mb: number;
+  total_vram_mb: number;
+  available_vram_mb: number;
 }
 
 export async function getVramEstimate(models: string): Promise<VramEstimateResponse> {
