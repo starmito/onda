@@ -159,11 +159,11 @@
 
   function effectiveGain(song: string, name: string): number {
     const key = stemKey(song, name);
-    const state = stemStates[key];
-    if (!state || state.muted) return 0;
+    const state = stemStates[key] || { muted: false, solo: false, volume: 100 };
+    if (state.muted) return 0;
     const hasAnySolo = anySolo(song);
     if (hasAnySolo && !state.solo) return 0;
-    return state.volume / 100;
+    return (state.volume ?? 100) / 100;
   }
 
   function syncGains(song: string) {
