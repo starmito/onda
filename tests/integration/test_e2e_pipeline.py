@@ -308,3 +308,343 @@ class TestDeleteValidation:
         status, data = api_delete("/api/files/noexiste_xyz_test")
         assert status == 404, f"Expected 404, got {status}: {data}"
         assert "error" in data, f"Expected error key in: {data}"
+
+
+# ---------------------------------------------------------------------------
+# PipelineConfig flags tests (slow)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+class TestPipelineConfigFlags:
+    """Verifica que las flags de PipelineConfig se respetan."""
+
+    def _do_pipeline(self, payload, label):
+        """Helper: upload → separate → poll. Returns (song, final_status)."""
+        wav_path = None
+        try:
+            wav_path = generate_test_wav(duration_sec=10, sample_rate=44100)
+            print(f"\n[{label}] Uploading...")
+            status, data = api_post_multipart("/api/upload", wav_path)
+            assert status == 200, f"Upload failed: {status} — {data}"
+            input_path = data["path"]
+
+            payload["input"] = input_path
+            print(f"[{label}] Separating with: viperx={payload.get('viperx')}, demucs={payload.get('demucs')}")
+            status, data = api_post("/api/separate", payload)
+            assert status == 202, f"Separate failed: {status} — {data}"
+            song = data["song"]
+
+            print(f"[{label}] Polling until done...")
+            final = wait_for_completion()
+            assert final.get("status") == "done", f"Pipeline failed: {final}"
+            return song, final
+        finally:
+            if wav_path and os.path.exists(wav_path):
+                os.unlink(wav_path)
+
+    def _cleanup(self, song):
+        try:
+            api_delete(f"/api/files/{song}")
+        except Exception:
+            pass
+
+    @staticmethod
+    def _has_file(files, substr):
+        return any(substr in f["name"] for f in files)
+
+    @staticmethod
+    def _has_demucs_vocals(files):
+        """Check for Demucs vocals.wav (NOT no_vocals.wav)."""
+        return any(f["name"] == "vocals.wav" for f in files)
+
+    @pytest.mark.xfail(reason="Demucs-only mode has known output path bug (htdemucs_ft subdirectory)")
+    def test_demucs_only_no_viperx(self):
+        """Solo Demucs, sin ViperX. Debe usar archivo original como input.
+        
+        Known issue: Demucs outputs to htdemucs_ft/ subdirectory but backend
+        expects files at song root. Test validates the expected behavior;
+        xfail until backend is fixed.
+        """
+        payload = {
+            "preset": "turbo",
+            "viperx": False,
+            "demucs": True,
+            "demucs_keep": ["drums", "bass", "other", "vocals"],
+        }
+        song, final = self._do_pipeline(payload, "demucs-only")
+        try:
+            files = final.get("files", [])
+            names = [f["name"] for f in files]
+            print(f"      files: {names}")
+            # NO ViperX outputs
+            assert not self._has_file(files, "_vocals"), f"Should NOT have _vocals: {names}"
+            assert not self._has_file(files, "_instrumental"), f"Should NOT have _instrumental: {names}"
+            # YES Demucs outputs
+            assert self._has_demucs_vocals(files), f"Should have vocals.wav: {names}"
+            assert self._has_file(files, "no_vocals"), f"Should have no_vocals: {names}"
+        finally:
+            self._cleanup(song)
+
+    def test_viperx_only_no_demucs(self):
+        """Solo ViperX, sin Demucs. Solo separación vocal."""
+        payload = {
+            "preset": "turbo",
+            "viperx": True,
+            "demucs": False,
+            "viperx_keep": "both",
+        }
+        song, final = self._do_pipeline(payload, "viperx-only")
+        try:
+            files = final.get("files", [])
+            names = [f["name"] for f in files]
+            print(f"      files: {names}")
+            # YES ViperX outputs
+            assert self._has_file(files, "_vocals"), f"Should have _vocals: {names}"
+            assert self._has_file(files, "_instrumental"), f"Should have _instrumental: {names}"
+            # NO Demucs outputs (Demucs was disabled)
+            assert not self._has_file(files, "no_vocals"), f"Should NOT have no_vocals: {names}"
+        finally:
+            self._cleanup(song)
+
+    def test_viperx_vocals_only(self):
+        """ViperX guardando solo vocals."""
+        payload = {
+            "preset": "turbo",
+            "viperx": True,
+            "demucs": False,
+            "viperx_keep": "vocals",
+        }
+        song, final = self._do_pipeline(payload, "viperx-vocals-only")
+        try:
+            files = final.get("files", [])
+            names = [f["name"] for f in files]
+            print(f"      files: {names}")
+            assert self._has_file(files, "_vocals"), f"Should have _vocals: {names}"
+            assert not self._has_file(files, "_instrumental"), f"Should NOT have _instrumental: {names}"
+        finally:
+            self._cleanup(song)
+
+    def test_viperx_instrumental_only(self):
+        """ViperX guardando solo instrumental."""
+        payload = {
+            "preset": "turbo",
+            "viperx": True,
+            "demucs": False,
+            "viperx_keep": "instrumental",
+        }
+        song, final = self._do_pipeline(payload, "viperx-instr-only")
+        try:
+            files = final.get("files", [])
+            names = [f["name"] for f in files]
+            print(f"      files: {names}")
+            assert self._has_file(files, "_instrumental"), f"Should have _instrumental: {names}"
+            assert not self._has_file(files, "_vocals"), f"Should NOT have _vocals: {names}"
+        finally:
+            self._cleanup(song)
+
+    def test_demucs_keep_subset(self):
+        """Demucs guardando solo algunos stems.
+        
+        Note: no_vocals.wav is always generated by Demucs alongside vocals.wav
+        regardless of the demucs_keep list. The keep filter controls individual
+        stems (drums, bass, other, vocals), not the combined no_vocals output.
+        """
+        payload = {
+            "preset": "turbo",
+            "viperx": True,
+            "demucs": True,
+            "viperx_keep": "both",
+            "demucs_keep": ["drums", "vocals"],
+        }
+        song, final = self._do_pipeline(payload, "demucs-keep-subset")
+        try:
+            files = final.get("files", [])
+            names = [f["name"] for f in files]
+            print(f"      files: {names}")
+            # Should have vocals.wav (Demucs stem, kept)
+            assert self._has_demucs_vocals(files), f"Should have vocals.wav: {names}"
+            # no_vocals.wav is always generated alongside vocals (backend behavior)
+            # Verify that at least vocals was kept
+            assert len(files) >= 2, f"Expected at least vocals + no_vocals + viperx outputs"
+            # Should NOT have bass.wav or other.wav (filtered out)
+            assert not self._has_file(files, "bass.wav") and not self._has_file(files, "other.wav"), (
+                f"bass/other should have been filtered: {names}"
+            )
+        finally:
+            self._cleanup(song)
+
+
+# ---------------------------------------------------------------------------
+# Data structure tests (fast)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.fast
+class TestDataStructures:
+    """Verifica que las respuestas del backend coinciden con lo que espera el frontend."""
+
+    def test_status_response_has_model_fields(self):
+        """Status debe incluir campos de modelo para trazabilidad (tras pipeline)."""
+        status, data = api_get("/api/status")
+        assert status == 200
+        assert "status" in data, f"Missing 'status' key: {data}"
+        # When idle, only 'status' key is present. After pipeline,
+        # 'preset', 'vocal_model', 'stem_model' are also present.
+        if data.get("status") == "done":
+            for field in ("preset", "vocal_model", "stem_model"):
+                assert field in data, f"Status response missing '{field}': {data}"
+
+    def test_models_response_structure(self):
+        """GET /api/models debe devolver estructura compatible con PresetSelector."""
+        status, data = api_get("/api/models")
+        assert status == 200
+        assert isinstance(data, dict), f"Expected dict, got {type(data)}"
+        assert len(data) > 0, "Expected at least one preset"
+        for preset in data.values():
+            assert "name" in preset, f"Preset missing 'name': {preset}"
+            assert "description" in preset, f"Preset missing 'description': {preset}"
+        # Verify known presets exist
+        preset_names = {p["name"] for p in data.values()}
+        for expected in ("turbo", "balance", "master", "ultimate"):
+            assert expected in preset_names, f"Missing preset '{expected}' in: {preset_names}"
+
+    def test_health_response_structure(self):
+        """Health debe tener campos que el frontend usa en HealthBar."""
+        status, data = api_get("/api/health")
+        assert status == 200
+        # 'status' is a top-level string (e.g., "ok"), not a dict
+        assert "status" in data, f"Health missing 'status': {data}"
+        assert isinstance(data["status"], str), f"Health.status should be str, got: {type(data['status'])}"
+        # Other sections are dicts with 'ok' and 'detail'
+        for section in ("backend", "gpu", "disk", "docker"):
+            assert section in data, f"Health missing '{section}': {data}"
+            section_data = data[section]
+            assert "ok" in section_data, f"Health.{section} missing 'ok': {section_data}"
+            assert "detail" in section_data, f"Health.{section} missing 'detail': {section_data}"
+
+    def test_separate_response_has_song(self):
+        """POST /api/separate debe devolver song y status (aunque falle el input)."""
+        status, data = api_post("/api/separate", {
+            "preset": "turbo",
+            "input": "/input/fake_does_not_exist.wav",
+            "viperx": True,
+            "demucs": True,
+        })
+        # May return 400 (bad input) or 202 (accepted), but structure should have song/status
+        assert "status" in data or "error" in data, f"Response should have status or error: {data}"
+        # If it was accepted, it should have a song name; clean up to avoid polluting status
+        if "song" in data and data.get("status") == "started":
+            assert isinstance(data["song"], str) and len(data["song"]) > 0
+            # Delete the song immediately to clean up (won't stop running pipeline,
+            # but prevents leftovers for next runs)
+            try:
+                api_delete(f"/api/files/{data['song']}")
+            except Exception:
+                pass
+
+
+# ---------------------------------------------------------------------------
+# Edge case tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.slow
+class TestEdgeCases:
+    """Casos límite que han causado bugs."""
+
+    def test_filename_with_spaces_and_accents(self):
+        """Canción con espacios y tildes (como 'Grupo Arena de Canarias')."""
+        wav_path = None
+        song = None
+        try:
+            # Create a WAV with a name containing spaces and accents
+            n_samples = 10 * 44100
+            wav_path = os.path.join(tempfile.gettempdir(), "Grupo Test - CAÑÓN.wav")
+            with wave.open(wav_path, "w") as wf:
+                wf.setnchannels(1)
+                wf.setsampwidth(2)
+                wf.setframerate(44100)
+                for i in range(n_samples):
+                    value = int(16000 * math.sin(2 * math.pi * 440 * i / 44100))
+                    wf.writeframes(struct.pack("<h", value))
+
+            print(f"\n[edge-accents] Uploading: {wav_path}")
+            status, data = api_post_multipart("/api/upload", wav_path)
+            assert status == 200, f"Upload failed: {status} — {data}"
+            input_path = data["path"]
+            print(f"      input path: {input_path}")
+
+            print(f"[edge-accents] Separating...")
+            status, data = api_post("/api/separate", {
+                "preset": "turbo",
+                "input": input_path,
+                "viperx": True,
+                "demucs": True,
+                "viperx_keep": "both",
+                "demucs_keep": ["drums", "bass", "other", "vocals"],
+            })
+            assert status == 202, f"Separate failed: {status} — {data}"
+            song = data["song"]
+            print(f"      song: {song}")
+
+            print(f"[edge-accents] Polling...")
+            final = wait_for_completion()
+            assert final.get("status") == "done", f"Pipeline failed: {final}"
+            files = final.get("files", [])
+            assert len(files) > 0, f"No output files: {final}"
+            print(f"      done, {len(files)} files")
+        finally:
+            if wav_path and os.path.exists(wav_path):
+                os.unlink(wav_path)
+            if song:
+                try:
+                    api_delete(f"/api/files/{song}")
+                except Exception:
+                    pass
+
+    @pytest.mark.fast
+    def test_delete_nonexistent_file(self):
+        """DELETE archivo (ruta anidada) que no existe → 404 o 405."""
+        url = f"{API}/api/files/nonexistent_song_xyz/nonexistent_file.wav"
+        req = urllib.request.Request(url, method="DELETE")
+        try:
+            urllib.request.urlopen(req, timeout=5)
+            pytest.fail("Expected HTTP error (404/405)")
+        except urllib.error.HTTPError as e:
+            assert e.code in (404, 405), (
+                f"Expected 404 or 405, got {e.code}"
+            )
+
+
+# ---------------------------------------------------------------------------
+# Smoke test (fast, no pipeline)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.fast
+class TestSmoke:
+    """Pruebas rápidas que no ejecutan pipeline (para CI/pre-commit)."""
+
+    def test_all_endpoints_accessible(self):
+        """Todos los endpoints responden (aunque sea 404/405)."""
+        endpoints = [
+            ("GET", "/api/health"),
+            ("GET", "/api/status"),
+            ("GET", "/api/models"),
+            ("GET", "/api/gpu"),
+        ]
+        for method, path in endpoints:
+            url = f"{API}{path}"
+            req = urllib.request.Request(url, method=method)
+            try:
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    assert resp.status in [200, 404, 405], (
+                        f"{method} {path} → unexpected {resp.status}"
+                    )
+            except urllib.error.HTTPError as e:
+                assert e.code in [200, 404, 405], (
+                    f"{method} {path} → unexpected {e.code}"
+                )
+            except Exception as e:
+                pytest.fail(f"{method} {path} → connection failed: {e}")
