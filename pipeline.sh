@@ -54,15 +54,16 @@ report_progress() {
     local status="$1"
     local step="$2"
     local progress="$3"
-    local now elapsed eta
+    local now elapsed eta progress_float
     now=$(date +%s)
     elapsed=$((now - START_TIME))
     eta=0
     if [ "$progress" -gt 0 ] && [ "$elapsed" -gt 0 ]; then
         eta=$(( (elapsed * 100 / progress) - elapsed ))
     fi
+    progress_float=$(awk "BEGIN {printf \"%.2f\", $progress/100}")
     cat > "$STATUS_FILE" << JSONEOF
-{"status":"$status","step":"$step","progress":$progress,"song":"${SONG:-}","elapsed":$elapsed,"eta":$eta}
+{"status":"$status","step":"$step","progress":$progress_float,"song":"${SONG:-}","elapsed":$elapsed,"eta":$eta}
 JSONEOF
 }
 trap 'report_progress "error" "${CURRENT_STEP:-unknown}" 0' ERR
