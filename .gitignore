@@ -29,6 +29,11 @@ Thumbs.db
 
 # Compiled binaries
 bin/
+onda-backend
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
 
 # Old/deprecated
 inference_*.py
