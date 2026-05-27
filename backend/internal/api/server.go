@@ -331,6 +331,7 @@ type SeparateRequest struct {
 	Input      string `json:"input"`
 	Output     string `json:"output,omitempty"`
 	VocalModel string `json:"vocal_model,omitempty"`
+	StemModel  string `json:"stem_model,omitempty"`
 	Pitch      int    `json:"pitch,omitempty"`
 
 	Viperx     bool     `json:"viperx"`
@@ -408,6 +409,20 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	if req.Pitch != 0 {
 		args = append(args, "--rubberband", "--pitch", fmt.Sprintf("%d", req.Pitch))
 	}
+
+	// Pasamos los flags de modelo (vocal y stem) desde el preset/request
+	preset := cli.Presets[req.Preset]
+	if req.VocalModel != "" {
+		args = append(args, "--viperx-model", req.VocalModel)
+	}
+	stemModel := req.StemModel
+	if stemModel == "" {
+		stemModel = preset.StemModel
+	}
+	if stemModel != "" {
+		args = append(args, "--demucs-model", stemModel)
+	}
+
 	args = append(args, "--output", hostOutput)
 	args = append(args, hostInput)
 
