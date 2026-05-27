@@ -46,6 +46,7 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("POST /api/backend/restart", s.handleBackendRestart)
 	s.mux.HandleFunc("DELETE /api/files/{song}", s.handleDeleteSong)
 	s.mux.HandleFunc("DELETE /api/delete", s.handleDeleteFile)
+	// Frontend is served by Vite dev server separately; no static handler needed.
 
 	return &http.Server{
 		Addr:    addr,
