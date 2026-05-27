@@ -48,6 +48,7 @@ export interface StatusResponse {
   elapsed: number;
   eta: number;
   files?: { name: string; path: string }[];
+  error?: string;
 }
 
 export interface UploadResponse {
