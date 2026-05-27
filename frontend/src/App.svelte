@@ -15,7 +15,7 @@
   import GpuMonitor from './lib/GpuMonitor.svelte';
   import ModelConfigScreen from './lib/ModelConfigScreen.svelte';
   import { getModels, separateAudio, getStatus, uploadAudio, getLocalModels } from './lib/api';
-  import type { LocalModel } from './lib/api';
+  import type { LocalModel, StatusResponse } from './lib/api';
 
   // ---- State ----
   let queueFiles = $state<QueueFile[]>([]);
@@ -32,6 +32,20 @@
   let pipelineError = $state('');
   let pipelineModel = $state('');
   let pollingTimer: ReturnType<typeof setInterval> | null = null;
+
+  // Toast
+  let toastMessage = $state('');
+  let toastType = $state<'success' | 'error'>('success');
+  let toastTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function showToast(message: string, type: 'success' | 'error') {
+    toastMessage = message;
+    toastType = type;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toastMessage = '';
+    }, 3000);
+  }
 
   // Advanced model config
   let modelConfig = $state({
@@ -65,15 +79,7 @@
           status.files &&
           status.files.length > 0
         ) {
-          const newResults: ResultStem[] = status.files.map((f: any) => ({
-            name: f.name,
-            path: f.path,
-            song: status.song || f.name.replace(/_.+/, ''),
-            stemType: detectStemType(f.name),
-          }));
-          // Usar spread para forzar nueva referencia y reactividad
-          results = [...newResults];
-          pipelineStatus = 'done';
+          loadResults(status);
           pipelineStep = 'completado';
           currentProgress = 1;
           console.log('Loaded existing results:', results.length, results);
@@ -107,6 +113,7 @@
   function handleClearQueue() {
     queueFiles = [];
     results = [];
+    showToast('Cola limpiada', 'success');
   }
 
   function handleToggleQueueFile(id: string) {
@@ -137,10 +144,28 @@
   // ---- Per-step handlers (PipelineConfig individual buttons) ----
   async function handleViperxOnly(config: PipelineConfigType) {
     await handlePipelineStart({ ...config, demucs: false });
+    // Force refresh after pipeline completes
+    setTimeout(async () => {
+      try {
+        const status = await getStatus();
+        if (status.status === 'done' && status.files && status.files.length > 0) {
+          loadResults(status);
+        }
+      } catch { /* ignore transient errors */ }
+    }, 5000);
   }
 
   async function handleDemucsOnly(config: PipelineConfigType) {
     await handlePipelineStart({ ...config, viperx: false });
+    // Force refresh after pipeline completes
+    setTimeout(async () => {
+      try {
+        const status = await getStatus();
+        if (status.status === 'done' && status.files && status.files.length > 0) {
+          loadResults(status);
+        }
+      } catch { /* ignore transient errors */ }
+    }, 5000);
   }
 
   // ---- Pipeline start ----
@@ -239,29 +264,7 @@
             clearInterval(pollingTimer!);
             pollingTimer = null;
 
-            // Forzar nuevo array con mutación para trigger Svelte 5 reactivity
-            if (status.files && status.files.length > 0) {
-              const newResults: ResultStem[] = [];
-              for (const f of status.files) {
-                newResults.push({
-                  name: f.name,
-                  path: f.path,
-                  song:
-                    status.song ||
-                    f.name.replace(
-                      /_(vocals|drums|bass|other|instrumental)\.\w+$/i,
-                      '',
-                    ),
-                  stemType: detectStemType(f.name),
-                });
-              }
-              // Asignar vía mutación para garantizar reactividad
-              results.length = 0;
-              for (const r of newResults) {
-                results.push(r);
-              }
-              console.log('Results loaded:', results.length, 'files');
-            }
+            loadResults(status);
             separating = false;
             // Marcar archivos de la cola como done
             if (uploaded.length > 0) {
@@ -293,6 +296,19 @@
 
   function extractSongFromName(name: string): string {
     return name.replace(/_(vocals|drums|bass|other|instrumental)\.\w+$/i, '');
+  }
+
+  function loadResults(status: StatusResponse) {
+    if (status.files && status.files.length > 0) {
+      const newResults: ResultStem[] = status.files.map((f: any) => ({
+        name: f.name,
+        path: f.path,
+        song: status.song || extractSongFromName(f.name),
+        stemType: detectStemType(f.name),
+      }));
+      results = [...newResults];
+      pipelineStatus = 'done';
+    }
   }
 
   // ---- ResultsPanel delete callbacks ---- 
@@ -412,6 +428,10 @@
     </section>
   {/if}
   {/if}
+
+  {#if toastMessage}
+    <div class="toast {toastType}">{toastMessage}</div>
+  {/if}
 </main>
 
 <style>
@@ -514,6 +534,38 @@
   }
   .advanced-config-btn:hover {
     background: #22223a;
+  }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 24px;
+    border-radius: 8px;
+    color: white;
+    font-weight: 600;
+    z-index: 1000;
+    animation: toastIn 0.3s ease, toastOut 0.3s ease 2.7s forwards;
+  }
+  .toast.success {
+    background: #4caf50;
+  }
+  .toast.error {
+    background: #f44336;
+  }
+  @keyframes toastIn {
+    from {
+      opacity: 0;
+      transform: translateX(-50%) translateY(20px);
+    }
+  }
+  @keyframes toastOut {
+    to {
+      opacity: 0;
+      transform: translateX(-50%) translateY(-20px);
+    }
   }
 
   /* Smooth transitions between states */
