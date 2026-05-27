@@ -5,9 +5,11 @@
   // ── Props ──
   let {
     disabled = false,
+    hasFiles = false,
     onstart,
   }: {
     disabled?: boolean;
+    hasFiles?: boolean;
     onstart?: (config: any) => void;
   } = $props();
 
@@ -476,6 +478,8 @@
         rx="6" fill="#0a0a14" stroke={nodeColor(viperxNode.active)} stroke-width="2" />
       <text x={viperxNode.x + NODE_W / 2} y={viperxNode.y + NODE_H / 2 + 5}
         text-anchor="middle" fill={viperxNode.active ? '#00d4ff' : '#555'} font-size="12">{viperxNode.label}</text>
+      <text x={viperxNode.x + NODE_W / 2} y={viperxNode.y + NODE_H / 2 + 18}
+        text-anchor="middle" class="graph-model-name">{viperxModel}</text>
 
       <!-- ViperX output stems -->
       {#each viperxOut as stem}
@@ -507,6 +511,8 @@
         rx="6" fill="#0a0a14" stroke={nodeColor(demucsNode.active)} stroke-width="2" />
       <text x={demucsNode.x + NODE_W / 2} y={demucsNode.y + NODE_H / 2 + 5}
         text-anchor="middle" fill={demucsNode.active ? '#00d4ff' : '#555'} font-size="12">{demucsNode.label}</text>
+      <text x={demucsNode.x + NODE_W / 2} y={demucsNode.y + NODE_H / 2 + 18}
+        text-anchor="middle" class="graph-model-name">{demucsModel}</text>
 
       <!-- Demucs output stems -->
       {#each demucsOut as stem}
@@ -532,11 +538,20 @@
     </svg>
   </div>
 
+  <!-- hint when no files -->
+  {#if !hasFiles}
+    <p class="hint">📁 Sube un archivo de audio para ejecutar el pipeline</p>
+  {/if}
+
   <!-- Action -->
   <div class="actions">
-    <button class="btn btn-primary" onclick={handleStart} disabled={disabled}>
-      ▶ Ejecutar
-    </button>
+    {#if !hasFiles}
+      <span class="no-files-msg">📁 Sin archivos</span>
+    {:else}
+      <button class="btn btn-primary" onclick={handleStart} disabled={disabled}>
+        ▶ Ejecutar
+      </button>
+    {/if}
   </div>
 </div>
 
@@ -665,6 +680,29 @@
   .pipeline-graph {
     display: block;
     min-width: 400px;
+  }
+  .graph-model-name {
+    font-size: 7px;
+    fill: #888;
+  }
+
+  .hint {
+    margin: 0;
+    font-size: 0.8rem;
+    color: #888;
+    text-align: center;
+  }
+
+  .no-files-msg {
+    flex: 1;
+    text-align: center;
+    padding: 0.6rem 1.5rem;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #666;
+    background: #111128;
+    border: 1px dashed #2a2a4a;
+    border-radius: 8px;
   }
 
   .actions {
