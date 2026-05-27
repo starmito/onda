@@ -361,7 +361,7 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate preset
-	preset, ok := cli.Presets[req.Preset]
+	_, ok := cli.Presets[req.Preset]
 	if !ok {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -371,48 +371,48 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build PipelineFlags from preset + request overrides
-	flags := &cli.PipelineFlags{
-		Preset:       req.Preset,
-		VocalModel:   req.VocalModel,
-		VocalOverlap: preset.VocalOverlap,
-		VocalKeep:    "both",
-		StemModel:    preset.StemModel,
-		DrumsModel:   preset.DrumsModel,
-		BassModel:    preset.BassModel,
-		OtherModel:   preset.OtherModel,
-		Pitch:        req.Pitch,
-		Input:        req.Input,
-		Output:       req.Output,
-	}
+	// Build pipeline.sh arguments from request flags
+	projectRoot := findProjectRoot()
+	pipelineScript := filepath.Join(projectRoot, "pipeline.sh")
 
-	// If no vocal model override, use the preset's default
-	if flags.VocalModel == "" {
-		flags.VocalModel = preset.VocalModel
-	}
+	args := []string{pipelineScript}
 
-	// Override with PipelineConfig flags from request
-	if !req.Viperx {
-		flags.VocalModel = "" // Skip vocal separation
+	if req.Viperx {
+		args = append(args, "--viperx")
+		if req.ViperxKeep != "" {
+			args = append(args, "--viperx-keep", req.ViperxKeep)
+		}
 	}
-	if !req.Demucs {
-		flags.StemModel = "" // Skip Demucs stem separation
+	if req.Demucs {
+		args = append(args, "--demucs")
+		if len(req.DemucsKeep) > 0 {
+			args = append(args, "--demucs-keep", strings.Join(req.DemucsKeep, ","))
+		}
 	}
-	if len(req.DemucsKeep) > 0 {
-		flags.StemKeep = req.DemucsKeep
+	if req.Pitch != 0 {
+		args = append(args, "--rubberband", "--pitch", fmt.Sprintf("%d", req.Pitch))
 	}
-	if req.ViperxKeep != "" {
-		flags.VocalKeep = req.ViperxKeep
+	// If output is specified, pass it; otherwise pipeline.sh defaults to /output/<song>
+	if req.Output != "" {
+		args = append(args, "--output", req.Output)
 	}
+	args = append(args, req.Input)
 
 	// Clean previous status file before launching new pipeline
 	os.Remove(pipelineStatusFilePath())
 
 	// Launch pipeline in background
 	song := strings.TrimSuffix(filepath.Base(req.Input), filepath.Ext(req.Input))
-	// TODO: migrate to pipeline.sh
 	go func() {
-		// launchPipelineViaShell(flags)
+		cmd := exec.Command("bash", args...)
+		cmd.Dir = projectRoot
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			// Write error to status file on failure
+			errStatus := fmt.Sprintf(`{"status":"error","step":"pipeline","progress":0,"song":"%s","elapsed":0,"eta":0,"error":%q}`+"\n",
+				song, strings.TrimSpace(string(out)))
+			os.WriteFile(pipelineStatusFilePath(), []byte(errStatus), 0644)
+		}
 	}()
 
 	w.Header().Set("Content-Type", "application/json")
