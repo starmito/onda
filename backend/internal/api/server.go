@@ -44,6 +44,8 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("POST /api/backend/start", s.handleBackendStart)
 	s.mux.HandleFunc("POST /api/backend/stop", s.handleBackendStop)
 	s.mux.HandleFunc("POST /api/backend/restart", s.handleBackendRestart)
+	s.mux.HandleFunc("DELETE /api/files/{song}", s.handleDeleteSong)
+	s.mux.HandleFunc("DELETE /api/delete", s.handleDeleteFile)
 
 	return &http.Server{
 		Addr:    addr,
@@ -55,7 +57,7 @@ func NewServer(addr string) *http.Server {
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
 		if r.Method == http.MethodOptions {
@@ -504,6 +506,82 @@ func (s *Server) handleBackendRestart(w http.ResponseWriter, r *http.Request) {
 		"success": true,
 		"detail":  "Backend restarted",
 	})
+}
+
+// handleDeleteSong deletes the entire output directory for a song.
+func (s *Server) handleDeleteSong(w http.ResponseWriter, r *http.Request) {
+	song := r.PathValue("song")
+	song = filepath.Clean(song)
+
+	projectRoot := findProjectRoot()
+	dirPath := filepath.Join(projectRoot, "output", song)
+
+	// Verify inside output/
+	outputPrefix := filepath.Join(projectRoot, "output")
+	absPath, err := filepath.Abs(dirPath)
+	if err != nil || !strings.HasPrefix(absPath, outputPrefix) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	if _, err := os.Stat(absPath); os.IsNotExist(err) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "song not found"})
+		return
+	}
+
+	if err := os.RemoveAll(absPath); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{"deleted": true, "song": song})
+}
+
+// handleDeleteFile deletes a single file within the output directory.
+func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
+	file := r.URL.Query().Get("file")
+	if file == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "missing file parameter"})
+		return
+	}
+
+	file = filepath.Clean(file)
+	projectRoot := findProjectRoot()
+	filePath := filepath.Join(projectRoot, "output", file)
+
+	// Verify inside output/
+	outputPrefix := filepath.Join(projectRoot, "output")
+	absPath, err := filepath.Abs(filePath)
+	if err != nil || !strings.HasPrefix(absPath, outputPrefix) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	if _, err := os.Stat(absPath); os.IsNotExist(err) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "file not found"})
+		return
+	}
+
+	if err := os.Remove(absPath); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{"deleted": true, "file": file})
 }
 
 // findProjectRoot walks up from the current directory until it finds a VERSION file,
