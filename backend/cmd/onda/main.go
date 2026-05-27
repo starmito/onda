@@ -3,9 +3,9 @@ package main
 import (
 	"fmt"
 	"os"
+	"os/exec"
 
 	"github.com/starmito/onda/internal/api"
-	"github.com/starmito/onda/internal/cli"
 )
 
 func main() {
@@ -31,14 +31,12 @@ func main() {
 			os.Exit(1)
 		}
 	case "pipeline":
-		_, err := cli.ParsePipelineFlags(os.Args[2:])
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		cmd := exec.Command("bash", append([]string{"pipeline.sh"}, os.Args[2:]...)...)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
 			os.Exit(1)
 		}
-		// TODO: migrate to pipeline.sh
-		fmt.Fprintf(os.Stderr, "onda pipeline: not yet migrated to pipeline.sh\n")
-		os.Exit(1)
 	case "models":
 		fmt.Println("onda models — not implemented yet")
 	case "version":
