@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.1.0-alpha — Fase 5: Modelos configurables + Editor visual de pipeline
+
+### Pendiente
+- [ ] 5.1 Cablear presets → pipeline (modelo seleccionable)
+- [ ] 5.2 Editor visual de pipeline (presets, grafo SVG)
+- [ ] 5.3 Gestor de modelos (parámetros, batch_size, device)
+- [ ] 5.4 Integración + tests end-to-end
+
 ## v2.0.0-alpha
 
 ### v2.0.0-alpha.9 — Simplificación + Pipeline inteligente + Bug fixes
