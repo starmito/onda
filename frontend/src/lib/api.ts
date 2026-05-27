@@ -345,16 +345,16 @@ export interface ModelConfigResponse {
   device: string;
 }
 
-export async function getModelConfig(): Promise<ModelConfigResponse> {
-  const res = await fetch(`${API_BASE}/api/models/config`);
+export async function getModelConfig(modelName: string): Promise<ModelConfigResponse> {
+  const res = await fetch(`${API_BASE}/api/models/${encodeURIComponent(modelName)}/config`);
   if (!res.ok) {
     throw new Error(`Failed to fetch model config (${res.status}): ${res.statusText}`);
   }
   return (await res.json()) as ModelConfigResponse;
 }
 
-export async function setModelConfig(cfg: ModelConfigResponse): Promise<{ ok: string; detail: string }> {
-  const res = await fetch(`${API_BASE}/api/models/config`, {
+export async function setModelConfig(cfg: ModelConfigResponse, modelName: string): Promise<{ ok: string; detail: string }> {
+  const res = await fetch(`${API_BASE}/api/models/${encodeURIComponent(modelName)}/config`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(cfg),
