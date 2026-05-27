@@ -21,9 +21,25 @@
 
   let {
     files = [],
+    onstemdeleted = () => {},
+    ongroupdeleted = () => {},
   }: {
     files?: ResultStem[];
+    onstemdeleted?: () => void;
+    ongroupdeleted?: () => void;
   } = $props();
+
+  // Toast notification state
+  let toast = $state<{ message: string; type: 'success' | 'error' } | null>(null);
+  let toastTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function showToast(message: string, type: 'success' | 'error') {
+    toast = { message, type };
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toast = null;
+    }, 3000);
+  }
 
   // Group files by song
   let songGroups = $derived(groupFiles(files));
@@ -90,6 +106,7 @@
     stemStates[key] = {
       ...stemStates[key],
       muted: !(stemStates[key]?.muted ?? false),
+      volume: stemStates[key]?.volume ?? 100,
     };
     syncGains(song);
   }
@@ -99,6 +116,7 @@
     stemStates[key] = {
       ...stemStates[key],
       solo: !(stemStates[key]?.solo ?? false),
+      volume: stemStates[key]?.volume ?? 100,
     };
     syncGains(song);
   }
@@ -397,8 +415,14 @@
   // ---- Delete ----
 
   async function handleDeleteSong(song: string) {
-    if (confirm(`Delete all files for "${song}"?`)) {
-      await deleteSong(song).catch((err) => alert('Delete failed: ' + err.message));
+    if (!confirm(`Delete all files for "${song}"?`)) return;
+    try {
+      await deleteSong(song);
+      showToast(`Grupo "${song}" eliminado`, 'success');
+      ongroupdeleted();
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      showToast('Delete fallido: ' + msg, 'error');
     }
   }
 
@@ -410,9 +434,11 @@
         { method: 'DELETE' },
       );
       if (!res.ok) throw new Error(`Delete failed (status ${res.status})`);
+      showToast(`Stem "${name}" eliminado`, 'success');
+      onstemdeleted();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      alert('Delete failed: ' + msg);
+      showToast('Delete fallido: ' + msg, 'error');
     }
   }
 
@@ -621,6 +647,10 @@
       </div>
     {/each}
   </div>
+{/if}
+
+{#if toast}
+  <div class="toast {toast.type}">{toast.message}</div>
 {/if}
 
 <style>
@@ -947,4 +977,22 @@
       width: 40px;
     }
   }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 12px 24px;
+    border-radius: 8px;
+    color: white;
+    font-weight: 600;
+    z-index: 1000;
+    animation: toastIn 0.3s ease, toastOut 0.3s ease 2.7s forwards;
+  }
+  .toast.success { background: #4caf50; }
+  .toast.error { background: #f44336; }
+  @keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(20px); } }
+  @keyframes toastOut { to { opacity: 0; transform: translateX(-50%) translateY(-20px); } }
 </style>

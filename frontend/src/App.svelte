@@ -278,6 +278,45 @@
   function extractSongFromName(name: string): string {
     return name.replace(/_(vocals|drums|bass|other|instrumental)\.\w+$/i, '');
   }
+
+  // ---- ResultsPanel delete callbacks ---- 
+  async function handleStemDeleted() {
+    try {
+      const status = await getStatus();
+      if (status.files && status.files.length > 0) {
+        const newResults: ResultStem[] = status.files.map((f: any) => ({
+          name: f.name,
+          path: f.path,
+          song: status.song || f.name.replace(/_(vocals|drums|bass|other|instrumental)\.\w+$/i, ''),
+          stemType: detectStemType(f.name),
+        }));
+        results = [...newResults];
+      } else {
+        results = [];
+      }
+    } catch (err) {
+      console.error('Failed to refresh results after stem delete:', err);
+    }
+  }
+
+  async function handleGroupDeleted() {
+    try {
+      const status = await getStatus();
+      if (status.files && status.files.length > 0) {
+        const newResults: ResultStem[] = status.files.map((f: any) => ({
+          name: f.name,
+          path: f.path,
+          song: status.song || f.name.replace(/_(vocals|drums|bass|other|instrumental)\.\w+$/i, ''),
+          stemType: detectStemType(f.name),
+        }));
+        results = [...newResults];
+      } else {
+        results = [];
+      }
+    } catch (err) {
+      console.error('Failed to refresh results after group delete:', err);
+    }
+  }
 </script>
 
 <main>
@@ -346,7 +385,7 @@
 
   {#if results.length > 0}
     <section class="results">
-      <ResultsPanel files={results} />
+      <ResultsPanel files={results} onstemdeleted={handleStemDeleted} ongroupdeleted={handleGroupDeleted} />
     </section>
   {/if}
   {/if}
