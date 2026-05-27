@@ -1,9 +1,9 @@
 <script lang="ts">
-  import { downloadUrl, deleteSong } from './api';
+  import { onDestroy } from 'svelte';
+  import { downloadUrl, deleteSong, deleteStem as deleteStemApi } from './api';
   import type { ResultStem, ResultGroup } from './types';
   import { stemEmoji } from './types';
 
-  const API_BASE = 'http://192.168.1.87:3000';
 
   export type { ResultStem };
 
@@ -392,7 +392,7 @@
   }
 
   function fmtTime(sec: number | undefined): string {
-    if (!sec || !isFinite(sec)) return '0:00';
+    if (sec == null || !isFinite(sec)) return '0:00';
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
     return `${m}:${s.toString().padStart(2, '0')}`;
@@ -429,11 +429,7 @@
   async function deleteStem(song: string, name: string) {
     if (!confirm(`Delete "${name}"?`)) return;
     try {
-      const res = await fetch(
-        `${API_BASE}/api/delete?file=${encodeURIComponent(song + '/' + name)}`,
-        { method: 'DELETE' },
-      );
-      if (!res.ok) throw new Error(`Delete failed (status ${res.status})`);
+      await deleteStemApi(song, name);
       showToast(`Stem "${name}" eliminado`, 'success');
       onstemdeleted();
     } catch (err: unknown) {
@@ -450,6 +446,11 @@
     const key = stemKey(song, name);
     if (waveformDrawn.has(key)) return;
     waveformDrawn.add(key);
+
+    // Scale canvas for retina displays (CSS sizes via class, intrinsic resolution via attr)
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    canvas.width = canvas.clientWidth * dpr;
+    canvas.height = canvas.clientHeight * dpr;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -503,6 +504,16 @@
     waveformCanvases[stemKey(params.song, params.name)] = node;
     drawRealWaveform(node, params.song, params.name);
   }
+
+  // Cleanup on component destroy
+  onDestroy(() => {
+    if (toastTimer) clearTimeout(toastTimer);
+    for (const [key, player] of Object.entries(groupPlayers)) {
+      player.sourceNodes.forEach(s => { try { s.stop(); } catch(e) {} });
+      player.audioCtx?.close();
+      if (player.animFrame) cancelAnimationFrame(player.animFrame);
+    }
+  });
 </script>
 
 {#if songGroups.length > 0}
