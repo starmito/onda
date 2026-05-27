@@ -30,6 +30,7 @@
   let pipelineEta = $state(0);
   let currentProgress = $state(0);
   let pipelineError = $state('');
+  let pipelineModel = $state('');
   let pollingTimer: ReturnType<typeof setInterval> | null = null;
 
   // Advanced model config
@@ -120,10 +121,15 @@
 
   // ---- Preset start (from PresetSelector) ----
   function handlePresetStart(preset: string) {
+    const p = presets[preset];
+    if (!p) {
+      alert('Preset not found: ' + preset);
+      return;
+    }
     handlePipelineStart({
-      viperx: false,
+      viperx: !!p.vocal_model,
       viperxKeep: 'both',
-      demucs: true,
+      demucs: !!p.stem_model,
       demucsKeep: ['drums', 'bass', 'other', 'vocals'],
     });
   }
@@ -210,6 +216,7 @@
         try {
           const status = await getStatus();
           pipelineStep = status.step || '';
+          pipelineModel = (status as any).vocal_model || (status as any).stem_model || '';
           pipelineEta = status.eta || 0;
           currentProgress = status.progress || 0;
 
@@ -293,6 +300,7 @@
         results = [...newResults];
       } else {
         results = [];
+        pipelineStatus = 'idle';
       }
     } catch (err) {
       console.error('Failed to refresh results after stem delete:', err);
@@ -312,6 +320,7 @@
         results = [...newResults];
       } else {
         results = [];
+        pipelineStatus = 'idle';
       }
     } catch (err) {
       console.error('Failed to refresh results after group delete:', err);
@@ -379,7 +388,7 @@
 
   {#if pipelineStatus !== 'idle'}
     <section class="progress">
-      <ProgressBar status={pipelineStatus} step={pipelineStep} progress={currentProgress} error={pipelineError} />
+      <ProgressBar status={pipelineStatus} step={pipelineStep} model={pipelineModel} progress={currentProgress} error={pipelineError} />
     </section>
   {/if}
 

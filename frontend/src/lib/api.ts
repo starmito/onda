@@ -119,13 +119,19 @@ export async function getModels(): Promise<ModelsResponse> {
 
 export async function separateAudio(opts: SeparateOptions): Promise<SeparateResponse> {
   try {
-    const body: Record<string, string> = {
+    const body: Record<string, any> = {
       preset: opts.preset,
       input: opts.input,
     };
+    if (opts.output) body.output = opts.output;
     if (opts.pitch !== undefined && opts.pitch !== 0) {
-      body.pitch = String(opts.pitch);
+      body.pitch = opts.pitch;
     }
+    // PipelineConfig flags
+    if (opts.viperx !== undefined) body.viperx = opts.viperx;
+    if (opts.demucs !== undefined) body.demucs = opts.demucs;
+    if (opts.viperx_keep) body.viperx_keep = opts.viperx_keep;
+    if (opts.demucs_keep && opts.demucs_keep.length > 0) body.demucs_keep = opts.demucs_keep;
     const res = await fetch(`${API_BASE}/api/separate`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

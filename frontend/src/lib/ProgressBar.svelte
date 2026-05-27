@@ -2,11 +2,13 @@
   let {
     status = 'idle',
     step = '',
+    model = '',
     progress = 0,
     error = '',
   }: {
     status?: string;
     step?: string;
+    model?: string;
     progress?: number;
     error?: string;
   } = $props();
@@ -23,7 +25,7 @@
 
     {#if status === 'running'}
       <p class="progress-text">
-        {Math.round(progress * 100)}% — {step ? `separando ${step}` : 'procesando'}
+        {Math.round(progress * 100)}% — {step ? `separando ${step}` : 'procesando'}{model ? ` (${model})` : ''}
       </p>
     {/if}
 
