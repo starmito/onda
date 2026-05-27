@@ -110,6 +110,106 @@
 
   const viperxGroups = $derived(groupByCategory(viperxModels));
   const demucsGroups = $derived(groupByCategory(demucsModels));
+
+  // ── Build config for onstart ──
+  function buildConfig() {
+    const vStems: string[] = [];
+    if (viperxStems.vocals) vStems.push('vocals');
+    if (viperxStems.instrumental) vStems.push('instrumental');
+
+    const dStems: string[] = [];
+    if (demucsStems.drums) dStems.push('drums');
+    if (demucsStems.bass) dStems.push('bass');
+    if (demucsStems.other) dStems.push('other');
+    if (demucsStems.vocals) dStems.push('vocals');
+
+    return {
+      viperx: viperxEnabled,
+      viperxModel,
+      viperxStems: vStems,
+      demucs: demucsEnabled,
+      demucsModel,
+      demucsStems: dStems,
+    };
+  }
+
+  function handleStart() {
+    onstart?.(buildConfig());
+  }
+
+  // ── SVG graph helpers ──
+  const NODE_W = 80;
+  const NODE_H = 36;
+  const STEM_W = 64;
+  const STEM_H = 22;
+  const X_GAP = 60;
+  const Y_STEP = 32;
+
+  interface GraphNode {
+    label: string;
+    x: number;
+    y: number;
+    active: boolean;
+  }
+
+  interface GraphStem {
+    label: string;
+    x: number;
+    y: number;
+    active: boolean;
+  }
+
+  // Compute positions
+  const inputNode: GraphNode = { label: 'Input', x: 10, y: 40, active: true };
+
+  const viperxNode = $derived<GraphNode>({
+    label: 'ViperX',
+    x: inputNode.x + NODE_W + X_GAP,
+    y: 40,
+    active: viperxEnabled,
+  });
+
+  const viperxOut = $derived.by<GraphStem[]>(() => {
+    const stems: GraphStem[] = [];
+    const baseX = viperxNode.x + NODE_W + 20;
+    const baseY = 10;
+    if (viperxEnabled) {
+      stems.push({ label: 'vocals', x: baseX, y: baseY, active: viperxStems.vocals });
+      stems.push({ label: 'instrumental', x: baseX, y: baseY + Y_STEP, active: viperxStems.instrumental });
+    }
+    return stems;
+  });
+
+  const demucsNode = $derived<GraphNode>({
+    label: 'Demucs',
+    x: viperxNode.x + NODE_W + STEM_W + X_GAP + 20,
+    y: 40,
+    active: demucsEnabled,
+  });
+
+  const demucsOut = $derived.by<GraphStem[]>(() => {
+    const stems: GraphStem[] = [];
+    const baseX = demucsNode.x + NODE_W + 20;
+    const baseY = 8;
+    if (demucsEnabled) {
+      stems.push({ label: 'drums', x: baseX, y: baseY, active: demucsStems.drums });
+      stems.push({ label: 'bass', x: baseX, y: baseY + Y_STEP, active: demucsStems.bass });
+      stems.push({ label: 'other', x: baseX, y: baseY + 2 * Y_STEP, active: demucsStems.other });
+    }
+    return stems;
+  });
+
+  const svgWidth = demucsOut.length > 0
+    ? demucsOut[demucsOut.length - 1].x + STEM_W + 20
+    : demucsNode.x + NODE_W + 20;
+  const svgHeight = 80;
+
+  function nodeColor(active: boolean): string {
+    return active ? '#00d4ff' : '#3a3a5a';
+  }
+  function stemColor(active: boolean): string {
+    return active ? '#4caf50' : '#3a3a5a';
+  }
 </script>
 
 <div class="editor-card">
@@ -209,6 +309,92 @@
         {/if}
       </label>
     </div>
+  </div>
+
+  <!-- SVG Pipeline Graph -->
+  <div class="graph-section">
+    <svg width="100%" viewBox="0 0 {svgWidth} {svgHeight}" class="pipeline-graph">
+      <!-- Arrow: Input → ViperX -->
+      <line
+        x1={inputNode.x + NODE_W} y1={inputNode.y + NODE_H / 2}
+        x2={viperxNode.x} y2={viperxNode.y + NODE_H / 2}
+        stroke={nodeColor(viperxEnabled)}
+        stroke-width="2"
+        marker-end="url(#arrowhead)"
+      />
+
+      <!-- Input node -->
+      <rect x={inputNode.x} y={inputNode.y} width={NODE_W} height={NODE_H}
+        rx="6" fill="#0a0a14" stroke={nodeColor(true)} stroke-width="2" />
+      <text x={inputNode.x + NODE_W / 2} y={inputNode.y + NODE_H / 2 + 5}
+        text-anchor="middle" fill="#e0e0e0" font-size="12">{inputNode.label}</text>
+
+      <!-- ViperX node -->
+      <rect x={viperxNode.x} y={viperxNode.y} width={NODE_W} height={NODE_H}
+        rx="6" fill="#0a0a14" stroke={nodeColor(viperxNode.active)} stroke-width="2" />
+      <text x={viperxNode.x + NODE_W / 2} y={viperxNode.y + NODE_H / 2 + 5}
+        text-anchor="middle" fill={viperxNode.active ? '#00d4ff' : '#555'} font-size="12">{viperxNode.label}</text>
+
+      <!-- ViperX output stems -->
+      {#each viperxOut as stem}
+        <!-- Arrow: ViperX → stem -->
+        <line
+          x1={viperxNode.x + NODE_W} y1={viperxNode.y + NODE_H / 2}
+          x2={stem.x} y2={stem.y + STEM_H / 2}
+          stroke={stemColor(stem.active)}
+          stroke-width="1.5"
+        />
+        <rect x={stem.x} y={stem.y} width={STEM_W} height={STEM_H}
+          rx="4" fill="#0a0a14" stroke={stemColor(stem.active)} stroke-width="1.5" />
+        <text x={stem.x + STEM_W / 2} y={stem.y + STEM_H / 2 + 5}
+          text-anchor="middle" fill={stem.active ? '#4caf50' : '#555'} font-size="10">{stem.label}</text>
+      {/each}
+
+      <!-- Arrow: ViperX stems → Demucs (collector) -->
+      {#if viperxOut.length > 0 && demucsEnabled}
+        <line
+          x1={viperxOut[0].x + STEM_W} y1={viperxOut[0].y + STEM_H / 2}
+          x2={demucsNode.x} y2={demucsNode.y + NODE_H / 2}
+          stroke={nodeColor(demucsEnabled)}
+          stroke-width="2"
+        />
+      {/if}
+
+      <!-- Demucs node -->
+      <rect x={demucsNode.x} y={demucsNode.y} width={NODE_W} height={NODE_H}
+        rx="6" fill="#0a0a14" stroke={nodeColor(demucsNode.active)} stroke-width="2" />
+      <text x={demucsNode.x + NODE_W / 2} y={demucsNode.y + NODE_H / 2 + 5}
+        text-anchor="middle" fill={demucsNode.active ? '#00d4ff' : '#555'} font-size="12">{demucsNode.label}</text>
+
+      <!-- Demucs output stems -->
+      {#each demucsOut as stem}
+        <line
+          x1={demucsNode.x + NODE_W} y1={demucsNode.y + NODE_H / 2}
+          x2={stem.x} y2={stem.y + STEM_H / 2}
+          stroke={stemColor(stem.active)}
+          stroke-width="1.5"
+        />
+        <rect x={stem.x} y={stem.y} width={STEM_W} height={STEM_H}
+          rx="4" fill="#0a0a14" stroke={stemColor(stem.active)} stroke-width="1.5" />
+        <text x={stem.x + STEM_W / 2} y={stem.y + STEM_H / 2 + 5}
+          text-anchor="middle" fill={stem.active ? '#4caf50' : '#555'} font-size="10">{stem.label}</text>
+      {/each}
+
+      <!-- Arrowhead marker -->
+      <defs>
+        <marker id="arrowhead" markerWidth="10" markerHeight="7"
+          refX="9" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="#00d4ff" />
+        </marker>
+      </defs>
+    </svg>
+  </div>
+
+  <!-- Action -->
+  <div class="actions">
+    <button class="btn btn-primary" onclick={handleStart} disabled={disabled}>
+      ▶ Ejecutar
+    </button>
   </div>
 </div>
 
@@ -324,5 +510,44 @@
     color: #00d4ff;
     cursor: help;
     margin-left: 0.15rem;
+  }
+
+  .graph-section {
+    width: 100%;
+    overflow-x: auto;
+    background: #0a0a14;
+    border-radius: 8px;
+    padding: 0.5rem;
+    border: 1px solid #2a2a4a;
+  }
+  .pipeline-graph {
+    display: block;
+    min-width: 400px;
+  }
+
+  .actions {
+    display: flex;
+    gap: 0.5rem;
+  }
+  .btn {
+    padding: 0.6rem 1.5rem;
+    border: none;
+    border-radius: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+    flex: 1;
+  }
+  .btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .btn-primary {
+    background: linear-gradient(135deg, #00d4ff, #0088cc);
+    color: #0a0a14;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: linear-gradient(135deg, #33ddff, #0099dd);
   }
 </style>
