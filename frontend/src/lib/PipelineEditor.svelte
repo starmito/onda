@@ -210,6 +210,108 @@
   function stemColor(active: boolean): string {
     return active ? '#4caf50' : '#3a3a5a';
   }
+
+  // ── Presets (localStorage) ──
+  interface PipelinePreset {
+    name: string;
+    viperxModel: string;
+    demucsModel: string;
+    viperxEnabled: boolean;
+    demucsEnabled: boolean;
+    viperxStems: string[];
+    demucsStems: string[];
+  }
+
+  const STORAGE_KEY = 'onda-pipeline-presets';
+
+  function loadPresets(): PipelinePreset[] {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) return JSON.parse(raw) as PipelinePreset[];
+    } catch { /* ignore corrupted data */ }
+    return [];
+  }
+
+  function savePresetsToStorage(presetsList: PipelinePreset[]) {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(presetsList));
+    } catch { /* storage full or unavailable */ }
+  }
+
+  let savedPresets = $state<PipelinePreset[]>(loadPresets());
+  let presetNameInput = $state('');
+  let selectedPreset = $state('');
+
+  function handleSavePreset() {
+    const name = presetNameInput.trim();
+    if (!name) return;
+
+    const vStems: string[] = [];
+    if (viperxStems.vocals) vStems.push('vocals');
+    if (viperxStems.instrumental) vStems.push('instrumental');
+
+    const dStems: string[] = [];
+    if (demucsStems.drums) dStems.push('drums');
+    if (demucsStems.bass) dStems.push('bass');
+    if (demucsStems.other) dStems.push('other');
+    if (demucsStems.vocals) dStems.push('vocals');
+
+    const preset: PipelinePreset = {
+      name,
+      viperxModel,
+      demucsModel,
+      viperxEnabled,
+      demucsEnabled,
+      viperxStems: vStems,
+      demucsStems: dStems,
+    };
+
+    // Replace existing or add new
+    const idx = savedPresets.findIndex((p) => p.name === name);
+    let updated: PipelinePreset[];
+    if (idx >= 0) {
+      updated = [...savedPresets];
+      updated[idx] = preset;
+    } else {
+      updated = [...savedPresets, preset];
+    }
+    savedPresets = updated;
+    savePresetsToStorage(updated);
+    selectedPreset = name;
+    presetNameInput = '';
+  }
+
+  function handleLoadPreset(e: Event) {
+    const name = (e.target as HTMLSelectElement).value;
+    if (!name) return;
+    selectedPreset = name;
+    const preset = savedPresets.find((p) => p.name === name);
+    if (!preset) return;
+
+    viperxModel = preset.viperxModel;
+    demucsModel = preset.demucsModel;
+    viperxEnabled = preset.viperxEnabled;
+    demucsEnabled = preset.demucsEnabled;
+
+    viperxStems = {
+      vocals: preset.viperxStems.includes('vocals'),
+      instrumental: preset.viperxStems.includes('instrumental'),
+    };
+    demucsStems = {
+      drums: preset.demucsStems.includes('drums'),
+      bass: preset.demucsStems.includes('bass'),
+      other: preset.demucsStems.includes('other'),
+      vocals: preset.demucsStems.includes('vocals'),
+    };
+  }
+
+  function handleDeletePreset() {
+    if (!selectedPreset) return;
+    const updated = savedPresets.filter((p) => p.name !== selectedPreset);
+    savedPresets = updated;
+    savePresetsToStorage(updated);
+    selectedPreset = '';
+  }
 </script>
 
 <div class="editor-card">
@@ -309,6 +411,46 @@
         {/if}
       </label>
     </div>
+  </div>
+
+  <!-- Presets: Save / Load / Delete -->
+  <div class="section">
+    <label class="label">Presets</label>
+    <div class="preset-row">
+      <input
+        type="text"
+        class="input"
+        placeholder="Nombre del preset"
+        bind:value={presetNameInput}
+        disabled={disabled}
+      />
+      <button class="btn btn-sm btn-save" onclick={handleSavePreset} disabled={disabled || !presetNameInput.trim()}>
+        💾 Guardar
+      </button>
+    </div>
+    {#if savedPresets.length > 0}
+      <div class="preset-row">
+        <select
+          class="select"
+          value={selectedPreset}
+          onchange={handleLoadPreset}
+          disabled={disabled}
+        >
+          <option value="">-- Mis presets --</option>
+          {#each savedPresets as p}
+            <option value={p.name}>{p.name}</option>
+          {/each}
+        </select>
+        <button
+          class="btn btn-sm btn-delete"
+          onclick={handleDeletePreset}
+          disabled={disabled || !selectedPreset}
+          title="Eliminar preset"
+        >
+          🗑️
+        </button>
+      </div>
+    {/if}
   </div>
 
   <!-- SVG Pipeline Graph -->
@@ -549,5 +691,56 @@
   }
   .btn-primary:hover:not(:disabled) {
     background: linear-gradient(135deg, #33ddff, #0099dd);
+  }
+
+  .preset-row {
+    display: flex;
+    gap: 0.5rem;
+    align-items: center;
+  }
+  .input {
+    flex: 1;
+    background: #0a0a14;
+    border: 1px solid #2a2a4a;
+    border-radius: 6px;
+    color: #e0e0e0;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.9rem;
+    outline: none;
+    transition: border-color 0.15s;
+  }
+  .input:focus {
+    border-color: #00d4ff;
+  }
+  .btn-sm {
+    padding: 0.4rem 0.8rem;
+    font-size: 0.8rem;
+    flex: 0 0 auto;
+    border: none;
+    border-radius: 6px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+  }
+  .btn-sm:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+  }
+  .btn-save {
+    background: #1b3a1b;
+    color: #81c784;
+    border: 1px solid #2a4a2a;
+  }
+  .btn-save:hover:not(:disabled) {
+    background: #2a4a2a;
+  }
+  .btn-delete {
+    background: #3a1b1b;
+    color: #e57373;
+    border: 1px solid #4a2a2a;
+    padding: 0.4rem 0.6rem;
+  }
+  .btn-delete:hover:not(:disabled) {
+    background: #4a2a2a;
   }
 </style>
