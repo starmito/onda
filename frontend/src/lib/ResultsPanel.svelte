@@ -1,7 +1,7 @@
 <script lang="ts">
   import { downloadUrl, deleteSong } from './api';
   import type { ResultStem, ResultGroup } from './types';
-  import { stemEmoji, groupBySong } from './types';
+  import { stemEmoji } from './types';
 
   const API_BASE = 'http://192.168.1.87:3000';
 
@@ -457,11 +457,12 @@
     const h = canvas.height;
     ctx.clearRect(0, 0, w, h);
 
+    let audioCtx: AudioContext | undefined;
     try {
       const url = downloadUrl(song, name);
       const resp = await fetch(url);
       const arrayBuf = await resp.arrayBuffer();
-      const audioCtx = new AudioContext();
+      audioCtx = new AudioContext();
       const audioBuf = await audioCtx.decodeAudioData(arrayBuf);
       const channel = audioBuf.getChannelData(0);
 
@@ -477,7 +478,6 @@
         ctx.fillStyle = '#00d4ff';
         ctx.fillRect(i, (h - barH) / 2, 1, barH);
       }
-      audioCtx.close();
     } catch {
       // Fallback: draw from stem name hash (deterministic)
       let hash = 0;
@@ -494,6 +494,8 @@
         const y = (h - hVal) / 2;
         ctx.fillRect(x, y, barWidth - 2, hVal);
       }
+    } finally {
+      audioCtx?.close();
     }
   }
 
