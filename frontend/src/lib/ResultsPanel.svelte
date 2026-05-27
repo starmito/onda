@@ -1,19 +1,18 @@
 <script lang="ts">
   import { downloadUrl, deleteSong } from './api';
+  import type { ResultStem, ResultGroup } from './types';
+  import { stemEmoji, groupBySong } from './types';
 
   const API_BASE = 'http://192.168.1.87:3000';
 
-  export interface ResultStem {
-    name: string;
-    path: string;
-    song: string;
-  }
+  export type { ResultStem };
 
   export interface SongGroup {
     song: string;
     stems: {
       name: string;
       path: string;
+      stemType: string;
       muted: boolean;
       solo: boolean;
       volume: number;
@@ -68,7 +67,7 @@
         if (!stemStates[key]) {
           stemStates[key] = { muted: false, solo: false, volume: 100 };
         }
-        return { ...s, ...stemStates[key] };
+        return { ...s, stemType: s.stemType || 'other', ...stemStates[key] };
       }),
     }));
   }
@@ -83,16 +82,6 @@
 
   function stemKey(song: string, name: string): string {
     return `${song}/${name}`;
-  }
-
-  function stemEmoji(name: string): string {
-    const n = name.toLowerCase();
-    if (n.includes('drum') || n.includes('bater')) return '🥁';
-    if (n.includes('bass') || n.includes('bajo')) return '🎸';
-    if (n.includes('vocal') || n.includes('voice')) return '🎤';
-    if (n.includes('other') || n.includes('otro')) return '🎹';
-    if (n.includes('instrumental')) return '🎼';
-    return '🎵';
   }
 
   // ---- Stem mute/solo/volume ----
@@ -578,7 +567,7 @@
               ></canvas>
 
               <!-- Stem info -->
-              <span class="stem-emoji">{stemEmoji(stem.name)}</span>
+              <span class="stem-emoji">{stemEmoji(stem.stemType)}</span>
               <span class="stem-name" title={stem.name}>{stem.name}</span>
 
               <!-- Controls -->

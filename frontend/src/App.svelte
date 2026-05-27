@@ -7,7 +7,8 @@
   import type { QueueFile } from './lib/FileQueue.svelte';
   import ProgressBar from './lib/ProgressBar.svelte';
   import ResultsPanel from './lib/ResultsPanel.svelte';
-  import type { ResultStem } from './lib/ResultsPanel.svelte';
+  import type { ResultStem } from './lib/types';
+  import { detectStemType } from './lib/types';
   import HealthBar from './lib/HealthBar.svelte';
   import BackendControls from './lib/BackendControls.svelte';
   import PresetSelector from './lib/PresetSelector.svelte';
@@ -69,6 +70,7 @@
               song:
                 status.song ||
                 f.name.replace(/_.+/, ''),
+              stemType: detectStemType(f.name),
             });
           }
           pipelineStatus = 'done';
@@ -228,6 +230,7 @@
                       /_(vocals|drums|bass|other|instrumental)\.\w+$/i,
                       '',
                     ),
+                  stemType: detectStemType(f.name),
                 });
               }
               // Asignar vía mutación para garantizar reactividad
