@@ -418,11 +418,11 @@
     if (!confirm(`Delete all files for "${song}"?`)) return;
     try {
       await deleteSong(song);
-      showToast(`Grupo "${song}" eliminado`, 'success');
+      showToast('Grupo borrado correctamente', 'success');
       ongroupdeleted();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      showToast('Delete fallido: ' + msg, 'error');
+      showToast('Error al borrar: ' + msg, 'error');
     }
   }
 
