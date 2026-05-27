@@ -2,6 +2,27 @@
 
 ## v2.0.0-alpha
 
+### v2.0.0-alpha.9 — Simplificación + Pipeline inteligente + Bug fixes
+
+#### Changed (Simplificación — 27-may-2026)
+- **Fase 1:** Eliminado `inference/` (duplicado de `lib_v5/`), `frontend/src-tauri/`, `pipeline.go` (1.074 líneas), 15 componentes frontend obsoletos. Total: 10.955 líneas eliminadas
+- **Fase 2:** Frontend reducido a 5 componentes Svelte: `App.svelte`, `PipelinePanel.svelte`, `ConfigPanel.svelte`, `ResultsPanel.svelte`, `StatusBar.svelte`
+- **Fase 3:** Pipeline migrado de Go a Bash (`pipeline.sh`, 268 líneas). Backend Go ejecuta `bash pipeline.sh` vía `exec.Command`
+
+#### Added
+- Pipeline inteligente: cuando ViperX está activo, Demucs excluye automáticamente `vocals.wav` (duplicado) y `instrumental_viperx.wav` (intermedio). Pipeline completo = 4 stems finales
+- Nuevo flujo: `original → ViperX → {vocals_viperx, instrumental_viperx → Demucs → {drums, bass, other}}`
+
+#### Fixed
+- **Bug:** Dead import `groupBySong` en ResultsPanel
+- **Bug:** Memory leak en AudioContext de `drawRealWaveform()` — ahora usa `finally` para `.close()`
+- **Bug:** Sin `onDestroy` en ResultsPanel — AudioContexts y animation frames ahora se limpian al desmontar
+- **Bug:** `API_BASE` duplicado en ResultsPanel — centralizado en `api.ts`
+- **Bug:** `fmtTime(0)` con lógica confusa (`!0 === true` por coincidencia)
+- **Bug:** Canvas waveform con dimensiones hardcodeadas 200×32 — ahora usa `devicePixelRatio`
+- **Bug:** Eliminar un stem individual borraba todo el grupo de la UI — ahora filtra localmente sin reemplazar resultados completos
+- **Tests:** Aserciones actualizadas al nuevo naming (`vocals_viperx` / `instrumental_viperx`). 29/30 pasan, 1 xfail conocido
+
 ### v2.0.0-alpha.8 — Backend controls + GPU monitor + Model loader
 
 #### Added (Backend — Go)
