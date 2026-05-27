@@ -53,6 +53,31 @@
     getLocalModels()
       .then((res) => (modelInfos = res.models || []))
       .catch(() => {}); // silent fail — dropdowns just stay empty
+
+    // Cargar resultados existentes al iniciar (separación previa completada)
+    getStatus()
+      .then((status) => {
+        if (
+          status.status === 'done' &&
+          status.files &&
+          status.files.length > 0
+        ) {
+          for (const f of status.files) {
+            results.push({
+              name: f.name,
+              path: f.path,
+              song:
+                status.song ||
+                f.name.replace(/_.+/, ''),
+            });
+          }
+          pipelineStatus = 'done';
+          pipelineStep = 'completado';
+          currentProgress = 1;
+          console.log('Loaded existing results:', results.length);
+        }
+      })
+      .catch(() => {});
   });
 
   // ---- File Queue handlers ----
@@ -190,18 +215,35 @@
             clearInterval(pollingTimer!);
             pollingTimer = null;
 
-            // Load results
+            // Forzar nuevo array con mutación para trigger Svelte 5 reactivity
             if (status.files && status.files.length > 0) {
-              results = status.files.map((f) => ({
-                name: f.name,
-                path: f.path,
-                song: status.song || extractSongFromName(f.name),
-              }));
+              const newResults: ResultStem[] = [];
+              for (const f of status.files) {
+                newResults.push({
+                  name: f.name,
+                  path: f.path,
+                  song:
+                    status.song ||
+                    f.name.replace(
+                      /_(vocals|drums|bass|other|instrumental)\.\w+$/i,
+                      '',
+                    ),
+                });
+              }
+              // Asignar vía mutación para garantizar reactividad
+              results.length = 0;
+              for (const r of newResults) {
+                results.push(r);
+              }
+              console.log('Results loaded:', results.length, 'files');
             }
             separating = false;
+            // Marcar archivos de la cola como done
             if (uploaded.length > 0) {
-              uploaded[0].qf.status = 'done';
-              uploaded[0].qf.progress = 1;
+              for (const uf of uploaded) {
+                uf.qf.status = 'done';
+                uf.qf.progress = 1;
+              }
             }
           } else if (status.status === 'error') {
             pipelineStatus = 'error';
