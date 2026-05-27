@@ -1,12 +1,30 @@
 # Changelog
 
-## v2.1.0-alpha — Fase 5: Modelos configurables + Editor visual de pipeline
+## v2.1.0-alpha — Fase 5: Modelos configurables + Editor visual de pipeline ✅
 
-### Pendiente
-- [ ] 5.1 Cablear presets → pipeline (modelo seleccionable)
-- [ ] 5.2 Editor visual de pipeline (presets, grafo SVG)
-- [ ] 5.3 Gestor de modelos (parámetros, batch_size, device)
-- [ ] 5.4 Integración + tests end-to-end
+### 5.1 — Cablear presets → pipeline
+- `pipeline.sh`: flags `--viperx-model PATH` (default: BS_Roformer_Viperx), `--demucs-model NAME` (default: htdemucs_ft), `--segment-size`, `--overlap`, `--batch-size`, `--device`
+- `server.go`: `SeparateRequest.StemModel`, pasa modelos como flags al pipeline. Endpoints `POST/GET /api/models/config`
+- `api.ts`: campos `vocal_model`, `stem_model`, `viperx_model`, `demucs_model`, `viperx_stems`, `demucs_stems`
+
+### 5.2 — Editor visual de pipeline (`PipelineEditor.svelte`, 746 líneas)
+- Selectores dropdown: ViperX (Roformer/VR_Arch) y Demucs (Demucs/MDX) con optgroups
+- Checkboxes de stems por paso (vocals, instrumental, drums, bass, other)
+- Auto-detección: ViperX activo + vocals → deshabilita vocals en Demucs con tooltip
+- Grafo SVG inline del flujo con nodos activos (cyan) / inactivos (gris)
+- Guardar/cargar/eliminar presets en localStorage con nombre personalizado
+- Botón "Ejecutar" que construye config y lanza separación
+
+### 5.3 — Gestor de modelos (`ModelManager.svelte`, 318 líneas)
+- Panel lateral con sliders: segment size (64-1024), overlap (0-0.5), chunk size (0-4096), batch size (0-32)
+- Dropdown device (cpu/cuda)
+- `POST/GET /api/models/config` — persiste configuración en `model_config.json`
+- Botón "Aplicar" con feedback visual de éxito/error
+
+### 5.4 — Verificación
+- Endpoints funcionales: `GET /api/models/config` (defaults), `POST /api/models/config` (guarda), `GET` (recupera)
+- Go compila, TypeScript compila, Vite build exitoso
+- 12 commits en `v2.1.0-alpha`, 233 commits totales, working tree limpio
 
 ## v2.0.0-alpha
 
