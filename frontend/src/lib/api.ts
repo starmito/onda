@@ -33,6 +33,8 @@ export interface SeparateOptions {
   preset: string;
   input: string;
   pitch?: number;
+  vocal_model?: string;
+  stem_model?: string;
   viperx?: boolean;
   viperx_keep?: 'both' | 'vocals' | 'instrumental';
   demucs?: boolean;
@@ -133,6 +135,8 @@ export async function separateAudio(opts: SeparateOptions): Promise<SeparateResp
     if (opts.pitch !== undefined && opts.pitch !== 0) {
       body.pitch = opts.pitch;
     }
+    if (opts.vocal_model) body.vocal_model = opts.vocal_model;
+    if (opts.stem_model) body.stem_model = opts.stem_model;
     // PipelineConfig flags
     if (opts.viperx !== undefined) body.viperx = opts.viperx;
     if (opts.demucs !== undefined) body.demucs = opts.demucs;
