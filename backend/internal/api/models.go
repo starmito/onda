@@ -196,6 +196,27 @@ func listModels() ModelsListResponse {
 		})
 	}
 
+	// Ensure htdemucs_ft is always listed as a Demucs model.
+	// It's a PyTorch model loaded by the demucs CLI, not a file on disk,
+	// so it won't be picked up by the filesystem scan.
+	hasHtdemucsFT := false
+	for _, m := range models {
+		if m.Name == "htdemucs_ft" {
+			hasHtdemucsFT = true
+			break
+		}
+	}
+	if !hasHtdemucsFT {
+		models = append(models, ModelEntry{
+			Name:        "htdemucs_ft",
+			DisplayName: "HTDemucs FT",
+			Category:    "Demucs",
+			Path:        "",
+			SizeMB:      0,
+		})
+		categorySet["Demucs"] = true
+	}
+
 	var categories []string
 	for _, cat := range []string{"VR_Arch", "MDX", "Roformer", "Roformer/MelBand", "SCnet", "Demucs"} {
 		if categorySet[cat] {
