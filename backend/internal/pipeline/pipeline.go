@@ -157,12 +157,32 @@ func (p *Pipeline) Run() error {
 		return err
 	}
 
-	// ---- Step 1: Vocal separation ----
-	if err := p.runVocalSeparation(); err != nil {
-		p.writeError(err)
-		return err
+	// Count active steps for dynamic progress
+	totalSteps := 1.0 // starting + done
+	if !p.skipVocalSeparation() {
+		totalSteps++
 	}
-	p.writeStatus("running", 0.40, "vocals:"+p.flags.VocalModel)
+	if !p.skipStemSeparation() {
+		totalSteps++
+	}
+	if !p.skipDedicatedStems() {
+		totalSteps++
+	}
+	if p.flags.Pitch != 0 {
+		totalSteps++
+	}
+
+	step := 1.0
+
+	// ---- Step 1: Vocal separation ----
+	if !p.skipVocalSeparation() {
+		if err := p.runVocalSeparation(); err != nil {
+			p.writeError(err)
+			return err
+		}
+		step++
+		p.writeStatus("running", step/totalSteps, "vocals:"+p.flags.VocalModel)
+	}
 
 	// ---- Step 2: Stem separation ----
 	if !p.skipStemSeparation() {
@@ -170,8 +190,9 @@ func (p *Pipeline) Run() error {
 			p.writeError(err)
 			return err
 		}
+		step++
+		p.writeStatus("running", step/totalSteps, "stems:"+p.flags.StemModel)
 	}
-	p.writeStatus("running", 0.70, "stems:"+p.flags.StemModel)
 
 	// ---- Step 3: Dedicated stems (master/ultimate presets) ----
 	if !p.skipDedicatedStems() {
@@ -179,8 +200,9 @@ func (p *Pipeline) Run() error {
 			p.writeError(err)
 			return err
 		}
+		step++
+		p.writeStatus("running", step/totalSteps, "dedicated:drums="+p.flags.DrumsModel+",bass="+p.flags.BassModel)
 	}
-	p.writeStatus("running", 0.90, "dedicated:drums="+p.flags.DrumsModel+",bass="+p.flags.BassModel)
 
 	// ---- Step 4: Pitch shift ----
 	if p.flags.Pitch != 0 {
@@ -188,6 +210,7 @@ func (p *Pipeline) Run() error {
 			p.writeError(err)
 			return err
 		}
+		step++
 	}
 	p.writeStatus("running", 1.0, "pitch")
 
@@ -216,8 +239,7 @@ func (p *Pipeline) Run() error {
 func (p *Pipeline) runVocalSeparation() error {
 	script, ok := modelScripts[p.flags.VocalModel]
 	if !ok {
-		// Fallback: use inference_roformer.py as default
-		script = "inference_roformer.py"
+		return fmt.Errorf("unknown vocal model: %s (available: viperx, polarformer, melband_kj, melband_karaoke)", p.flags.VocalModel)
 	}
 
 	// Model directory inside docker container
@@ -261,6 +283,11 @@ func (p *Pipeline) runVocalSeparation() error {
 	}
 
 	return nil
+}
+
+// skipVocalSeparation returns true if vocal separation should be skipped.
+func (p *Pipeline) skipVocalSeparation() bool {
+	return p.flags.VocalModel == ""
 }
 
 // skipStemSeparation returns true if Demucs stem separation should be skipped.
