@@ -6,7 +6,7 @@ CONTAINER = "onda"
 SCRIPT = "inference/inference_mdx.py"
 FIXTURE_DIR = "/app/tests/integration/fixtures"
 OUTPUT = "/tmp/onda-test-mdx"
-MODEL_PATH = "/app/models/MDX_Net_ONNX/Kim_Vocal_2.onnx"
+MODEL_PATH = "/app/models/MDX_Net_Models/Kim_Vocal_2.onnx"
 
 def run_mdx(input_file, output_dir=None):
     """Run MDX-Net inside container."""
