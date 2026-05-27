@@ -2,10 +2,17 @@
 
 ## v2.1.0-alpha — Fase 5: Modelos configurables + Editor visual de pipeline ✅
 
-### Fixes post-Fase 5 (27-may-2026)
-- **ModelManager → per-model config:** Refactorizado de `model_config.json` global a `model_configs/{model_name}.json`. Cada modelo (BS_Roformer_Viperx, htdemucs_ft, etc.) tiene su propia configuración independiente de segment_size, overlap, chunk_size, batch_size, device. Endpoints: `GET/POST /api/models/{name}/config`
-- **PipelineEditor interactividad:** Grafo SVG ahora muestra el nombre del modelo seleccionado bajo cada nodo. Prop `hasFiles` para feedback visual: mensaje "📁 Sube un archivo" cuando la cola está vacía. `handlePipelineStart` mejorado: toast en vez de alert.
-- **ModelManager UX:** Selector de modelo con optgroups por categoría al inicio del panel. Sliders se cargan/guardan por modelo individual.
+### Fixes post-Fase 5 (27-may-2026, sesión tarde) — 10 fixes
+- **ModelManager → per-model config:** `model_configs/{model_name}.json` (14 archivos), no global. Endpoints: `GET/POST /api/models/{name}/config`
+- **PipelineEditor interactividad:** Grafo SVG muestra nombres de modelo. Prop `hasFiles`. Toast en vez de alert.
+- **Default YAML UVR:** 14 modelos con valores reales de dim_t, num_overlap, batch_size importados desde YAML en .87
+- **display_name API:** Nombres amigables (BS_Roformer_Viperx, no model_bs_roformer_ep_317_sdr_12.9755)
+- **Demucs reorganizado:** htdemucs_ft (PyTorch) en categoría "Demucs", ONNX stems en "Demucs ONNX"
+- **Sliders min/max:** Valores numéricos + etiquetas Fast/-VRAM ↔ Quality/+VRAM en extremos
+- **VRAM realista:** `vram_estimate_mb`: htdemucs_ft=2800, Kim_Vocal=800, ViperX=3200 MB
+- **Parámetros Demucs PyTorch:** shifts (0-20), segment (0-60s), jobs (0-8) — solo visibles para htdemucs_ft
+- **Chunk/Batch docs:** Añadido "No afecta a la calidad del resultado" en descripciones
+- **ModelManager UX:** Selector de modelo con optgroups, sliders con descripciones, barra VRAM estimada
 
 ### 5.1 — Cablear presets → pipeline
 - `pipeline.sh`: flags `--viperx-model PATH` (default: BS_Roformer_Viperx), `--demucs-model NAME` (default: htdemucs_ft), `--segment-size`, `--overlap`, `--batch-size`, `--device`
