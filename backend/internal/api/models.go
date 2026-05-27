@@ -36,12 +36,37 @@ var modelExtensions = map[string]bool{
 }
 
 // categoryMap translates directory names to human-readable category labels.
+// Note: VR_Models/ contains different model architectures; category is refined
+// by detectCategory() from the subdirectory name (Roformer, MelBand, SCnet, etc.)
 var categoryMap = map[string]string{
-	"VR_Models":       "VR",
-	"MDX_Net_Models":  "MDX-Net",
-	"RoFormer_Models": "RoFormer",
+	"VR_Models":       "VR_Arch",
+	"MDX_Net_Models":  "MDX",
+	"RoFormer_Models": "Roformer",
 	"Demucs_Models":   "Demucs",
 	"Demucs_ONNX":     "Demucs",
+}
+
+// detectCategory refines the category based on the model subdirectory name.
+// VR_Models/ contains Roformers (BS_Roformer_Viperx), MelBands, SCNets, etc.
+func detectCategory(subdir, relPath string) string {
+	baseCat := categoryMap[subdir]
+	if subdir != "VR_Models" {
+		return baseCat
+	}
+	// Under VR_Models/, detect from the model-specific subdirectory
+	parts := strings.Split(filepath.ToSlash(relPath), "/")
+	if len(parts) >= 2 {
+		modelDir := strings.ToLower(parts[1])
+		switch {
+		case strings.Contains(modelDir, "roformer") || strings.Contains(modelDir, "viperx"):
+			return "Roformer"
+		case strings.Contains(modelDir, "melband"):
+			return "Roformer/MelBand"
+		case strings.Contains(modelDir, "scnet"):
+			return "SCnet"
+		}
+	}
+	return baseCat
 }
 
 // ModelEntry describes a single model file found on disk.
@@ -104,7 +129,6 @@ func listModels() ModelsListResponse {
 
 	for _, subdir := range modelSubdirs {
 		dirPath := filepath.Join(modelsBasePath, subdir)
-		category := categoryMap[subdir]
 
 		_ = filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
@@ -127,6 +151,7 @@ func listModels() ModelsListResponse {
 			dockerPath := "/models/" + filepath.ToSlash(rel)
 
 			name := strings.TrimSuffix(info.Name(), ext)
+			category := detectCategory(subdir, rel)
 
 			models = append(models, ModelEntry{
 				Name:     name,
@@ -140,7 +165,7 @@ func listModels() ModelsListResponse {
 	}
 
 	var categories []string
-	for _, cat := range []string{"VR", "MDX-Net", "RoFormer", "Demucs"} {
+	for _, cat := range []string{"VR_Arch", "MDX", "Roformer", "Roformer/MelBand", "SCnet", "Demucs"} {
 		if categorySet[cat] {
 			categories = append(categories, cat)
 		}
