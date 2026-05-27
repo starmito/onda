@@ -56,8 +56,8 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("GET /api/models/list", s.handleModelsList)
 	s.mux.HandleFunc("POST /api/models/download", s.handleModelsDownload)
 	s.mux.HandleFunc("GET /api/models/download/status", s.handleModelsDownloadStatus)
-	s.mux.HandleFunc("POST /api/models/config", s.handleModelsConfig)
-	s.mux.HandleFunc("GET /api/models/config", s.handleModelsConfig)
+	s.mux.HandleFunc("GET /api/models/{name}/config", s.handleModelsConfig)
+	s.mux.HandleFunc("POST /api/models/{name}/config", s.handleModelsConfig)
 	s.mux.HandleFunc("/api/gpu", s.handleGPU)
 	s.mux.HandleFunc("GET /api/gpu/info", s.handleGPUInfo)
 	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)
@@ -434,23 +434,20 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 		args = append(args, "--demucs-model", stemModel)
 	}
 
-	// Read model_config.json if it exists and pass inference flags
-	configPath := filepath.Join(projectRoot, "model_config.json")
-	if cfgData, err := os.ReadFile(configPath); err == nil {
-		var mcfg ModelConfig
-		if json.Unmarshal(cfgData, &mcfg) == nil {
-			args = append(args, "--segment-size", fmt.Sprintf("%d", mcfg.SegmentSize))
-			args = append(args, "--overlap", fmt.Sprintf("%.2f", mcfg.Overlap))
-			if mcfg.ChunkSize > 0 {
-				args = append(args, "--chunk-size", fmt.Sprintf("%d", mcfg.ChunkSize))
-			}
-			if mcfg.BatchSize > 0 {
-				args = append(args, "--batch-size", fmt.Sprintf("%d", mcfg.BatchSize))
-			}
-			if mcfg.Device != "" {
-				args = append(args, "--device", mcfg.Device)
-			}
+	// Read per-model config and apply inference flags.
+	// Prefer the vocal model's config; fall back to stem model's config.
+	modelName := req.VocalModel
+	if modelName == "" {
+		modelName = req.StemModel
+	}
+	if modelName != "" {
+		cfg, err := loadModelConfig(modelName)
+		if err == nil {
+			args = applyModelConfigToArgs(args, cfg)
 		}
+	} else {
+		// No specific model, apply defaults
+		args = applyModelConfigToArgs(args, modelConfigDefaults())
 	}
 
 	args = append(args, "--output", hostOutput)
@@ -480,31 +477,90 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleModelsConfig saves or retrieves model inference configuration.
+// modelConfigDefaults returns default inference parameters.
+func modelConfigDefaults() ModelConfig {
+	return ModelConfig{
+		SegmentSize: 256,
+		Overlap:     0.25,
+		ChunkSize:   0,
+		BatchSize:   0,
+		Device:      "cuda",
+	}
+}
+
+// sanitizeModelName replaces path separators and other unsafe chars for use in filenames.
+func sanitizeModelName(name string) string {
+	r := strings.NewReplacer(
+		"/", "_",
+		"\\", "_",
+		"..", "_",
+		" ", "_",
+	)
+	return r.Replace(name)
+}
+
+// modelConfigDir returns the path to the per-model config directory (ensures it exists).
+func modelConfigDir() string {
+	projectRoot := findProjectRoot()
+	dir := filepath.Join(projectRoot, "model_configs")
+	os.MkdirAll(dir, 0755)
+	return dir
+}
+
+// modelConfigPath builds the JSON file path for a given model name.
+func modelConfigPath(name string) string {
+	safe := sanitizeModelName(name)
+	return filepath.Join(modelConfigDir(), safe+".json")
+}
+
+// loadModelConfig reads per-model config, returning defaults if the file doesn't exist.
+func loadModelConfig(name string) (ModelConfig, error) {
+	if name == "" {
+		return modelConfigDefaults(), nil
+	}
+	path := modelConfigPath(name)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return modelConfigDefaults(), nil
+	}
+	var cfg ModelConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return modelConfigDefaults(), nil
+	}
+	return cfg, nil
+}
+
+// applyModelConfigToArgs appends inference flags from a ModelConfig to an args slice.
+func applyModelConfigToArgs(args []string, cfg ModelConfig) []string {
+	args = append(args, "--segment-size", fmt.Sprintf("%d", cfg.SegmentSize))
+	args = append(args, "--overlap", fmt.Sprintf("%.2f", cfg.Overlap))
+	if cfg.ChunkSize > 0 {
+		args = append(args, "--chunk-size", fmt.Sprintf("%d", cfg.ChunkSize))
+	}
+	if cfg.BatchSize > 0 {
+		args = append(args, "--batch-size", fmt.Sprintf("%d", cfg.BatchSize))
+	}
+	if cfg.Device != "" {
+		args = append(args, "--device", cfg.Device)
+	}
+	return args
+}
+
+// handleModelsConfig saves or retrieves per-model inference configuration.
+// GET  /api/models/{name}/config  — returns the config for a model (defaults if none saved)
+// POST /api/models/{name}/config  — saves the config for a model
 func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
+	name := r.PathValue("name")
+	if name == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "missing model name"})
+		return
+	}
+
 	if r.Method == http.MethodGet {
-		projectRoot := findProjectRoot()
-		configPath := filepath.Join(projectRoot, "model_config.json")
-		data, err := os.ReadFile(configPath)
-		if err != nil {
-			// Return defaults if file doesn't exist
-			json.NewEncoder(w).Encode(ModelConfig{
-				SegmentSize: 256,
-				Overlap:     0.25,
-				ChunkSize:   0,
-				BatchSize:   0,
-				Device:      "cuda",
-			})
-			return
-		}
-		var cfg ModelConfig
-		if err := json.Unmarshal(data, &cfg); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": "invalid config file"})
-			return
-		}
+		cfg, _ := loadModelConfig(name)
 		json.NewEncoder(w).Encode(cfg)
 		return
 	}
@@ -534,15 +590,14 @@ func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		projectRoot := findProjectRoot()
-		configPath := filepath.Join(projectRoot, "model_config.json")
+		path := modelConfigPath(name)
 		data, err := json.Marshal(cfg)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]string{"error": "failed to serialize config"})
 			return
 		}
-		if err := os.WriteFile(configPath, data, 0644); err != nil {
+		if err := os.WriteFile(path, data, 0644); err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]string{"error": "failed to write config file"})
 			return
@@ -551,7 +606,7 @@ func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{
 			"ok":     "true",
-			"detail": "config saved",
+			"detail": fmt.Sprintf("config saved for model %s", name),
 		})
 		return
 	}
