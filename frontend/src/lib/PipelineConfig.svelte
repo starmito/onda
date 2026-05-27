@@ -12,6 +12,7 @@
   } = $props();
 
   export interface PipelineConfig {
+    preset?: string;
     viperx: boolean;
     viperxKeep: 'both' | 'vocals' | 'instrumental';
     demucs: boolean;

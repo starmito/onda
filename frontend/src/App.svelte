@@ -134,9 +134,10 @@
       return;
     }
     handlePipelineStart({
-      viperx: !!p.vocal_model,
+      preset,
+      viperx: !!p.vocalModel,
       viperxKeep: 'both',
-      demucs: !!p.stem_model,
+      demucs: !!p.stemModel,
       demucsKeep: ['drums', 'bass', 'other', 'vocals'],
     });
   }
@@ -217,9 +218,8 @@
         return;
       }
 
-      // Use the first preset (htdemucs) as default, or the first available
-      const presetKeys = Object.keys(presets);
-      const preset = presetKeys.length > 0 ? presetKeys[0] : 'htdemucs';
+      // Use the preset passed from PresetSelector, or fall back to 'balance'
+      const preset = config.preset || (Object.keys(presets).length > 0 ? 'balance' : 'htdemucs');
 
       // Start separation for each uploaded file
       for (const { qf, path } of uploaded) {
