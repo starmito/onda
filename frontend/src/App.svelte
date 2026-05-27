@@ -250,7 +250,7 @@
         try {
           const status = await getStatus();
           pipelineStep = status.step || '';
-          pipelineModel = (status as any).vocal_model || (status as any).stem_model || '';
+          pipelineModel = status.vocal_model || status.stem_model || '';
           pipelineEta = status.eta || 0;
           currentProgress = status.progress || 0;
 
