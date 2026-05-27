@@ -1,6 +1,7 @@
 <script lang="ts">
   import ResultsPanel from './lib/ResultsPanel.svelte';
   import PipelinePanel from './lib/PipelinePanel.svelte';
+  import PipelineEditor from './lib/PipelineEditor.svelte';
   import ConfigPanel from './lib/ConfigPanel.svelte';
   import StatusBar from './lib/StatusBar.svelte';
   import type { ResultStem } from './lib/types';
@@ -21,8 +22,12 @@
     preset?: string;
     viperx: boolean;
     viperxKeep?: string;
+    viperxModel?: string;
+    viperxStems?: string[];
     demucs: boolean;
     demucsKeep?: string[];
+    demucsModel?: string;
+    demucsStems?: string[];
   }
 
   // ---- State ----
@@ -241,8 +246,12 @@
             pitch: pitchValue !== 0 ? pitchValue : undefined,
             viperx: config.viperx,
             viperx_keep: config.viperxKeep,
+            viperx_model: config.viperxModel,
+            viperx_stems: config.viperxStems,
             demucs: config.demucs,
             demucs_keep: config.demucsKeep,
+            demucs_model: config.demucsModel,
+            demucs_stems: config.demucsStems,
           });
         } catch (err: any) {
           qf.status = 'error';
@@ -439,6 +448,14 @@
       onviperxonly={handleViperxOnly}
       ondemucsonly={handleDemucsOnly}
       onpitch={handlePitchApply}
+    />
+  </section>
+
+  <!-- PipelineEditor -->
+  <section class="editor-section">
+    <PipelineEditor
+      disabled={separating}
+      onstart={handlePipelineStart}
     />
   </section>
 
@@ -675,6 +692,10 @@
   }
 
   .config-section {
+    width: 100%;
+  }
+
+  .editor-section {
     width: 100%;
   }
 
