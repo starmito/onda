@@ -27,7 +27,8 @@
   let selectedModelSizeMb = $derived.by(() => {
     if (!selectedModel) return null;
     const found = models.find(m => m.name === selectedModel);
-    return found ? found.size_mb : null;
+    if (!found) return null;
+    return found.vram_estimate_mb || found.size_mb || null;
   });
 
   let estimatedVramMb = $derived.by(() => {
