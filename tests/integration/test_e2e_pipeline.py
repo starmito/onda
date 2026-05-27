@@ -378,8 +378,8 @@ class TestPipelineConfigFlags:
             names = [f["name"] for f in files]
             print(f"      files: {names}")
             # NO ViperX outputs
-            assert not self._has_file(files, "_vocals"), f"Should NOT have _vocals: {names}"
-            assert not self._has_file(files, "_instrumental"), f"Should NOT have _instrumental: {names}"
+            assert not self._has_file(files, "vocals_viperx"), f"Should NOT have _vocals: {names}"
+            assert not self._has_file(files, "instrumental_viperx"), f"Should NOT have _instrumental: {names}"
             # YES Demucs outputs
             assert self._has_demucs_vocals(files), f"Should have vocals.wav: {names}"
             assert self._has_file(files, "no_vocals"), f"Should have no_vocals: {names}"
@@ -400,8 +400,8 @@ class TestPipelineConfigFlags:
             names = [f["name"] for f in files]
             print(f"      files: {names}")
             # YES ViperX outputs
-            assert self._has_file(files, "_vocals"), f"Should have _vocals: {names}"
-            assert self._has_file(files, "_instrumental"), f"Should have _instrumental: {names}"
+            assert self._has_file(files, "vocals_viperx"), f"Should have _vocals: {names}"
+            assert self._has_file(files, "instrumental_viperx"), f"Should have _instrumental: {names}"
             # NO Demucs outputs (Demucs was disabled)
             assert not self._has_file(files, "no_vocals"), f"Should NOT have no_vocals: {names}"
         finally:
@@ -420,8 +420,8 @@ class TestPipelineConfigFlags:
             files = final.get("files", [])
             names = [f["name"] for f in files]
             print(f"      files: {names}")
-            assert self._has_file(files, "_vocals"), f"Should have _vocals: {names}"
-            assert not self._has_file(files, "_instrumental"), f"Should NOT have _instrumental: {names}"
+            assert self._has_file(files, "vocals_viperx"), f"Should have _vocals: {names}"
+            assert not self._has_file(files, "instrumental_viperx"), f"Should NOT have _instrumental: {names}"
         finally:
             self._cleanup(song)
 
@@ -438,8 +438,8 @@ class TestPipelineConfigFlags:
             files = final.get("files", [])
             names = [f["name"] for f in files]
             print(f"      files: {names}")
-            assert self._has_file(files, "_instrumental"), f"Should have _instrumental: {names}"
-            assert not self._has_file(files, "_vocals"), f"Should NOT have _vocals: {names}"
+            assert self._has_file(files, "instrumental_viperx"), f"Should have _instrumental: {names}"
+            assert not self._has_file(files, "vocals_viperx"), f"Should NOT have _vocals: {names}"
         finally:
             self._cleanup(song)
 
