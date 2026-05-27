@@ -21,12 +21,15 @@
   let presets = $state<Record<string, any>>({});
   let separating = $state(false);
   let results = $state<ResultStem[]>([]);
-  let progressRef = $state<any>(null);
   let modelsError = $state(false);
   let pitchValue = $state(0);
-  let pipelineProgress = $state(0);
+  let pipelineStatus = $state<'idle'|'running'|'done'|'error'>('idle');
+  let pipelineStep = $state('');
+  let pipelineSong = $state('');
   let pipelineEta = $state(0);
-  let progressPolling: ReturnType<typeof setInterval> | null = null;
+  let currentProgress = $state(0);
+  let pipelineError = $state('');
+  let pollingTimer: ReturnType<typeof setInterval> | null = null;
 
   // Advanced model config
   let modelConfig = $state({
@@ -94,6 +97,12 @@
 
   // ---- Pipeline start ----
   async function handlePipelineStart(config: PipelineConfigType) {
+    // Clear any existing polling
+    if (pollingTimer) {
+      clearInterval(pollingTimer);
+      pollingTimer = null;
+    }
+
     const checked = queueFiles.filter((qf) => qf.checked && qf.status !== 'done');
     if (checked.length === 0) {
       alert('No checked files in queue.');
@@ -102,6 +111,11 @@
 
     separating = true;
     results = [];
+    pipelineStatus = 'idle';
+    pipelineStep = '';
+    pipelineError = '';
+    currentProgress = 0;
+    pipelineEta = 0;
 
     // Mark checked files as uploading
     for (const qf of checked) {
@@ -137,7 +151,8 @@
       // Start separation for each uploaded file
       for (const { qf, path } of uploaded) {
         try {
-          progressRef?.start();
+          qf.status = 'processing';
+          qf.progress = 0;
 
           await separateAudio({
             preset,
@@ -148,66 +163,65 @@
             demucs: config.demucs,
             demucs_keep: config.demucsKeep,
           });
-          qf.status = 'processing';
-          qf.progress = 0;
         } catch (err: any) {
           qf.status = 'error';
           qf.errorMsg = err.message;
         }
       }
 
-      // Start polling ProgressBar for progress/eta to feed FileQueue
-      progressPolling = setInterval(() => {
-        if (progressRef) {
-          pipelineProgress = progressRef.getProgress();
-          pipelineEta = progressRef.getEta();
+      // Start polling /api/status every 500ms
+      pipelineStatus = 'running';
+      pipelineSong = uploaded[0]?.qf.file.name || '';
+
+      pollingTimer = setInterval(async () => {
+        try {
+          const status = await getStatus();
+          pipelineStep = status.step || '';
+          pipelineEta = status.eta || 0;
+          currentProgress = status.progress || 0;
+
+          // Update progress on the first uploaded file
+          if (uploaded.length > 0) {
+            uploaded[0].qf.progress = status.progress || 0;
+          }
+
+          if (status.status === 'done') {
+            pipelineStatus = 'done';
+            clearInterval(pollingTimer!);
+            pollingTimer = null;
+
+            // Load results
+            if (status.files && status.files.length > 0) {
+              results = status.files.map((f) => ({
+                name: f.name,
+                path: f.path,
+                song: status.song || extractSongFromName(f.name),
+              }));
+            }
+            separating = false;
+            if (uploaded.length > 0) {
+              uploaded[0].qf.status = 'done';
+              uploaded[0].qf.progress = 1;
+            }
+          } else if (status.status === 'error') {
+            pipelineStatus = 'error';
+            pipelineError = status.error || 'Unknown error';
+            clearInterval(pollingTimer!);
+            pollingTimer = null;
+            separating = false;
+            if (uploaded.length > 0) {
+              uploaded[0].qf.status = 'error';
+              uploaded[0].qf.errorMsg = status.error || 'Unknown error';
+            }
+          }
+        } catch (e) {
+          // keep polling on transient network errors
         }
       }, 500);
     } catch (err: any) {
       alert('Pipeline error: ' + err.message);
-    } finally {
-      // separating and results are handled by handleComplete (called from ProgressBar oncomplete)
+      separating = false;
     }
-  }
-
-  async function handleComplete() {
-    // Stop progress polling
-    if (progressPolling) {
-      clearInterval(progressPolling);
-      progressPolling = null;
-    }
-
-    // Poll getStatus() until files[] has data
-    for (let i = 0; i < 30; i++) {
-      try {
-        const status = await getStatus();
-        if (status.files && status.files.length > 0) {
-          results = status.files.map((f) => ({
-            name: f.name,
-            path: f.path,
-            song: status.song || extractSongFromName(f.name),
-          }));
-          separating = false;
-          return;
-        }
-        if (status.status === 'error') {
-          separating = false;
-          return;
-        }
-      } catch {
-        // keep polling
-      }
-      await new Promise((r) => setTimeout(r, 1000));
-    }
-
-    // Fallback after timeout: try from queue
-    const doneFiles = queueFiles.filter((qf) => qf.status === 'processing' && qf.path);
-    results = doneFiles.map((qf) => ({
-      name: qf.file.name.replace(/\.[^.]+$/, '') + '_vocals.wav',
-      path: qf.path || '',
-      song: qf.file.name.replace(/\.[^.]+$/, ''),
-    }));
-    separating = false;
   }
 
   function extractSongFromName(name: string): string {
@@ -241,7 +255,7 @@
       <FileQueue
         files={queueFiles}
         disabled={separating}
-        overallProgress={pipelineProgress}
+        overallProgress={currentProgress}
         overallEta={pipelineEta}
         onaddfiles={handleFilesAdded}
         onclear={handleClearQueue}
@@ -273,9 +287,9 @@
     <PitchControl value={pitchValue} disabled={separating} onapply={handlePitchApply} />
   </section>
 
-  {#if separating}
+  {#if pipelineStatus !== 'idle'}
     <section class="progress">
-      <ProgressBar oncomplete={handleComplete} bind:this={progressRef} />
+      <ProgressBar status={pipelineStatus} step={pipelineStep} progress={currentProgress} error={pipelineError} />
     </section>
   {/if}
 
