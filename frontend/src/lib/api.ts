@@ -218,6 +218,7 @@ export async function getVramEstimate(models: string): Promise<VramEstimateRespo
 // ---- ModelLoader ---- 
 export interface LocalModel {
   name: string;
+  display_name?: string;
   category: string;
   size_mb: number;
   path: string;
