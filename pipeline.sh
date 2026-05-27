@@ -14,6 +14,11 @@
 #   --rubberband          Pitch shift all stems except drums
 #   --pitch N             Semitones for rubberband (default: 0)
 #   --output DIR          Output directory (default: /output/<song_name>)
+#   --segment-size N      ViperX segment size (default: 256)
+#   --overlap N           ViperX overlap ratio (default: 0.25)
+#   --chunk-size N        Processing chunk size (default: 0 = auto)
+#   --batch-size N        Processing batch size (default: 0 = auto)
+#   --device NAME         Inference device: cpu | cuda (default: cuda)
 #
 # Default (no flags): --viperx --demucs --rubberband
 #
@@ -119,6 +124,11 @@ DEMUCS_MODEL="htdemucs_ft"
 RUBBERBAND=false
 PITCH=0
 OUTPUT=""
+SEGMENT_SIZE=256
+OVERLAP=0.25
+CHUNK_SIZE=0
+BATCH_SIZE=0
+DEVICE="cuda"
 
 INPUT=""
 while [[ $# -gt 0 ]]; do
@@ -132,6 +142,11 @@ while [[ $# -gt 0 ]]; do
         --rubberband)   RUBBERBAND=true; shift ;;
         --pitch)        PITCH="$2"; shift 2 ;;
         --output)       OUTPUT="$2"; shift 2 ;;
+        --segment-size) SEGMENT_SIZE="$2"; shift 2 ;;
+        --overlap)      OVERLAP="$2"; shift 2 ;;
+        --chunk-size)   CHUNK_SIZE="$2"; shift 2 ;;
+        --batch-size)   BATCH_SIZE="$2"; shift 2 ;;
+        --device)       DEVICE="$2"; shift 2 ;;
         -*)             echo "Unknown flag: $1"; exit 1 ;;
         *)              INPUT="$1"; shift ;;
     esac
@@ -188,7 +203,7 @@ if $VIPERX; then
     TMP_VIP="${OUTPUT}/_viperx"
     report_progress "running" "viperx" 5
     CURRENT_STEP="viperx"
-    run_with_elapsed docker exec $ONDA_CONTAINER python3 /app/inference/inference_universal.py "${VIPERX_MODEL}" "$(to_container "${INPUT}")" "$(to_container "${TMP_VIP}")" 8
+    run_with_elapsed docker exec $ONDA_CONTAINER python3 /app/inference/inference_universal.py --segment_size ${SEGMENT_SIZE} --overlap ${OVERLAP} "${VIPERX_MODEL}" "$(to_container "${INPUT}")" "$(to_container "${TMP_VIP}")" ${SEGMENT_SIZE}
     echo "   ✅ Viperx done"
 
     report_progress "running" "viperx" 35
@@ -237,7 +252,7 @@ if $DEMUCS; then
     TMP_DEM="${OUTPUT}/_demucs"
     report_progress "running" "demucs" 45
     CURRENT_STEP="demucs"
-    run_with_elapsed docker exec $ONDA_CONTAINER demucs -n "${DEMUCS_MODEL}" -o "$(to_container "${TMP_DEM}")" "$(to_container "${DEMUCS_INPUT}")"
+    run_with_elapsed docker exec $ONDA_CONTAINER demucs -n "${DEMUCS_MODEL}" --device "${DEVICE}" -o "$(to_container "${TMP_DEM}")" "$(to_container "${DEMUCS_INPUT}")"
     echo "   ✅ HTDemucs_ft done"
 
     # Find stem directory
