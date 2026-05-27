@@ -462,6 +462,7 @@
   <section class="editor-section">
     <PipelineEditor
       disabled={separating}
+      hasFiles={queueFiles.length > 0}
       onstart={handlePipelineStart}
     />
   </section>
