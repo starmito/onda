@@ -4,6 +4,7 @@
   import PipelineEditor from './lib/PipelineEditor.svelte';
   import ConfigPanel from './lib/ConfigPanel.svelte';
   import StatusBar from './lib/StatusBar.svelte';
+  import ModelManager from './lib/ModelManager.svelte';
   import type { ResultStem } from './lib/types';
   import { detectStemType } from './lib/types';
   import { getModels, separateAudio, getStatus, uploadAudio, getLocalModels } from './lib/api';
@@ -71,6 +72,7 @@
   });
   let modelInfos = $state<LocalModel[]>([]);
   let showModelConfig = $state(false);
+  let showModelPanel = $state(false);
 
   // Load presets + model list on mount
   $effect(() => {
@@ -388,6 +390,11 @@
   <header>
     <h1>🎵 Onda</h1>
     <span class="version">v2.0.0-alpha</span>
+    <button
+      class="btn-gear"
+      onclick={() => (showModelPanel = !showModelPanel)}
+      title="Gestor de modelos"
+    >⚙️</button>
   </header>
 
   <!-- DropZone -->
@@ -513,6 +520,11 @@
   {#if toastMessage}
     <div class="toast {toastType}">{toastMessage}</div>
   {/if}
+
+  <!-- ModelManager panel -->
+  {#if showModelPanel}
+    <ModelManager onclose={() => (showModelPanel = false)} />
+  {/if}
 </main>
 
 <style>
@@ -567,6 +579,22 @@
     color: #555;
     font-weight: 500;
     letter-spacing: 0.5px;
+  }
+
+  .btn-gear {
+    margin-left: auto;
+    background: none;
+    border: 1px solid #2a2a4a;
+    border-radius: 6px;
+    color: #888;
+    font-size: 1.1rem;
+    padding: 0.25rem 0.5rem;
+    cursor: pointer;
+    transition: color 0.15s, border-color 0.15s;
+  }
+  .btn-gear:hover {
+    color: #00d4ff;
+    border-color: #00d4ff;
   }
 
   /* DropZone */
