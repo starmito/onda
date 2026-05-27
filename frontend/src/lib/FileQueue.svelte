@@ -14,12 +14,16 @@
   let {
     files = [],
     disabled = false,
+    overallProgress = 0,
+    overallEta = 0,
     onaddfiles,
     onclear,
     ontoggle,
   }: {
     files?: QueueFile[];
     disabled?: boolean;
+    overallProgress?: number;
+    overallEta?: number;
     onaddfiles?: (newFiles: File[]) => void;
     onclear?: () => void;
     ontoggle?: (id: string) => void;
@@ -53,6 +57,14 @@
     return (bytes / 1048576).toFixed(1) + ' MB';
   }
 
+  function formatEta(seconds: number): string {
+    if (seconds <= 0) return '';
+    if (seconds < 60) return `${seconds}s`;
+    const min = Math.floor(seconds / 60);
+    const sec = seconds % 60;
+    return `${min}m ${sec}s`;
+  }
+
   function statusIcon(s: QueueFile['status']): string {
     switch (s) {
       case 'waiting': return '⏳';
@@ -62,6 +74,9 @@
       case 'error': return '❌';
     }
   }
+
+  // Check if any file is processing
+  let anyProcessing = $derived(files.some((f) => f.status === 'processing' || f.status === 'uploading'));
 </script>
 
 <div class="file-queue">
@@ -105,7 +120,17 @@
             <span class="item-size">{formatSize(qf.file.size)}</span>
           </div>
           <span class="item-status">{statusIcon(qf.status)}</span>
-          {#if qf.status === 'uploading' || qf.status === 'processing'}
+          {#if qf.status === 'processing'}
+            <div class="item-progress-row">
+              <div class="item-progress-track">
+                <div
+                  class="item-progress-fill"
+                  style="width: {Math.round(overallProgress * 100)}%"
+                ></div>
+              </div>
+              <span class="item-eta">{overallEta > 0 ? formatEta(overallEta) : 'calculando...'}</span>
+            </div>
+          {:else if qf.status === 'uploading'}
             <div class="item-progress-track">
               <div
                 class="item-progress-fill"
@@ -118,6 +143,25 @@
           {/if}
         </div>
       {/each}
+
+      <!-- Global progress bar -->
+      {#if anyProcessing && overallProgress > 0}
+        <div class="global-progress">
+          <div class="global-progress-header">
+            <span class="global-label">📊 Progreso total</span>
+            <span class="global-pct">{Math.round(overallProgress * 100)}%</span>
+          </div>
+          <div class="global-progress-track">
+            <div
+              class="global-progress-fill"
+              style="width: {Math.round(overallProgress * 100)}%"
+            ></div>
+          </div>
+          {#if overallEta > 0}
+            <span class="global-eta">⏱ ~{formatEta(overallEta)} restantes</span>
+          {/if}
+        </div>
+      {/if}
     </div>
   {/if}
 </div>
@@ -260,9 +304,70 @@
     transition: width 0.3s ease;
   }
 
+  .item-progress-row {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .item-progress-row .item-progress-track {
+    flex: 1;
+  }
+  .item-eta {
+    font-size: 0.7rem;
+    color: #888;
+    white-space: nowrap;
+  }
+
   .item-error {
     grid-column: 1 / -1;
     font-size: 0.75rem;
     color: #f44336;
+  }
+
+  /* Global progress bar */
+  .global-progress {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    padding: 0.6rem 0.5rem;
+    margin-top: 0.25rem;
+    background: #141428;
+    border-radius: 6px;
+    border: 1px solid #2a2a3e;
+  }
+  .global-progress-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .global-label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: #ccc;
+  }
+  .global-pct {
+    font-size: 0.78rem;
+    font-weight: 700;
+    color: #00d4ff;
+    font-variant-numeric: tabular-nums;
+  }
+  .global-progress-track {
+    width: 100%;
+    height: 6px;
+    background: #2a2a3e;
+    border-radius: 3px;
+    overflow: hidden;
+  }
+  .global-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #00d4ff, #b388ff);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+  }
+  .global-eta {
+    font-size: 0.7rem;
+    color: #888;
+    text-align: right;
   }
 </style>

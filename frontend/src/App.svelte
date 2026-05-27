@@ -12,9 +12,6 @@
   import BackendControls from './lib/BackendControls.svelte';
   import PresetSelector from './lib/PresetSelector.svelte';
   import GpuMonitor from './lib/GpuMonitor.svelte';
-  import VramCalculator from './lib/VramCalculator.svelte';
-  import type { Preset } from './lib/VramCalculator.svelte';
-  import ModelLoader from './lib/ModelLoader.svelte';
   import ModelConfigScreen from './lib/ModelConfigScreen.svelte';
   import { getModels, separateAudio, getStatus, uploadAudio, getLocalModels } from './lib/api';
   import type { LocalModel } from './lib/api';
@@ -27,6 +24,9 @@
   let progressRef = $state<any>(null);
   let modelsError = $state(false);
   let pitchValue = $state(0);
+  let pipelineProgress = $state(0);
+  let pipelineEta = $state(0);
+  let progressPolling: ReturnType<typeof setInterval> | null = null;
 
   // Advanced model config
   let modelConfig = $state({
@@ -39,25 +39,6 @@
   });
   let modelInfos = $state<LocalModel[]>([]);
   let showModelConfig = $state(false);
-
-  // VramCalculator integration
-  let selectedPresetKey = $state('');
-  let selectedPresetData = $derived.by((): Preset | null => {
-    if (!selectedPresetKey || !presets[selectedPresetKey]) return null;
-    const p = presets[selectedPresetKey];
-    return {
-      key: selectedPresetKey,
-      name: p.name,
-      description: p.description,
-      models: {
-        vocal: modelConfig.vocalModel,
-        stems: modelConfig.stemModel,
-        drums: modelConfig.drumsModel,
-        bass: modelConfig.bassModel,
-        other: modelConfig.otherModel,
-      },
-    };
-  });
 
   // Load presets + model list on mount
   $effect(() => {
@@ -157,6 +138,7 @@
       for (const { qf, path } of uploaded) {
         try {
           progressRef?.start();
+
           await separateAudio({
             preset,
             input: path,
@@ -166,42 +148,66 @@
             demucs: config.demucs,
             demucs_keep: config.demucsKeep,
           });
-          qf.status = 'done';
-          qf.progress = 1;
+          qf.status = 'processing';
+          qf.progress = 0;
         } catch (err: any) {
           qf.status = 'error';
           qf.errorMsg = err.message;
         }
       }
+
+      // Start polling ProgressBar for progress/eta to feed FileQueue
+      progressPolling = setInterval(() => {
+        if (progressRef) {
+          pipelineProgress = progressRef.getProgress();
+          pipelineEta = progressRef.getEta();
+        }
+      }, 500);
     } catch (err: any) {
       alert('Pipeline error: ' + err.message);
     } finally {
-      separating = false;
-      // Fetch results
-      handleComplete();
+      // separating and results are handled by handleComplete (called from ProgressBar oncomplete)
     }
   }
 
-  function handleComplete() {
-    getStatus()
-      .then((status) => {
+  async function handleComplete() {
+    // Stop progress polling
+    if (progressPolling) {
+      clearInterval(progressPolling);
+      progressPolling = null;
+    }
+
+    // Poll getStatus() until files[] has data
+    for (let i = 0; i < 30; i++) {
+      try {
+        const status = await getStatus();
         if (status.files && status.files.length > 0) {
           results = status.files.map((f) => ({
             name: f.name,
             path: f.path,
             song: status.song || extractSongFromName(f.name),
           }));
-        } else {
-          // Fallback from queue
-          const doneFiles = queueFiles.filter((qf) => qf.status === 'done' && qf.path);
-          results = doneFiles.map((qf) => ({
-            name: qf.file.name.replace(/\.[^.]+$/, '') + '_vocals.wav',
-            path: qf.path || '',
-            song: qf.file.name.replace(/\.[^.]+$/, ''),
-          }));
+          separating = false;
+          return;
         }
-      })
-      .catch(console.error);
+        if (status.status === 'error') {
+          separating = false;
+          return;
+        }
+      } catch {
+        // keep polling
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+
+    // Fallback after timeout: try from queue
+    const doneFiles = queueFiles.filter((qf) => qf.status === 'processing' && qf.path);
+    results = doneFiles.map((qf) => ({
+      name: qf.file.name.replace(/\.[^.]+$/, '') + '_vocals.wav',
+      path: qf.path || '',
+      song: qf.file.name.replace(/\.[^.]+$/, ''),
+    }));
+    separating = false;
   }
 
   function extractSongFromName(name: string): string {
@@ -235,6 +241,8 @@
       <FileQueue
         files={queueFiles}
         disabled={separating}
+        overallProgress={pipelineProgress}
+        overallEta={pipelineEta}
         onaddfiles={handleFilesAdded}
         onclear={handleClearQueue}
         ontoggle={handleToggleQueueFile}
@@ -250,7 +258,8 @@
         handlePresetStart(preset);
       }}
       onselect={(key: string) => {
-        selectedPresetKey = key;
+        // track selected preset for downstream use
+        console.debug('Preset selected:', key);
       }}
       modelsError={modelsError}
     />
@@ -260,7 +269,6 @@
     >
       ⚙️ Configuración avanzada
     </button>
-    <VramCalculator preset={selectedPresetData} />
     <PipelineConfig disabled={separating} onstart={handlePipelineStart} />
     <PitchControl value={pitchValue} disabled={separating} onapply={handlePitchApply} />
   </section>
@@ -276,10 +284,6 @@
       <ResultsPanel files={results} />
     </section>
   {/if}
-
-  <section class="model-loader">
-    <ModelLoader />
-  </section>
   {/if}
 </main>
 
@@ -363,10 +367,6 @@
   }
 
   .results {
-    width: 100%;
-  }
-
-  .model-loader {
     width: 100%;
   }
 

@@ -342,6 +342,9 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 		flags.VocalModel = preset.VocalModel
 	}
 
+	// Clean previous status file before launching new pipeline
+	os.Remove(pipeline.StatusFile())
+
 	// Launch pipeline in background
 	song := strings.TrimSuffix(filepath.Base(req.Input), filepath.Ext(req.Input))
 	go pipeline.Run(flags)
