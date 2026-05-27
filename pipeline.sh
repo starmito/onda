@@ -68,6 +68,44 @@ JSONEOF
 }
 trap 'report_progress "error" "${CURRENT_STEP:-unknown}" 0' ERR
 
+# ── Background elapsed/eta updater ─────────────
+# Runs in a subshell loop, updating elapsed and eta every second
+# while a long-running docker exec is in progress.
+update_elapsed_loop() {
+    while true; do
+        sleep 1
+        if [ -f "$STATUS_FILE" ]; then
+            now=$(date +%s)
+            e=$((now - START_TIME))
+            # Read current progress from status file
+            prog=$(jq -r '.progress' "$STATUS_FILE" 2>/dev/null)
+            [ -z "$prog" ] && prog=0
+            # Recalculate eta based on current progress
+            eta=0
+            if [ "$(echo "$prog > 0" | bc -l)" = "1" ] && [ "$e" -gt 0 ]; then
+                eta=$(echo "scale=0; ($e / $prog) - $e" | bc)
+            fi
+            # Update only elapsed and eta; preserve status, step, progress, song
+            jq --argjson e "$e" --argjson eta "$eta" \
+               '.elapsed = $e | .eta = $eta' \
+               "$STATUS_FILE" > "${STATUS_FILE}.tmp" && \
+               mv "${STATUS_FILE}.tmp" "$STATUS_FILE"
+        fi
+    done
+}
+
+# Helper: run a command with elapsed/eta updates in background
+# Usage: run_with_elapsed <command...>
+run_with_elapsed() {
+    update_elapsed_loop &
+    local elapsed_pid=$!
+    "$@"
+    local cmd_rc=$?
+    kill $elapsed_pid 2>/dev/null
+    wait $elapsed_pid 2>/dev/null
+    return $cmd_rc
+}
+
 
 # ── Parse flags ──────────────────────────────────
 VIPERX=false
@@ -130,6 +168,9 @@ echo "════════════════════════�
 
 mkdir -p "${OUTPUT}"
 
+# Clean previous output to prevent accumulation of old stems
+rm -f "${OUTPUT}"/*.wav 2>/dev/null || true
+
 # ── Track what's available for downstream steps ──
 STEM_DIR=""        # dir with drums/bass/other/vocals for rubberband
 INSTRUMENTAL=""    # .wav for demucs input
@@ -142,7 +183,8 @@ if $VIPERX; then
     echo "🔪 Viperx → vocal + instrumental..."
     TMP_VIP="${OUTPUT}/_viperx"
     report_progress "running" "viperx" 5
-    docker exec $ONDA_CONTAINER python3 /app/inference/inference_universal.py "${VIPERX_MODEL}" "$(to_container "${INPUT}")" "$(to_container "${TMP_VIP}")" 8
+    CURRENT_STEP="viperx"
+    run_with_elapsed docker exec $ONDA_CONTAINER python3 /app/inference/inference_universal.py "${VIPERX_MODEL}" "$(to_container "${INPUT}")" "$(to_container "${TMP_VIP}")" 8
     echo "   ✅ Viperx done"
 
     report_progress "running" "viperx" 35
@@ -190,7 +232,8 @@ if $DEMUCS; then
 
     TMP_DEM="${OUTPUT}/_demucs"
     report_progress "running" "demucs" 45
-    docker exec $ONDA_CONTAINER demucs -n htdemucs_ft -o "$(to_container "${TMP_DEM}")" "$(to_container "${DEMUCS_INPUT}")"
+    CURRENT_STEP="demucs"
+    run_with_elapsed docker exec $ONDA_CONTAINER demucs -n htdemucs_ft -o "$(to_container "${TMP_DEM}")" "$(to_container "${DEMUCS_INPUT}")"
     echo "   ✅ HTDemucs_ft done"
 
     # Find stem directory
@@ -230,12 +273,13 @@ if $RUBBERBAND; then
 
     if [ -n "${STEM_DIR}" ]; then
         report_progress "running" "rubberband" 80
+        CURRENT_STEP="rubberband"
         # Stems from demucs or viperx — apply rubberband to selected stems
         for stem in bass other vocals; do
             if [[ "${DEMUCS_KEEP}" == "all" ]] || [[ ",${DEMUCS_KEEP}," == *",${stem},"* ]]; then
                 SRC=$(find "${STEM_DIR}" -maxdepth 1 -iname "*${stem}*" | head -1)
                 if [ -n "${SRC}" ]; then
-                    docker exec $ONDA_CONTAINER rubberband --pitch "${PITCH}" --quiet "$(to_container "${SRC}")" "$(to_container "${OUTPUT}/${stem}.wav")"
+                    run_with_elapsed docker exec $ONDA_CONTAINER rubberband --pitch "${PITCH}" --quiet "$(to_container "${SRC}")" "$(to_container "${OUTPUT}/${stem}.wav")"
                     echo "   ✅ ${stem} → ${OUTPUT}/${stem}.wav"
                 fi
             else
@@ -256,7 +300,8 @@ if $RUBBERBAND; then
         # No prior steps: apply rubberband directly to input
         # Only pitch if it's a mono/stereo track (not stems)
         OUT_FILE="${OUTPUT}/${SONG}_pitch${PITCH}.wav"
-        docker exec $ONDA_CONTAINER rubberband --pitch "${PITCH}" --quiet "$(to_container "${INPUT}")" "$(to_container "${OUT_FILE}")"
+        CURRENT_STEP="rubberband"
+        run_with_elapsed docker exec $ONDA_CONTAINER rubberband --pitch "${PITCH}" --quiet "$(to_container "${INPUT}")" "$(to_container "${OUT_FILE}")"
         echo "   ✅ pitch shift → ${OUT_FILE}"
     fi
 fi
