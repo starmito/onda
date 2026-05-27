@@ -320,43 +320,15 @@
   }
 
   // ---- ResultsPanel delete callbacks ---- 
-  async function handleStemDeleted() {
-    try {
-      const status = await getStatus();
-      if (status.files && status.files.length > 0) {
-        const newResults: ResultStem[] = status.files.map((f: any) => ({
-          name: f.name,
-          path: f.path,
-          song: status.song || f.name.replace(/_(vocals|drums|bass|other|instrumental)\.\w+$/i, ''),
-          stemType: detectStemType(f.name),
-        }));
-        results = [...newResults];
-      } else {
-        results = [];
-        pipelineStatus = 'idle';
-      }
-    } catch (err) {
-      console.error('Failed to refresh results after stem delete:', err);
-    }
+  function handleStemDeleted(song: string, name: string) {
+    results = results.filter(s => !(s.song === song && s.name === name));
   }
 
-  async function handleGroupDeleted() {
-    try {
-      const status = await getStatus();
-      if (status.files && status.files.length > 0) {
-        const newResults: ResultStem[] = status.files.map((f: any) => ({
-          name: f.name,
-          path: f.path,
-          song: status.song || f.name.replace(/_(vocals|drums|bass|other|instrumental)\.\w+$/i, ''),
-          stemType: detectStemType(f.name),
-        }));
-        results = [...newResults];
-      } else {
-        results = [];
-        pipelineStatus = 'idle';
-      }
-    } catch (err) {
-      console.error('Failed to refresh results after group delete:', err);
+  function handleGroupDeleted(song: string) {
+    results = results.filter(s => s.song !== song);
+    // If no results left, reset pipeline status
+    if (results.length === 0) {
+      pipelineStatus = 'idle';
     }
   }
 
