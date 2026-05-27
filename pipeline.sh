@@ -101,8 +101,8 @@ run_with_elapsed() {
     local elapsed_pid=$!
     "$@"
     local cmd_rc=$?
-    kill $elapsed_pid 2>/dev/null
-    wait $elapsed_pid 2>/dev/null
+    kill $elapsed_pid 2>/dev/null || true
+    wait $elapsed_pid 2>/dev/null || true
     return $cmd_rc
 }
 
