@@ -660,13 +660,8 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Clear status file if the deleted file's song matches current status
-	if st, err := readPipelineStatus(); err == nil {
-		parts := strings.SplitN(file, "/", 2)
-		if len(parts) > 0 && parts[0] == st.Song {
-			os.Remove(pipelineStatusFilePath())
-		}
-	}
+	// Don't clear the status file for single-stem deletion; the pipeline is still valid.
+	// Only handleDeleteSong (the whole directory delete) clears the status.
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
