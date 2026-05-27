@@ -375,6 +375,22 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	projectRoot := findProjectRoot()
 	pipelineScript := filepath.Join(projectRoot, "pipeline.sh")
 
+	// Convert container paths to host paths for pipeline.sh.
+	// pipeline.sh runs on the HOST, so /input/... and /output/... won't resolve.
+	// The bind mounts are: ./input -> /input, ./output -> /output.
+	song := strings.TrimSuffix(filepath.Base(req.Input), filepath.Ext(req.Input))
+	hostInput := req.Input
+	hostOutput := req.Output
+
+	if strings.HasPrefix(req.Input, "/input/") {
+		hostInput = filepath.Join(projectRoot, "input", filepath.Base(req.Input))
+	}
+	if hostOutput == "" {
+		hostOutput = filepath.Join(projectRoot, "output", song)
+	} else if strings.HasPrefix(req.Output, "/output/") {
+		hostOutput = filepath.Join(projectRoot, "output", strings.TrimPrefix(req.Output, "/output/"))
+	}
+
 	args := []string{pipelineScript}
 
 	if req.Viperx {
@@ -392,17 +408,13 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	if req.Pitch != 0 {
 		args = append(args, "--rubberband", "--pitch", fmt.Sprintf("%d", req.Pitch))
 	}
-	// If output is specified, pass it; otherwise pipeline.sh defaults to /output/<song>
-	if req.Output != "" {
-		args = append(args, "--output", req.Output)
-	}
-	args = append(args, req.Input)
+	args = append(args, "--output", hostOutput)
+	args = append(args, hostInput)
 
 	// Clean previous status file before launching new pipeline
 	os.Remove(pipelineStatusFilePath())
 
 	// Launch pipeline in background
-	song := strings.TrimSuffix(filepath.Base(req.Input), filepath.Ext(req.Input))
 	go func() {
 		cmd := exec.Command("bash", args...)
 		cmd.Dir = projectRoot
