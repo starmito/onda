@@ -108,6 +108,12 @@ if [ ! -f "$INPUT" ]; then
     exit 1
 fi
 
+# ── Smart defaults: ViperX ya separa vocals, Demucs no necesita repetir ──
+if $VIPERX && $DEMUCS && [ "${DEMUCS_KEEP}" = "all" ]; then
+    DEMUCS_KEEP="drums,bass,other"
+    echo "   ℹ️  ViperX activo → Demucs vocals excluido (ya existe vocals_viperx)"
+fi
+
 SONG=$(basename "${INPUT%.*}")
 OUTPUT="${OUTPUT:-/output/${SONG}}"
 
