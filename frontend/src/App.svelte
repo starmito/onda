@@ -528,7 +528,7 @@
 
   <!-- ModelManager panel -->
   {#if showModelPanel}
-    <ModelManager onclose={() => (showModelPanel = false)} />
+    <ModelManager onclose={() => (showModelPanel = false)} initialModel={modelConfig.vocalModel || modelConfig.stemModel || undefined} />
   {/if}
 </main>
 
