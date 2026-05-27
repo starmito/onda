@@ -64,10 +64,9 @@
       song,
       stems: stems.map((s) => {
         const key = stemKey(s.song || song, s.name);
-        if (!stemStates[key]) {
-          stemStates[key] = { muted: false, solo: false, volume: 100 };
-        }
-        return { ...s, stemType: s.stemType || 'other', ...stemStates[key] };
+        // Read-only: never mutate $state inside $derived
+        const state = stemStates[key] || { muted: false, solo: false, volume: 100 };
+        return { ...s, stemType: s.stemType || 'other', ...state };
       }),
     }));
   }
