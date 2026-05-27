@@ -1,21 +1,26 @@
 <script lang="ts">
-  import DropZone from './lib/DropZone.svelte';
-  import PipelineConfig from './lib/PipelineConfig.svelte';
-  import type { PipelineConfig as PipelineConfigType } from './lib/PipelineConfig.svelte';
-  import PitchControl from './lib/PitchControl.svelte';
-  import FileQueue from './lib/FileQueue.svelte';
-  import type { QueueFile } from './lib/FileQueue.svelte';
-  import ProgressBar from './lib/ProgressBar.svelte';
   import ResultsPanel from './lib/ResultsPanel.svelte';
   import type { ResultStem } from './lib/types';
   import { detectStemType } from './lib/types';
-  import HealthBar from './lib/HealthBar.svelte';
-  import BackendControls from './lib/BackendControls.svelte';
-  import PresetSelector from './lib/PresetSelector.svelte';
-  import GpuMonitor from './lib/GpuMonitor.svelte';
-  import ModelConfigScreen from './lib/ModelConfigScreen.svelte';
   import { getModels, separateAudio, getStatus, uploadAudio, getLocalModels } from './lib/api';
   import type { LocalModel, StatusResponse } from './lib/api';
+
+  interface QueueFile {
+    file: File;
+    id: string;
+    status: string;
+    checked: boolean;
+    progress?: number;
+    path?: string;
+    errorMsg?: string;
+  }
+  interface PipelineConfigType {
+    preset?: string;
+    viperx: boolean;
+    viperxKeep?: string;
+    demucs: boolean;
+    demucsKeep?: string[];
+  }
 
   // ---- State ----
   let queueFiles = $state<QueueFile[]>([]);
@@ -354,79 +359,15 @@
 </script>
 
 <main>
-  {#if showModelConfig}
-    <ModelConfigScreen
-      modelInfos={modelInfos}
-      onclose={() => (showModelConfig = false)}
-    />
-  {:else}
   <header>
     <h1>🎵 Onda</h1>
     <span class="version">v2.0.0-alpha</span>
-    <div class="header-right">
-      <GpuMonitor />
-      <HealthBar />
-      <BackendControls />
-    </div>
   </header>
-
-  <section class="upload">
-    <DropZone onfile={handleDropZoneFile} />
-  </section>
-
-  {#if queueFiles.length > 0}
-    <section class="queue-section">
-      <FileQueue
-        files={queueFiles}
-        disabled={separating}
-        overallProgress={currentProgress}
-        overallEta={pipelineEta}
-        onaddfiles={handleFilesAdded}
-        onclear={handleClearQueue}
-        ontoggle={handleToggleQueueFile}
-      />
-    </section>
-  {/if}
-
-  <section class="controls">
-    <PresetSelector
-      presets={presets}
-      disabled={separating}
-      onseparate={(preset: string) => {
-        handlePresetStart(preset);
-      }}
-      onselect={(key: string) => {
-        // track selected preset for downstream use
-        console.debug('Preset selected:', key);
-      }}
-      modelsError={modelsError}
-    />
-    <button
-      class="advanced-config-btn"
-      onclick={() => (showModelConfig = true)}
-    >
-      ⚙️ Configuración avanzada
-    </button>
-    <PipelineConfig
-      disabled={separating}
-      onstart={handlePipelineStart}
-      onviperxonly={handleViperxOnly}
-      ondemucsonly={handleDemucsOnly}
-    />
-    <PitchControl value={pitchValue} disabled={separating} onapply={handlePitchApply} />
-  </section>
-
-  {#if pipelineStatus !== 'idle'}
-    <section class="progress">
-      <ProgressBar status={pipelineStatus} step={pipelineStep} model={pipelineModel} progress={currentProgress} error={pipelineError} />
-    </section>
-  {/if}
 
   {#if results.length > 0}
     <section class="results">
       <ResultsPanel files={results} onstemdeleted={handleStemDeleted} ongroupdeleted={handleGroupDeleted} />
     </section>
-  {/if}
   {/if}
 
   {#if toastMessage}
