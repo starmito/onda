@@ -332,17 +332,23 @@ func (p *Pipeline) runStemSeparation() error {
 	}
 
 	// Demucs outputs to <model>/<trackname>/ with two stems: vocals.wav and no_vocals.wav
-	demucsSubDir := filepath.Join(p.dockerOutput, p.flags.StemModel, p.song+"_instrumental")
+	// The trackname is the input filename without extension
+	inputBase := filepath.Base(inputPath)
+	trackName := strings.TrimSuffix(inputBase, filepath.Ext(inputBase))
+	demucsSubDir := filepath.Join(p.dockerOutput, p.flags.StemModel, trackName)
+
 	stems := []string{"vocals.wav", "no_vocals.wav"}
 	for _, stem := range stems {
 		src := filepath.Join(demucsSubDir, stem)
 		dst := filepath.Join(p.dockerOutput, stem)
 		// Copy inside container using cp
-		exec.Command("docker", "exec", dockerContainer,
-			"cp", src, dst).Run()
+		if err := exec.Command("docker", "exec", dockerContainer,
+			"cp", src, dst).Run(); err != nil {
+			return fmt.Errorf("failed to copy %s from Demucs output: %w", stem, err)
+		}
 	}
 
-	// Clean up the Demucs subdirectory
+	// Clean up the Demucs subdirectory (best-effort)
 	exec.Command("docker", "exec", dockerContainer,
 		"rm", "-rf", demucsSubDir).Run()
 
