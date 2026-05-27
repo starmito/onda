@@ -7,8 +7,10 @@
 # Flags (any combination):
 #   --viperx              BS-Roformer-Viperx → vocal + instrumental
 #   --viperx-keep WHAT    What to save: instrumental | vocals | both (default)
+#   --viperx-model PATH   ViperX model path (default: /app/models/VR_Models/BS_Roformer_Viperx)
 #   --demucs              HTDemucs_ft → drums, bass, other, vocals
 #   --demucs-keep LIST    Stems to keep: drums,bass,other,vocals or all (default)
+#   --demucs-model NAME   Demucs model name (default: htdemucs_ft)
 #   --rubberband          Pitch shift all stems except drums
 #   --pitch N             Semitones for rubberband (default: 0)
 #   --output DIR          Output directory (default: /output/<song_name>)
@@ -110,8 +112,10 @@ run_with_elapsed() {
 # ── Parse flags ──────────────────────────────────
 VIPERX=false
 VIPERX_KEEP="both"
+VIPERX_MODEL="/app/models/VR_Models/BS_Roformer_Viperx"
 DEMUCS=false
 DEMUCS_KEEP="all"
+DEMUCS_MODEL="htdemucs_ft"
 RUBBERBAND=false
 PITCH=0
 OUTPUT=""
@@ -121,8 +125,10 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --viperx)       VIPERX=true; shift ;;
         --viperx-keep)  VIPERX_KEEP="$2"; shift 2 ;;
+        --viperx-model) VIPERX_MODEL="$2"; shift 2 ;;
         --demucs)       DEMUCS=true; shift ;;
         --demucs-keep)  DEMUCS_KEEP="$2"; shift 2 ;;
+        --demucs-model) DEMUCS_MODEL="$2"; shift 2 ;;
         --rubberband)   RUBBERBAND=true; shift ;;
         --pitch)        PITCH="$2"; shift 2 ;;
         --output)       OUTPUT="$2"; shift 2 ;;
@@ -154,8 +160,6 @@ fi
 
 SONG=$(basename "${INPUT%.*}")
 OUTPUT="${OUTPUT:-/output/${SONG}}"
-
-VIPERX_MODEL="/app/models/VR_Models/BS_Roformer_Viperx"
 
 echo "═══════════════════════════════════════"
 echo "🎵 Onda Pipeline"
@@ -233,13 +237,13 @@ if $DEMUCS; then
     TMP_DEM="${OUTPUT}/_demucs"
     report_progress "running" "demucs" 45
     CURRENT_STEP="demucs"
-    run_with_elapsed docker exec $ONDA_CONTAINER demucs -n htdemucs_ft -o "$(to_container "${TMP_DEM}")" "$(to_container "${DEMUCS_INPUT}")"
+    run_with_elapsed docker exec $ONDA_CONTAINER demucs -n "${DEMUCS_MODEL}" -o "$(to_container "${TMP_DEM}")" "$(to_container "${DEMUCS_INPUT}")"
     echo "   ✅ HTDemucs_ft done"
 
     # Find stem directory
-    DEMUCS_OUT=$(find "${TMP_DEM}" -type d -name "htdemucs_ft" | head -1)
+    DEMUCS_OUT=$(find "${TMP_DEM}" -type d -name "${DEMUCS_MODEL}" | head -1)
     report_progress "running" "demucs" 75
-    STEM_DIR=$(find "${DEMUCS_OUT}" -maxdepth 1 -type d ! -name "htdemucs_ft" | head -1)
+    STEM_DIR=$(find "${DEMUCS_OUT}" -maxdepth 1 -type d ! -name "${DEMUCS_MODEL}" | head -1)
     STEM_DIR="${STEM_DIR:-${DEMUCS_OUT}}"
 
     # If rubberband is off, copy only selected stems to output
