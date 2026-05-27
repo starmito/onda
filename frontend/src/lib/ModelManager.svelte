@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getModelConfig, setModelConfig, getLocalModels, type ModelConfigResponse, type LocalModel } from './api';
+  import { getModelConfig, setModelConfig, getLocalModels, getGpuInfo, type ModelConfigResponse, type LocalModel, type GpuInfo } from './api';
 
   interface Props {
     onclose?: () => void;
@@ -20,6 +20,29 @@
   let feedbackType = $state<'success' | 'error'>('success');
   let loading = $state(true);
   let saving = $state(false);
+  let totalVramMb = $state<number | null>(null);
+  let vramError = $state(false);
+
+  // Derived VRAM estimate
+  let selectedModelSizeMb = $derived.by(() => {
+    if (!selectedModel) return null;
+    const found = models.find(m => m.name === selectedModel);
+    return found ? found.size_mb : null;
+  });
+
+  let estimatedVramMb = $derived.by(() => {
+    if (selectedModelSizeMb === null) return null;
+    const base = selectedModelSizeMb;
+    const bs = batchSize === 0 ? 1 : batchSize;
+    const cs = chunkSize === 0 ? 1 : chunkSize / 1024;
+    const factor = (segmentSize / 256) * (1 + overlap) * Math.max(1, bs) * cs;
+    return base * factor;
+  });
+
+  let vramPercent = $derived.by(() => {
+    if (estimatedVramMb === null || totalVramMb === null || totalVramMb <= 0) return null;
+    return (estimatedVramMb / totalVramMb) * 100;
+  });
 
   // Group models by category for optgroup
   let groupedModels = $derived.by(() => {
@@ -63,6 +86,19 @@
       loading = false;
     }
     load();
+
+    // Load GPU info for VRAM estimation
+    async function loadGpu() {
+      try {
+        const gpu = await getGpuInfo();
+        totalVramMb = gpu.vram_total_mb;
+        vramError = false;
+      } catch {
+        vramError = true;
+        totalVramMb = null;
+      }
+    }
+    loadGpu();
   });
 
   async function loadConfig(modelName: string): Promise<void> {
@@ -110,6 +146,16 @@
 
   function formatOverlap(v: number): string {
     return v.toFixed(2);
+  }
+
+  function formatGb(mb: number): string {
+    return (mb / 1024).toFixed(1) + ' GB';
+  }
+
+  function vramBarColor(pct: number): string {
+    if (pct > 85) return '#e57373';
+    if (pct >= 60) return '#ffb74d';
+    return '#81c784';
   }
 </script>
 
@@ -169,8 +215,8 @@
             />
             <p class="param-desc">Tamaño del segmento de audio procesado. Valores altos = mejor calidad pero más VRAM y más lento.</p>
             <div class="slider-labels">
-              <span>⚡ Fast / -VRAM</span>
-              <span>🎵 Quality / +VRAM</span>
+              <span class="slider-min">64 — ⚡ Fast / -VRAM</span>
+              <span class="slider-max">🎵 Quality / +VRAM — 1024</span>
             </div>
           </div>
 
@@ -189,8 +235,8 @@
             />
             <p class="param-desc">Solapamiento entre segmentos. Más overlap = transiciones más suaves pero más lento y más VRAM.</p>
             <div class="slider-labels">
-              <span>⚡ Fast / -VRAM</span>
-              <span>🔄 Smooth / +VRAM</span>
+              <span class="slider-min">0 — ⚡ Fast / -VRAM</span>
+              <span class="slider-max">🔄 Smooth / +VRAM — 0.5</span>
             </div>
           </div>
 
@@ -207,10 +253,10 @@
               step="256"
               bind:value={chunkSize}
             />
-            <p class="param-desc">Tamaño del chunk para procesamiento por lotes. 0 = automático. Valores altos = más VRAM, potencialmente más rápido.</p>
+            <p class="param-desc">Tamaño del chunk para procesamiento por lotes. 0 = automático. Valores altos = más VRAM, potencialmente más rápido. No afecta a la calidad del resultado.</p>
             <div class="slider-labels">
-              <span>🤖 Auto</span>
-              <span>📦 Large / +VRAM</span>
+              <span class="slider-min">0 — 🤖 Auto</span>
+              <span class="slider-max">📦 Large / +VRAM — 4096</span>
             </div>
           </div>
 
@@ -227,10 +273,10 @@
               step="1"
               bind:value={batchSize}
             />
-            <p class="param-desc">Número de muestras procesadas en paralelo. Valores altos = más rápido en GPU pero mucha más VRAM. 0 = automático.</p>
+            <p class="param-desc">Número de muestras procesadas en paralelo. Valores altos = más rápido en GPU pero mucha más VRAM. 0 = automático. No afecta a la calidad del resultado.</p>
             <div class="slider-labels">
-              <span>🤖 Auto</span>
-              <span>⚡ GPU / ++VRAM</span>
+              <span class="slider-min">0 — 🤖 Auto</span>
+              <span class="slider-max">⚡ GPU / ++VRAM — 32</span>
             </div>
           </div>
 
@@ -243,6 +289,37 @@
             </select>
             <p class="param-desc">Dispositivo de inferencia. CUDA usa la GPU (más rápido, requiere VRAM). CPU es más lento pero no usa VRAM.</p>
           </div>
+
+          <!-- VRAM Estimation -->
+          {#if estimatedVramMb !== null}
+            <div class="vram-section">
+              <div class="vram-header">
+                <span>🧠 VRAM Estimada</span>
+                {#if vramPercent !== null}
+                  <span class="vram-pct" style="color: {vramBarColor(vramPercent)}">{vramPercent.toFixed(0)}%</span>
+                {/if}
+              </div>
+              <div class="vram-bar-track">
+                <div
+                  class="vram-bar-fill"
+                  style="width: {Math.min(vramPercent ?? 0, 100)}%; background: {vramBarColor(vramPercent ?? 0)}"
+                ></div>
+              </div>
+              <div class="vram-text">
+                Estimado: {formatGb(estimatedVramMb)}
+                {#if totalVramMb !== null} / {formatGb(totalVramMb)}{/if}
+                {#if vramPercent !== null} ({vramPercent.toFixed(0)}%){/if}
+              </div>
+            </div>
+          {:else if vramError}
+            <div class="vram-section">
+              <div class="vram-text muted">VRAM no disponible</div>
+            </div>
+          {:else}
+            <div class="vram-section">
+              <div class="vram-text muted">Selecciona un modelo para estimar VRAM</div>
+            </div>
+          {/if}
 
           <button class="btn-apply" onclick={handleApply} disabled={saving}>
             {saving ? 'Guardando...' : 'Aplicar'}
@@ -360,6 +437,12 @@
     color: #666;
   }
 
+  .slider-min,
+  .slider-max {
+    color: #555;
+    font-size: 0.65rem;
+  }
+
   .param-desc {
     font-size: 0.75rem;
     color: #888;
@@ -435,5 +518,49 @@
   .feedback.error {
     background: #3a1b1b;
     color: #e57373;
+  }
+
+  /* VRAM estimation */
+  .vram-section {
+    margin-top: 0.25rem;
+  }
+
+  .vram-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 0.8rem;
+    color: #c0c0d0;
+    margin-bottom: 0.3rem;
+  }
+
+  .vram-pct {
+    font-weight: 700;
+    font-size: 0.85rem;
+  }
+
+  .vram-bar-track {
+    width: 100%;
+    height: 8px;
+    background: #2a2a4a;
+    border-radius: 4px;
+    overflow: hidden;
+  }
+
+  .vram-bar-fill {
+    height: 100%;
+    border-radius: 4px;
+    transition: width 0.2s ease, background 0.2s ease;
+  }
+
+  .vram-text {
+    font-size: 0.7rem;
+    color: #888;
+    margin-top: 0.25rem;
+  }
+
+  .vram-text.muted {
+    color: #555;
+    font-style: italic;
   }
 </style>
