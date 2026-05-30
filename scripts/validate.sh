@@ -69,8 +69,8 @@ if [ -d "$MODEL_DIR" ]; then
     [ -d "$VIPERX_PATH" ] && check "ViperX model: $VIPERX_PATH" || warn_check "ViperX model: $VIPERX_PATH (not found — OK for build, needed for runtime)"
 
     # Check Demucs model
-    DEMUCS_PATH="$MODEL_DIR/htdemucs_ft"
-    [ -d "$DEMUCS_PATH" ] && check "Demucs model: $DEMUCS_PATH" || warn_check "Demucs model: $DEMUCS_PATH (not found — OK for build, needed for runtime)"
+    DEMUCS_PATH="$MODEL_DIR/Demucs_ONNX"
+    [ -d "$DEMUCS_PATH" ] && check "ONNX stems: $DEMUCS_PATH" || warn_check "ONNX stems: $DEMUCS_PATH (not found — Demucs included in Docker image)"
 else
     warn_check "Model dir: $MODEL_DIR (not accessible from this machine — OK for build)"
 fi
