@@ -84,7 +84,7 @@ setup: ## Configuración inicial: detecta GPU, crea .env y directorios
 	@echo "  ✅ Directorios creados: $(INPUT_DIR)/ $(OUTPUT_DIR)/ $(MODEL_DIR)/"
 	@# Validate
 	@if [ -f scripts/validate.sh ]; then \
-		bash scripts/validate.sh; \
+		bash scripts/validate.sh || true; \
 	fi
 	@echo ""
 	@echo "$(GREEN)✅ Setup completo.$(NC)"

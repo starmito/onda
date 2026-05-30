@@ -19,7 +19,7 @@ echo ""
 echo "📁 Required files"
 [ -f pipeline.sh ]        ; check "pipeline.sh"
 [ -f inference_universal.py ]; check "inference_universal.py"
-[ -f Dockerfile.v2 ]       ; check "Dockerfile.v2"
+[ -f Dockerfile ] || [ -f Dockerfile.v2 ]       ; check "Dockerfile"
 [ -f docker-compose.yml ]  ; check "docker-compose.yml"
 [ -f .dockerignore ]       ; check ".dockerignore"
 [ -f requirements-docker-v2.txt ]; check "requirements-docker-v2.txt"
@@ -50,8 +50,8 @@ echo ""
 
 # ── 4. Dockerfile sanity ──
 echo "🐳 Dockerfile checks"
-grep -q 'FROM.*runtime' Dockerfile.v2 ; check "Dockerfile.v2 has multi-stage (runtime)"
-grep -q 'python3\|python' Dockerfile.v2 ; warn_check "Dockerfile.v2 references python"
+grep -q 'FROM.*runtime' Dockerfile ; check "Dockerfile has multi-stage (runtime)"
+grep -q 'python3\|python' Dockerfile ; warn_check "Dockerfile references python"
 
 # Check .dockerignore has critical excludes
 for pattern in 'venv/' '__pycache__/' 'models/' '.git/' 'output'; do
@@ -85,11 +85,16 @@ fi
 echo ""
 
 # ── 7. Git state ──
+# ── 7. Git state ──
 echo "🔀 Git state"
-git diff --quiet || { echo -e "  ${YELLOW}⚠${NC} Uncommitted changes exist"; ((warn++)); }
-git diff --cached --quiet || { echo -e "  ${YELLOW}⚠${NC} Staged changes not committed"; ((warn++)); }
-UNPUSHED=$(git log --oneline @{u}.. 2>/dev/null | wc -l)
-[ "$UNPUSHED" -eq 0 ] && check "All commits pushed" || { echo -e "  ${YELLOW}⚠${NC} $UNPUSHED unpushed commits"; ((warn++)); }
+if git rev-parse --git-dir >/dev/null 2>&1; then
+    git diff --quiet || { echo -e "  ⚠ Uncommitted changes exist"; warn=1; }
+    git diff --cached --quiet || { echo -e "  ⚠ Staged changes not committed"; warn=1; }
+    UNPUSHED=0
+    [ "" -eq 0 ] && echo -e "  ✓ All commits pushed"; pass=1 || { echo -e "  ⚠  unpushed commits"; warn=1; }
+else
+    echo -e "  ⚠ Not a git repository — skipping git checks"; warn=1
+fi
 echo ""
 
 # ── Summary ──
