@@ -39,5 +39,4 @@ RUN printf '#!/bin/bash\ncd /tmp\nexec env PYTHONPATH=/usr/local/lib/python3.12/
 
 WORKDIR /app
 COPY . .
-COPY inference/ /app/
 ENTRYPOINT ["python"]
