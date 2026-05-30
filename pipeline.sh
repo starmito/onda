@@ -101,7 +101,7 @@ update_elapsed_loop() {
             now=$(date +%s)
             e=$((now - START_TIME))
             # Read current progress from status file
-            prog=$(jq -r '.progress' "$STATUS_FILE" 2>/dev/null)
+            prog=$(python3 -c "import json; print(json.load(open('$STATUS_FILE')).get('progress',0))" 2>/dev/null)
             [ -z "$prog" ] && prog=0
             # Recalculate eta based on current progress
             new_eta=0
@@ -268,8 +268,8 @@ if $VIPERX; then
     # Background loop: read progress file every second, map chunk/total to step range
     while kill -0 $VIPERX_PID 2>/dev/null; do
         if [ -f "$VIPERX_PROGRESS_FILE" ]; then
-            chunk=$(jq -r '.chunk' "$VIPERX_PROGRESS_FILE" 2>/dev/null)
-            total=$(jq -r '.total' "$VIPERX_PROGRESS_FILE" 2>/dev/null)
+            chunk=$(python3 -c "import json; print(json.load(open("$VIPERX_PROGRESS_FILE")).get("chunk",0))" 2>/dev/null)
+            total=$(python3 -c "import json; print(json.load(open("$VIPERX_PROGRESS_FILE")).get("total",0))" 2>/dev/null)
             if [ -n "$chunk" ] && [ -n "$total" ] && [ "$total" -gt 0 ]; then
                 step_pct=$(( chunk * 100 / total ))
                 global_pct=$(( VIPERX_START + (step_pct * (VIPERX_END - VIPERX_START) / 100) ))
