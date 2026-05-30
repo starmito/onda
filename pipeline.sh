@@ -44,6 +44,8 @@ ONDA_CONTAINER="onda"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 to_container() {
     local p="$1"
+    # Normalize relative paths to absolute so prefix matching works
+    [[ "$p" != /* ]] && p="${SCRIPT_DIR}/${p}"
     # Strip the host input dir prefix
     if [[ "$p" == "${SCRIPT_DIR}/input/"* ]]; then
         echo "/input/${p#${SCRIPT_DIR}/input/}"
@@ -56,9 +58,13 @@ to_container() {
 
 # ── Progress reporting ──────────────────────────
 START_TIME=$(date +%s)
+LAST_ETA=""  # cap ETA so it never increases between steps
 STATUS_FILE="/tmp/onda_pipeline_status.json"
 rm -f "$STATUS_FILE"
 CURRENT_STEP=""
+
+VIPERX_MODEL_DISPLAY=""   # friendly name like "BS_Roformer_Viperx"
+DEMUCS_MODEL_DISPLAY=""   # friendly name like "htdemucs_ft"
 
 report_progress() {
     local status="$1"
@@ -69,11 +75,18 @@ report_progress() {
     elapsed=$((now - START_TIME))
     eta=0
     if [ "$progress" -gt 0 ] && [ "$elapsed" -gt 0 ]; then
-        eta=$(( (elapsed * 100 / progress) - elapsed ))
+        new_eta=$(echo "scale=0; ($elapsed * (100 - $progress) / $progress)" | bc)
+        # Don't let ETA increase — it should only decrease or stay stable
+        if [ -z "$LAST_ETA" ] || [ "$new_eta" -lt "$LAST_ETA" ]; then
+            eta=$new_eta
+            LAST_ETA=$new_eta
+        else
+            eta=$LAST_ETA
+        fi
     fi
     progress_float=$(awk "BEGIN {printf \"%.2f\", $progress/100}")
     cat > "$STATUS_FILE" << JSONEOF
-{"status":"$status","step":"$step","progress":$progress_float,"song":"${SONG:-}","elapsed":$elapsed,"eta":$eta}
+{"status":"$status","step":"$step","progress":$progress_float,"song":"${SONG:-}","elapsed":$elapsed,"eta":$eta,"vocal_model":"$VIPERX_MODEL_DISPLAY","stem_model":"$DEMUCS_MODEL_DISPLAY","segment_size":$SEGMENT_SIZE,"overlap":$OVERLAP,"chunk_size":$CHUNK_SIZE,"batch_size":$BATCH_SIZE,"device":"$DEVICE","shifts":$SHIFTS,"demucs_segment":$DEMUCS_SEGMENT,"jobs":$JOBS}
 JSONEOF
 }
 trap 'report_progress "error" "${CURRENT_STEP:-unknown}" 0' ERR
@@ -91,9 +104,16 @@ update_elapsed_loop() {
             prog=$(jq -r '.progress' "$STATUS_FILE" 2>/dev/null)
             [ -z "$prog" ] && prog=0
             # Recalculate eta based on current progress
-            eta=0
+            new_eta=0
             if [ "$(echo "$prog > 0" | bc -l)" = "1" ] && [ "$e" -gt 0 ]; then
-                eta=$(echo "scale=0; ($e / $prog) - $e" | bc)
+                new_eta=$(echo "scale=0; ($e * (1 - $prog) / $prog)" | bc)
+                # Don't let ETA increase — it should only decrease or stay stable
+                if [ -z "$LOOP_LAST_ETA" ] || [ "$new_eta" -lt "$LOOP_LAST_ETA" ]; then
+                    eta=$new_eta
+                    LOOP_LAST_ETA=$new_eta
+                else
+                    eta=$LOOP_LAST_ETA
+                fi
             fi
             # Update only elapsed and eta; preserve status, step, progress, song
             jq --argjson e "$e" --argjson eta "$eta" \
@@ -161,6 +181,23 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# ── Progress ranges (dynamic based on active steps) ──
+VIPERX_START=0; VIPERX_END=0
+DEMUCS_START=0; DEMUCS_END=0
+if $VIPERX && $DEMUCS; then
+    VIPERX_START=0; VIPERX_END=65
+    DEMUCS_START=65; DEMUCS_END=100
+elif $VIPERX; then
+    VIPERX_START=0; VIPERX_END=100
+elif $DEMUCS; then
+    DEMUCS_START=0; DEMUCS_END=100
+fi
+
+# ── Model display names for status reporting ─────
+VIPERX_MODEL_DISPLAY="${VIPERX_MODEL##*/}"    # strip path, keep filename
+VIPERX_MODEL_DISPLAY="${VIPERX_MODEL_DISPLAY%.*}"  # strip extension
+DEMUCS_MODEL_DISPLAY="$DEMUCS_MODEL"
+
 # Default: all steps if none specified
 if ! $VIPERX && ! $DEMUCS && ! $RUBBERBAND; then
     VIPERX=true; DEMUCS=true; RUBBERBAND=true
@@ -210,12 +247,39 @@ if $VIPERX; then
     echo ""
     echo "🔪 Viperx → vocal + instrumental..."
     TMP_VIP="${OUTPUT}/_viperx"
-    report_progress "running" "viperx" 5
+    mkdir -p "${TMP_VIP}"  # must exist before progress file write
     CURRENT_STEP="viperx"
-    run_with_elapsed docker exec $ONDA_CONTAINER python3 /app/inference/inference_universal.py --segment_size ${SEGMENT_SIZE} --overlap ${OVERLAP} "${VIPERX_MODEL}" "$(to_container "${INPUT}")" "$(to_container "${TMP_VIP}")" ${SEGMENT_SIZE}
-    echo "   ✅ Viperx done"
+    # Convert overlap ratio (e.g. 0.25) to integer count (e.g. 4) for inference_universal.py
+    # The script expects: model_dir input output [num_overlap]
+    VIPERX_OVERLAP_INT=${OVERLAP}
+    if (( $(echo "${OVERLAP} < 1" | bc -l) )); then
+        VIPERX_OVERLAP_INT=$(echo "scale=0; 1/${OVERLAP}" | bc)
+    fi
 
-    report_progress "running" "viperx" 35
+    # Launch inference with progress file for real-time progress tracking
+    # Must use a bind-mounted path so both host and container can access the same file
+    VIPERX_PROGRESS_FILE="${TMP_VIP}/progress.json"
+    rm -f "$VIPERX_PROGRESS_FILE"
+    docker exec $ONDA_CONTAINER python3 /app/inference/inference_universal.py \
+        --progress-file "$(to_container "$VIPERX_PROGRESS_FILE")" \
+        "${VIPERX_MODEL}" "$(to_container "${INPUT}")" "$(to_container "${TMP_VIP}")" ${VIPERX_OVERLAP_INT} &
+    VIPERX_PID=$!
+
+    # Background loop: read progress file every second, map chunk/total to step range
+    while kill -0 $VIPERX_PID 2>/dev/null; do
+        if [ -f "$VIPERX_PROGRESS_FILE" ]; then
+            chunk=$(jq -r '.chunk' "$VIPERX_PROGRESS_FILE" 2>/dev/null)
+            total=$(jq -r '.total' "$VIPERX_PROGRESS_FILE" 2>/dev/null)
+            if [ -n "$chunk" ] && [ -n "$total" ] && [ "$total" -gt 0 ]; then
+                step_pct=$(( chunk * 100 / total ))
+                global_pct=$(( VIPERX_START + (step_pct * (VIPERX_END - VIPERX_START) / 100) ))
+                report_progress "running" "viperx" $global_pct
+            fi
+        fi
+        sleep 1
+    done
+    wait $VIPERX_PID
+    echo "   ✅ Viperx done"
 
     # Find instrumental (for demucs)
     INSTRUMENTAL=$(find "${TMP_VIP}" -maxdepth 1 \( -iname "*instrumental*" -o -iname "*no_vocals*" \) | head -1)
@@ -259,19 +323,29 @@ if $DEMUCS; then
     echo "   input: ${DEMUCS_INPUT}"
 
     TMP_DEM="${OUTPUT}/_demucs"
-    report_progress "running" "demucs" 45
     CURRENT_STEP="demucs"
     # Build demucs args with optional shift/segment/jobs flags
     DEMUCS_ARGS=(-n "${DEMUCS_MODEL}" --device "${DEVICE}" -o "$(to_container "${TMP_DEM}")")
     [ "${SHIFTS}" -gt 0 ] && DEMUCS_ARGS+=(--shifts "${SHIFTS}")
     [ "${DEMUCS_SEGMENT}" -gt 0 ] && DEMUCS_ARGS+=(--segment "${DEMUCS_SEGMENT}")
     [ "${JOBS}" -gt 0 ] && DEMUCS_ARGS+=(-j "${JOBS}")
-    run_with_elapsed docker exec $ONDA_CONTAINER demucs "${DEMUCS_ARGS[@]}" "$(to_container "${DEMUCS_INPUT}")"
+
+    # Run demucs, capture stdout, parse tqdm percentage for real-time progress
+    # Demucs uses \r (carriage return) for tqdm progress bars — split them into lines
+    docker exec $ONDA_CONTAINER demucs "${DEMUCS_ARGS[@]}" "$(to_container "${DEMUCS_INPUT}")" 2>&1 | \
+    tr '\r' '\n' | \
+    while IFS= read -r line; do
+        echo "$line"  # still echo for logging
+        if [[ "$line" =~ ([0-9]+)% ]]; then
+            pct="${BASH_REMATCH[1]}"
+            global_pct=$(( DEMUCS_START + (pct * (DEMUCS_END - DEMUCS_START) / 100) ))
+            report_progress "running" "demucs" $global_pct
+        fi
+    done
     echo "   ✅ HTDemucs_ft done"
 
     # Find stem directory
     DEMUCS_OUT=$(find "${TMP_DEM}" -type d -name "${DEMUCS_MODEL}" | head -1)
-    report_progress "running" "demucs" 75
     STEM_DIR=$(find "${DEMUCS_OUT}" -maxdepth 1 -type d ! -name "${DEMUCS_MODEL}" | head -1)
     STEM_DIR="${STEM_DIR:-${DEMUCS_OUT}}"
 
@@ -305,7 +379,6 @@ if $RUBBERBAND; then
     echo "🎛️  Rubberband — pitch ${PITCH} semitones"
 
     if [ -n "${STEM_DIR}" ]; then
-        report_progress "running" "rubberband" 80
         CURRENT_STEP="rubberband"
         # Stems from demucs or viperx — apply rubberband to selected stems
         for stem in bass other vocals; do

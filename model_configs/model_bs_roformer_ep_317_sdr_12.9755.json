@@ -1,7 +1,1 @@
-{
-  "segment_size": 801,
-  "overlap": 4,
-  "chunk_size": 0,
-  "batch_size": 1,
-  "device": "cuda"
-}
+{"segment_size":832,"overlap":0.45,"chunk_size":1024,"batch_size":1,"device":"cuda","shifts":0,"segment":0,"jobs":0}
