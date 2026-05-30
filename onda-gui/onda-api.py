@@ -48,6 +48,8 @@ class OndaAPI(BaseHTTPRequestHandler):
                 self._json(self._output_files(qs))
             elif path == "/api/health":
                 self._json(self._health())
+            elif path == "/api/gpu":
+                self._json(self._gpu())
             elif path == "/api/peaks":
                 self._json(self._peaks(qs))
             elif path == "/api/delete":
@@ -148,6 +150,49 @@ class OndaAPI(BaseHTTPRequestHandler):
         result["docker"] = {"ok": rc == 0, "code": "" if rc == 0 else "E6", "detail": "OK" if rc == 0 else "Docker socket not accessible"}
 
         return result
+
+    # ── GPU info with 5-second cache ──
+    _gpu_cache_time: float = 0
+    _gpu_cache_data: dict = {}
+
+    def _gpu(self):
+        """Query nvidia-smi for VRAM, temp, utilization. Cached 5s."""
+        import time as _time
+        now = _time.monotonic()
+        if (now - OndaAPI._gpu_cache_time) < 5:
+            return OndaAPI._gpu_cache_data
+
+        try:
+            r = subprocess.run(
+                [
+                    "nvidia-smi",
+                    "--query-gpu=memory.used,memory.total,temperature.gpu,utilization.gpu",
+                    "--format=csv,noheader,nounits",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                parts = r.stdout.strip().split(",")
+                if len(parts) >= 4:
+                    data = {
+                        "vram_used_mb": int(parts[0].strip()),
+                        "vram_total_mb": int(parts[1].strip()),
+                        "temperature": int(parts[2].strip()),
+                        "utilization": int(parts[3].strip()),
+                    }
+                    OndaAPI._gpu_cache_time = now
+                    OndaAPI._gpu_cache_data = data
+                    return data
+        except Exception:
+            pass
+
+        # No GPU or query failed — return zeros
+        data = {"vram_used_mb": 0, "vram_total_mb": 0, "temperature": 0, "utilization": 0}
+        OndaAPI._gpu_cache_time = now
+        OndaAPI._gpu_cache_data = data
+        return data
 
     def _backend_start(self):
         """Start the onda processing container."""
