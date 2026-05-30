@@ -46,3 +46,6 @@ validate_models.py
 models/MDX_Net_Models/
 models/Demucs_ONNX/
 input/
+*.bak
+.env
+onda-backend
