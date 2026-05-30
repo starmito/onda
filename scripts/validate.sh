@@ -91,7 +91,7 @@ if git rev-parse --git-dir >/dev/null 2>&1; then
     git diff --quiet || { echo -e "  ⚠ Uncommitted changes exist"; warn=1; }
     git diff --cached --quiet || { echo -e "  ⚠ Staged changes not committed"; warn=1; }
     UNPUSHED=0
-    [ "" -eq 0 ] && echo -e "  ✓ All commits pushed"; pass=1 || { echo -e "  ⚠  unpushed commits"; warn=1; }
+    if [ "" -eq 0 ]; then echo -e "  ✓ All commits pushed"; pass=1; else echo -e "  ⚠  unpushed commits"; warn=1; fi
 else
     echo -e "  ⚠ Not a git repository — skipping git checks"; warn=1
 fi
