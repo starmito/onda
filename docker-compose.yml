@@ -33,7 +33,7 @@ services:
     depends_on:
       - onda
     volumes:
-      - ./models:/models:ro
+      - /mnt/almacen/onda/models:/models:ro
       - ./input:/input
       - ./output:/output
       - /var/run/docker.sock:/var/run/docker.sock
