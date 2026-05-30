@@ -2,6 +2,15 @@
 
 ## v2.1.0-alpha — Fase 5: Modelos configurables + Editor visual de pipeline ✅
 
+### Deploy-ready + defaults locales (30-may-2026)
+
+- **docker-compose.yml:** paths configurables via `.env` (`MODEL_DIR`, `HOST_UID`, `HOST_GID`, `ONDA_PORT`), defaults locales (`./models`)
+- **.env.example:** template documentado con todos los valores
+- **Makefile raiz:** `make setup` (detecta GPU, crea .env, directorios), `make build`, `make up`, `make test`, `make validate`, `make clean`
+- **scripts/download-models.sh:** guia de descarga de modelos ViperX, Demucs, ONNX desde HuggingFace
+- **onda-gui/Makefile:** sin paths hardcodeados, usa `PROJECT_DIR` relativo
+- **Limpieza:** `Dockerfile.v2` unificado como `Dockerfile`, eliminado `pipeline.sh.bak`, `.gitignore` mejorado
+
 ### Robustez del pipeline + Build validation (30-may-2026)
 
 - **Fix:** Overlap float->int usa python3 (locale-independent), no awk — evita `ValueError: int('0.25')`
