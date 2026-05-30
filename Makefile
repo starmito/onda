@@ -2,6 +2,7 @@
 # ============================================================================
 # Uso rápido:
 #   make setup     — primer inicio: detecta GPU, crea .env y directorios
+	@echo "  make download-models  Descarga los modelos (~3.2 GB)"
 #   make build     — construye imágenes Docker
 #   make up        — levanta los contenedores
 #   make test      — prueba el pipeline con un audio de test
@@ -45,7 +46,8 @@ help: ## Muestra esta ayuda
 	@echo "$(GREEN)Primer despliegue:$(NC)"
 	@echo "  make setup    Detecta GPU, crea .env y directorios"
 
-	@echo "  make models  Descarga los modelos (~3.2 GB)"
+	@echo "  make download-models  Descarga los modelos (~3.2 GB)"
+	@echo "  make download-models  Descarga los modelos (~3.2 GB)"
 	@echo "  make build    Construye las imágenes Docker"
 	@echo "  make up       Levanta los contenedores"
 	@echo ""
@@ -96,6 +98,7 @@ setup: ## Configuración inicial: detecta GPU, crea .env y directorios
 	@echo "       Estructura esperada:"
 	@echo "       $(MODEL_DIR)/VR_Models/BS_Roformer_Viperx/"
 	@echo "       $(MODEL_DIR)/Demucs_ONNX/ (opcional)"
+	@echo "  make download-models  Descarga los modelos (~3.2 GB)"
 	@echo "    2. make build"
 	@echo "    3. make up"
 	@echo "    4. Abre http://localhost:3000"
