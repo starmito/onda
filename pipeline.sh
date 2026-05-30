@@ -75,7 +75,7 @@ report_progress() {
     elapsed=$((now - START_TIME))
     eta=0
     if [ "$progress" -gt 0 ] && [ "$elapsed" -gt 0 ]; then
-        new_eta=$(echo "scale=0; ($elapsed * (100 - $progress) / $progress)" | bc)
+        new_eta=$(awk "BEGIN {printf \"%d\", int(($elapsed * (100 - $progress)) / $progress)}")
         # Don't let ETA increase — it should only decrease or stay stable
         if [ -z "$LAST_ETA" ] || [ "$new_eta" -lt "$LAST_ETA" ]; then
             eta=$new_eta
@@ -105,8 +105,8 @@ update_elapsed_loop() {
             [ -z "$prog" ] && prog=0
             # Recalculate eta based on current progress
             new_eta=0
-            if [ "$(echo "$prog > 0" | bc -l)" = "1" ] && [ "$e" -gt 0 ]; then
-                new_eta=$(echo "scale=0; ($e * (1 - $prog) / $prog)" | bc)
+            if awk "BEGIN {exit !($prog > 0)}" && [ "$e" -gt 0 ]; then
+                new_eta=$(awk "BEGIN {printf \"%d\", int(($e * (1 - $prog)) / $prog)}")
                 # Don't let ETA increase — it should only decrease or stay stable
                 if [ -z "$LOOP_LAST_ETA" ] || [ "$new_eta" -lt "$LOOP_LAST_ETA" ]; then
                     eta=$new_eta
@@ -252,17 +252,17 @@ if $VIPERX; then
     # Convert overlap ratio (e.g. 0.25) to integer count (e.g. 4) for inference_universal.py
     # The script expects: model_dir input output [num_overlap]
     VIPERX_OVERLAP_INT=${OVERLAP}
-    if (( $(echo "${OVERLAP} < 1" | bc -l) )); then
-        VIPERX_OVERLAP_INT=$(echo "scale=0; 1/${OVERLAP}" | bc)
+    if awk "BEGIN {exit !(${OVERLAP} < 1)}"; then
+        VIPERX_OVERLAP_INT=$(awk "BEGIN {printf \"%d\", int(1/${OVERLAP})}")
     fi
 
     # Launch inference with progress file for real-time progress tracking
     # Must use a bind-mounted path so both host and container can access the same file
     VIPERX_PROGRESS_FILE="${TMP_VIP}/progress.json"
     rm -f "$VIPERX_PROGRESS_FILE"
-    docker exec $ONDA_CONTAINER python3 /app/inference_universal.py \
-        --progress-file "$(to_container "$VIPERX_PROGRESS_FILE")" \
-        "${VIPERX_MODEL}" "$(to_container "${INPUT}")" "$(to_container "${TMP_VIP}")" ${VIPERX_OVERLAP_INT} &
+    python3 /app/inference_universal.py \
+        --progress-file "$VIPERX_PROGRESS_FILE" \
+        "${VIPERX_MODEL}" "${INPUT}" "${TMP_VIP}" ${VIPERX_OVERLAP_INT} &
     VIPERX_PID=$!
 
     # Background loop: read progress file every second, map chunk/total to step range
@@ -325,14 +325,14 @@ if $DEMUCS; then
     TMP_DEM="${OUTPUT}/_demucs"
     CURRENT_STEP="demucs"
     # Build demucs args with optional shift/segment/jobs flags
-    DEMUCS_ARGS=(-n "${DEMUCS_MODEL}" --device "${DEVICE}" -o "$(to_container "${TMP_DEM}")")
+    DEMUCS_ARGS=(-n "${DEMUCS_MODEL}" --device "${DEVICE}" -o "${TMP_DEM}")
     [ "${SHIFTS}" -gt 0 ] && DEMUCS_ARGS+=(--shifts "${SHIFTS}")
     [ "${DEMUCS_SEGMENT}" -gt 0 ] && DEMUCS_ARGS+=(--segment "${DEMUCS_SEGMENT}")
     [ "${JOBS}" -gt 0 ] && DEMUCS_ARGS+=(-j "${JOBS}")
 
     # Run demucs, capture stdout, parse tqdm percentage for real-time progress
     # Demucs uses \r (carriage return) for tqdm progress bars — split them into lines
-    docker exec $ONDA_CONTAINER demucs "${DEMUCS_ARGS[@]}" "$(to_container "${DEMUCS_INPUT}")" 2>&1 | \
+    demucs "${DEMUCS_ARGS[@]}" "${DEMUCS_INPUT}" 2>&1 | \
     tr '\r' '\n' | \
     while IFS= read -r line; do
         echo "$line"  # still echo for logging
@@ -385,7 +385,7 @@ if $RUBBERBAND; then
             if [[ "${DEMUCS_KEEP}" == "all" ]] || [[ ",${DEMUCS_KEEP}," == *",${stem},"* ]]; then
                 SRC=$(find "${STEM_DIR}" -maxdepth 1 -iname "*${stem}*" | head -1)
                 if [ -n "${SRC}" ]; then
-                    run_with_elapsed docker exec $ONDA_CONTAINER rubberband --pitch "${PITCH}" --quiet "$(to_container "${SRC}")" "$(to_container "${OUTPUT}/${stem}.wav")"
+                    run_with_elapsed rubberband --pitch "${PITCH}" --quiet "${SRC}" "${OUTPUT}/${stem}.wav"
                     echo "   ✅ ${stem} → ${OUTPUT}/${stem}.wav"
                 fi
             else
@@ -407,7 +407,7 @@ if $RUBBERBAND; then
         # Only pitch if it's a mono/stereo track (not stems)
         OUT_FILE="${OUTPUT}/${SONG}_pitch${PITCH}.wav"
         CURRENT_STEP="rubberband"
-        run_with_elapsed docker exec $ONDA_CONTAINER rubberband --pitch "${PITCH}" --quiet "$(to_container "${INPUT}")" "$(to_container "${OUT_FILE}")"
+        run_with_elapsed rubberband --pitch "${PITCH}" --quiet "${INPUT}" "${OUT_FILE}"
         echo "   ✅ pitch shift → ${OUT_FILE}"
     fi
 fi
