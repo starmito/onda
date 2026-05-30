@@ -101,7 +101,7 @@ update_elapsed_loop() {
             now=$(date +%s)
             e=$((now - START_TIME))
             # Read current progress from status file
-            prog=$(python3 -c "import json; print(json.load(open('$STATUS_FILE')).get('progress',0))" 2>/dev/null)
+            prog=$(python3 -c "import json; print(json.load(open('$STATUS_FILE')).get('progress',0))" 2>/dev/null || echo 0)
             [ -z "$prog" ] && prog=0
             # Recalculate eta based on current progress
             new_eta=0
@@ -252,13 +252,19 @@ if $VIPERX; then
     TMP_VIP="${OUTPUT}/_viperx"
     mkdir -p "${TMP_VIP}"  # must exist before progress file write
     CURRENT_STEP="viperx"
+    # Pre-flight: verify model path exists
+    if [ ! -d "${VIPERX_MODEL}" ]; then
+        echo "❌ ViperX model not found: ${VIPERX_MODEL}" >&2
+        exit 2
+    fi
+    if [ ! -f /app/inference_universal.py ]; then
+        echo "❌ inference_universal.py not found" >&2
+        exit 2
+    fi
     # Convert overlap ratio (e.g. 0.25) to integer count (e.g. 4) for inference_universal.py
     # The script expects: model_dir input output [num_overlap]
-    VIPERX_OVERLAP_INT=${OVERLAP}
-    if awk "BEGIN {exit !(${OVERLAP} < 1)}"; then
-        VIPERX_OVERLAP_INT=$(awk "BEGIN {printf \"%d\", int(1/${OVERLAP})}")
-    fi
-
+    # Uses python3 for reliable float->int conversion (awk locale-dependent)
+    VIPERX_OVERLAP_INT=$(python3 -c "o=${OVERLAP}; print(int(o) if o >= 1 else int(1/o))")
     # Launch inference with progress file for real-time progress tracking
     # Must use a bind-mounted path so both host and container can access the same file
     VIPERX_PROGRESS_FILE="${TMP_VIP}/progress.json"
@@ -271,8 +277,8 @@ if $VIPERX; then
     # Background loop: read progress file every second, map chunk/total to step range
     while kill -0 $VIPERX_PID 2>/dev/null; do
         if [ -f "$VIPERX_PROGRESS_FILE" ]; then
-            chunk=$(python3 -c "import json; print(json.load(open("$VIPERX_PROGRESS_FILE")).get("chunk",0))" 2>/dev/null)
-            total=$(python3 -c "import json; print(json.load(open("$VIPERX_PROGRESS_FILE")).get("total",0))" 2>/dev/null)
+            chunk=$(python3 -c "import json; print(json.load(open("$VIPERX_PROGRESS_FILE")).get("chunk",0))" 2>/dev/null || echo 0)
+            total=$(python3 -c "import json; print(json.load(open("$VIPERX_PROGRESS_FILE")).get("total",0))" 2>/dev/null || echo 0)
             if [ -n "$chunk" ] && [ -n "$total" ] && [ "$total" -gt 0 ]; then
                 step_pct=$(( chunk * 100 / total ))
                 global_pct=$(( VIPERX_START + (step_pct * (VIPERX_END - VIPERX_START) / 100) ))
@@ -424,5 +430,5 @@ echo ""
 echo "═══════════════════════════════════════"
 echo "✅ Pipeline complete!"
 echo ""
-ls -lh "${OUTPUT}"/*.wav 2>/dev/null | awk '{print "   " $NF " (" $5 ")"}'
+ls -lh "${OUTPUT}"/*.wav 2>/dev/null | awk '{print "   " $NF " (" $5 ")"}' || true
 echo "═══════════════════════════════════════"
