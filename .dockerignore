@@ -12,3 +12,5 @@ gui_data/
 .hermes/
 tmp/
 frontend/node_modules/
+inference/
+output.bak/
