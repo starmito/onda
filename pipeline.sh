@@ -116,10 +116,13 @@ update_elapsed_loop() {
                 fi
             fi
             # Update only elapsed and eta; preserve status, step, progress, song
-            jq --argjson e "$e" --argjson eta "$eta" \
-               '.elapsed = $e | .eta = $eta' \
-               "$STATUS_FILE" > "${STATUS_FILE}.tmp" && \
-               mv "${STATUS_FILE}.tmp" "$STATUS_FILE"
+            python3 -c "
+import json
+d=json.load(open('$STATUS_FILE'))
+d['elapsed']=$e
+d['eta']=$eta
+json.dump(d, open('${STATUS_FILE}.tmp','w'))
+" && mv "${STATUS_FILE}.tmp" "$STATUS_FILE"
         fi
     done
 }
