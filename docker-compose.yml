@@ -1,14 +1,22 @@
 # Onda — Base compose (sin GPU)
 # Override con docker-compose.nvidia.yml o docker-compose.amd.yml
+#
+# Configuración vía .env o variables de entorno:
+#   MODEL_DIR    — ruta a los modelos (default: ./models)
+#   HOST_UID     — UID del usuario host (default: 1000)
+#   HOST_GID     — GID del usuario host (default: 1000)
+#   GPU_TYPE     — nvidia | amd | cpu (default: cpu)
+#   ONDA_PORT    — puerto de la UI (default: 3000)
 
 services:
   # ── Backend: inferencia ──
   onda:
-    image: onda:${GPU_TYPE:-nvidia}
+    image: onda:${GPU_TYPE:-cpu}
     build:
+      context: .
       dockerfile: ${GPU_DOCKERFILE:-Dockerfile}
     container_name: onda
-    user: "1000:1000"
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     environment:
       - NUMBA_CACHE_DIR=/tmp/numba_cache
       - TORCH_HOME=/tmp/torch_cache
@@ -17,23 +25,23 @@ services:
       - HOME=/tmp
       - TORCHINDUCTOR_CACHE_DIR=/tmp/torch_inductor_cache
     volumes:
-      - /mnt/almacen/onda/models:/app/models:ro
+      - ${MODEL_DIR:-./models}:/app/models:ro
       - ./input:/input
       - ./output:/output
     working_dir: /app
     entrypoint: ["sh", "-c", "mkdir -p /tmp/numba_cache /tmp/torch_cache /tmp/xdg_cache /tmp/hf_cache /tmp/torch_inductor_cache && exec tail -f /dev/null"]
 
-  # ── Frontend: nginx + CGI bash ──
+  # ── Frontend: nginx + Python API ──
   onda-gui:
     build: ./onda-gui
     image: onda-gui:latest
     container_name: onda-gui
     ports:
-      - "3000:3000"
+      - "${ONDA_PORT:-3000}:3000"
     depends_on:
       - onda
     volumes:
-      - /mnt/almacen/onda/models:/models:ro
+      - ${MODEL_DIR:-./models}:/models:ro
       - ./input:/input
       - ./output:/output
       - /var/run/docker.sock:/var/run/docker.sock
