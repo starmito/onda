@@ -44,6 +44,8 @@ help: ## Muestra esta ayuda
 	@echo ""
 	@echo "$(GREEN)Primer despliegue:$(NC)"
 	@echo "  make setup    Detecta GPU, crea .env y directorios"
+
+	@echo "  make models  Descarga los modelos (~3.2 GB)"
 	@echo "  make build    Construye las imágenes Docker"
 	@echo "  make up       Levanta los contenedores"
 	@echo ""
@@ -122,6 +124,8 @@ test: ## Prueba el pipeline con el audio e2e_test.wav
 	fi
 	docker exec onda /app/pipeline.sh --viperx /input/e2e_test.wav
 	@echo "$(GREEN)✅ Test completado — revisa $(OUTPUT_DIR)/e2e_test/$(NC)"
+
+download-models: ## Descarga los modelos desde HuggingFace	@bash scripts/download-models.sh all
 
 validate: ## Ejecuta la validación pre-build
 	bash scripts/validate.sh
