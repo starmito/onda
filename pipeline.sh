@@ -260,7 +260,7 @@ if $VIPERX; then
     # Must use a bind-mounted path so both host and container can access the same file
     VIPERX_PROGRESS_FILE="${TMP_VIP}/progress.json"
     rm -f "$VIPERX_PROGRESS_FILE"
-    docker exec $ONDA_CONTAINER python3 /app/inference/inference_universal.py \
+    docker exec $ONDA_CONTAINER python3 /app/inference_universal.py \
         --progress-file "$(to_container "$VIPERX_PROGRESS_FILE")" \
         "${VIPERX_MODEL}" "$(to_container "${INPUT}")" "$(to_container "${TMP_VIP}")" ${VIPERX_OVERLAP_INT} &
     VIPERX_PID=$!
