@@ -2,6 +2,15 @@
 
 ## v2.1.0-alpha — Fase 5: Modelos configurables + Editor visual de pipeline ✅
 
+### Robustez del pipeline + Build validation (30-may-2026)
+
+- **Fix:** Overlap float->int usa python3 (locale-independent), no awk — evita `ValueError: int('0.25')`
+- **Fix:** `json.load()` de archivos de progreso parciales protegidos con `|| echo 0` — evita crash por race condition
+- **Fix:** `ls *.wav` final protegido con `|| true` — evita falsos errores con pipefail
+- **Fix:** Pre-flight validation antes de ViperX: verifica modelo e inference_universal.py existen
+- **Feat:** `scripts/validate.sh` — validacion pre-build (sintaxis, archivos, anti-patrones, modelos)
+- **Commits:** fe5d254, 8080bdc en v2.1.0-alpha
+
 ### Fixes post-Fase 5 (27-may-2026, sesión tarde) — 10 fixes
 - **ModelManager → per-model config:** `model_configs/{model_name}.json` (14 archivos), no global. Endpoints: `GET/POST /api/models/{name}/config`
 - **PipelineEditor interactividad:** Grafo SVG muestra nombres de modelo. Prop `hasFiles`. Toast en vez de alert.
