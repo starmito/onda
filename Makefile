@@ -93,7 +93,7 @@ setup: ## Configuración inicial: detecta GPU, crea .env y directorios
 	@echo "    1. Pon tus modelos en $(MODEL_DIR)/"
 	@echo "       Estructura esperada:"
 	@echo "       $(MODEL_DIR)/VR_Models/BS_Roformer_Viperx/"
-	@echo "       $(MODEL_DIR)/htdemucs_ft/"
+	@echo "       $(MODEL_DIR)/Demucs_ONNX/ (opcional)"
 	@echo "    2. make build"
 	@echo "    3. make up"
 	@echo "    4. Abre http://localhost:3000"
