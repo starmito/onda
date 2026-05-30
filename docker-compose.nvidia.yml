@@ -1,5 +1,7 @@
 # Onda — NVIDIA GPU override
 # Usage: docker compose -f docker-compose.yml -f docker-compose.nvidia.yml up
+#
+# Requiere: nvidia-container-toolkit instalado en el host
 
 services:
   onda:
