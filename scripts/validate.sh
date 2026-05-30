@@ -31,7 +31,7 @@ bash -n pipeline.sh        ; check "pipeline.sh syntax OK"
 
 # Check for common anti-patterns
 grep -q '[^a-zA-Z]jq ' pipeline.sh && { echo -e "  ${YELLOW}⚠${NC} pipeline.sh contains 'jq ' (should use python3)"; warn=$((warn+1)); } || echo -e "  ${GREEN}✓${NC} pipeline.sh jq-free"; pass=$((pass+1))
-grep -q 'docker exec' pipeline.sh && { echo -e "  ${YELLOW}⚠${NC} pipeline.sh has 'docker exec' (container-in-container?)"; warn=$((warn+1)); } || echo -e "  ${GREEN}✓${NC} pipeline.sh no docker exec"; pass=$((pass+1))
+grep -q '^[^#]*docker exec' pipeline.sh && { echo -e "  ${YELLOW}⚠${NC} pipeline.sh has docker exec"; warn=$((warn+1)); } || { echo -e "  ${GREEN}✓${NC} pipeline.sh no docker exec"; pass=$((pass+1)); }
 echo ""
 
 # ── 3. Python syntax ──
