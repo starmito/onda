@@ -28,7 +28,7 @@ AUDIO_EXTENSIONS = {".wav", ".mp3", ".flac"}
 
 MODEL_DIRS = {
     "vocal": [MODELS_DIR / "VR_Models", MODELS_DIR / "MDX_Net_Models", MODELS_DIR / "RoFormer_Models"],
-    "stems": [MODELS_DIR / "Demucs_Models"],
+    "stems": [MODELS_DIR / "Demucs_Models", MODELS_DIR / "Demucs_ONNX"],
 }
 
 
@@ -187,7 +187,7 @@ class OndaAPI(BaseHTTPRequestHandler):
     def _status(self):
         """Read pipeline status from onda container."""
         try:
-            ret, stdout, _ = self._docker_exec("cat", "/tmp/pipeline_status.json")
+            ret, stdout, _ = self._docker_exec("cat", "/tmp/onda_pipeline_status.json")
             if ret == 0 and stdout.strip():
                 return json.loads(stdout.strip())
         except (subprocess.TimeoutExpired, json.JSONDecodeError, Exception):
@@ -202,13 +202,20 @@ class OndaAPI(BaseHTTPRequestHandler):
                 continue
             for item in sorted(base_dir.iterdir()):
                 if item.is_dir():
-                    ckpts = list(item.glob("*.ckpt")) + list(item.glob("*.pth"))
+                    ckpts = (list(item.glob("*.ckpt")) + list(item.glob("*.pth")) +
+                             list(item.glob("*.th")) + list(item.glob("*.onnx")))
                     if ckpts:
                         models.append({
                             "name": item.name,
                             "path": str(item),
                             "ckpts": [c.name for c in ckpts],
                         })
+                elif item.is_file() and item.suffix.lower() in {".onnx", ".ckpt", ".pth", ".th"}:
+                    models.append({
+                        "name": item.stem,
+                        "path": str(item),
+                        "ckpts": [item.name],
+                    })
         return {"models": models}
 
     def _input_files(self):
