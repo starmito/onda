@@ -40,28 +40,36 @@
   let deleteFeedback = $state('');
   let deleteFeedbackType = $state<'success' | 'error'>('success');
 
-  // ---- Load catalog on mount ----
+  // Load catalog with safety timeout
   $effect(() => {
-    // Safety timeout: if catalog hasn't loaded after 10s, show error
-    const timeout = setTimeout(() => {
-      if (catalogLoading) {
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    
+    try {
+      timeout = setTimeout(() => {
         catalogError = true;
         catalogLoading = false;
-      }
-    }, 10000);
+      }, 10000);
 
-    getModelCatalog()
-      .then((data) => {
-        clearTimeout(timeout);
-        catalog = [...data];
-        catalogLoading = false;
-      })
-      .catch((err) => {
-        console.error('ModelDownloader: catalog load failed:', err);
-        clearTimeout(timeout);
-        catalogError = true;
-        catalogLoading = false;
-      });
+      // IIFE to safely call async function
+      (async () => {
+        try {
+          const data = await getModelCatalog();
+          if (timeout) clearTimeout(timeout);
+          catalog = [...data];
+          catalogLoading = false;
+        } catch (err) {
+          console.error('ModelDownloader: catalog load failed:', err);
+          if (timeout) clearTimeout(timeout);
+          catalogError = true;
+          catalogLoading = false;
+        }
+      })();
+    } catch (err) {
+      // Failsafe: if even the setup crashes
+      console.error('ModelDownloader: effect crashed:', err);
+      catalogError = true;
+      catalogLoading = false;
+    }
   });
 
   // ---- Load installed models when tab changes ----
