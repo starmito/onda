@@ -234,6 +234,8 @@ echo "   Rubber:   ${RUBBERBAND} (pitch: ${PITCH})"
 echo "   Output:   ${OUTPUT}"
 echo "═══════════════════════════════════════"
 
+# Clean previous run output
+rm -rf "${OUTPUT}" 2>/dev/null || true
 mkdir -p "${OUTPUT}"
 chmod -R 777 "${OUTPUT}" 2>/dev/null || true
 
