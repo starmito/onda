@@ -39,4 +39,7 @@ RUN printf '#!/bin/bash\ncd /tmp\nexec env PYTHONPATH=/usr/local/lib/python3.12/
 
 WORKDIR /app
 COPY . .
+# Ensure pipeline.sh is at /pipeline.sh for docker exec calls
+COPY pipeline.sh /pipeline.sh
+RUN chmod +x /pipeline.sh
 ENTRYPOINT ["python"]
