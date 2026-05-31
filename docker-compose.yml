@@ -55,7 +55,7 @@ services:
       onda:
         condition: service_healthy
     volumes:
-      - ${MODEL_DIR:-./models}:/models:ro
+      - ${MODEL_DIR:-./models}:/models
       - ./input:/input
       - ./output:/output
       - /var/run/docker.sock:/var/run/docker.sock
