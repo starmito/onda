@@ -8,7 +8,7 @@
   import ModelManager from './lib/ModelManager.svelte';
   import type { ResultStem } from './lib/types';
   import { detectStemType } from './lib/types';
-  import { getModels, separateAudio, getStatus, uploadAudio, getLocalModels, getQueueStatus } from './lib/api';
+  import { getModels, separateAudio, getStatus, uploadAudio, getLocalModels, getQueueStatus, getResults, getInputs } from './lib/api';
   import type { LocalModel, StatusResponse, QueueJob } from './lib/api';
 
   interface QueueFile {
@@ -80,36 +80,108 @@
   let showModelConfig = $state(false);
   let showModelPanel = $state(false);
 
-  // Load presets + model list on mount
+  // Load presets + model list + persisted data on mount
   $effect(() => {
+    // Load presets
     getModels()
       .then((p) => (presets = p))
       .catch(() => {
         modelsError = true;
       });
+
+    // Load local model list
     getLocalModels()
       .then((res) => (modelInfos = res.models || []))
       .catch(() => {}); // silent fail — dropdowns just stay empty
 
-    // Cargar resultados existentes al iniciar (separación previa completada)
-    getStatus()
-      .then((status) => {
-        console.log('getStatus response:', status.status, status.files?.length);
-        if (
-          status.status === 'done' &&
-          status.files &&
-          status.files.length > 0
-        ) {
-          loadResults(status);
-          pipelineStep = 'completado';
+    // ── Load persisted results from filesystem (/output/) ──
+    getResults()
+      .then((groups) => {
+        console.log('getResults response:', groups.length, 'songs');
+        if (groups.length > 0) {
+          const loadedResults: ResultStem[] = [];
+          for (const group of groups) {
+            for (const f of group.files) {
+              loadedResults.push({
+                name: f.name,
+                path: f.path,
+                song: group.song,
+                stemType: detectStemType(f.name),
+              });
+            }
+          }
+          results = loadedResults;
+          pipelineStatus = 'done';
           currentProgress = 1;
-          console.log('Loaded existing results:', results.length, results);
-        } else {
-          console.log('No results to load - status:', status.status, 'files:', status.files?.length);
+          console.log('Loaded existing results from filesystem:', results.length, 'stems');
         }
       })
       .catch((err) => {
-        console.error('Failed to load existing results:', err);
+        console.error('Failed to load results from filesystem:', err);
+      });
+
+    // ── Load persisted inputs from filesystem (/input/) ──
+    getInputs()
+      .then((inputs) => {
+        console.log('getInputs response:', inputs.length, 'files');
+        if (inputs.length > 0) {
+          // Create QueueFile entries for pre-existing input files
+          const existingPaths = new Set(queueFiles.map(q => q.path));
+          const newQueueFiles: QueueFile[] = [];
+          for (const input of inputs) {
+            // Avoid duplicates if files were already added via dropzone
+            if (!existingPaths.has(input.path)) {
+              newQueueFiles.push({
+                file: new File([], input.name), // placeholder File (name-only)
+                id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}-${input.name}`,
+                status: 'waiting',
+                checked: true,
+                path: input.path,
+              });
+            }
+          }
+          if (newQueueFiles.length > 0) {
+            queueFiles = [...queueFiles, ...newQueueFiles];
+            console.log('Restored', newQueueFiles.length, 'inputs from filesystem');
+          }
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to load inputs from filesystem:', err);
+      });
+
+    // ── Restore active queue jobs ──
+    getQueueStatus()
+      .then((status) => {
+        queueJobs = status.jobs || [];
+        // Restore results for already-done jobs
+        const activeJobs = status.jobs?.filter(j => j.status !== 'done' && j.status !== 'error') || [];
+        if (activeJobs.length > 0) {
+          console.log('Restoring', activeJobs.length, 'active queue jobs');
+          separating = true;
+          pipelineStatus = 'running';
+          startQueuePolling();
+        }
+        // Also accumulate results from any done jobs in the queue
+        for (const job of (status.jobs || [])) {
+          if (job.status === 'done' && job.files && job.files.length > 0) {
+            const alreadyLoaded = new Set(results.map(r => `${r.song}/${r.name}`));
+            const newResults: ResultStem[] = job.files
+              .filter((f: any) => !alreadyLoaded.has(`${job.song}/${f.name}`))
+              .map((f: any) => ({
+                name: f.name,
+                path: f.path,
+                song: job.song,
+                stemType: detectStemType(f.name),
+              }));
+            if (newResults.length > 0) {
+              results = [...results, ...newResults];
+            }
+          }
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to restore queue status:', err);
       });
   });
 

@@ -39,14 +39,16 @@ type JobState struct {
 	Progress int         `json:"progress"`
 	Error    string      `json:"error,omitempty"`
 	Files    []FileEntry `json:"files,omitempty"`
+	Index    int         `json:"index"`
 }
 
 // Server wraps the HTTP server with routes, middleware, and a sequential job queue.
 type Server struct {
-	mux      *http.ServeMux
-	jobQueue chan JobRequest
-	jobs     map[string]*JobState
-	jobsMu   sync.RWMutex
+	mux       *http.ServeMux
+	jobQueue  chan JobRequest
+	jobs      map[string]*JobState
+	jobsMu    sync.RWMutex
+	nextIndex int
 }
 
 // NewServer creates a new http.Server with CORS middleware and routes registered.
@@ -58,6 +60,8 @@ func NewServer(addr string) *http.Server {
 	}
 	s.mux.HandleFunc("/api/health", s.handleHealth)
 	s.mux.HandleFunc("GET /api/queue/status", s.handleQueueStatus)
+	s.mux.HandleFunc("GET /api/results", s.handleResults)
+	s.mux.HandleFunc("GET /api/inputs", s.handleInputs)
 	s.mux.HandleFunc("/api/models", s.handleModels)
 	s.mux.HandleFunc("GET /api/models/list", s.handleModelsList)
 	s.mux.HandleFunc("POST /api/models/download", s.handleModelsDownload)
@@ -211,6 +215,126 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// ResultsGroup groups stem files by song.
+type ResultsGroup struct {
+	Song  string      `json:"song"`
+	Files []FileEntry `json:"files"`
+}
+
+// handleResults lists all songs and their stems from the output directory.
+// GET /api/results
+func (s *Server) handleResults(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("method %s not allowed", r.Method),
+		})
+		return
+	}
+
+	projectRoot := findProjectRoot()
+	outputDir := filepath.Join(projectRoot, "output")
+	entries, err := os.ReadDir(outputDir)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode([]ResultsGroup{})
+		return
+	}
+
+	var results []ResultsGroup
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		song := entry.Name()
+		stemDir := filepath.Join(outputDir, song)
+		stemEntries, err := os.ReadDir(stemDir)
+		if err != nil {
+			continue
+		}
+		var files []FileEntry
+		for _, stemEntry := range stemEntries {
+			if stemEntry.IsDir() {
+				continue
+			}
+			name := stemEntry.Name()
+			ext := strings.ToLower(filepath.Ext(name))
+			if ext != ".wav" && ext != ".mp3" && ext != ".flac" && ext != ".ogg" && ext != ".m4a" {
+				continue
+			}
+			files = append(files, FileEntry{
+				Name: name,
+				Path: "/api/files/" + song + "/" + name,
+			})
+		}
+		if len(files) > 0 {
+			results = append(results, ResultsGroup{Song: song, Files: files})
+		}
+	}
+	// Sort by song name for deterministic output
+	sort.Slice(results, func(i, j int) bool {
+		return results[i].Song < results[j].Song
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(results)
+}
+
+// InputEntry describes an uploaded input file.
+type InputEntry struct {
+	Name string `json:"name"`
+	Path string `json:"path"`
+}
+
+// handleInputs lists uploaded input files from the input directory.
+// GET /api/inputs
+func (s *Server) handleInputs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("method %s not allowed", r.Method),
+		})
+		return
+	}
+
+	projectRoot := findProjectRoot()
+	inputDir := filepath.Join(projectRoot, "input")
+	entries, err := os.ReadDir(inputDir)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode([]InputEntry{})
+		return
+	}
+
+	var inputs []InputEntry
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		ext := strings.ToLower(filepath.Ext(name))
+		if ext != ".wav" && ext != ".mp3" && ext != ".flac" && ext != ".ogg" && ext != ".m4a" {
+			continue
+		}
+		inputs = append(inputs, InputEntry{
+			Name: name,
+			Path: "/input/" + name,
+		})
+	}
+	sort.Slice(inputs, func(i, j int) bool {
+		return inputs[i].Name < inputs[j].Name
+	})
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(inputs)
+}
+
 // handleQueueStatus returns all jobs ordered by status priority.
 // GET /api/queue/status
 func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
@@ -232,7 +356,10 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 	}
 	sort.Slice(jobList, func(i, j int) bool {
 		order := map[string]int{"processing": 0, "waiting": 1, "done": 2, "error": 3}
-		return order[jobList[i].Status] < order[jobList[j].Status]
+		if order[jobList[i].Status] != order[jobList[j].Status] {
+			return order[jobList[i].Status] < order[jobList[j].Status]
+		}
+		return jobList[i].Index < jobList[j].Index
 	})
 
 	w.Header().Set("Content-Type", "application/json")
@@ -478,7 +605,8 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	s.jobs[song] = &JobState{Song: song, Status: "waiting"}
+	s.jobs[song] = &JobState{Song: song, Status: "waiting", Index: s.nextIndex}
+	s.nextIndex++
 	s.jobsMu.Unlock()
 
 	// Enqueue the job
