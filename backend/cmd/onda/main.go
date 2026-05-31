@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -8,30 +9,34 @@ import (
 	"github.com/starmito/onda/internal/api"
 )
 
+const version = "v2.1.0-alpha"
+
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("Onda v2.0.0-alpha — Audio separation tool")
+		fmt.Println("Onda " + version + " — Audio separation tool")
 		fmt.Println()
 		fmt.Println("Usage:")
-		fmt.Println("  onda pipeline [flags]   Run separation pipeline")
-		fmt.Println("  onda version            Show version")
-		fmt.Println()
-		fmt.Println("Próximamente (Fase 2):")
-		fmt.Println("  onda serve              Start API server")
-		fmt.Println("  onda models             List available models and presets")
+		fmt.Println("  onda serve [--addr :PORT]   Start API server")
+		fmt.Println("  onda pipeline [flags]       Run separation pipeline")
+		fmt.Println("  onda version                Show version")
+		fmt.Println("  onda models                 List available models and presets")
 		os.Exit(0)
 	}
 
 	switch os.Args[1] {
 	case "serve":
-		srv := api.NewServer(":3000")
-		fmt.Println("Onda API server listening on :3000")
+		serveFlags := flag.NewFlagSet("serve", flag.ExitOnError)
+		addr := serveFlags.String("addr", ":3001", "Listen address")
+		serveFlags.Parse(os.Args[2:])
+
+		srv := api.NewServer(*addr)
+		fmt.Printf("Onda API server listening on %s\n", *addr)
 		if err := srv.ListenAndServe(); err != nil {
 			fmt.Fprintf(os.Stderr, "Server error: %v\n", err)
 			os.Exit(1)
 		}
 	case "pipeline":
-		cmd := exec.Command("bash", append([]string{"pipeline.sh"}, os.Args[2:]...)...)
+		cmd := exec.Command("bash", append([]string{"/pipeline.sh"}, os.Args[2:]...)...)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {
@@ -40,7 +45,7 @@ func main() {
 	case "models":
 		fmt.Println("onda models — not implemented yet")
 	case "version":
-		fmt.Println("v2.0.0-alpha")
+		fmt.Println(version)
 	default:
 		fmt.Printf("Unknown command: %s\n", os.Args[1])
 		os.Exit(1)
