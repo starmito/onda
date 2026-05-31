@@ -73,6 +73,14 @@ Los commits originales de estos fixes (46898d0-c8c52fd) se perdieron en un git r
 +- **Fix:** Inputs y resultados persisten al recargar la página (F5). El frontend carga desde el filesystem al montar, no solo desde memoria.
 +- **Commits:** 225247a
 
+### Fixes finales — limpieza + límites (31-may-2026, sesión noche)
+
+- **Fix:** Slider de segment para htdemucs_ft limitado a 7.8s (step 0.1). Antes permitía 60s, el modelo solo soporta 7.8s.
+- **Fix:** `GET /api/results` devuelve `[]` en vez de `null` cuando no hay stems.
+- **Fix:** `DELETE /api/inputs/{name}` — borrado físico de archivos de input desde la UI. Antes solo los quitaba de la lista visual.
+- **Chore:** Limpiados archivos huérfanos de root en `/input/` y `/output/` (herencia del pipeline antiguo con `--user 0:0`).
+- **Commits:** e10ac87, 29c4bd5, cb7d118, 2d7f4c9, 4ccf810
+
 ### Deploy-ready + defaults locales (30-may-2026)
 
 - **docker-compose.yml:** paths configurables via `.env` (`MODEL_DIR`, `HOST_UID`, `HOST_GID`, `ONDA_PORT`), defaults locales (`./models`)
