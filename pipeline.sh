@@ -235,6 +235,7 @@ echo "   Output:   ${OUTPUT}"
 echo "═══════════════════════════════════════"
 
 mkdir -p "${OUTPUT}"
+chmod -R 777 "${OUTPUT}" 2>/dev/null || true
 
 # Clean previous output to prevent accumulation of old stems
 rm -f "${OUTPUT}"/*.wav 2>/dev/null || true
@@ -251,6 +252,7 @@ if $VIPERX; then
     echo "🔪 Viperx → vocal + instrumental..."
     TMP_VIP="${OUTPUT}/_viperx"
     mkdir -p "${TMP_VIP}"  # must exist before progress file write
+    chmod -R 777 "${TMP_VIP}" 2>/dev/null || true
     CURRENT_STEP="viperx"
     # Pre-flight: verify model path exists
     if [ ! -d "${VIPERX_MODEL}" ]; then
