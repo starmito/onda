@@ -17,7 +17,7 @@ import (
 	"github.com/starmito/onda/internal/cli"
 )
 
-const version = "v2.1.0-alpha"
+const version = "v2.1.1"
 
 // FileEntry describes a generated stem file.
 type FileEntry struct {
