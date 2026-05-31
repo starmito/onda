@@ -81,6 +81,14 @@ Los commits originales de estos fixes (46898d0-c8c52fd) se perdieron en un git r
 - **Chore:** Limpiados archivos huérfanos de root en `/input/` y `/output/` (herencia del pipeline antiguo con `--user 0:0`).
 - **Commits:** e10ac87, 29c4bd5, cb7d118, 2d7f4c9, 4ccf810
 
+### Fase 6 — Catálogo UVR + Pantalla de descarga (31-may-2026, sesión noche)
+
+- **Feat:** Catálogo UVR completo — 98 modelos (26 Roformer, 56 Demucs, 8 MDX, 8 SCnet) con URLs de descarga extraídas del repo oficial. Método: descarga directa (wget) desde GitHub Releases y HuggingFace.
+- **Feat:** `GET /api/models/catalog` — devuelve el catálogo UVR con campo `downloaded: true/false` comparando con modelos instalados.
+- **Feat:** `POST /api/models/download` con `source: "direct"` — descarga modelos desde URLs directas (wget) a la categoría correcta según el nombre del archivo.
+- **Feat:** `ModelDownloader.svelte` — panel lateral con 3 pestañas: 📥 Descargar (catálogo UVR con checks ✅), 📤 Subir (dropzone para .ckpt/.pth/.onnx), ✅ Instalados (modelos locales).
+- **Commits:** ab5dfb6, 23e5885, 26959c7
+
 ### Deploy-ready + defaults locales (30-may-2026)
 
 - **docker-compose.yml:** paths configurables via `.env` (`MODEL_DIR`, `HOST_UID`, `HOST_GID`, `ONDA_PORT`), defaults locales (`./models`)
