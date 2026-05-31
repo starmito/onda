@@ -385,14 +385,14 @@
                   id="demucs-segment"
                   type="range"
                   min="0"
-                  max="60"
+                  max="7"
                   step="1"
                   bind:value={segment}
                 />
-                <p class="param-desc">Duración del segmento en segundos. 0 = automático. Valores bajos = menos VRAM pero posible pérdida de calidad.</p>
+                <p class="param-desc">Duración del segmento en segundos. 0 = automático. Máx 7s (límite del modelo htdemucs_ft).</p>
                 <div class="slider-labels">
                   <span class="slider-min">0 — 🤖 Auto / -VRAM</span>
-                  <span class="slider-max">📦 Large / +VRAM — 60s</span>
+                  <span class="slider-max">📦 Large / +VRAM — 7s</span>
                 </div>
               </div>
 
