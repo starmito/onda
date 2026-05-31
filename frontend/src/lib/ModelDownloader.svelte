@@ -142,9 +142,9 @@
   async function startDownload(model: UVRModelEntry) {
     if (!model.huggingface_repo) return;
     const set = new Set(downloading);
-    set.add(model.name);
+    set.add(model.filename);
     downloading = set;
-    downloadErrors.delete(model.name);
+    downloadErrors.delete(model.filename);
     downloadErrors = new Map(downloadErrors);
 
     try {
@@ -153,11 +153,11 @@
       await refreshCatalog();
     } catch (err: any) {
       const errors = new Map(downloadErrors);
-      errors.set(model.name, err.message || 'Download failed');
+      errors.set(model.filename, err.message || 'Download failed');
       downloadErrors = errors;
     } finally {
       const set2 = new Set(downloading);
-      set2.delete(model.name);
+      set2.delete(model.filename);
       downloading = set2;
     }
   }
@@ -308,7 +308,7 @@
             {#each groupedCatalog as group (group.category)}
               <div class="category-group">
                 <h3 class="category-title">{group.category}</h3>
-                {#each group.models as model (model.name)}
+                {#each group.models as model (model.filename)}
                   <div class="model-row">
                     <div class="model-info">
                       <span class="model-name">{model.display_name || model.name}</span>
@@ -320,7 +320,7 @@
                     <div class="model-action">
                       {#if model.downloaded}
                         <span class="check-icon" title="Ya instalado">✅</span>
-                      {:else if downloading.has(model.name)}
+                      {:else if downloading.has(model.filename)}
                         <span class="spinner">⏳</span>
                       {:else}
                         <button
@@ -330,8 +330,8 @@
                         >
                           Descargar
                         </button>
-                        {#if downloadErrors.has(model.name)}
-                          <span class="download-error" title={downloadErrors.get(model.name)}>❌</span>
+                        {#if downloadErrors.has(model.filename)}
+                          <span class="download-error" title={downloadErrors.get(model.filename)}>❌</span>
                         {/if}
                       {/if}
                     </div>
