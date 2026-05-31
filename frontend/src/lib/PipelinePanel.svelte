@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { getGpuInfo, type GpuInfo } from './api';
+  import { getGpuInfo, type GpuInfo, type QueueJob } from './api';
 
   let {
     disabled = false,
     presets = {} as Record<string, any>,
+    queueJobs = [] as QueueJob[],
     onstart,
     onviperxonly,
     ondemucsonly,
@@ -11,6 +12,7 @@
   }: {
     disabled?: boolean;
     presets?: Record<string, any>;
+    queueJobs?: QueueJob[];
     onstart?: (config: any) => void;
     onviperxonly?: (config: any) => void;
     ondemucsonly?: (config: any) => void;
@@ -82,6 +84,16 @@
     timer = setInterval(poll, 5000);
     return () => clearInterval(timer);
   });
+
+  function queueStatusEmoji(status: string): string {
+    switch (status) {
+      case 'waiting': return '⏳';
+      case 'processing': return '⚙️';
+      case 'done': return '✅';
+      case 'error': return '❌';
+      default: return '❓';
+    }
+  }
 </script>
 
 <div class="pipeline-card">
@@ -190,6 +202,28 @@
       GPU: -- | VRAM: --/-- MB
     {/if}
   </div>
+
+  <!-- Queue jobs -->
+  {#if queueJobs.length > 0}
+    <div class="queue-section">
+      <h4 class="queue-title">📋 Cola de procesamiento</h4>
+      {#each queueJobs as job (job.song)}
+        <div
+          class="queue-item"
+          class:processing={job.status === 'processing'}
+          class:done={job.status === 'done'}
+          class:error={job.status === 'error'}
+        >
+          <span class="queue-emoji">{queueStatusEmoji(job.status)}</span>
+          <span class="queue-song" title={job.song}>{job.song}</span>
+          <span class="queue-badge queue-badge-{job.status}">{job.status}</span>
+          {#if job.status === 'error' && job.error}
+            <span class="queue-error-msg">{job.error}</span>
+          {/if}
+        </div>
+      {/each}
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -347,5 +381,95 @@
     color: #606080;
     text-align: right;
     margin-top: -0.25rem;
+  }
+
+  /* ---- Queue section ---- */
+  .queue-section {
+    border-top: 1px solid #2a2a4a;
+    padding-top: 0.75rem;
+    margin-top: 0.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .queue-title {
+    margin: 0;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: #a0a0c0;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+
+  .queue-item {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.6rem;
+    border-radius: 6px;
+    background: #0a0a14;
+    border: 1px solid #1a1a2e;
+    font-size: 0.8rem;
+    flex-wrap: wrap;
+  }
+
+  .queue-item.processing {
+    background: #1a2a3a;
+    border-color: #00d4ff44;
+    animation: pulse-border 1.5s ease-in-out infinite;
+  }
+
+  .queue-item.done {
+    border-color: #1b3a1b;
+  }
+
+  .queue-item.error {
+    border-color: #3a1b1b;
+  }
+
+  @keyframes pulse-border {
+    0%, 100% { border-color: #00d4ff44; }
+    50% { border-color: #00d4ff88; }
+  }
+
+  .queue-emoji {
+    font-size: 1rem;
+    flex-shrink: 0;
+  }
+
+  .queue-song {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    min-width: 0;
+    color: #e0e0e0;
+    font-weight: 500;
+  }
+
+  .queue-badge {
+    padding: 0.1rem 0.4rem;
+    border-radius: 8px;
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    flex-shrink: 0;
+  }
+
+  .queue-badge-waiting { background: #2a2a3e; color: #888; }
+  .queue-badge-processing { background: #1b2a3a; color: #64b5f6; }
+  .queue-badge-done { background: #1b3a1b; color: #81c784; }
+  .queue-badge-error { background: #3a1b1b; color: #e57373; }
+
+  .queue-error-msg {
+    width: 100%;
+    font-size: 0.7rem;
+    color: #e57373;
+    padding: 0.25rem 0.5rem;
+    background: #2a1a1a;
+    border-radius: 4px;
+    margin-top: 0.25rem;
+    word-break: break-all;
   }
 </style>

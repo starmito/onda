@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import ResultsPanel from './lib/ResultsPanel.svelte';
   import PipelinePanel from './lib/PipelinePanel.svelte';
   import PipelineEditor from './lib/PipelineEditor.svelte';
@@ -7,8 +8,8 @@
   import ModelManager from './lib/ModelManager.svelte';
   import type { ResultStem } from './lib/types';
   import { detectStemType } from './lib/types';
-  import { getModels, separateAudio, getStatus, uploadAudio, getLocalModels } from './lib/api';
-  import type { LocalModel, StatusResponse } from './lib/api';
+  import { getModels, separateAudio, getStatus, uploadAudio, getLocalModels, getQueueStatus } from './lib/api';
+  import type { LocalModel, StatusResponse, QueueJob } from './lib/api';
 
   interface QueueFile {
     file: File;
@@ -46,6 +47,11 @@
   let pipelineError = $state('');
   let pipelineModel = $state('');
   let pollingTimer: ReturnType<typeof setInterval> | null = null;
+
+  // ---- Queue state ----
+  let queueJobs = $state<QueueJob[]>([]);
+  let queuePollingTimer: ReturnType<typeof setInterval> | null = null;
+  let processedDoneSongs = $state<Set<string>>(new Set());
 
   // Toast
   let toastMessage = $state('');
@@ -110,6 +116,12 @@
   // Debug: trace results reactivity for production diagnosis
   $inspect('results changed:', results.length, results);
 
+  // Cleanup timers on unmount
+  onDestroy(() => {
+    if (pollingTimer) clearInterval(pollingTimer);
+    if (queuePollingTimer) clearInterval(queuePollingTimer);
+  });
+
   // ---- File Queue handlers ----
   function handleFilesAdded(newFiles: File[]) {
     const newItems: QueueFile[] = newFiles.map((f) => ({
@@ -128,6 +140,12 @@
   function handleClearQueue() {
     queueFiles = [];
     results = [];
+    queueJobs = [];
+    if (queuePollingTimer) {
+      clearInterval(queuePollingTimer);
+      queuePollingTimer = null;
+    }
+    processedDoneSongs = new Set();
     showToast('Cola limpiada', 'success');
   }
 
@@ -191,11 +209,13 @@
       clearInterval(pollingTimer);
       pollingTimer = null;
     }
+    if (queuePollingTimer) {
+      clearInterval(queuePollingTimer);
+      queuePollingTimer = null;
+    }
 
     const checked = queueFiles.filter((qf) => qf.checked && qf.status !== 'done');
     if (checked.length === 0) {
-      // Si no hay archivos en absoluto, el botón ya está oculto — no hacer nada.
-      // Si hay archivos pero ninguno marcado, mostrar toast.
       if (queueFiles.length > 0) {
         showToast('✅ Marca al menos un archivo en la cola', 'success');
       }
@@ -203,12 +223,13 @@
     }
 
     separating = true;
-    results = [];
-    pipelineStatus = 'idle';
+    pipelineStatus = 'running';
     pipelineStep = '';
     pipelineError = '';
     currentProgress = 0;
     pipelineEta = 0;
+    queueJobs = [];
+    processedDoneSongs = new Set();
 
     // Mark checked files as uploading
     for (const qf of checked) {
@@ -233,19 +254,15 @@
 
       if (uploaded.length === 0) {
         separating = false;
-        alert('No files uploaded successfully.');
+        showToast('No files uploaded successfully.', 'error');
         return;
       }
 
-      // Use the preset passed from PresetSelector, or fall back to 'balance'
       const preset = config.preset || (Object.keys(presets).length > 0 ? 'balance' : 'htdemucs');
 
-      // Start separation for each uploaded file
+      // Enqueue each uploaded file via separateAudio
       for (const { qf, path } of uploaded) {
         try {
-          qf.status = 'processing';
-          qf.progress = 0;
-
           await separateAudio({
             preset,
             input: path,
@@ -265,56 +282,70 @@
         }
       }
 
-      // Start polling /api/status every 500ms
-      pipelineStatus = 'running';
       pipelineSong = uploaded[0]?.qf.file.name || '';
 
-      pollingTimer = setInterval(async () => {
-        try {
-          const status = await getStatus();
-          pipelineStep = status.step || '';
-          pipelineModel = status.vocal_model || status.stem_model || '';
-          pipelineEta = status.eta || 0;
-          currentProgress = status.progress || 0;
-
-          // Update progress on the first uploaded file
-          if (uploaded.length > 0) {
-            uploaded[0].qf.progress = status.progress || 0;
-          }
-
-          if (status.status === 'done') {
-            pipelineStatus = 'done';
-            clearInterval(pollingTimer!);
-            pollingTimer = null;
-
-            loadResults(status);
-            separating = false;
-            // Marcar archivos de la cola como done
-            if (uploaded.length > 0) {
-              for (const uf of uploaded) {
-                uf.qf.status = 'done';
-                uf.qf.progress = 1;
-              }
-            }
-          } else if (status.status === 'error') {
-            pipelineStatus = 'error';
-            pipelineError = status.error || 'Unknown error';
-            clearInterval(pollingTimer!);
-            pollingTimer = null;
-            separating = false;
-            if (uploaded.length > 0) {
-              uploaded[0].qf.status = 'error';
-              uploaded[0].qf.errorMsg = status.error || 'Unknown error';
-            }
-          }
-        } catch (e) {
-          // keep polling on transient network errors
-        }
-      }, 500);
+      // Start queue polling
+      startQueuePolling();
     } catch (err: any) {
-      alert('Pipeline error: ' + err.message);
+      showToast('Pipeline error: ' + err.message, 'error');
       separating = false;
     }
+  }
+
+  function startQueuePolling() {
+    if (queuePollingTimer) clearInterval(queuePollingTimer);
+
+    queuePollingTimer = setInterval(async () => {
+      try {
+        const status = await getQueueStatus();
+        queueJobs = status.jobs || [];
+
+        // Check for newly done jobs → accumulate results
+        for (const job of queueJobs) {
+          if (job.status === 'done' && !processedDoneSongs.has(job.song)) {
+            processedDoneSongs.add(job.song);
+            if (job.files && job.files.length > 0) {
+              const newResults: ResultStem[] = job.files.map((f: any) => ({
+                name: f.name,
+                path: f.path,
+                song: job.song,
+                stemType: detectStemType(f.name),
+              }));
+              results = [...results, ...newResults]; // accumulate, don't replace
+            }
+          }
+          if (job.status === 'error' && job.error && !processedDoneSongs.has(job.song)) {
+            processedDoneSongs.add(job.song);
+            showToast(`Error en "${job.song}": ${job.error.slice(0, 200)}`, 'error');
+          }
+        }
+
+        // Update queue file statuses to match job states
+        for (const job of queueJobs) {
+          const qf = queueFiles.find(
+            (q) => q.path && q.path.includes(job.song.replace(/\.[^.]+$/, '')),
+          );
+          if (qf && (job.status === 'done' || job.status === 'error')) {
+            qf.status = job.status;
+            qf.progress = job.status === 'done' ? 1 : 0;
+          }
+        }
+
+        // All jobs done or errored → stop polling
+        const allSettled = queueJobs.every(
+          (j) => j.status === 'done' || j.status === 'error',
+        );
+        if (allSettled && queueJobs.length > 0) {
+          clearInterval(queuePollingTimer!);
+          queuePollingTimer = null;
+          separating = false;
+          pipelineStatus = queueJobs.some((j) => j.status === 'error') ? 'error' : 'done';
+          currentProgress = 1;
+        }
+      } catch (e) {
+        // Silently keep polling on transient network errors
+      }
+    }, 500);
   }
 
   function extractSongFromName(name: string): string {
@@ -455,6 +486,7 @@
     <PipelinePanel
       disabled={separating}
       presets={presets}
+      queueJobs={queueJobs}
       onstart={handlePipelineStart}
       onviperxonly={handleViperxOnly}
       ondemucsonly={handleDemucsOnly}
