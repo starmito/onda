@@ -1,21 +1,38 @@
+# ── Stage 1: Compilar backend Go ──
+FROM golang:1.24-alpine AS builder
+WORKDIR /src
+COPY backend/go.mod ./
+RUN go mod download 2>/dev/null || true
+COPY backend/ ./
+RUN CGO_ENABLED=0 GOOS=linux go build -o /onda-backend ./cmd/onda/
+
+# ── Stage 2: Imagen final ──
 FROM nginx:alpine
-ARG ONDA_VERSION=dev
+ARG ONDA_VERSION=v2.1.0-alpha
 
-RUN apk add --no-cache python3 bash docker-cli
+RUN apk add --no-cache bash docker-cli
 
+# nginx + entrypoint
 COPY onda-gui/nginx.conf /etc/nginx/nginx.conf
-
 COPY onda-gui/entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-COPY onda-gui/onda-api.py /usr/lib/onda-api.py
+# Go API binary
+COPY --from=builder /onda-backend /usr/bin/onda-backend
+RUN chmod +x /usr/bin/onda-backend
 
-# Keep cgi-bin for legacy (even though we proxy to API)
-COPY onda-gui/cgi-bin/ /usr/lib/cgi-bin/
-RUN chmod +x /usr/lib/cgi-bin/*
-
+# Frontend Svelte
 COPY frontend/dist/ /usr/share/nginx/html/
 RUN echo "${ONDA_VERSION}" > /usr/share/nginx/html/VERSION
-RUN mkdir -p /usr/share/nginx/html/output
+
+# ── Pipeline + project root ──
+# findProjectRoot() walks up from WORKDIR looking for VERSION
+COPY pipeline.sh /pipeline.sh
+RUN chmod +x /pipeline.sh
+COPY VERSION /VERSION
+ENV ONDA_ROOT=/
+
+# Directorios de montaje (docker-compose monta volumes aquí)
+RUN mkdir -p /input /output
 
 ENTRYPOINT ["/entrypoint.sh"]
