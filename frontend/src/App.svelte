@@ -8,7 +8,7 @@
   import ModelManager from './lib/ModelManager.svelte';
   import type { ResultStem } from './lib/types';
   import { detectStemType } from './lib/types';
-  import { getModels, separateAudio, getStatus, uploadAudio, getLocalModels, getQueueStatus, getResults, getInputs } from './lib/api';
+  import { getModels, separateAudio, getStatus, uploadAudio, getLocalModels, getQueueStatus, getResults, getInputs, deleteInput } from './lib/api';
   import type { LocalModel, StatusResponse, QueueJob } from './lib/api';
 
   interface QueueFile {
@@ -478,8 +478,22 @@
     }
   }
 
-  function handleRemoveQueueFile(id: string) {
-    queueFiles = queueFiles.filter((qf) => qf.id !== id);
+  async function handleRemoveQueueFile(id: string) {
+    const qf = queueFiles.find((q) => q.id === id);
+    if (!qf) return;
+
+    // If the file is already on the server (has a path), delete it physically
+    if (qf.path) {
+      try {
+        await deleteInput(qf.file.name);
+        queueFiles = queueFiles.filter((q) => q.id !== id);
+      } catch (err: any) {
+        showToast('Error al borrar archivo: ' + (err.message || 'unknown'), 'error');
+      }
+    } else {
+      // File was only dragged in but not uploaded yet — just remove from list
+      queueFiles = queueFiles.filter((q) => q.id !== id);
+    }
   }
 
   function statusBadgeClass(status: string): string {
