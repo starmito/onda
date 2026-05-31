@@ -359,6 +359,34 @@ export async function stopBackend(): Promise<BackendActionResponse> {
   return (await res.json()) as BackendActionResponse;
 }
 
+// ---- Queue (cola secuencial) ----
+export interface QueueJob {
+  song: string;
+  status: 'waiting' | 'processing' | 'done' | 'error';
+  progress: number;
+  error?: string;
+  files?: { name: string; path: string }[];
+}
+
+export interface QueueStatusResponse {
+  jobs: QueueJob[];
+}
+
+export async function getQueueStatus(): Promise<QueueStatusResponse> {
+  try {
+    const res = await fetch(`${API_BASE}/api/queue/status`);
+    if (!res.ok) {
+      throw new Error(`Queue status failed with status ${res.status}: ${res.statusText}`);
+    }
+    return (await res.json()) as QueueStatusResponse;
+  } catch (err) {
+    if (err instanceof Error) {
+      throw err;
+    }
+    throw new Error(`Unexpected error during queue status check: ${String(err)}`);
+  }
+}
+
 // ---- ModelConfig ----
 export interface ModelConfigResponse {
   segment_size: number;
