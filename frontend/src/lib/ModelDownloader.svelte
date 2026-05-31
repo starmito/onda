@@ -446,8 +446,8 @@
   }
 
   .panel {
-    width: 340px;
-    max-width: 90vw;
+    width: 440px;
+    max-width: 95vw;
     height: 100%;
     background: #1a1a2e;
     border-left: 1px solid #2a2a4a;
