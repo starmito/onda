@@ -101,7 +101,10 @@
 
   let groupedCatalog = $derived.by(() => {
     const groups: Record<string, UVRModelEntry[]> = {};
+    const seen = new Set<string>(); // prevent duplicate entries
     for (const m of filtered) {
+      if (seen.has(m.filename)) continue;
+      seen.add(m.filename);
       const cat = m.category || 'Other';
       if (!groups[cat]) groups[cat] = [];
       groups[cat].push(m);
@@ -308,7 +311,7 @@
             {#each groupedCatalog as group (group.category)}
               <div class="category-group">
                 <h3 class="category-title">{group.category}</h3>
-                {#each group.models as model (model.filename)}
+                {#each group.models as model}
                   <div class="model-row">
                     <div class="model-info">
                       <span class="model-name">{model.display_name || model.name}</span>
