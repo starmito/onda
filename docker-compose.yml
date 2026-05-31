@@ -17,9 +17,7 @@ services:
 
   # ── Frontend: nginx + CGI bash ──
   onda-gui:
-    build:
-      context: .
-      dockerfile: ./onda-gui/Dockerfile
+    build: ./onda-gui
     image: onda-gui:latest
     container_name: onda-gui
     ports:
