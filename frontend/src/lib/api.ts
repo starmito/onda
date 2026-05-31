@@ -2,14 +2,31 @@ const API_BASE = 'http://192.168.1.87:3000';
 
 export interface HealthComponent {
   ok: boolean;
-  detail: string;
+  detail?: string;
+  version?: string;
+}
+
+export interface VersionMismatchItem {
+  component: string;
+  expected: string;
+  actual: string;
+}
+
+export interface VersionMismatch {
+  ok: boolean;
+  detail?: VersionMismatchItem[];
 }
 
 export interface HealthResponse {
+  status: string;
+  version: string;
   backend: HealthComponent;
+  frontend: HealthComponent;
+  pipeline: HealthComponent;
   gpu: HealthComponent;
   disk: HealthComponent;
   docker: HealthComponent;
+  version_mismatch: VersionMismatch;
 }
 
 export interface BackendActionResponse {
