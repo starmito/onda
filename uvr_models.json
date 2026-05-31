@@ -4,685 +4,783 @@
     "category": "Roformer",
     "filename": "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
     "download_url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/model_bs_roformer_ep_317_sdr_12.9755.ckpt",
-    "name": "model_bs_roformer_ep_317_sdr_12.9755"
+    "name": "model_bs_roformer_ep_317_sdr_12.9755",
+    "size_mb": 610
   },
   {
     "display_name": "BS-Roformer-Viperx-1296",
     "category": "Roformer",
     "filename": "model_bs_roformer_ep_368_sdr_12.9628.ckpt",
     "download_url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/model_bs_roformer_ep_368_sdr_12.9628.ckpt",
-    "name": "model_bs_roformer_ep_368_sdr_12.9628"
+    "name": "model_bs_roformer_ep_368_sdr_12.9628",
+    "size_mb": 610
   },
   {
     "display_name": "BS-Roformer-Viperx-1053",
     "category": "Roformer",
     "filename": "model_bs_roformer_ep_937_sdr_10.5309.ckpt",
     "download_url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/model_bs_roformer_ep_937_sdr_10.5309.ckpt",
-    "name": "model_bs_roformer_ep_937_sdr_10.5309"
+    "name": "model_bs_roformer_ep_937_sdr_10.5309",
+    "size_mb": 375
   },
   {
     "display_name": "Mel-Roformer-Viperx-1143",
     "category": "Roformer",
     "filename": "model_mel_band_roformer_ep_3005_sdr_11.4360.ckpt",
     "download_url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/model_mel_band_roformer_ep_3005_sdr_11.4360.ckpt",
-    "name": "model_mel_band_roformer_ep_3005_sdr_11.4360"
+    "name": "model_mel_band_roformer_ep_3005_sdr_11.4360",
+    "size_mb": 961
   },
   {
     "display_name": "MelBand Roformer Kim | Inst V1 by Unwa",
     "category": "Roformer",
     "filename": "melband_roformer_inst_v1.ckpt",
     "download_url": "https://huggingface.co/pcunwa/Mel-Band-Roformer-Inst/resolve/main/melband_roformer_inst_v1.ckpt",
-    "name": "melband_roformer_inst_v1"
+    "name": "melband_roformer_inst_v1",
+    "size_mb": 871
   },
   {
     "display_name": "MelBand Roformer Kim | Inst V2 by Unwa",
     "category": "Roformer",
     "filename": "melband_roformer_inst_v2.ckpt",
     "download_url": "https://huggingface.co/pcunwa/Mel-Band-Roformer-Inst/resolve/main/melband_roformer_inst_v2.ckpt",
-    "name": "melband_roformer_inst_v2"
+    "name": "melband_roformer_inst_v2",
+    "size_mb": 1502
   },
   {
     "display_name": "MelBand Roformer Kim | InstVoc Duality V1 by Unwa",
     "category": "Roformer",
     "filename": "melband_roformer_instvoc_duality_v1.ckpt",
     "download_url": "https://huggingface.co/pcunwa/Mel-Band-Roformer-InstVoc-Duality/resolve/main/melband_roformer_instvoc_duality_v1.ckpt",
-    "name": "melband_roformer_instvoc_duality_v1"
+    "name": "melband_roformer_instvoc_duality_v1",
+    "size_mb": 1639
   },
   {
     "display_name": "MelBand Roformer Kim | InstVoc Duality V2 by Unwa",
     "category": "Roformer",
     "filename": "melband_roformer_instvox_duality_v2.ckpt",
     "download_url": "https://huggingface.co/pcunwa/Mel-Band-Roformer-InstVoc-Duality/resolve/main/melband_roformer_instvox_duality_v2.ckpt",
-    "name": "melband_roformer_instvox_duality_v2"
+    "name": "melband_roformer_instvox_duality_v2",
+    "size_mb": 1639
   },
   {
     "display_name": "MDX23C_D1581",
     "category": "MDX",
     "filename": "MDX23C_D1581.ckpt",
     "download_url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/MDX23C_D1581.ckpt",
-    "name": "MDX23C_D1581"
+    "name": "MDX23C_D1581",
+    "size_mb": 175
   },
   {
     "display_name": "MDX23C-InstVoc HQ",
     "category": "MDX",
     "filename": "MDX23C-8KFFT-InstVoc_HQ.ckpt",
     "download_url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/MDX23C-8KFFT-InstVoc_HQ.ckpt",
-    "name": "MDX23C-8KFFT-InstVoc_HQ"
+    "name": "MDX23C-8KFFT-InstVoc_HQ",
+    "size_mb": 427
   },
   {
     "display_name": "MDX23C Model VIP: MDX23C_D1581",
     "category": "MDX",
     "filename": "MDX23C_D1581.ckpt",
     "download_url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/MDX23C_D1581.ckpt",
-    "name": "MDX23C_D1581"
+    "name": "MDX23C_D1581",
+    "size_mb": 175
   },
   {
     "display_name": "MDX23C Model VIP: MDX23C-InstVoc HQ 2",
     "category": "MDX",
     "filename": "MDX23C-8KFFT-InstVoc_HQ_2.ckpt",
     "download_url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/MDX23C-8KFFT-InstVoc_HQ_2.ckpt",
-    "name": "MDX23C-8KFFT-InstVoc_HQ_2"
+    "name": "MDX23C-8KFFT-InstVoc_HQ_2",
+    "size_mb": 0
   },
   {
     "display_name": "htdemucs_ft",
     "category": "Demucs",
     "filename": "f7e0c4bc-ba3fe64a.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/f7e0c4bc-ba3fe64a.th",
-    "name": "f7e0c4bc-ba3fe64a"
+    "name": "f7e0c4bc-ba3fe64a",
+    "size_mb": 80
   },
   {
     "display_name": "htdemucs_ft",
     "category": "Demucs",
     "filename": "d12395a8-e57c48e6.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/d12395a8-e57c48e6.th",
-    "name": "d12395a8-e57c48e6"
+    "name": "d12395a8-e57c48e6",
+    "size_mb": 80
   },
   {
     "display_name": "htdemucs_ft",
     "category": "Demucs",
     "filename": "92cfc3b6-ef3bcb9c.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/92cfc3b6-ef3bcb9c.th",
-    "name": "92cfc3b6-ef3bcb9c"
+    "name": "92cfc3b6-ef3bcb9c",
+    "size_mb": 80
   },
   {
     "display_name": "htdemucs_ft",
     "category": "Demucs",
     "filename": "04573f0d-f3cf25b2.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/04573f0d-f3cf25b2.th",
-    "name": "04573f0d-f3cf25b2"
+    "name": "04573f0d-f3cf25b2",
+    "size_mb": 80
   },
   {
     "display_name": "htdemucs_ft",
     "category": "Demucs",
     "filename": "htdemucs_ft.yaml",
     "download_url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/htdemucs_ft.yaml",
-    "name": "htdemucs_ft"
+    "name": "htdemucs_ft",
+    "size_mb": 0
   },
   {
     "display_name": "htdemucs",
     "category": "Demucs",
     "filename": "955717e8-8726e21a.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/955717e8-8726e21a.th",
-    "name": "955717e8-8726e21a"
+    "name": "955717e8-8726e21a",
+    "size_mb": 80
   },
   {
     "display_name": "htdemucs",
     "category": "Demucs",
     "filename": "htdemucs.yaml",
     "download_url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/htdemucs.yaml",
-    "name": "htdemucs"
+    "name": "htdemucs",
+    "size_mb": 0
   },
   {
     "display_name": "hdemucs_mmi",
     "category": "Demucs",
     "filename": "75fc33f5-1941ce65.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/75fc33f5-1941ce65.th",
-    "name": "75fc33f5-1941ce65"
+    "name": "75fc33f5-1941ce65",
+    "size_mb": 160
   },
   {
     "display_name": "hdemucs_mmi",
     "category": "Demucs",
     "filename": "hdemucs_mmi.yaml",
     "download_url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/hdemucs_mmi.yaml",
-    "name": "hdemucs_mmi"
+    "name": "hdemucs_mmi",
+    "size_mb": 0
   },
   {
     "display_name": "htdemucs_6s",
     "category": "Demucs",
     "filename": "5c90dfd2-34c22ccb.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/hybrid_transformer/5c90dfd2-34c22ccb.th",
-    "name": "5c90dfd2-34c22ccb"
+    "name": "5c90dfd2-34c22ccb",
+    "size_mb": 52
   },
   {
     "display_name": "htdemucs_6s",
     "category": "Demucs",
     "filename": "htdemucs_6s.yaml",
     "download_url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/htdemucs_6s.yaml",
-    "name": "htdemucs_6s"
+    "name": "htdemucs_6s",
+    "size_mb": 0
   },
   {
     "display_name": "mdx",
     "category": "Demucs",
     "filename": "0d19c1c6-0f06f20e.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/0d19c1c6-0f06f20e.th",
-    "name": "0d19c1c6-0f06f20e"
+    "name": "0d19c1c6-0f06f20e",
+    "size_mb": 170
   },
   {
     "display_name": "mdx",
     "category": "Demucs",
     "filename": "7ecf8ec1-70f50cc9.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/7ecf8ec1-70f50cc9.th",
-    "name": "7ecf8ec1-70f50cc9"
+    "name": "7ecf8ec1-70f50cc9",
+    "size_mb": 170
   },
   {
     "display_name": "mdx",
     "category": "Demucs",
     "filename": "c511e2ab-fe698775.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/c511e2ab-fe698775.th",
-    "name": "c511e2ab-fe698775"
+    "name": "c511e2ab-fe698775",
+    "size_mb": 160
   },
   {
     "display_name": "mdx",
     "category": "Demucs",
     "filename": "7d865c68-3d5dd56b.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/7d865c68-3d5dd56b.th",
-    "name": "7d865c68-3d5dd56b"
+    "name": "7d865c68-3d5dd56b",
+    "size_mb": 160
   },
   {
     "display_name": "mdx",
     "category": "Demucs",
     "filename": "mdx.yaml",
     "download_url": "https://raw.githubusercontent.com/facebookresearch/demucs/main/demucs/remote/mdx.yaml",
-    "name": "mdx"
+    "name": "mdx",
+    "size_mb": 0
   },
   {
     "display_name": "mdx_q",
     "category": "Demucs",
     "filename": "6b9c2ca1-3fd82607.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/6b9c2ca1-3fd82607.th",
-    "name": "6b9c2ca1-3fd82607"
+    "name": "6b9c2ca1-3fd82607",
+    "size_mb": 57
   },
   {
     "display_name": "mdx_q",
     "category": "Demucs",
     "filename": "b72baf4e-8778635e.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/b72baf4e-8778635e.th",
-    "name": "b72baf4e-8778635e"
+    "name": "b72baf4e-8778635e",
+    "size_mb": 42
   },
   {
     "display_name": "mdx_q",
     "category": "Demucs",
     "filename": "42e558d4-196e0e1b.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/42e558d4-196e0e1b.th",
-    "name": "42e558d4-196e0e1b"
+    "name": "42e558d4-196e0e1b",
+    "size_mb": 56
   },
   {
     "display_name": "mdx_q",
     "category": "Demucs",
     "filename": "305bc58f-18378783.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/305bc58f-18378783.th",
-    "name": "305bc58f-18378783"
+    "name": "305bc58f-18378783",
+    "size_mb": 45
   },
   {
     "display_name": "mdx_q",
     "category": "Demucs",
     "filename": "mdx_q.yaml",
     "download_url": "https://raw.githubusercontent.com/facebookresearch/demucs/main/demucs/remote/mdx_q.yaml",
-    "name": "mdx_q"
+    "name": "mdx_q",
+    "size_mb": 0
   },
   {
     "display_name": "mdx_extra",
     "category": "Demucs",
     "filename": "e51eebcc-c1b80bdd.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/e51eebcc-c1b80bdd.th",
-    "name": "e51eebcc-c1b80bdd"
+    "name": "e51eebcc-c1b80bdd",
+    "size_mb": 160
   },
   {
     "display_name": "mdx_extra",
     "category": "Demucs",
     "filename": "a1d90b5c-ae9d2452.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/a1d90b5c-ae9d2452.th",
-    "name": "a1d90b5c-ae9d2452"
+    "name": "a1d90b5c-ae9d2452",
+    "size_mb": 160
   },
   {
     "display_name": "mdx_extra",
     "category": "Demucs",
     "filename": "5d2d6c55-db83574e.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/5d2d6c55-db83574e.th",
-    "name": "5d2d6c55-db83574e"
+    "name": "5d2d6c55-db83574e",
+    "size_mb": 160
   },
   {
     "display_name": "mdx_extra",
     "category": "Demucs",
     "filename": "cfa93e08-61801ae1.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/cfa93e08-61801ae1.th",
-    "name": "cfa93e08-61801ae1"
+    "name": "cfa93e08-61801ae1",
+    "size_mb": 160
   },
   {
     "display_name": "mdx_extra",
     "category": "Demucs",
     "filename": "mdx_extra.yaml",
     "download_url": "https://raw.githubusercontent.com/facebookresearch/demucs/main/demucs/remote/mdx_extra.yaml",
-    "name": "mdx_extra"
+    "name": "mdx_extra",
+    "size_mb": 0
   },
   {
     "display_name": "mdx_extra_q",
     "category": "Demucs",
     "filename": "83fc094f-4a16d450.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/83fc094f-4a16d450.th",
-    "name": "83fc094f-4a16d450"
+    "name": "83fc094f-4a16d450",
+    "size_mb": 48
   },
   {
     "display_name": "mdx_extra_q",
     "category": "Demucs",
     "filename": "464b36d7-e5a9386e.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/464b36d7-e5a9386e.th",
-    "name": "464b36d7-e5a9386e"
+    "name": "464b36d7-e5a9386e",
+    "size_mb": 37
   },
   {
     "display_name": "mdx_extra_q",
     "category": "Demucs",
     "filename": "14fc6a69-a89dd0ee.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/14fc6a69-a89dd0ee.th",
-    "name": "14fc6a69-a89dd0ee"
+    "name": "14fc6a69-a89dd0ee",
+    "size_mb": 37
   },
   {
     "display_name": "mdx_extra_q",
     "category": "Demucs",
     "filename": "7fd6ef75-a905dd85.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/7fd6ef75-a905dd85.th",
-    "name": "7fd6ef75-a905dd85"
+    "name": "7fd6ef75-a905dd85",
+    "size_mb": 38
   },
   {
     "display_name": "mdx_extra_q",
     "category": "Demucs",
     "filename": "mdx_extra_q.yaml",
     "download_url": "https://raw.githubusercontent.com/facebookresearch/demucs/main/demucs/remote/mdx_extra_q.yaml",
-    "name": "mdx_extra_q"
+    "name": "mdx_extra_q",
+    "size_mb": 0
   },
   {
     "display_name": "UVR Model",
     "category": "Demucs",
     "filename": "ebf34a2db.th",
     "download_url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/ebf34a2db.th",
-    "name": "ebf34a2db"
+    "name": "ebf34a2db",
+    "size_mb": 160
   },
   {
     "display_name": "UVR Model",
     "category": "Demucs",
     "filename": "UVR_Demucs_Model_1.yaml",
     "download_url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/UVR_Demucs_Model_1.yaml",
-    "name": "UVR_Demucs_Model_1"
+    "name": "UVR_Demucs_Model_1",
+    "size_mb": 0
   },
   {
     "display_name": "repro_mdx_a",
     "category": "Demucs",
     "filename": "9a6b4851-03af0aa6.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/9a6b4851-03af0aa6.th",
-    "name": "9a6b4851-03af0aa6"
+    "name": "9a6b4851-03af0aa6",
+    "size_mb": 255
   },
   {
     "display_name": "repro_mdx_a",
     "category": "Demucs",
     "filename": "1ef250f1-592467ce.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/1ef250f1-592467ce.th",
-    "name": "1ef250f1-592467ce"
+    "name": "1ef250f1-592467ce",
+    "size_mb": 255
   },
   {
     "display_name": "repro_mdx_a",
     "category": "Demucs",
     "filename": "fa0cb7f9-100d8bf4.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/fa0cb7f9-100d8bf4.th",
-    "name": "fa0cb7f9-100d8bf4"
+    "name": "fa0cb7f9-100d8bf4",
+    "size_mb": 160
   },
   {
     "display_name": "repro_mdx_a",
     "category": "Demucs",
     "filename": "902315c2-b39ce9c9.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/902315c2-b39ce9c9.th",
-    "name": "902315c2-b39ce9c9"
+    "name": "902315c2-b39ce9c9",
+    "size_mb": 160
   },
   {
     "display_name": "repro_mdx_a",
     "category": "Demucs",
     "filename": "repro_mdx_a.yaml",
     "download_url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/repro_mdx_a.yaml",
-    "name": "repro_mdx_a"
+    "name": "repro_mdx_a",
+    "size_mb": 0
   },
   {
     "display_name": "repro_mdx_a_time_only",
     "category": "Demucs",
     "filename": "9a6b4851-03af0aa6.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/9a6b4851-03af0aa6.th",
-    "name": "9a6b4851-03af0aa6"
+    "name": "9a6b4851-03af0aa6",
+    "size_mb": 255
   },
   {
     "display_name": "repro_mdx_a_time_only",
     "category": "Demucs",
     "filename": "1ef250f1-592467ce.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/1ef250f1-592467ce.th",
-    "name": "1ef250f1-592467ce"
+    "name": "1ef250f1-592467ce",
+    "size_mb": 255
   },
   {
     "display_name": "repro_mdx_a_time_only",
     "category": "Demucs",
     "filename": "repro_mdx_a_time_only.yaml",
     "download_url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/repro_mdx_a_time_only.yaml",
-    "name": "repro_mdx_a_time_only"
+    "name": "repro_mdx_a_time_only",
+    "size_mb": 0
   },
   {
     "display_name": "repro_mdx_a_hybrid_only",
     "category": "Demucs",
     "filename": "fa0cb7f9-100d8bf4.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/fa0cb7f9-100d8bf4.th",
-    "name": "fa0cb7f9-100d8bf4"
+    "name": "fa0cb7f9-100d8bf4",
+    "size_mb": 160
   },
   {
     "display_name": "repro_mdx_a_hybrid_only",
     "category": "Demucs",
     "filename": "902315c2-b39ce9c9.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/mdx_final/902315c2-b39ce9c9.th",
-    "name": "902315c2-b39ce9c9"
+    "name": "902315c2-b39ce9c9",
+    "size_mb": 160
   },
   {
     "display_name": "repro_mdx_a_hybrid_only",
     "category": "Demucs",
     "filename": "repro_mdx_a_hybrid_only.yaml",
     "download_url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/repro_mdx_a_hybrid_only.yaml",
-    "name": "repro_mdx_a_hybrid_only"
+    "name": "repro_mdx_a_hybrid_only",
+    "size_mb": 0
   },
   {
     "display_name": "demucs",
     "category": "Demucs",
     "filename": "demucs-e07c671f.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/v3.0/demucs-e07c671f.th",
-    "name": "demucs-e07c671f"
+    "name": "demucs-e07c671f",
+    "size_mb": 1014
   },
   {
     "display_name": "demucs_extra",
     "category": "Demucs",
     "filename": "demucs_extra-3646af93.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/v3.0/demucs_extra-3646af93.th",
-    "name": "demucs_extra-3646af93"
+    "name": "demucs_extra-3646af93",
+    "size_mb": 1014
   },
   {
     "display_name": "demucs48_hq",
     "category": "Demucs",
     "filename": "demucs48_hq-28a1282c.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/v3.0/demucs48_hq-28a1282c.th",
-    "name": "demucs48_hq-28a1282c"
+    "name": "demucs48_hq-28a1282c",
+    "size_mb": 570
   },
   {
     "display_name": "tasnet",
     "category": "Demucs",
     "filename": "tasnet-beb46fac.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/v3.0/tasnet-beb46fac.th",
-    "name": "tasnet-beb46fac"
+    "name": "tasnet-beb46fac",
+    "size_mb": 42
   },
   {
     "display_name": "tasnet_extra",
     "category": "Demucs",
     "filename": "tasnet_extra-df3777b2.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/v3.0/tasnet_extra-df3777b2.th",
-    "name": "tasnet_extra-df3777b2"
+    "name": "tasnet_extra-df3777b2",
+    "size_mb": 42
   },
   {
     "display_name": "demucs_unittest",
     "category": "Demucs",
     "filename": "demucs_unittest-09ebc15f.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/v3.0/demucs_unittest-09ebc15f.th",
-    "name": "demucs_unittest-09ebc15f"
+    "name": "demucs_unittest-09ebc15f",
+    "size_mb": 4
   },
   {
     "display_name": "demucs",
     "category": "Demucs",
     "filename": "demucs.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/v2.0/demucs.th",
-    "name": "demucs"
+    "name": "demucs",
+    "size_mb": 2474
   },
   {
     "display_name": "demucs_extra",
     "category": "Demucs",
     "filename": "demucs_extra.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/v2.0/demucs_extra.th",
-    "name": "demucs_extra"
+    "name": "demucs_extra",
+    "size_mb": 2474
   },
   {
     "display_name": "light",
     "category": "Demucs",
     "filename": "light.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/v2.0/light.th",
-    "name": "light"
+    "name": "light",
+    "size_mb": 1013
   },
   {
     "display_name": "light_extra",
     "category": "Demucs",
     "filename": "light_extra.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/v2.0/light_extra.th",
-    "name": "light_extra"
+    "name": "light_extra",
+    "size_mb": 1013
   },
   {
     "display_name": "tasnet",
     "category": "Demucs",
     "filename": "tasnet.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/v2.0/tasnet.th",
-    "name": "tasnet"
+    "name": "tasnet",
+    "size_mb": 42
   },
   {
     "display_name": "tasnet_extra",
     "category": "Demucs",
     "filename": "tasnet_extra.th",
     "download_url": "https://dl.fbaipublicfiles.com/demucs/v2.0/tasnet_extra.th",
-    "name": "tasnet_extra"
+    "name": "tasnet_extra",
+    "size_mb": 42
   },
   {
     "display_name": "MelBand Roformer Kim | Inst V1 by Unwa",
     "category": "Roformer",
     "filename": "config_melbandroformer_inst.yaml",
     "download_url": "https://raw.githubusercontent.com/TRvlvr/application_data/main/mdx_model_data/mdx_c_configs/config_melbandroformer_inst.yaml",
-    "name": "config_melbandroformer_inst"
+    "name": "config_melbandroformer_inst",
+    "size_mb": 0
   },
   {
     "display_name": "MelBand Roformer Kim | Inst V2 by Unwa",
     "category": "Roformer",
     "filename": "config_melbandroformer_inst_v2.yaml",
     "download_url": "https://raw.githubusercontent.com/TRvlvr/application_data/main/mdx_model_data/mdx_c_configs/config_melbandroformer_inst_v2.yaml",
-    "name": "config_melbandroformer_inst_v2"
+    "name": "config_melbandroformer_inst_v2",
+    "size_mb": 0
   },
   {
     "display_name": "MelBand Roformer Kim | InstVoc Duality V1 by Unwa",
     "category": "Roformer",
     "filename": "config_melbandroformer_instvoc_duality.yaml",
     "download_url": "https://raw.githubusercontent.com/TRvlvr/application_data/main/mdx_model_data/mdx_c_configs/config_melbandroformer_instvoc_duality.yaml",
-    "name": "config_melbandroformer_instvoc_duality"
+    "name": "config_melbandroformer_instvoc_duality",
+    "size_mb": 0
   },
   {
     "display_name": "MelBand Roformer Kim | InstVoc Duality V2 by Unwa",
     "category": "Roformer",
     "filename": "config_melbandroformer_instvoc_duality.yaml",
     "download_url": "https://raw.githubusercontent.com/TRvlvr/application_data/main/mdx_model_data/mdx_c_configs/config_melbandroformer_instvoc_duality.yaml",
-    "name": "config_melbandroformer_instvoc_duality"
+    "name": "config_melbandroformer_instvoc_duality",
+    "size_mb": 0
   },
   {
     "display_name": "MelBand Roformer Kim | Inst V1 (E) by Unwa",
     "category": "Roformer",
     "filename": "inst_v1e.ckpt",
     "download_url": "https://huggingface.co/pcunwa/Mel-Band-Roformer-Inst/resolve/main/inst_v1e.ckpt",
-    "name": "inst_v1e"
+    "name": "inst_v1e",
+    "size_mb": 871
   },
   {
     "display_name": "MelBand Roformer Kim | Inst V1 (E) by Unwa",
     "category": "Roformer",
     "filename": "config_melbandroformer_inst.yaml",
     "download_url": "https://raw.githubusercontent.com/TRvlvr/application_data/main/mdx_model_data/mdx_c_configs/config_melbandroformer_inst.yaml",
-    "name": "config_melbandroformer_inst"
+    "name": "config_melbandroformer_inst",
+    "size_mb": 0
   },
   {
     "display_name": "MelBand Roformer Kim",
     "category": "Roformer",
     "filename": "MelBandRoformer.ckpt",
     "download_url": "https://huggingface.co/KimberleyJSN/melbandroformer/resolve/main/MelBandRoformer.ckpt",
-    "name": "MelBandRoformer"
+    "name": "MelBandRoformer",
+    "size_mb": 871
   },
   {
     "display_name": "MelBand Roformer Kim",
     "category": "Roformer",
     "filename": "config_vocals_mel_band_roformer_kim.yaml",
     "download_url": "https://raw.githubusercontent.com/TRvlvr/application_data/main/mdx_model_data/mdx_c_configs/config_vocals_mel_band_roformer_kim.yaml",
-    "name": "config_vocals_mel_band_roformer_kim"
+    "name": "config_vocals_mel_band_roformer_kim",
+    "size_mb": 0
   },
   {
     "display_name": "BS-Roformer-Inst-EXP-Value-Residual | (by Unwa)",
     "category": "Roformer",
     "filename": "BS_Inst_EXP_VRL.ckpt",
     "download_url": "https://huggingface.co/pcunwa/BS-Roformer-Inst-EXP-Value-Residual/resolve/main/BS_Inst_EXP_VRL.ckpt",
-    "name": "BS_Inst_EXP_VRL"
+    "name": "BS_Inst_EXP_VRL",
+    "size_mb": 375
   },
   {
     "display_name": "BS-Roformer-Inst-EXP-Value-Residual | (by Unwa)",
     "category": "Roformer",
     "filename": "BS_Inst_EXP_VRL.yaml",
     "download_url": "https://raw.githubusercontent.com/TRvlvr/application_data/main/mdx_model_data/mdx_c_configs/BS_Inst_EXP_VRL.yaml",
-    "name": "BS_Inst_EXP_VRL"
+    "name": "BS_Inst_EXP_VRL",
+    "size_mb": 0
   },
   {
     "display_name": "Karaoke MelBand Roformer | (by aufr33 & viperx)",
     "category": "Roformer",
     "filename": "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt",
     "download_url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt",
-    "name": "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956"
+    "name": "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956",
+    "size_mb": 871
   },
   {
     "display_name": "Karaoke MelBand Roformer | (by aufr33 & viperx)",
     "category": "Roformer",
     "filename": "config_mel_band_roformer_karaoke.yaml",
     "download_url": "https://raw.githubusercontent.com/TRvlvr/application_data/main/mdx_model_data/mdx_c_configs/config_mel_band_roformer_karaoke.yaml",
-    "name": "config_mel_band_roformer_karaoke"
+    "name": "config_mel_band_roformer_karaoke",
+    "size_mb": 0
   },
   {
     "display_name": "BS Roformer Dereverb | (anvuew edition)",
     "category": "Roformer",
     "filename": "deverb_bs_roformer_8_256dim_8depth.ckpt",
-    "download_url": "https://huggingface.co/anvuew/deverb_bs_roformer/resolve/main/deverb_bs_roformer_8_256dim_8depth.ckpt",
-    "name": "deverb_bs_roformer_8_256dim_8depth"
+    "download_url": "https://huggingface.co/anvuew/dereverb_bs_roformer/resolve/main/archive/deverb_bs_roformer_8_256dim_8depth.ckpt",
+    "name": "deverb_bs_roformer_8_256dim_8depth",
+    "size_mb": 163
   },
   {
     "display_name": "BS Roformer Dereverb | (anvuew edition)",
     "category": "Roformer",
     "filename": "deverb_bs_roformer_8_256dim_8depth.yaml",
     "download_url": "https://raw.githubusercontent.com/TRvlvr/application_data/main/mdx_model_data/mdx_c_configs/deverb_bs_roformer_8_256dim_8depth.yaml",
-    "name": "deverb_bs_roformer_8_256dim_8depth"
+    "name": "deverb_bs_roformer_8_256dim_8depth",
+    "size_mb": 0
   },
   {
     "display_name": "Cinematic Bandit Plus | (by kwatcharasupat)",
     "category": "Roformer",
     "filename": "model_bandit_plus_dnr_sdr_11.47.ckpt",
     "download_url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/model_bandit_plus_dnr_sdr_11.47.ckpt",
-    "name": "model_bandit_plus_dnr_sdr_11.47"
+    "name": "model_bandit_plus_dnr_sdr_11.47",
+    "size_mb": 142
   },
   {
     "display_name": "Cinematic Bandit Plus | (by kwatcharasupat)",
     "category": "Roformer",
     "filename": "config_dnr_bandit_bsrnn_multi_mus64.yaml",
     "download_url": "https://raw.githubusercontent.com/TRvlvr/application_data/main/mdx_model_data/mdx_c_configs/config_dnr_bandit_bsrnn_multi_mus64.yaml",
-    "name": "config_dnr_bandit_bsrnn_multi_mus64"
+    "name": "config_dnr_bandit_bsrnn_multi_mus64",
+    "size_mb": 0
   },
   {
     "display_name": "Cinematic Bandit v2 Multilang | (by kwatcharasupat)",
     "category": "Roformer",
     "filename": "checkpoint-multi_fixed.ckpt",
     "download_url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/checkpoint-multi_fixed.ckpt",
-    "name": "checkpoint-multi_fixed"
+    "name": "checkpoint-multi_fixed",
+    "size_mb": 142
   },
   {
     "display_name": "Cinematic Bandit v2 Multilang | (by kwatcharasupat)",
     "category": "Roformer",
     "filename": "config_dnr_bandit_v2_mus64.yaml",
     "download_url": "https://raw.githubusercontent.com/TRvlvr/application_data/main/mdx_model_data/mdx_c_configs/config_dnr_bandit_v2_mus64.yaml",
-    "name": "config_dnr_bandit_v2_mus64"
+    "name": "config_dnr_bandit_v2_mus64",
+    "size_mb": 0
   },
   {
     "display_name": "4-stems SCNet_MUSDB18 | (by starrytong)",
     "category": "SCnet",
     "filename": "scnet_checkpoint_musdb18.ckpt",
     "download_url": "https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/download/v.1.0.6/scnet_checkpoint_musdb18.ckpt",
-    "name": "scnet_checkpoint_musdb18"
+    "name": "scnet_checkpoint_musdb18",
+    "size_mb": 40
   },
   {
     "display_name": "4-stems SCNet_MUSDB18 | (by starrytong)",
     "category": "SCnet",
     "filename": "config_musdb18_scnet.yaml",
     "download_url": "https://raw.githubusercontent.com/TRvlvr/application_data/main/mdx_model_data/mdx_c_configs/config_musdb18_scnet.yaml",
-    "name": "config_musdb18_scnet"
+    "name": "config_musdb18_scnet",
+    "size_mb": 0
   },
   {
     "display_name": "4-stems SCNet Large | (by starrytong)",
     "category": "SCnet",
     "filename": "SCNet-large_starrytong_fixed.ckpt",
     "download_url": "https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/download/v1.0.9/SCNet-large_starrytong_fixed.ckpt",
-    "name": "SCNet-large_starrytong_fixed"
+    "name": "SCNet-large_starrytong_fixed",
+    "size_mb": 161
   },
   {
     "display_name": "4-stems SCNet Large | (by starrytong)",
     "category": "SCnet",
     "filename": "config_musdb18_scnet_large_starrytong.yaml",
     "download_url": "https://raw.githubusercontent.com/TRvlvr/application_data/main/mdx_model_data/mdx_c_configs/config_musdb18_scnet_large_starrytong.yaml",
-    "name": "config_musdb18_scnet_large_starrytong"
+    "name": "config_musdb18_scnet_large_starrytong",
+    "size_mb": 0
   },
   {
     "display_name": "4-stems SCNet Large",
     "category": "SCnet",
     "filename": "model_scnet_sdr_9.3244.ckpt",
     "download_url": "https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/download/v1.0.8/model_scnet_sdr_9.3244.ckpt",
-    "name": "model_scnet_sdr_9.3244"
+    "name": "model_scnet_sdr_9.3244",
+    "size_mb": 161
   },
   {
     "display_name": "4-stems SCNet Large",
     "category": "SCnet",
     "filename": "config_musdb18_scnet_large.yaml",
     "download_url": "https://raw.githubusercontent.com/TRvlvr/application_data/main/mdx_model_data/mdx_c_configs/config_musdb18_scnet_large.yaml",
-    "name": "config_musdb18_scnet_large"
+    "name": "config_musdb18_scnet_large",
+    "size_mb": 0
   },
   {
     "display_name": "4-stems SCNet-XL",
     "category": "SCnet",
     "filename": "model_scnet_ep_54_sdr_9.8051.ckpt",
     "download_url": "https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/download/v1.0.13/model_scnet_ep_54_sdr_9.8051.ckpt",
-    "name": "model_scnet_ep_54_sdr_9.8051"
+    "name": "model_scnet_ep_54_sdr_9.8051",
+    "size_mb": 206
   },
   {
     "display_name": "4-stems SCNet-XL",
     "category": "SCnet",
     "filename": "config_musdb18_scnet_xl.yaml",
     "download_url": "https://raw.githubusercontent.com/TRvlvr/application_data/main/mdx_model_data/mdx_c_configs/config_musdb18_scnet_xl.yaml",
-    "name": "config_musdb18_scnet_xl"
+    "name": "config_musdb18_scnet_xl",
+    "size_mb": 0
   },
   {
     "display_name": "DrumSep 6stem | (by aufr33 & jarredou)",
     "category": "MDX",
     "filename": "aufr33-jarredou_DrumSep_model_mdx23c_ep_141_sdr_10.8059.ckpt",
     "download_url": "https://github.com/jarredou/models/releases/download/aufr33-jarredou_MDX23C_DrumSep_model_v0.1/aufr33-jarredou_DrumSep_model_mdx23c_ep_141_sdr_10.8059.ckpt",
-    "name": "aufr33-jarredou_DrumSep_model_mdx23c_ep_141_sdr_10.8059"
+    "name": "aufr33-jarredou_DrumSep_model_mdx23c_ep_141_sdr_10.8059",
+    "size_mb": 417
   },
   {
     "display_name": "DrumSep 6stem | (by aufr33 & jarredou)",
     "category": "MDX",
     "filename": "aufr33-jarredou_DrumSep_model_mdx23c_ep_141_sdr_10.8059.yaml",
     "download_url": "https://raw.githubusercontent.com/TRvlvr/application_data/main/mdx_model_data/mdx_c_configs/aufr33-jarredou_DrumSep_model_mdx23c_ep_141_sdr_10.8059.yaml",
-    "name": "aufr33-jarredou_DrumSep_model_mdx23c_ep_141_sdr_10.8059"
+    "name": "aufr33-jarredou_DrumSep_model_mdx23c_ep_141_sdr_10.8059",
+    "size_mb": 0
   },
   {
     "display_name": "Phantom Centre extraction | (by wesleyr36)",
     "category": "MDX",
     "filename": "model_mdx23c_ep_271_l1_freq_72.2383.ckpt",
     "download_url": "https://github.com/ZFTurbo/Music-Source-Separation-Training/releases/download/v1.0.10/model_mdx23c_ep_271_l1_freq_72.2383.ckpt",
-    "name": "model_mdx23c_ep_271_l1_freq_72.2383"
+    "name": "model_mdx23c_ep_271_l1_freq_72.2383",
+    "size_mb": 417
   },
   {
     "display_name": "Phantom Centre extraction | (by wesleyr36)",
     "category": "MDX",
     "filename": "config_mdx23c_similarity.yaml",
     "download_url": "https://raw.githubusercontent.com/TRvlvr/application_data/main/mdx_model_data/mdx_c_configs/config_mdx23c_similarity.yaml",
-    "name": "config_mdx23c_similarity"
+    "name": "config_mdx23c_similarity",
+    "size_mb": 0
   }
 ]
