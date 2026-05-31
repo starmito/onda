@@ -8,7 +8,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /onda-backend ./cmd/onda/
 
 # ── Stage 2: Imagen final ──
 FROM nginx:alpine
-ARG ONDA_VERSION=v2.1.0-alpha
+ARG ONDA_VERSION=v2.1.1
 
 RUN apk add --no-cache bash docker-cli
 
