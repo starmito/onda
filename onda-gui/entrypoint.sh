@@ -12,7 +12,7 @@ echo "→ host uid:gid = $HOST_UID:$HOST_GID  docker gid = $DOCKER_GID"
 addgroup -g "$HOST_GID" hostgroup 2>/dev/null || echo "hostgroup exists"
 addgroup -g "$DOCKER_GID" dockergroup 2>/dev/null || echo "dockergroup exists"
 
-# ── Create apiuser for Python API server ──
+# ── Create apiuser for Go backend ──
 if ! id apiuser >/dev/null 2>&1; then
     adduser -D -u "$HOST_UID" -G hostgroup apiuser
     echo "→ apiuser created"
@@ -22,9 +22,9 @@ else
 fi
 addgroup apiuser dockergroup 2>/dev/null || true
 
-# ── Start Python API server ──
-echo "→ Starting Python API on :3001..."
-su apiuser -c "python3 /usr/lib/onda-api.py" &
+# ── Start Go backend ──
+echo "→ Starting Go backend on :3001..."
+/usr/bin/onda-backend serve --addr :3001 &
 sleep 1
 
 # ── Start nginx ──
