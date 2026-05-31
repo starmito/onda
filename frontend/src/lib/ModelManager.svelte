@@ -38,9 +38,21 @@
     if (selectedModelSizeMb === null) return null;
     const base = selectedModelSizeMb;
     const bs = batchSize === 0 ? 1 : batchSize;
-    const cs = chunkSize === 0 ? 1 : chunkSize / 1024;
-    const factor = (segmentSize / 256) * (1 + overlap) * Math.max(1, bs) * cs;
-    return base * factor;
+
+    // Activation memory scales with segment size (relative to default 256)
+    // and overlap (redundant processing of overlapping regions).
+    // At default segment=256, overlap=0, activations are ~25% of model weights.
+    // Chunk size does NOT scale model VRAM — it only affects audio batch
+    // throughput, so it is intentionally excluded from this formula.
+    const activationRatio = 0.25;
+    const segmentFactor = segmentSize / 256;
+    const overlapFactor = 1 + overlap;
+    const activationMemory = base * activationRatio * segmentFactor * overlapFactor;
+
+    // Batch size multiplies everything (multiple copies or larger batches)
+    const total = (base + activationMemory) * Math.max(1, bs);
+
+    return Math.round(total);
   });
 
   let vramPercent = $derived.by(() => {
