@@ -40,18 +40,20 @@ func checkDockerContainer() (string, error) {
 	return strings.TrimSpace(string(out)), nil
 }
 
-// checkGPU verifica si el contenedor tiene acceso a GPU NVIDIA.
+// checkGPU verifica si el contenedor tiene acceso a GPU NVIDIA vía PyTorch.
+// El contenedor onda no tiene nvidia-smi, así que usamos torch.cuda.
 func checkGPU() (bool, string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	script := "import torch; d=torch.cuda.get_device_properties(0) if torch.cuda.is_available() else None; print(f'{d.name}, {torch.cuda.memory_allocated(0)//1024//1024} MiB, {torch.cuda.get_device_properties(0).total_memory//1024//1024} MiB' if d else 'CUDA not available')"
 	cmd := exec.CommandContext(ctx, "docker", "exec", dockerContainer,
-		"nvidia-smi", "--query-gpu=name,memory.used,memory.total", "--format=csv,noheader")
+		"python3", "-c", script)
 	out, err := cmd.Output()
 	if err != nil {
 		return false, "", err
 	}
 	info := strings.TrimSpace(string(out))
-	available := info != "" && !strings.Contains(info, "NVIDIA-SMI has failed")
+	available := info != "" && !strings.Contains(info, "CUDA not available")
 	return available, info, nil
 }
 
