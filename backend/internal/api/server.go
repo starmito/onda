@@ -547,13 +547,10 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	// Clean previous status file before launching new pipeline
 	os.Remove(pipelineStatusFilePath())
 
-	// Launch pipeline inside the 'onda' Docker container (as host user to avoid permission issues)
+	// Launch pipeline inside the 'onda' Docker container.
+	// Run as root inside the container so it can chmod output for host access.
 	go func() {
-		hostUID := os.Getenv("HOST_UID")
-		if hostUID == "" { hostUID = "1000" }
-		hostGID := os.Getenv("HOST_GID")
-		if hostGID == "" { hostGID = "1000" }
-		dockerArgs := append([]string{"exec", "--user", hostUID + ":" + hostGID, "onda", "bash", "/pipeline.sh"}, pipelineArgs...)
+		dockerArgs := append([]string{"exec", "onda", "bash", "/pipeline.sh"}, pipelineArgs...)
 		cmd := exec.Command("docker", dockerArgs...)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
