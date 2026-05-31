@@ -37,6 +37,21 @@
   let estimatedVramMb = $derived.by(() => {
     if (selectedModelSizeMb === null) return null;
     const base = selectedModelSizeMb;
+
+    // Demucs (htdemucs_ft) uses its own set of parameters: segment (duration
+    // in seconds) and jobs (parallel workers). Shifts are sequential offsets
+    // with a single model load, so they do not scale VRAM.
+    if (isDemucs) {
+      const segSec = segment === 0 ? 7.8 : segment;  // default Demucs segment = 7.8s
+      const segBaseline = 7.8;
+      const segFactor = segSec / segBaseline;         // 1.0 at default
+      const jobsCount = jobs === 0 ? 1 : jobs;
+      // jobs scale sub-linearly (not full model copies, but worker overhead)
+      const jobsFactor = 1 + (jobsCount - 1) * 0.3;
+      const total = base * segFactor * jobsFactor;
+      return Math.round(total);
+    }
+
     const bs = batchSize === 0 ? 1 : batchSize;
 
     // Activation memory scales with segment size (relative to default 256)
