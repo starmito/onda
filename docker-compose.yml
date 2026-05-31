@@ -1,23 +1,26 @@
-# Onda — Base compose (sin GPU)
-# Override con docker-compose.nvidia.yml o docker-compose.amd.yml
+# Onda — Despliegue unificado (NVIDIA GPU)
+# ── docker compose up -d --build ── levanta todo
 #
-# Configuración vía .env o variables de entorno:
+# Configuración vía .env (crear desde .env.example):
 #   MODEL_DIR    — ruta a los modelos (default: ./models)
 #   HOST_UID     — UID del usuario host (default: 1000)
 #   HOST_GID     — GID del usuario host (default: 1000)
-#   GPU_TYPE     — nvidia | amd | cpu (default: cpu)
 #   ONDA_PORT    — puerto de la UI (default: 3000)
 
 services:
-  # ── Backend: inferencia ──
+  # ═══════════════════════════════════════════════════════════════
+  #  onda — Contenedor de inferencia (Python + PyTorch + CUDA)
+  # ═══════════════════════════════════════════════════════════════
   onda:
-    image: onda:${GPU_TYPE:-cpu}
+    image: onda:nvidia
     build:
       context: .
-      dockerfile: ${GPU_DOCKERFILE:-Dockerfile}
+      dockerfile: Dockerfile
     container_name: onda
+    runtime: nvidia
     user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     environment:
+      - NVIDIA_VISIBLE_DEVICES=all
       - NUMBA_CACHE_DIR=/tmp/numba_cache
       - TORCH_HOME=/tmp/torch_cache
       - XDG_CACHE_HOME=/tmp/xdg_cache
@@ -30,8 +33,16 @@ services:
       - ./output:/output
     working_dir: /app
     entrypoint: ["sh", "-c", "mkdir -p /tmp/numba_cache /tmp/torch_cache /tmp/xdg_cache /tmp/hf_cache /tmp/torch_inductor_cache && exec tail -f /dev/null"]
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import torch; assert torch.cuda.is_available(), 'CUDA not available'"]
+      interval: 10s
+      timeout: 10s
+      retries: 6
+      start_period: 30s
 
-  # ── Frontend: nginx + Python API ──
+  # ═══════════════════════════════════════════════════════════════
+  #  onda-gui — Frontend Svelte + Backend Go + Nginx
+  # ═══════════════════════════════════════════════════════════════
   onda-gui:
     build:
       context: .
@@ -41,7 +52,8 @@ services:
     ports:
       - "${ONDA_PORT:-3000}:3000"
     depends_on:
-      - onda
+      onda:
+        condition: service_healthy
     volumes:
       - ${MODEL_DIR:-./models}:/models:ro
       - ./input:/input
