@@ -28,7 +28,7 @@ services:
       - HOME=/tmp
       - TORCHINDUCTOR_CACHE_DIR=/tmp/torch_inductor_cache
     volumes:
-      - ${MODEL_DIR:-./models}:/app/models:ro
+      - ${MODEL_DIR:-./models}:/models:ro
       - ./input:/input
       - ./output:/output
     working_dir: /app
@@ -49,6 +49,7 @@ services:
       dockerfile: ./onda-gui/Dockerfile
     image: onda-gui:latest
     container_name: onda-gui
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     ports:
       - "${ONDA_PORT:-3000}:3000"
     depends_on:

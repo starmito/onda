@@ -547,10 +547,10 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	// Clean previous status file before launching new pipeline
 	os.Remove(pipelineStatusFilePath())
 
-	// Launch pipeline inside the 'onda' Docker container as root.
-	// Container normally runs as 1000:1000, but pipeline needs root to chmod output.
+	// Launch pipeline inside the 'onda' Docker container.
+	// Container runs as 1000:1000 (same user as host).
 	go func() {
-		dockerArgs := append([]string{"exec", "--user", "0:0", "onda", "bash", "/pipeline.sh"}, pipelineArgs...)
+		dockerArgs := append([]string{"exec", "onda", "bash", "/pipeline.sh"}, pipelineArgs...)
 		cmd := exec.Command("docker", dockerArgs...)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
@@ -585,7 +585,7 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 // Docker container. For Demucs PyTorch models (htdemucs_ft, htdemucs, etc.)
 // the name is returned as-is (loaded by name, not path). For all other models
 // (ViperX, Roformer, MDX, etc.), the model is looked up in listModels() and
-// its /models/ path is translated to /app/models/ (the container's mount).
+// its /models/ path is returned directly (both containers use /models).
 func resolveModelDir(name string) string {
 	if name == "htdemucs_ft" || (strings.HasPrefix(name, "htdemucs") && !strings.Contains(name, ".onnx")) {
 		return name
@@ -593,8 +593,7 @@ func resolveModelDir(name string) string {
 	models := listModels()
 	for _, m := range models.Models {
 		if m.Name == name || m.DisplayName == name {
-			dir := filepath.Dir(m.Path)
-			return strings.Replace(dir, "/models/", "/app/models/", 1)
+			return filepath.Dir(m.Path)
 		}
 	}
 	return ""

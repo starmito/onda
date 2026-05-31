@@ -143,7 +143,7 @@ run_with_elapsed() {
 # ── Parse flags ──────────────────────────────────
 VIPERX=false
 VIPERX_KEEP="both"
-VIPERX_MODEL="/app/models/VR_Models/BS_Roformer_Viperx"
+VIPERX_MODEL="/models/VR_Models/BS_Roformer_Viperx"
 DEMUCS=false
 DEMUCS_KEEP="all"
 DEMUCS_MODEL="htdemucs_ft"
@@ -235,9 +235,7 @@ echo "   Output:   ${OUTPUT}"
 echo "═══════════════════════════════════════"
 
 # Clean previous run output
-rm -rf "${OUTPUT}" 2>/dev/null || true
 mkdir -p "${OUTPUT}"
-chmod -R 777 "${OUTPUT}" 2>/dev/null || true
 
 # Clean previous output to prevent accumulation of old stems
 rm -f "${OUTPUT}"/*.wav 2>/dev/null || true
@@ -254,7 +252,6 @@ if $VIPERX; then
     echo "🔪 Viperx → vocal + instrumental..."
     TMP_VIP="${OUTPUT}/_viperx"
     mkdir -p "${TMP_VIP}"  # must exist before progress file write
-    chmod -R 777 "${TMP_VIP}" 2>/dev/null || true
     CURRENT_STEP="viperx"
     # Pre-flight: verify model path exists
     if [ ! -d "${VIPERX_MODEL}" ]; then
