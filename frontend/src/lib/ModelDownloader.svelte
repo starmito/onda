@@ -101,10 +101,32 @@
 
   let groupedCatalog = $derived.by(() => {
     const groups: Record<string, UVRModelEntry[]> = {};
-    const seen = new Set<string>(); // prevent duplicate entries
+    const seen = new Set<string>(); // track unique model identities
+    
     for (const m of filtered) {
-      if (seen.has(m.filename)) continue;
-      seen.add(m.filename);
+      // Build a unique key: category + name
+      // For models with same name but different files (.ckpt vs .yaml),
+      // prefer the weights file over config file
+      const key = `${m.category}::${m.name}`;
+      const ext = m.filename?.split('.').pop()?.toLowerCase() || '';
+      const isWeights = ['ckpt', 'pth', 'th', 'onnx', 'safetensors', 'pt'].includes(ext);
+      const isConfig = ext === 'yaml';
+      
+      if (seen.has(key)) {
+        // Already have this model — replace ONLY if current is config and new is weights
+        if (isWeights) {
+          // Replace the config entry with the weights entry
+          const cat = m.category || 'Other';
+          if (groups[cat]) {
+            groups[cat] = groups[cat].filter(e => `${e.category}::${e.name}` !== key);
+            groups[cat].push(m);
+          }
+        }
+        // Otherwise skip (keep existing)
+        continue;
+      }
+      
+      seen.add(key);
       const cat = m.category || 'Other';
       if (!groups[cat]) groups[cat] = [];
       groups[cat].push(m);
