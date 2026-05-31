@@ -79,6 +79,7 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("POST /api/backend/restart", s.handleBackendRestart)
 	s.mux.HandleFunc("DELETE /api/files/{song}", s.handleDeleteSong)
 	s.mux.HandleFunc("DELETE /api/delete", s.handleDeleteFile)
+	s.mux.HandleFunc("DELETE /api/inputs/{name}", s.handleDeleteInput)
 	// Frontend is served by Vite dev server separately; no static handler needed.
 
 	go s.worker()
@@ -1035,6 +1036,42 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{"deleted": true, "file": file})
+}
+
+// handleDeleteInput deletes a file from the input directory.
+// DELETE /api/inputs/{name}
+func (s *Server) handleDeleteInput(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	name = filepath.Clean(name)
+
+	projectRoot := findProjectRoot()
+	filePath := filepath.Join(projectRoot, "input", name)
+
+	// Verify inside input/
+	inputPrefix := filepath.Join(projectRoot, "input")
+	absPath, err := filepath.Abs(filePath)
+	if err != nil || !strings.HasPrefix(absPath, inputPrefix) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	if _, err := os.Stat(absPath); os.IsNotExist(err) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "input file not found"})
+		return
+	}
+
+	if err := os.Remove(absPath); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{"deleted": true, "file": name})
 }
 
 // findProjectRoot walks up from the current directory until it finds a VERSION file,

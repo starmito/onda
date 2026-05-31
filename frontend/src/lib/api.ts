@@ -429,6 +429,15 @@ export async function getInputs(): Promise<InputEntry[]> {
   }
 }
 
+export async function deleteInput(name: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/inputs/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    throw new Error(`Delete input failed with status ${res.status}: ${res.statusText}`);
+  }
+}
+
 // ---- ModelConfig ----
 export interface ModelConfigResponse {
   segment_size: number;
