@@ -234,7 +234,8 @@ echo "   Rubber:   ${RUBBERBAND} (pitch: ${PITCH})"
 echo "   Output:   ${OUTPUT}"
 echo "═══════════════════════════════════════"
 
-# Clean previous run output
+# Clean previous run output (safe: pipeline runs as uid 1000, owns these dirs)
+rm -rf "${OUTPUT}" 2>/dev/null || true
 mkdir -p "${OUTPUT}"
 
 # Clean previous output to prevent accumulation of old stems
