@@ -49,7 +49,6 @@ services:
       dockerfile: ./onda-gui/Dockerfile
     image: onda-gui:latest
     container_name: onda-gui
-    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
     ports:
       - "${ONDA_PORT:-3000}:3000"
     depends_on:
