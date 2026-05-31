@@ -14,7 +14,7 @@ COPY onda-api.py /usr/lib/onda-api.py
 COPY cgi-bin/ /usr/lib/cgi-bin/
 RUN chmod +x /usr/lib/cgi-bin/*
 
-COPY frontend/dist/ /usr/share/nginx/html/
+COPY static/ /usr/share/nginx/html/
 RUN echo "${ONDA_VERSION}" > /usr/share/nginx/html/VERSION
 RUN mkdir -p /usr/share/nginx/html/output
 
