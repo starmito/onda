@@ -56,7 +56,7 @@
   });
 
   let vramPercent = $derived.by(() => {
-    if (estimatedVramMb === null || totalVramMb === null || totalVramMb <= 0) return null;
+    if (estimatedVramMb === null || totalVramMb == null || totalVramMb <= 0) return null;
     return (estimatedVramMb / totalVramMb) * 100;
   });
 
@@ -116,8 +116,16 @@
     async function loadGpu() {
       try {
         const gpu = await getGpuInfo();
-        totalVramMb = gpu.vram_total_mb;
-        vramError = false;
+        if (!gpu.ok) {
+          vramError = true;
+          totalVramMb = null;
+        } else if (typeof gpu.vram_total_mb === 'number' && isFinite(gpu.vram_total_mb) && gpu.vram_total_mb > 0) {
+          totalVramMb = gpu.vram_total_mb;
+          vramError = false;
+        } else {
+          vramError = true;
+          totalVramMb = null;
+        }
       } catch {
         vramError = true;
         totalVramMb = null;

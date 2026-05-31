@@ -14,7 +14,7 @@ import (
 // GPUInfoResponse is the response for GET /api/gpu/info.
 type GPUInfoResponse struct {
 	Name              string `json:"name,omitempty"`
-	VRAMTotalMB       int    `json:"vram_total_mb,omitempty"`
+	VRAMTotalMB       int    `json:"vram_total_mb"`
 	VRAMUsedMB        int    `json:"vram_used_mb,omitempty"`
 	VRAMFreeMB        int    `json:"vram_free_mb,omitempty"`
 	UtilizationGPUPct int    `json:"utilization_gpu_pct,omitempty"`
@@ -158,7 +158,11 @@ func (s *Server) handleGPUInfo(w http.ResponseWriter, r *http.Request) {
 	info := getGPUInfo()
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	if !info.OK {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	} else {
+		w.WriteHeader(http.StatusOK)
+	}
 	json.NewEncoder(w).Encode(info)
 }
 
