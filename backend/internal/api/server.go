@@ -25,6 +25,18 @@ type FileEntry struct {
 	Path string `json:"path"`
 }
 
+// UVRModelEntry represents a model entry from the UVR catalog (uvr_models.json).
+type UVRModelEntry struct {
+	Name        string `json:"name"`
+	DisplayName string `json:"display_name"`
+	Category    string `json:"category"`
+	Filename    string `json:"filename"`
+	DownloadURL string `json:"download_url"`
+	SizeMB      int64  `json:"size_mb"`
+	Description string `json:"description,omitempty"`
+	Downloaded  bool   `json:"downloaded"`
+}
+
 // JobRequest represents a queued separation job.
 type JobRequest struct {
 	Song   string          `json:"song"`
@@ -68,6 +80,7 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("GET /api/models/download/status", s.handleModelsDownloadStatus)
 	s.mux.HandleFunc("GET /api/models/{name}/config", s.handleModelsConfig)
 	s.mux.HandleFunc("POST /api/models/{name}/config", s.handleModelsConfig)
+	s.mux.HandleFunc("GET /api/models/catalog", s.handleModelsCatalog)
 	s.mux.HandleFunc("/api/gpu", s.handleGPU)
 	s.mux.HandleFunc("GET /api/gpu/info", s.handleGPUInfo)
 	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)
@@ -848,6 +861,68 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"path": containerPath})
+}
+
+// handleModelsCatalog returns the UVR model catalog (uvr_models.json) with
+// per-model downloaded flags by comparing against the filesystem.
+// GET /api/models/catalog
+func (s *Server) handleModelsCatalog(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("method %s not allowed", r.Method),
+		})
+		return
+	}
+
+	// Try the container path first, then fall back to the project root
+	data, err := os.ReadFile("/app/uvr_models.json")
+	if err != nil {
+		projectRoot := findProjectRoot()
+		data, err = os.ReadFile(filepath.Join(projectRoot, "uvr_models.json"))
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "failed to read uvr_models.json catalog file",
+			})
+			return
+		}
+	}
+
+	var catalog []UVRModelEntry
+	if err := json.Unmarshal(data, &catalog); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "failed to parse uvr_models.json: " + err.Error(),
+		})
+		return
+	}
+
+	// Build a set of downloaded model filenames from the filesystem
+	downloadedFiles := make(map[string]bool)
+	for _, m := range listModels().Models {
+		// Match without extension (m.Name is stripped of extension)
+		downloadedFiles[m.Name] = true
+		// Also try common extensions to match against Filename in catalog
+		for _, ext := range []string{".pth", ".onnx", ".ckpt", ".th", ".safetensors", ".yaml"} {
+			downloadedFiles[m.Name+ext] = true
+		}
+	}
+
+	// Tag each catalog entry as downloaded if its filename exists on disk
+	for i := range catalog {
+		if downloadedFiles[catalog[i].Filename] ||
+			downloadedFiles[catalog[i].Name] {
+			catalog[i].Downloaded = true
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(catalog)
 }
 
 // handleFileServe serves generated output files from the project output directory.

@@ -145,8 +145,11 @@ type ModelsListResponse struct {
 
 // DownloadRequest is the JSON body for POST /api/models/download.
 type DownloadRequest struct {
-	Source string `json:"source"`
-	Repo   string `json:"repo"`
+	Source   string `json:"source"`
+	Repo     string `json:"repo"`
+	URL      string `json:"url,omitempty"`
+	Filename string `json:"filename,omitempty"`
+	Category string `json:"category,omitempty"`
 }
 
 // DownloadStatus tracks the progress of an async model download.
@@ -288,46 +291,87 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if req.Source != "huggingface" {
+	if req.Source == "huggingface" {
+		if req.Repo == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "repo is required for huggingface source",
+			})
+			return
+		}
+
+		// Determine target directory — Demucs_ONNX for ONNX repos, Demucs_Models otherwise
+		targetSubdir := "Demucs_Models"
+		if strings.Contains(strings.ToLower(req.Repo), "onnx") {
+			targetSubdir = "Demucs_ONNX"
+		}
+		targetDir := filepath.Join(modelsBasePath, targetSubdir)
+
+		// Register the download job
+		status := &DownloadStatus{
+			Status: "downloading",
+			Repo:   req.Repo,
+			Target: "/models/" + targetSubdir,
+		}
+		downloadMu.Lock()
+		downloadJobs[req.Repo] = status
+		downloadMu.Unlock()
+
+		// Launch async download
+		go runHuggingFaceDownload(req.Repo, targetDir)
+
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": fmt.Sprintf("unsupported source %q, only 'huggingface' is supported", req.Source),
-		})
+		w.WriteHeader(http.StatusAccepted)
+		json.NewEncoder(w).Encode(status)
 		return
 	}
-	if req.Repo == "" {
+
+	if req.Source == "direct" {
+		if req.URL == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "url is required for direct source",
+			})
+			return
+		}
+		if req.Filename == "" {
+			// Derive filename from URL
+			req.Filename = filepath.Base(req.URL)
+		}
+
+		// Determine category from filename if not provided
+		category := req.Category
+		if category == "" {
+			category = detectCategoryFromFilename(req.Filename)
+		}
+		targetDir := filepath.Join(modelsBasePath, category)
+
+		// Register the download job keyed by URL
+		status := &DownloadStatus{
+			Status: "downloading",
+			Repo:   req.URL,
+			Target: "/models/" + category,
+		}
+		downloadMu.Lock()
+		downloadJobs[req.URL] = status
+		downloadMu.Unlock()
+
+		// Launch async download
+		go runDirectDownload(req.URL, req.Filename, targetDir)
+
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "repo is required",
-		})
+		w.WriteHeader(http.StatusAccepted)
+		json.NewEncoder(w).Encode(status)
 		return
 	}
-
-	// Determine target directory — Demucs_ONNX for ONNX repos, Demucs_Models otherwise
-	targetSubdir := "Demucs_Models"
-	if strings.Contains(strings.ToLower(req.Repo), "onnx") {
-		targetSubdir = "Demucs_ONNX"
-	}
-	targetDir := filepath.Join(modelsBasePath, targetSubdir)
-
-	// Register the download job
-	status := &DownloadStatus{
-		Status: "downloading",
-		Repo:   req.Repo,
-		Target: "/models/" + targetSubdir,
-	}
-	downloadMu.Lock()
-	downloadJobs[req.Repo] = status
-	downloadMu.Unlock()
-
-	// Launch async download
-	go runHuggingFaceDownload(req.Repo, targetDir)
 
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusAccepted)
-	json.NewEncoder(w).Encode(status)
+	w.WriteHeader(http.StatusBadRequest)
+	json.NewEncoder(w).Encode(map[string]string{
+		"error": fmt.Sprintf("unsupported source %q, expected 'huggingface' or 'direct'", req.Source),
+	})
 }
 
 // handleModelsDownloadStatus returns the progress of a download job.
@@ -417,5 +461,87 @@ func runHuggingFaceDownload(repo, targetDir string) {
 		status.Status = "done"
 		status.Progress = "Download complete"
 		log.Printf("[models] download complete for %s", repo)
+	}
+}
+
+// detectCategoryFromFilename determines the model category directory from the
+// filename using keyword matching. This mirrors how UVR organizes its models.
+// Mapping: roformer/viperx/melband → VR_Models, mdx/mdx23c → MDX_Net_Models,
+// demucs/htdemucs → Demucs_Models, scnet → VR_Models.
+func detectCategoryFromFilename(filename string) string {
+	lower := strings.ToLower(filename)
+
+	// SCnet models go to VR_Models
+	if strings.Contains(lower, "scnet") {
+		return "VR_Models"
+	}
+	// Roformer-based models (including ViperX, MelBand, Bandit) go to VR_Models
+	if strings.Contains(lower, "roformer") ||
+		strings.Contains(lower, "viperx") ||
+		strings.Contains(lower, "melband") ||
+		strings.Contains(lower, "mel_band") ||
+		strings.Contains(lower, "bandit") ||
+		strings.Contains(lower, "deverb") {
+		return "VR_Models"
+	}
+	// MDX models
+	if strings.Contains(lower, "mdx") {
+		return "MDX_Net_Models"
+	}
+	// Demucs models (htdemucs, demucs, tasnet, etc.)
+	if strings.Contains(lower, "demucs") ||
+		strings.Contains(lower, "htdemucs") ||
+		strings.Contains(lower, "hdemucs") ||
+		strings.Contains(lower, "tasnet") ||
+		strings.Contains(lower, "light") ||
+		strings.Contains(lower, "repro_mdx") {
+		return "Demucs_Models"
+	}
+
+	// Default fallback
+	return "VR_Models"
+}
+
+// runDirectDownload downloads a model file from a direct URL using wget.
+func runDirectDownload(url, filename, targetDir string) {
+	// Ensure the target directory exists
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		log.Printf("[models] failed to create target dir %s: %v", targetDir, err)
+		downloadMu.Lock()
+		if status, ok := downloadJobs[url]; ok {
+			status.Status = "error"
+			status.Error = fmt.Sprintf("failed to create target directory: %v", err)
+		}
+		downloadMu.Unlock()
+		return
+	}
+
+	destPath := filepath.Join(targetDir, filename)
+	log.Printf("[models] downloading %s → %s", url, destPath)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Second)
+	defer cancel()
+
+	// Use wget with progress output to stderr
+	cmd := exec.CommandContext(ctx, "wget", "-q", "--show-progress", "-O", destPath, url)
+	output, err := cmd.CombinedOutput()
+
+	downloadMu.Lock()
+	defer downloadMu.Unlock()
+
+	status := downloadJobs[url]
+	if err != nil {
+		status.Status = "error"
+		status.Progress = "Download failed"
+		errStr := err.Error()
+		if len(output) > 0 {
+			errStr = string(output)
+		}
+		status.Error = errStr
+		log.Printf("[models] direct download error for %s: %s", url, errStr)
+	} else {
+		status.Status = "done"
+		status.Progress = "Download complete"
+		log.Printf("[models] direct download complete for %s → %s", url, destPath)
 	}
 }

@@ -32,6 +32,10 @@ RUN chmod +x /pipeline.sh
 COPY VERSION /VERSION
 ENV ONDA_ROOT=/
 
+# UVR model catalog (used by GET /api/models/catalog)
+RUN mkdir -p /app
+COPY uvr_models.json /app/uvr_models.json
+
 # Directorios de montaje (docker-compose monta volumes aquí)
 RUN mkdir -p /input /output
 
