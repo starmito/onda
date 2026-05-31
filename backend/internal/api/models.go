@@ -14,23 +14,9 @@ import (
 	"time"
 )
 
-// modelsBasePath is the root directory where models live on the host filesystem.
-// In Docker, this is /models (bind-mounted from host). Falls back to /models.
-var modelsBasePath = getModelsBasePath()
-
-func getModelsBasePath() string {
-	if env := os.Getenv("ONDA_MODEL_DIR"); env != "" {
-		return env
-	}
-	if env := os.Getenv("MODEL_DIR"); env != "" {
-		return env
-	}
-	// Check if /models exists (Docker bind mount)
-	if info, err := os.Stat("/models"); err == nil && info.IsDir() {
-		return "/models"
-	}
-	return "/mnt/almacen/onda/models" // legacy fallback
-}
+// modelsBasePath is the root directory where models live inside the container.
+// Both onda and onda-gui use /models (bind-mounted from host).
+const modelsBasePath = "/models"
 
 // modelSubdirs lists the known model subdirectories to scan.
 var modelSubdirs = []string{
