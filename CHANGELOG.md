@@ -2,6 +2,21 @@
 
 ## v2.1.0-alpha — Fase 5: Modelos configurables + Editor visual de pipeline ✅
 
+### Fixes recuperados del 28-may + modelsBasePath (31-may-2026, sesión mañana)
+
+Los commits originales de estos fixes (46898d0-c8c52fd) se perdieron en un git reset. Reimplementados hoy.
+
+- **Fix (crítico):** `handleSeparate` ahora ejecuta pipeline.sh dentro del contenedor `onda` (`docker exec onda bash /pipeline.sh`) en vez de en `onda-gui`. Esto resuelve "demucs: command not found" y "inference_universal.py not found".
+- **Fix:** `Dockerfile` de onda copia `pipeline.sh` → `/pipeline.sh` en la imagen.
+- **Fix:** `resolveModelDir()` — traduce nombres de modelo a rutas de directorio en el contenedor (`model_bs_roformer...` → `/app/models/VR_Models/BS_Roformer_Viperx`). Resuelve "ViperX model not found".
+- **Fix:** Dual-config loading — `handleSeparate` carga configs de ViperX y Demucs por separado (antes solo cargaba una). Demucs ya no ignora `shifts`/`segment`/`jobs` guardados.
+- **Fix:** `PipelineStatus` +8 campos (`segment_size`, `overlap`, `chunk_size`, `batch_size`, `device`, `shifts`, `demucs_segment`, `jobs`) — el frontend ahora recibe los flags reales.
+- **Fix:** Error handler preserva flags — al fallar el pipeline, lee el JSON existente (escrito por pipeline.sh vía trap) y solo actualiza `status` + `error`.
+- **Fix:** `modelsBasePath` ahora es dinámico — detecta `/models` en Docker, usa `ONDA_MODEL_DIR`/`MODEL_DIR` si existen, fallback al path legacy. Resuelve que `listModels()` solo devolvía htdemucs_ft.
+- **Fix:** `isDemucs` scope en frontend — separado en `isDemucs` (solo htdemucs_ft) e `isDemucsFamily` (todos). Demucs ONNX ya no muestra sliders inaplicables.
+- **Fix:** VRAM base sin ajustes — `estimateVRAM()` devuelve valores raw (sin aplicar config guardada). El frontend aplica sliders → sin doble multiplicación.
+- **Commits:** effd554, 858557f, abc7257, 32580b8
+
 ### StatusBar versionado + CORS fix + GPU check (31-may-2026)
 
 - **Fix:** CORS duplicado — nginx ya no añade `Access-Control-Allow-Origin` (solo el backend Go), resolviendo indicadores rojos en navegador
