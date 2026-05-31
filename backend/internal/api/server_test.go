@@ -1,13 +1,11 @@
 package api
 
 import (
-	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestHealthEndpoint(t *testing.T) {
@@ -77,8 +75,8 @@ func TestCORSHeaders(t *testing.T) {
 	}
 
 	acam := resp.Header.Get("Access-Control-Allow-Methods")
-	if acam != "GET, POST, OPTIONS" {
-		t.Errorf("expected Access-Control-Allow-Methods: GET, POST, OPTIONS, got %s", acam)
+	if acam != "GET, POST, DELETE, OPTIONS" {
+		t.Errorf("expected Access-Control-Allow-Methods: GET, POST, DELETE, OPTIONS, got %s", acam)
 	}
 
 	acah := resp.Header.Get("Access-Control-Allow-Headers")
@@ -87,19 +85,32 @@ func TestCORSHeaders(t *testing.T) {
 	}
 }
 
-func TestStatusEndpoint_NoPipeline(t *testing.T) {
+func TestQueueStatusEndpoint_Empty(t *testing.T) {
 	srv := NewServer(":0")
 	ts := httptest.NewServer(srv.Handler)
 	defer ts.Close()
 
-	resp, err := http.Get(ts.URL + "/api/status")
+	resp, err := http.Get(ts.URL + "/api/queue/status")
 	if err != nil {
-		t.Fatalf("failed to GET /api/status: %v", err)
+		t.Fatalf("failed to GET /api/queue/status: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("expected status 200, got %d", resp.StatusCode)
+	}
+
+	ct := resp.Header.Get("Content-Type")
+	if ct != "application/json" {
+		t.Errorf("expected Content-Type application/json, got %s", ct)
+	}
+
+	var result map[string]interface{}
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode JSON response: %v", err)
+	}
+	if _, ok := result["jobs"]; !ok {
+		t.Error("expected 'jobs' key in queue status response")
 	}
 }
 
@@ -252,40 +263,10 @@ func TestSeparateEndpoint_ValidInput(t *testing.T) {
 		t.Fatalf("failed to decode JSON response: %v", err)
 	}
 
-	if result["status"] != "started" {
-		t.Errorf("expected status 'started', got %q", result["status"])
+	if result["status"] != "queued" {
+		t.Errorf("expected status 'queued', got %q", result["status"])
 	}
 	if result["song"] != "test_song" {
 		t.Errorf("expected song 'test_song', got %q", result["song"])
-	}
-}
-
-func TestEventsEndpoint_SSEHeaders(t *testing.T) {
-	srv := NewServer(":0")
-	ts := httptest.NewServer(srv.Handler)
-	defer ts.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/events", nil)
-	if err != nil {
-		t.Fatalf("failed to create request: %v", err)
-	}
-
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		t.Fatalf("failed to GET /api/events: %v", err)
-	}
-	defer resp.Body.Close()
-
-	ct := resp.Header.Get("Content-Type")
-	if ct != "text/event-stream" {
-		t.Errorf("expected Content-Type text/event-stream, got %s", ct)
-	}
-
-	cc := resp.Header.Get("Cache-Control")
-	if cc != "no-cache" {
-		t.Errorf("expected Cache-Control no-cache, got %s", cc)
 	}
 }
