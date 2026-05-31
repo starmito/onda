@@ -66,6 +66,12 @@ Los commits originales de estos fixes (46898d0-c8c52fd) se perdieron en un git r
 - **Feat:** Resultados acumulados (ResultsPanel) — stems de cada canción aparecen como grupos independientes, no se reemplazan. Controles de reproducción/borrado por grupo.
 - **Refactor:** Eliminado código obsoleto — `/api/status`, `/api/events` (SSE), `pipeline_status.json` único.
 - **Commits:** e896323, 18b3335
++### Fixes cola — orden FIFO + persistencia (31-may-2026, sesión noche)
++
++- **Fix:** Orden FIFO estable en la cola — añadido `index` secuencial a cada job. Las canciones en waiting ya no cambian de posición aleatoriamente (el map de Go itera en orden aleatorio).
++- **Feat:** `GET /api/results` — lista stems en `/output/` agrupados por canción. `GET /api/inputs` — lista archivos en `/input/`.
++- **Fix:** Inputs y resultados persisten al recargar la página (F5). El frontend carga desde el filesystem al montar, no solo desde memoria.
++- **Commits:** 225247a
 
 ### Deploy-ready + defaults locales (30-may-2026)
 
