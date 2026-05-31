@@ -59,7 +59,7 @@ to_container() {
 # ── Progress reporting ──────────────────────────
 START_TIME=$(date +%s)
 LAST_ETA=""  # cap ETA so it never increases between steps
-STATUS_FILE="/tmp/onda_pipeline_status.json"
+STATUS_FILE="/output/pipeline_status.json"
 rm -f "$STATUS_FILE"
 CURRENT_STEP=""
 
