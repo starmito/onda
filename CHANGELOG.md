@@ -1,5 +1,44 @@
 # Changelog
 
+## v2.1.1 — Catálogo de modelos UVR funcional + fixes de UI ✅
+
+### 🐛 Catálogo de modelos — 4 bugs críticos arreglados (31-may-2026)
+
+El catálogo de descarga de modelos (ModelDownloader) no funcionaba por 4 bugs encadenados:
+
+- **Fix (crítico):** `each_key_duplicate` — 10 modelos del catálogo UVR tenían nombres/filenames duplicados. El `{#each}` de Svelte 5 craseaba el componente entero. Solución: eliminar la key del each + deduplicación inteligente.
+- **Fix (crítico):** `state_unsafe_mutation` — la función `groupedCatalog` mutaba `display_name` dentro de `$derived`. Svelte 5 prohíbe mutar `$state` en derivados. Solución: `flatMap` + spread operator para crear copias.
+- **Fix:** Catálogo mostraba "Cargando..." infinito — el `$effect` de Svelte 5 no disparaba reactividad con `catalog = data`. Solución: `catalog = [...data]` (spread assignment).
+- **Fix:** Botón "Descargar" siempre deshabilitado — backend envía `download_url`, frontend esperaba `huggingface_repo`. Solución: mapeo en `getModelCatalog()`.
+
+### 📏 Tamaños de archivo reales (31-may-2026)
+
+- **Fix:** Los 98 modelos del catálogo mostraban 0 MB. Script Python que obtiene tamaños vía HTTP HEAD (GitHub Releases, HuggingFace, Facebook CDN) + filesystem para modelos ya descargados.
+- **Fix:** Modelos built-in de Demucs (`htdemucs_ft`, `htdemucs`, `htdemucs_6s`, `hdemucs_mmi`) ahora muestran su tamaño VRAM real (1400–3200 MB).
+- **Fix:** URL rota de `deverb_bs_roformer` (typo en repo name + path incorrecto).
+
+### 🧹 Limpieza del catálogo (31-may-2026)
+
+- **Fix:** 31 sub-componentes UUID de Demucs (`.th` internos) ocultos del catálogo. Son archivos que Demucs descarga automáticamente.
+- **Fix:** Deduplicación por `display_name` — los archivos `.yaml` (0 MB) ya no aparecen junto a los `.ckpt` (X MB) del mismo modelo.
+- **Fix:** Versiones v2/v3 de Demucs renombradas: `demucs (v2)` vs `demucs (v3)` para evitar confusión.
+
+### 🎨 UI (31-may-2026)
+
+- **Fix:** Panel de ModelDownloader ampliado de 340px → 440px (+30%) para mejor visibilidad de nombres largos.
+- **Fix:** Icono favicon añadido (`public/icon.png`).
+
+### 🔧 Eliminación de modelos (31-may-2026)
+
+- **Fix:** El botón de papelera ahora borra el archivo físico real (antes solo lo quitaba de la lista en memoria).
+- **Fix:** Volumen `/models` cambiado de `:ro` a lectura-escritura para permitir borrar.
+
+### Commits (10 fixes)
+
+`c262734`, `ac6361a`, `615bab7`, `bcc5628`, `f62498f`, `edbebd7`, `b042382`, `005c43b`, `185d765`, `37e8645`
+
+---
+
 ## v2.1.0-alpha — Fase 5: Modelos configurables + Editor visual de pipeline ✅
 
 ### Fixes recuperados del 28-may + modelsBasePath (31-may-2026, sesión mañana)
