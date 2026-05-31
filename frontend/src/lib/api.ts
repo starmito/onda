@@ -470,3 +470,59 @@ export async function setModelConfig(cfg: ModelConfigResponse, modelName: string
   }
   return (await res.json()) as { ok: string; detail: string };
 }
+
+// ---- Model Catalog (UVR) ----
+export interface UVRModelEntry {
+  name: string;
+  display_name?: string;
+  category: string;
+  huggingface_repo?: string;
+  filename: string;
+  size_mb: number;
+  description?: string;
+  downloaded: boolean;
+}
+
+export async function getModelCatalog(): Promise<UVRModelEntry[]> {
+  try {
+    const res = await fetch(`${API_BASE}/api/models/catalog`);
+    if (!res.ok) {
+      throw new Error(`Catalog fetch failed with status ${res.status}: ${res.statusText}`);
+    }
+    return (await res.json()) as UVRModelEntry[];
+  } catch (err) {
+    if (err instanceof Error) {
+      throw err;
+    }
+    throw new Error(`Unexpected error fetching model catalog: ${String(err)}`);
+  }
+}
+
+export interface DownloadModelStatusResponse {
+  status: string;
+  progress: number;
+  message?: string;
+}
+
+export async function getDownloadStatus(repo: string): Promise<DownloadModelStatusResponse> {
+  const res = await fetch(`${API_BASE}/api/models/download/status?repo=${encodeURIComponent(repo)}`);
+  if (!res.ok) {
+    throw new Error(`Download status failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as DownloadModelStatusResponse;
+}
+
+export interface DeleteModelResponse {
+  ok: boolean;
+  detail: string;
+}
+
+export async function deleteModel(name: string): Promise<DeleteModelResponse> {
+  const res = await fetch(`${API_BASE}/api/models/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    throw new Error(`Model delete failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as DeleteModelResponse;
+}

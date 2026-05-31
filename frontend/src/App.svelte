@@ -6,6 +6,7 @@
   import ConfigPanel from './lib/ConfigPanel.svelte';
   import StatusBar from './lib/StatusBar.svelte';
   import ModelManager from './lib/ModelManager.svelte';
+  import ModelDownloader from './lib/ModelDownloader.svelte';
   import type { ResultStem } from './lib/types';
   import { detectStemType } from './lib/types';
   import { getModels, separateAudio, getStatus, uploadAudio, getLocalModels, getQueueStatus, getResults, getInputs, deleteInput } from './lib/api';
@@ -79,6 +80,7 @@
   let modelInfos = $state<LocalModel[]>([]);
   let showModelConfig = $state(false);
   let showModelPanel = $state(false);
+  let showDownloader = $state(false);
 
   // Load presets + model list + persisted data on mount
   $effect(() => {
@@ -513,6 +515,11 @@
     <span class="version">v2.0.0-alpha</span>
     <button
       class="btn-gear"
+      onclick={() => (showDownloader = !showDownloader)}
+      title="Descargar modelos"
+    >📥</button>
+    <button
+      class="btn-gear"
       onclick={() => (showModelPanel = !showModelPanel)}
       title="Gestor de modelos"
     >⚙️</button>
@@ -642,6 +649,11 @@
   <!-- Toast -->
   {#if toastMessage}
     <div class="toast {toastType}">{toastMessage}</div>
+  {/if}
+
+  <!-- ModelDownloader panel -->
+  {#if showDownloader}
+    <ModelDownloader onclose={() => (showDownloader = false)} />
   {/if}
 
   <!-- ModelManager panel -->
