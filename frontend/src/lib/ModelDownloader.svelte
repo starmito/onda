@@ -104,6 +104,19 @@
     const seen = new Set<string>(); // track unique model identities
     
     for (const m of filtered) {
+      // Skip Demucs sub-components (UUID-named .th files)
+      const isUuidSubComponent = /^[0-9a-f]{8}-[0-9a-f]{8}$/i.test(m.name) && m.filename?.endsWith('.th');
+      if (isUuidSubComponent) continue;
+
+      // Rename Demucs v2/v3 versions
+      const isDemucsV2 = ['demucs.th', 'demucs_extra.th', 'tasnet.th', 'tasnet_extra.th', 'light.th', 'light_extra.th'].includes(m.filename);
+      const isDemucsV3 = m.filename?.match(/^(demucs|demucs_extra|tasnet|tasnet_extra)-[0-9a-f]{8}\.th$/);
+      if (isDemucsV2 && m.display_name === m.name) {
+        m.display_name = m.name + ' (v2)';
+      } else if (isDemucsV3 && m.display_name === m.name) {
+        m.display_name = m.name + ' (v3)';
+      }
+
       // Build a unique key: category + name
       // For models with same name but different files (.ckpt vs .yaml),
       // prefer the weights file over config file
@@ -150,6 +163,23 @@
     }
     for (const [cat, m] of Object.entries(groups)) {
       sorted.push({ category: cat, models: m });
+    }
+
+    // Second pass: dedup by display_name — keep weights, discard configs
+    for (const group of sorted) {
+      const byDisplayName = new Map<string, UVRModelEntry>();
+      for (const m of group.models) {
+        const dn = m.display_name || m.name;
+        const existing = byDisplayName.get(dn);
+        if (!existing) {
+          byDisplayName.set(dn, m);
+        } else if (m.size_mb > 0 && existing.size_mb === 0) {
+          // Replace config (0 MB) with weights (>0 MB)
+          byDisplayName.set(dn, m);
+        }
+        // If both have size >0, keep the first (older entry)
+      }
+      group.models = Array.from(byDisplayName.values());
     }
     return sorted;
   });
