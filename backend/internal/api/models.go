@@ -502,6 +502,107 @@ func detectCategoryFromFilename(filename string) string {
 	return "VR_Models"
 }
 
+// handleDeleteModel deletes a model file from /models/ and its config JSON.
+// DELETE /api/models/{name}
+func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	name := r.PathValue("name")
+	if name == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "missing model name"})
+		return
+	}
+
+	// Sanitize the name for safety
+	safeName := sanitizeModelName(name)
+
+	// Find the model file on disk
+	var foundPath string
+	for _, subdir := range modelSubdirs {
+		dirPath := filepath.Join(modelsBasePath, subdir)
+		_ = filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return nil
+			}
+			ext := strings.ToLower(filepath.Ext(info.Name()))
+			if !modelExtensions[ext] {
+				return nil
+			}
+			modelName := strings.TrimSuffix(info.Name(), ext)
+			if modelName == safeName || modelName == name {
+				foundPath = path
+				return filepath.SkipAll
+			}
+			return nil
+		})
+		if foundPath != "" {
+			break
+		}
+	}
+
+	// Also check with display name matching (filepath.Base of parent dir)
+	if foundPath == "" {
+		for _, subdir := range modelSubdirs {
+			dirPath := filepath.Join(modelsBasePath, subdir)
+			_ = filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+				if err != nil || info.IsDir() {
+					return nil
+				}
+				ext := strings.ToLower(filepath.Ext(info.Name()))
+				if !modelExtensions[ext] {
+					return nil
+				}
+				parentDir := filepath.Base(filepath.Dir(path))
+				if parentDir == name || parentDir == safeName {
+					foundPath = path
+					return filepath.SkipAll
+				}
+				return nil
+			})
+			if foundPath != "" {
+				break
+			}
+		}
+	}
+
+	deletedFiles := false
+
+	// Delete the model file if found
+	if foundPath != "" {
+		if err := os.Remove(foundPath); err != nil {
+			log.Printf("[models] failed to delete model file %s: %v", foundPath, err)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to delete model file: %v", err)})
+			return
+		}
+		log.Printf("[models] deleted model file: %s", foundPath)
+		deletedFiles = true
+	}
+
+	// Delete the config JSON if it exists
+	configPath := modelConfigPath(safeName)
+	if _, err := os.Stat(configPath); err == nil {
+		if err := os.Remove(configPath); err != nil {
+			log.Printf("[models] failed to delete config %s: %v", configPath, err)
+		} else {
+			log.Printf("[models] deleted config: %s", configPath)
+		}
+	}
+
+	if !deletedFiles {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("model %q not found on disk", name)})
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"ok":     true,
+		"detail": fmt.Sprintf("model %q deleted", name),
+	})
+}
+
 // runDirectDownload downloads a model file from a direct URL using wget.
 func runDirectDownload(url, filename, targetDir string) {
 	// Ensure the target directory exists

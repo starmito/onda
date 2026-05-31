@@ -42,12 +42,22 @@
 
   // ---- Load catalog on mount ----
   $effect(() => {
+    // Safety timeout: if catalog hasn't loaded after 10s, show error
+    const timeout = setTimeout(() => {
+      if (catalogLoading) {
+        catalogError = true;
+        catalogLoading = false;
+      }
+    }, 10000);
+
     getModelCatalog()
       .then((data) => {
+        clearTimeout(timeout);
         catalog = data;
         catalogLoading = false;
       })
       .catch(() => {
+        clearTimeout(timeout);
         catalogError = true;
         catalogLoading = false;
       });
@@ -111,6 +121,15 @@
   });
 
   // ---- Actions ----
+  async function refreshCatalog() {
+    try {
+      const data = await getModelCatalog();
+      catalog = data;
+    } catch {
+      // Silently ignore refresh failures; existing catalog stays visible
+    }
+  }
+
   async function startDownload(model: UVRModelEntry) {
     if (!model.huggingface_repo) return;
     const set = new Set(downloading);
@@ -122,8 +141,7 @@
     try {
       await downloadModel(model.huggingface_repo);
       // Refresh catalog to update downloaded status
-      const data = await getModelCatalog();
-      catalog = data;
+      await refreshCatalog();
     } catch (err: any) {
       const errors = new Map(downloadErrors);
       errors.set(model.name, err.message || 'Download failed');
@@ -200,6 +218,8 @@
     getLocalModels()
       .then((res) => (localModels = res.models || []))
       .catch(() => {});
+    // Also refresh catalog to update downloaded/uninstalled status
+    await refreshCatalog();
   }
 
   // ---- Delete handler ----
@@ -209,6 +229,8 @@
       localModels = localModels.filter((m) => m.name !== model.name);
       deleteFeedback = `✅ "${model.name}" eliminado`;
       deleteFeedbackType = 'success';
+      // Refresh catalog so the model shows as not-downloaded again
+      await refreshCatalog();
     } catch (err: any) {
       deleteFeedback = `❌ Error: ${err.message}`;
       deleteFeedbackType = 'error';
@@ -231,21 +253,21 @@
       <button
         class="tab-btn"
         class:active={tab === 'download'}
-        onclick={() => (tab = 'download')}
+        onclick={(e) => { tab = 'download'; e.stopPropagation(); }}
       >
         📥 Descargar
       </button>
       <button
         class="tab-btn"
         class:active={tab === 'upload'}
-        onclick={() => (tab = 'upload')}
+        onclick={(e) => { tab = 'upload'; e.stopPropagation(); }}
       >
         📤 Subir
       </button>
       <button
         class="tab-btn"
         class:active={tab === 'installed'}
-        onclick={() => (tab = 'installed')}
+        onclick={(e) => { tab = 'installed'; e.stopPropagation(); }}
       >
         ✅ Instalados
       </button>
