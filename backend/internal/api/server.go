@@ -15,7 +15,7 @@ import (
 	"github.com/starmito/onda/internal/cli"
 )
 
-const pipelineStatusFile = "/tmp/onda_pipeline_status.json"
+const pipelineStatusFile = "/output/pipeline_status.json"
 
 // PipelineStatus represents the current state of the pipeline (mirrored from removed pipeline pkg).
 type PipelineStatus struct {
@@ -33,6 +33,14 @@ type PipelineStatus struct {
 	BassModel  string `json:"bass_model,omitempty"`
 	OtherModel string `json:"other_model,omitempty"`
 	Pitch      int    `json:"pitch,omitempty"`
+	SegmentSize   int     `json:"segment_size"`
+	Overlap       float64 `json:"overlap"`
+	ChunkSize     int     `json:"chunk_size"`
+	BatchSize     int     `json:"batch_size"`
+	Device        string  `json:"device"`
+	Shifts        int     `json:"shifts"`
+	DemucsSegment int     `json:"demucs_segment"`
+	Jobs          int     `json:"jobs"`
 }
 
 func pipelineStatusFilePath() string { return pipelineStatusFile }
@@ -248,6 +256,14 @@ func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
 	if status.Pitch != 0 {
 		resp["pitch"] = status.Pitch
 	}
+	resp["segment_size"] = status.SegmentSize
+	resp["overlap"] = status.Overlap
+	resp["chunk_size"] = status.ChunkSize
+	resp["batch_size"] = status.BatchSize
+	resp["device"] = status.Device
+	resp["shifts"] = status.Shifts
+	resp["demucs_segment"] = status.DemucsSegment
+	resp["jobs"] = status.Jobs
 
 	// When pipeline is done, include the list of generated files
 	if status.Status == "done" {
@@ -447,86 +463,109 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Build pipeline.sh arguments from request flags
-	projectRoot := findProjectRoot()
-	pipelineScript := filepath.Join(projectRoot, "pipeline.sh")
-
-	// Convert container paths to host paths for pipeline.sh.
-	// pipeline.sh runs on the HOST, so /input/... and /output/... won't resolve.
-	// The bind mounts are: ./input -> /input, ./output -> /output.
+	// Build pipeline.sh arguments for execution inside the 'onda' Docker container.
+	// pipeline.sh, demucs, and inference_universal.py all live inside the container.
 	song := strings.TrimSuffix(filepath.Base(req.Input), filepath.Ext(req.Input))
-	hostInput := req.Input
-	hostOutput := req.Output
+	containerOutput := "/output/" + song
 
-	if strings.HasPrefix(req.Input, "/input/") {
-		hostInput = filepath.Join(projectRoot, "input", filepath.Base(req.Input))
-	}
-	if hostOutput == "" {
-		hostOutput = filepath.Join(projectRoot, "output", song)
-	} else if strings.HasPrefix(req.Output, "/output/") {
-		hostOutput = filepath.Join(projectRoot, "output", strings.TrimPrefix(req.Output, "/output/"))
-	}
-
-	args := []string{pipelineScript}
+	// Pipeline args passed directly to the container's /pipeline.sh
+	pipelineArgs := []string{}
 
 	if req.Viperx {
-		args = append(args, "--viperx")
+		pipelineArgs = append(pipelineArgs, "--viperx")
 		if req.ViperxKeep != "" {
-			args = append(args, "--viperx-keep", req.ViperxKeep)
+			pipelineArgs = append(pipelineArgs, "--viperx-keep", req.ViperxKeep)
 		}
 	}
 	if req.Demucs {
-		args = append(args, "--demucs")
+		pipelineArgs = append(pipelineArgs, "--demucs")
 		if len(req.DemucsKeep) > 0 {
-			args = append(args, "--demucs-keep", strings.Join(req.DemucsKeep, ","))
+			pipelineArgs = append(pipelineArgs, "--demucs-keep", strings.Join(req.DemucsKeep, ","))
 		}
 	}
 	if req.Pitch != 0 {
-		args = append(args, "--rubberband", "--pitch", fmt.Sprintf("%d", req.Pitch))
+		pipelineArgs = append(pipelineArgs, "--rubberband", "--pitch", fmt.Sprintf("%d", req.Pitch))
 	}
 
-	// Pasamos los flags de modelo (vocal y stem) desde el preset/request
+	// Pass model flags (vocal → ViperX, stem → Demucs) from the preset/request
 	preset := cli.Presets[req.Preset]
 	if req.VocalModel != "" {
-		args = append(args, "--viperx-model", req.VocalModel)
+		modelDir := resolveModelDir(req.VocalModel)
+		if modelDir != "" {
+			pipelineArgs = append(pipelineArgs, "--viperx-model", modelDir)
+		}
 	}
 	stemModel := req.StemModel
 	if stemModel == "" {
 		stemModel = preset.StemModel
 	}
 	if stemModel != "" {
-		args = append(args, "--demucs-model", stemModel)
+		pipelineArgs = append(pipelineArgs, "--demucs-model", stemModel)
 	}
 
-	// Read per-model config and apply inference flags.
-	// Prefer the vocal model's config; fall back to stem model's config.
-	modelName := req.VocalModel
-	if modelName == "" {
-		modelName = req.StemModel
-	}
-	if modelName != "" {
-		cfg, err := loadModelConfig(modelName)
+	// ── Dual config loading ──
+	// ViperX config → segment_size, overlap, chunk_size, batch_size, device
+	if req.VocalModel != "" {
+		viperxCfg, err := loadModelConfig(req.VocalModel)
 		if err == nil {
-			args = applyModelConfigToArgs(args, cfg)
+			pipelineArgs = append(pipelineArgs, "--segment-size", fmt.Sprintf("%d", viperxCfg.SegmentSize))
+			pipelineArgs = append(pipelineArgs, "--overlap", fmt.Sprintf("%.2f", viperxCfg.Overlap))
+			if viperxCfg.ChunkSize > 0 {
+				pipelineArgs = append(pipelineArgs, "--chunk-size", fmt.Sprintf("%d", viperxCfg.ChunkSize))
+			}
+			if viperxCfg.BatchSize > 0 {
+				pipelineArgs = append(pipelineArgs, "--batch-size", fmt.Sprintf("%d", viperxCfg.BatchSize))
+			}
+			if viperxCfg.Device != "" && viperxCfg.Device != "cuda" {
+				pipelineArgs = append(pipelineArgs, "--device", viperxCfg.Device)
+			}
 		}
-	} else {
-		// No specific model, apply defaults
-		args = applyModelConfigToArgs(args, modelConfigDefaults())
+	}
+	// Demucs config → shifts, segment, jobs, device (fallback)
+	if stemModel != "" {
+		demucsCfg, err := loadModelConfig(stemModel)
+		if err == nil {
+			if demucsCfg.Shifts > 1 {
+				pipelineArgs = append(pipelineArgs, "--shifts", fmt.Sprintf("%d", demucsCfg.Shifts))
+			}
+			if demucsCfg.Segment > 0 {
+				pipelineArgs = append(pipelineArgs, "--demucs-segment", fmt.Sprintf("%d", demucsCfg.Segment))
+			}
+			if demucsCfg.Jobs > 0 {
+				pipelineArgs = append(pipelineArgs, "--jobs", fmt.Sprintf("%d", demucsCfg.Jobs))
+			}
+			if demucsCfg.Device != "" && demucsCfg.Device != "cuda" {
+				pipelineArgs = append(pipelineArgs, "--device", demucsCfg.Device)
+			}
+		}
 	}
 
-	args = append(args, "--output", hostOutput)
-	args = append(args, hostInput)
+	// Append output and input paths (container paths)
+	pipelineArgs = append(pipelineArgs, "--output", containerOutput)
+	pipelineArgs = append(pipelineArgs, req.Input)
 
 	// Clean previous status file before launching new pipeline
 	os.Remove(pipelineStatusFilePath())
 
-	// Launch pipeline in background
+	// Launch pipeline inside the 'onda' Docker container
 	go func() {
-		cmd := exec.Command("bash", args...)
-		cmd.Dir = projectRoot
+		dockerArgs := append([]string{"exec", "onda", "bash", "/pipeline.sh"}, pipelineArgs...)
+		cmd := exec.Command("docker", dockerArgs...)
 		out, err := cmd.CombinedOutput()
 		if err != nil {
-			// Write error to status file on failure
+			// Try to read existing JSON (written by pipeline.sh via trap);
+			// update only status and error so flags are preserved.
+			existing, readErr := os.ReadFile(pipelineStatusFilePath())
+			var status map[string]interface{}
+			if readErr == nil && json.Unmarshal(existing, &status) == nil {
+				status["status"] = "error"
+				status["error"] = strings.TrimSpace(string(out))
+				if updated, marshalErr := json.Marshal(status); marshalErr == nil {
+					os.WriteFile(pipelineStatusFilePath(), updated, 0644)
+					return
+				}
+			}
+			// Fallback: write minimal error status
 			errStatus := fmt.Sprintf(`{"status":"error","step":"pipeline","progress":0,"song":"%s","elapsed":0,"eta":0,"error":%q}`+"\n",
 				song, strings.TrimSpace(string(out)))
 			os.WriteFile(pipelineStatusFilePath(), []byte(errStatus), 0644)
@@ -539,6 +578,25 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 		"status": "started",
 		"song":   song,
 	})
+}
+
+// resolveModelDir resolves a model name to a directory path usable inside the
+// Docker container. For Demucs PyTorch models (htdemucs_ft, htdemucs, etc.)
+// the name is returned as-is (loaded by name, not path). For all other models
+// (ViperX, Roformer, MDX, etc.), the model is looked up in listModels() and
+// its /models/ path is translated to /app/models/ (the container's mount).
+func resolveModelDir(name string) string {
+	if name == "htdemucs_ft" || (strings.HasPrefix(name, "htdemucs") && !strings.Contains(name, ".onnx")) {
+		return name
+	}
+	models := listModels()
+	for _, m := range models.Models {
+		if m.Name == name || m.DisplayName == name {
+			dir := filepath.Dir(m.Path)
+			return strings.Replace(dir, "/models/", "/app/models/", 1)
+		}
+	}
+	return ""
 }
 
 // modelConfigDefaults returns default inference parameters.
