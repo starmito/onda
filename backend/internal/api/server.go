@@ -37,7 +37,7 @@ type PipelineStatus struct {
 
 func pipelineStatusFilePath() string { return pipelineStatusFile }
 
-const version = "v2.0.0-alpha"
+const version = "v2.1.0-alpha"
 
 // Server wraps the HTTP server with routes and middleware.
 type Server struct {
@@ -107,18 +107,48 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	containerStatus, _ := checkDockerContainer()
 	gpuAvailable, gpuInfo, _ := checkGPU()
 
+	// ── Read frontend version ──
+	frontendVersion := ""
+	if data, err := os.ReadFile("/usr/share/nginx/html/VERSION"); err == nil {
+		frontendVersion = strings.TrimSpace(string(data))
+	}
+
+	// ── Read pipeline version ──
+	pipelineVersion := ""
+	if data, err := os.ReadFile("/VERSION"); err == nil {
+		pipelineVersion = strings.TrimSpace(string(data))
+	}
+
+	// ── Version mismatch detection ──
+	var mismatches []map[string]string
+	if frontendVersion != "" && frontendVersion != version {
+		mismatches = append(mismatches, map[string]string{
+			"component": "frontend",
+			"expected":  version,
+			"actual":    frontendVersion,
+		})
+	}
+	if pipelineVersion != "" && pipelineVersion != version {
+		mismatches = append(mismatches, map[string]string{
+			"component": "pipeline",
+			"expected":  version,
+			"actual":    pipelineVersion,
+		})
+	}
+
+	// ── Overall status ──
 	status := "ok"
-	if containerStatus != "running" || !gpuAvailable {
+	backendOK := containerStatus == "running"
+	if !backendOK || !gpuAvailable || len(mismatches) > 0 {
 		status = "degraded"
 	}
 
-	// Build backend sub-object
+	// ── Build components ──
 	backendDetail := "onda container " + containerStatus
 	if containerStatus == "" {
 		backendDetail = "onda container not found"
 	}
 
-	// Build gpu sub-object: code=E3 only when ok=false
 	var gpuObj map[string]interface{}
 	if gpuAvailable {
 		gpuObj = map[string]interface{}{"ok": true, "detail": gpuInfo}
@@ -126,16 +156,46 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		gpuObj = map[string]interface{}{"ok": false, "code": "E3", "detail": gpuInfo}
 	}
 
+	frontendOK := frontendVersion == version
+	frontendObj := map[string]interface{}{
+		"ok":      frontendOK,
+		"version": frontendVersion,
+	}
+	if !frontendOK && frontendVersion != "" {
+		frontendObj["detail"] = fmt.Sprintf("version mismatch: expected %s, got %s", version, frontendVersion)
+	}
+
+	pipelineOK := pipelineVersion == version
+	pipelineObj := map[string]interface{}{
+		"ok":      pipelineOK,
+		"version": pipelineVersion,
+	}
+	if !pipelineOK && pipelineVersion != "" {
+		pipelineObj["detail"] = fmt.Sprintf("version mismatch: expected %s, got %s", version, pipelineVersion)
+	}
+
+	mismatchObj := map[string]interface{}{"ok": true}
+	if len(mismatches) > 0 {
+		mismatchObj = map[string]interface{}{
+			"ok":     false,
+			"detail": mismatches,
+		}
+	}
+
 	resp := map[string]interface{}{
 		"status":  status,
 		"version": version,
 		"backend": map[string]interface{}{
-			"ok":     containerStatus == "running",
-			"detail": backendDetail,
+			"ok":      backendOK,
+			"detail":  backendDetail,
+			"version": version,
 		},
-		"gpu":    gpuObj,
-		"disk":   checkDisk(),
-		"docker": checkDocker(),
+		"frontend":         frontendObj,
+		"pipeline":         pipelineObj,
+		"gpu":              gpuObj,
+		"disk":             checkDisk(),
+		"docker":           checkDocker(),
+		"version_mismatch": mismatchObj,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
