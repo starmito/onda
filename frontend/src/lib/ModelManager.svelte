@@ -71,6 +71,15 @@
     return sorted;
   });
 
+  // Narrow: solo htdemucs_ft (VRAM formula + shifts/segment/jobs section)
+  let isDemucs = $derived.by(() => selectedModel === 'htdemucs_ft');
+
+  // Broad: todos los Demucs (para deshabilitar sliders inaplicables)
+  let isDemucsFamily = $derived.by(() => {
+    const found = models.find(m => m.name === selectedModel);
+    return found?.category?.startsWith('Demucs') ?? false;
+  });
+
   // Load model list + optionally load config for initialModel
   $effect(() => {
     async function load() {
@@ -139,7 +148,7 @@
       device,
     };
     // Include Demucs params only for htdemucs_ft
-    if (selectedModel === 'htdemucs_ft') {
+    if (isDemucs) {
       cfg.shifts = shifts;
       cfg.segment = segment;
       cfg.jobs = jobs;
@@ -214,7 +223,7 @@
         <!-- Sliders (disabled when no model selected) -->
         <fieldset class="sliders" disabled={!selectedModel}>
           <!-- Segment Size -->
-          <div class="field">
+          <div class="field" class:demucs-disabled={isDemucsFamily}>
             <label for="seg-size">
               Segment Size: <strong>{segmentSize}</strong>
             </label>
@@ -225,6 +234,7 @@
               max="1024"
               step="64"
               bind:value={segmentSize}
+              disabled={isDemucsFamily}
             />
             <p class="param-desc">Tamaño del segmento de audio procesado. Valores altos = mejor calidad pero más VRAM y más lento.</p>
             <div class="slider-labels">
@@ -234,7 +244,7 @@
           </div>
 
           <!-- Overlap -->
-          <div class="field">
+          <div class="field" class:demucs-disabled={isDemucsFamily}>
             <label for="overlap">
               Overlap: <strong>{formatOverlap(overlap)}</strong>
             </label>
@@ -245,6 +255,7 @@
               max="0.5"
               step="0.05"
               bind:value={overlap}
+              disabled={isDemucsFamily}
             />
             <p class="param-desc">Solapamiento entre segmentos. Más overlap = transiciones más suaves pero más lento y más VRAM.</p>
             <div class="slider-labels">
@@ -254,7 +265,7 @@
           </div>
 
           <!-- Chunk Size -->
-          <div class="field">
+          <div class="field" class:demucs-disabled={isDemucsFamily}>
             <label for="chunk-size">
               Chunk Size: <strong>{chunkSize === 0 ? 'auto' : chunkSize}</strong>
             </label>
@@ -265,6 +276,7 @@
               max="4096"
               step="256"
               bind:value={chunkSize}
+              disabled={isDemucsFamily}
             />
             <p class="param-desc">Tamaño del chunk para procesamiento por lotes. 0 = automático. Valores altos = más VRAM, potencialmente más rápido. No afecta a la calidad del resultado.</p>
             <div class="slider-labels">
@@ -274,7 +286,7 @@
           </div>
 
           <!-- Batch Size -->
-          <div class="field">
+          <div class="field" class:demucs-disabled={isDemucsFamily}>
             <label for="batch-size">
               Batch Size: <strong>{batchSize === 0 ? 'auto' : batchSize}</strong>
             </label>
@@ -285,6 +297,7 @@
               max="32"
               step="1"
               bind:value={batchSize}
+              disabled={isDemucsFamily}
             />
             <p class="param-desc">Número de muestras procesadas en paralelo. Valores altos = más rápido en GPU pero mucha más VRAM. 0 = automático. No afecta a la calidad del resultado.</p>
             <div class="slider-labels">
@@ -304,7 +317,7 @@
           </div>
 
           <!-- Demucs PyTorch params (only for htdemucs_ft) -->
-          {#if selectedModel === 'htdemucs_ft'}
+          {#if isDemucs}
             <div class="demucs-section">
               <h3 class="demucs-title">🎛️ Parámetros Demucs (htdemucs_ft)</h3>
 
@@ -555,6 +568,11 @@
   }
 
   .sliders:disabled {
+    opacity: 0.4;
+    pointer-events: none;
+  }
+
+  .demucs-disabled {
     opacity: 0.4;
     pointer-events: none;
   }
