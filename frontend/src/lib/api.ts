@@ -387,6 +387,48 @@ export async function getQueueStatus(): Promise<QueueStatusResponse> {
   }
 }
 
+// ---- Results (file system persistence) ----
+export interface ResultsGroup {
+  song: string;
+  files: { name: string; path: string }[];
+}
+
+export async function getResults(): Promise<ResultsGroup[]> {
+  try {
+    const res = await fetch(`${API_BASE}/api/results`);
+    if (!res.ok) {
+      throw new Error(`Results fetch failed with status ${res.status}: ${res.statusText}`);
+    }
+    return (await res.json()) as ResultsGroup[];
+  } catch (err) {
+    if (err instanceof Error) {
+      throw err;
+    }
+    throw new Error(`Unexpected error fetching results: ${String(err)}`);
+  }
+}
+
+// ---- Inputs (file system persistence) ----
+export interface InputEntry {
+  name: string;
+  path: string;
+}
+
+export async function getInputs(): Promise<InputEntry[]> {
+  try {
+    const res = await fetch(`${API_BASE}/api/inputs`);
+    if (!res.ok) {
+      throw new Error(`Inputs fetch failed with status ${res.status}: ${res.statusText}`);
+    }
+    return (await res.json()) as InputEntry[];
+  } catch (err) {
+    if (err instanceof Error) {
+      throw err;
+    }
+    throw new Error(`Unexpected error fetching inputs: ${String(err)}`);
+  }
+}
+
 // ---- ModelConfig ----
 export interface ModelConfigResponse {
   segment_size: number;
