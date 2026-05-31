@@ -33,6 +33,18 @@ Los commits originales de estos fixes (46898d0-c8c52fd) se perdieron en un git r
 - **Feat:** Health check en `onda` (verifica CUDA con PyTorch). `onda-gui` espera con `condition: service_healthy`.
 - **Chore:** Limpiado `.env` — eliminadas variables obsoletas (`GPU_TYPE`, `GPU_DOCKERFILE`). Solo queda `MODEL_DIR`.
 - **Build:** `frontend/dist/` gitignored — construir con `npm run build` antes de `docker compose build`
+- **Commits:** 6bc3c3e, af1d6c7, 39fdc39, ad78c1b, 99c9edd, 3bcfec0, 97a52e0
+
+### Infraestructura unificada — paths, usuarios, permisos (31-may-2026, sesión tarde)
+
+- **Fix:** Paths unificados — ambos contenedores (`onda`, `onda-gui`) mapean el mismo volumen `/models`. Sin paths divergentes ni mounts separados.
+- **Fix:** Usuario `1000:1000` en `onda` — el pipeline se ejecuta como usuario del host, sin `--user` forzado en `docker exec` (hereda el `user:` del compose).
+- **Fix:** `rm -rf` del output previo recuperado — seguro porque el pipeline corre como uid 1000 (mismo owner que los archivos).
+- **Fix:** `onda-gui` usa root (necesario para entrypoint nginx/gestión de usuarios).
+- **Fix:** `STATUS_FILE` unificado a `/output/pipeline_status.json` — antes `pipeline.sh` escribía en `/tmp/pipeline_status.json` pero `server.go` leía de `/output/pipeline_status.json` (mismatch de paths).
+- **Refactor:** Eliminados `docker-compose.nvidia.yml` y `docker-compose.amd.yml` — un solo compose con GPU integrada vía `deploy.resources.reservations.devices`.
+- **Refactor:** Sin `chmod 777`, sin `--user 0:0`, sin `docker cp` — todo resuelto mediante código y docker compose.
+- **Commits:** 1d5c7d5, f9492be, 3fb1c69, 118b830
 
 ### Deploy-ready + defaults locales (30-may-2026)
 
