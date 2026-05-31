@@ -476,6 +476,7 @@ export interface UVRModelEntry {
   name: string;
   display_name?: string;
   category: string;
+  download_url?: string;
   huggingface_repo?: string;
   filename: string;
   size_mb: number;
@@ -489,11 +490,14 @@ export async function getModelCatalog(): Promise<UVRModelEntry[]> {
     if (!res.ok) {
       throw new Error(`Catalog fetch failed with status ${res.status}: ${res.statusText}`);
     }
-    return (await res.json()) as UVRModelEntry[];
+    const data = (await res.json()) as UVRModelEntry[];
+    // Map download_url to huggingface_repo for UI compatibility
+    return data.map((entry: any) => ({
+      ...entry,
+      huggingface_repo: entry.huggingface_repo || entry.download_url,
+    }));
   } catch (err) {
-    if (err instanceof Error) {
-      throw err;
-    }
+    if (err instanceof Error) throw err;
     throw new Error(`Unexpected error fetching model catalog: ${String(err)}`);
   }
 }

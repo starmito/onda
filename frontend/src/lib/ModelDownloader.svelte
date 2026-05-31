@@ -53,10 +53,11 @@
     getModelCatalog()
       .then((data) => {
         clearTimeout(timeout);
-        catalog = data;
+        catalog = [...data];
         catalogLoading = false;
       })
-      .catch(() => {
+      .catch((err) => {
+        console.error('ModelDownloader: catalog load failed:', err);
         clearTimeout(timeout);
         catalogError = true;
         catalogLoading = false;
@@ -253,21 +254,21 @@
       <button
         class="tab-btn"
         class:active={tab === 'download'}
-        onclick={(e) => { tab = 'download'; e.stopPropagation(); }}
+        onclick={() => { tab = 'download'; }}
       >
         📥 Descargar
       </button>
       <button
         class="tab-btn"
         class:active={tab === 'upload'}
-        onclick={(e) => { tab = 'upload'; e.stopPropagation(); }}
+        onclick={() => { tab = 'upload'; }}
       >
         📤 Subir
       </button>
       <button
         class="tab-btn"
         class:active={tab === 'installed'}
-        onclick={(e) => { tab = 'installed'; e.stopPropagation(); }}
+        onclick={() => { tab = 'installed'; }}
       >
         ✅ Instalados
       </button>
