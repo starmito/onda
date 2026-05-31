@@ -244,7 +244,7 @@ func (s *Server) handleResults(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var results []ResultsGroup
+	results := make([]ResultsGroup, 0)
 	for _, entry := range entries {
 		if !entry.IsDir() {
 			continue
