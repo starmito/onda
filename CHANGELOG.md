@@ -57,7 +57,16 @@ Los commits originales de estos fixes (46898d0-c8c52fd) se perdieron en un git r
 - **Feat:** Fórmula VRAM para Demucs (htdemucs_ft) — considera `segment` (escala lineal vs default 7.8s) y `jobs` (escala sub-lineal: `1 + (n-1) × 0.3`). Shifts se ignora (procesamiento secuencial, no escala VRAM).
 - **Fix:** `estimateVRAM()` en backend — eliminados todos los hardcodes por modelo (ViperX=3200, MelBand=4200, Polarformer=4800, etc.). Mediciones reales en RTX 5060 Ti muestran que los pesos en fp16 cargan 1:1 en VRAM vs disco (ViperX 609 MB disco → 616 MB VRAM). Nueva lógica: sizeMB para .ckpt/.pth, sizeMB×2 para ONNX, 2800 MB para htdemucs_ft.
 - **Commits:** 9ea7793, f9a1149, f2b2d17
-+
+
+### Cola secuencial + Resultados acumulados (31-may-2026, sesión noche)
+
+- **Feat:** Cola secuencial FIFO en backend — worker único consume del channel `jobQueue`. Cada `POST /api/separate` encola en vez de lanzar goroutine. Solo 1 pipeline ejecutándose a la vez → GPU sin saturar.
+- **Feat:** `GET /api/queue/status` — estado de toda la cola (waiting/processing/done/error), ordenado por prioridad.
+- **Feat:** Cola visible en frontend (PipelinePanel) — emojis de estado por canción, mensaje de error si falla.
+- **Feat:** Resultados acumulados (ResultsPanel) — stems de cada canción aparecen como grupos independientes, no se reemplazan. Controles de reproducción/borrado por grupo.
+- **Refactor:** Eliminado código obsoleto — `/api/status`, `/api/events` (SSE), `pipeline_status.json` único.
+- **Commits:** e896323, 18b3335
+
 ### Deploy-ready + defaults locales (30-may-2026)
 
 - **docker-compose.yml:** paths configurables via `.env` (`MODEL_DIR`, `HOST_UID`, `HOST_GID`, `ONDA_PORT`), defaults locales (`./models`)
