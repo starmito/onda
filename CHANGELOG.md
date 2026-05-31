@@ -51,11 +51,12 @@ Los commits originales de estos fixes (46898d0-c8c52fd) se perdieron en un git r
 - **Fix (crítico):** Fórmula de VRAM estimada en ModelManager — cambiada de cadena multiplicativa a modelo aditivo. Antes: `base × (seg/256) × (1+overlap) × batch × (chunk/1024)` → ViperX con valores máximos daba 76.8 GB (factor 24×). Ahora: `(base + activationMemory) × batch` donde `activationMemory = base × 0.25 × (seg/256) × (1+overlap)`. ViperX máx: 7.8 GB, MelBand máx: 10.3 GB. El chunk_size ya no escala la VRAM del modelo (nunca debió — solo afecta al throughput de audio).
 - **Fix:** NaN en barra de VRAM — cuando la GPU no estaba disponible, el backend Go omitía `vram_total_mb` del JSON (`omitempty` en struct tag). El frontend recibía `undefined`, las guardas `!== null` no protegían, y `undefined/undefined` → NaN → "NaN%". Solución: quitar `omitempty`, retornar HTTP 503 en vez de 200 cuando GPU no disponible, validar `gpu.ok` + `isFinite()` en frontend, y cambiar guardas a `== null`.
 - **Commits:** 313fa20, 53ce03a
-+### GPU info via PyTorch + VRAM Demucs (31-may-2026, sesión tarde)
+### GPU info via PyTorch + VRAM Demucs (31-may-2026, sesión tarde)
 
-+- **Fix:** GPU info ahora usa PyTorch (`torch.cuda`) vía `docker exec onda python3`. El contenedor `onda` (python:slim) no tiene `nvidia-smi`, lo que causaba `ok:false` y ocultaba la barra de VRAM en el frontend. Ahora obtiene VRAM total/usada/libre, nombre, uso% y temperatura desde PyTorch + pynvml.
-+- **Feat:** Fórmula VRAM para Demucs (htdemucs_ft) — considera `segment` (escala lineal vs default 7.8s) y `jobs` (escala sub-lineal: `1 + (n-1) × 0.3`). Shifts se ignora (procesamiento secuencial, no escala VRAM).
-+- **Commits:** 9ea7793, f9a1149
+- **Fix:** GPU info ahora usa PyTorch (`torch.cuda`) vía `docker exec onda python3`. El contenedor `onda` (python:slim) no tiene `nvidia-smi`, lo que causaba `ok:false` y ocultaba la barra de VRAM en el frontend. Ahora obtiene VRAM total/usada/libre, nombre, uso% y temperatura desde PyTorch + pynvml.
+- **Feat:** Fórmula VRAM para Demucs (htdemucs_ft) — considera `segment` (escala lineal vs default 7.8s) y `jobs` (escala sub-lineal: `1 + (n-1) × 0.3`). Shifts se ignora (procesamiento secuencial, no escala VRAM).
+- **Fix:** `estimateVRAM()` en backend — eliminados todos los hardcodes por modelo (ViperX=3200, MelBand=4200, Polarformer=4800, etc.). Mediciones reales en RTX 5060 Ti muestran que los pesos en fp16 cargan 1:1 en VRAM vs disco (ViperX 609 MB disco → 616 MB VRAM). Nueva lógica: sizeMB para .ckpt/.pth, sizeMB×2 para ONNX, 2800 MB para htdemucs_ft.
+- **Commits:** 9ea7793, f9a1149, f2b2d17
 +
 ### Deploy-ready + defaults locales (30-may-2026)
 
