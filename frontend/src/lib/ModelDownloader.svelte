@@ -103,21 +103,21 @@
     const groups: Record<string, UVRModelEntry[]> = {};
     const seen = new Set<string>(); // track unique model identities
     
-    for (const m of filtered) {
+    // Pre-process: filter sub-components + rename Demucs v2/v3 without mutating state
+    const entries = filtered.flatMap(m => {
       // Skip Demucs sub-components (UUID-named .th files)
-      const isUuidSubComponent = /^[0-9a-f]{8}-[0-9a-f]{8}$/i.test(m.name) && m.filename?.endsWith('.th');
-      if (isUuidSubComponent) continue;
-
-      // Rename Demucs v2/v3 versions
+      if (/^[0-9a-f]{8}-[0-9a-f]{8}$/i.test(m.name) && m.filename?.endsWith('.th')) return [];
       const isDemucsV2 = ['demucs.th', 'demucs_extra.th', 'tasnet.th', 'tasnet_extra.th', 'light.th', 'light_extra.th'].includes(m.filename);
       const isDemucsV3 = m.filename?.match(/^(demucs|demucs_extra|tasnet|tasnet_extra)-[0-9a-f]{8}\.th$/);
       if (isDemucsV2 && m.display_name === m.name) {
-        m.display_name = m.name + ' (v2)';
+        return { ...m, display_name: m.name + ' (v2)' };
       } else if (isDemucsV3 && m.display_name === m.name) {
-        m.display_name = m.name + ' (v3)';
+        return { ...m, display_name: m.name + ' (v3)' };
       }
-
-      // Build a unique key: category + name
+      return m;
+    });
+    
+    for (const m of entries) {
       // For models with same name but different files (.ckpt vs .yaml),
       // prefer the weights file over config file
       const key = `${m.category}::${m.name}`;
