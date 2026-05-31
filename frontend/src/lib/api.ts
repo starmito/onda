@@ -328,7 +328,11 @@ export async function getGpuInfo(): Promise<GpuInfo> {
   if (!res.ok) {
     throw new Error(`Failed to fetch GPU info (status ${res.status}): ${res.statusText}`);
   }
-  return (await res.json()) as GpuInfo;
+  const gpu = (await res.json()) as GpuInfo;
+  if (!gpu.ok) {
+    throw new Error(`GPU not available: ${(gpu as any).error || 'unknown error'}`);
+  }
+  return gpu;
 }
 
 export async function startBackend(): Promise<BackendActionResponse> {
