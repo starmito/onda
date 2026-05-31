@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -62,89 +61,94 @@ const defaultVRAMMB = 2000
 // fallbackAvailableVRAMMB is used when GPU info cannot be obtained.
 const fallbackAvailableVRAMMB = 16311
 
-// getGPUInfo runs nvidia-smi and checks the Docker runtime to build a GPUInfoResponse.
-// This is the internal function callable by other handlers without making an HTTP request.
+// getGPUInfo queries GPU details via PyTorch inside the Docker container.
+// The onda container (python:slim) does not have nvidia-smi, so we use torch.cuda.
 func getGPUInfo() GPUInfoResponse {
-	// Check Docker runtime first.
-	rt, rtErr := getDockerRuntime()
-	if rtErr != nil {
-		return GPUInfoResponse{
-			OK:    false,
-			Error: "nvidia runtime not active",
-		}
-	}
-	if rt != "nvidia" {
-		return GPUInfoResponse{
-			OK:    false,
-			Error: "nvidia runtime not active",
-		}
-	}
-
-	// Run nvidia-smi.
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "nvidia-smi",
-		"--query-gpu=name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu",
-		"--format=csv,noheader,nounits")
+	script := `import torch, json
+if not torch.cuda.is_available():
+    print(json.dumps({"ok": False, "error": "CUDA not available"}))
+else:
+    props = torch.cuda.get_device_properties(0)
+    total = props.total_memory
+    reserved = torch.cuda.memory_reserved(0)
+    result = {
+        "ok": True,
+        "name": props.name,
+        "total_mb": total // (1024*1024),
+        "used_mb": reserved // (1024*1024),
+        "free_mb": (total - reserved) // (1024*1024),
+    }
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        result["util_pct"] = pynvml.nvmlDeviceGetUtilizationRates(handle).gpu
+        result["temp_c"] = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
+        pynvml.nvmlShutdown()
+    except Exception:
+        result["util_pct"] = -1
+        result["temp_c"] = -1
+    print(json.dumps(result))`
+
+	cmd := exec.CommandContext(ctx, "docker", "exec", dockerContainer,
+		"python3", "-c", script)
 	out, err := cmd.Output()
 	if err != nil {
 		return GPUInfoResponse{
 			OK:    false,
-			Error: "nvidia-smi not available",
+			Error: fmt.Sprintf("failed to query GPU via PyTorch: %v", err),
 		}
 	}
 
-	line := strings.TrimSpace(string(out))
-	if line == "" {
+	var result struct {
+		OK      bool   `json:"ok"`
+		Error   string `json:"error,omitempty"`
+		Name    string `json:"name"`
+		TotalMB int    `json:"total_mb"`
+		UsedMB  int    `json:"used_mb"`
+		FreeMB  int    `json:"free_mb"`
+		UtilPct int    `json:"util_pct"`
+		TempC   int    `json:"temp_c"`
+	}
+	if err := json.Unmarshal(out, &result); err != nil {
 		return GPUInfoResponse{
 			OK:    false,
-			Error: "nvidia-smi returned empty output",
+			Error: fmt.Sprintf("failed to parse GPU info: %v", err),
 		}
 	}
 
-	fields := strings.Split(line, ",")
-	if len(fields) < 6 {
+	if !result.OK {
 		return GPUInfoResponse{
 			OK:    false,
-			Error: fmt.Sprintf("nvidia-smi unexpected output: %s", line),
+			Error: result.Error,
 		}
 	}
 
-	name := strings.TrimSpace(fields[0])
-	total, _ := strconv.Atoi(strings.TrimSpace(fields[1]))
-	used, _ := strconv.Atoi(strings.TrimSpace(fields[2]))
-	free, _ := strconv.Atoi(strings.TrimSpace(fields[3]))
-	util, _ := strconv.Atoi(strings.TrimSpace(fields[4]))
-	temp, _ := strconv.Atoi(strings.TrimSpace(fields[5]))
+	utilization := result.UtilPct
+	if utilization < 0 {
+		utilization = 0
+	}
+	temperature := result.TempC
+	if temperature < 0 {
+		temperature = 0
+	}
 
 	return GPUInfoResponse{
-		Name:              name,
-		VRAMTotalMB:       total,
-		VRAMUsedMB:        used,
-		VRAMFreeMB:        free,
-		UtilizationGPUPct: util,
-		TemperatureC:      temp,
-		Runtime:           rt,
+		Name:              result.Name,
+		VRAMTotalMB:       result.TotalMB,
+		VRAMUsedMB:        result.UsedMB,
+		VRAMFreeMB:        result.FreeMB,
+		UtilizationGPUPct: utilization,
+		TemperatureC:      temperature,
+		Runtime:           "docker",
 		OK:                true,
 	}
 }
 
-// getDockerRuntime returns the runtime configured for the Onda container.
-func getDockerRuntime() (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "docker", "inspect", dockerContainer,
-		"--format", "{{.HostConfig.Runtime}}")
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
-// handleGPUInfo serves GET /api/gpu/info with detailed nvidia-smi output.
+// handleGPUInfo serves GET /api/gpu/info with GPU details from PyTorch.
 func (s *Server) handleGPUInfo(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
