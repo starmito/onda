@@ -1,0 +1,2341 @@
+{
+  "source": "hf",
+  "repo": "Politrees/UVR_resources",
+  "categories": {
+    "VS8F-1": {
+      "parent": "impulse",
+      "models": [
+        {
+          "name": "100-Reverb.wav",
+          "filename": "100-Reverb.wav",
+          "hf_path": "impulse/VS8F-1/100-Reverb.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "101-LargeHall.wav",
+          "filename": "101-LargeHall.wav",
+          "hf_path": "impulse/VS8F-1/101-LargeHall.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "102-SmallHall.wav",
+          "filename": "102-SmallHall.wav",
+          "hf_path": "impulse/VS8F-1/102-SmallHall.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "103-Strings.wav",
+          "filename": "103-Strings.wav",
+          "hf_path": "impulse/VS8F-1/103-Strings.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "104-PianoHall.wav",
+          "filename": "104-PianoHall.wav",
+          "hf_path": "impulse/VS8F-1/104-PianoHall.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "105-OrchRoom.wav",
+          "filename": "105-OrchRoom.wav",
+          "hf_path": "impulse/VS8F-1/105-OrchRoom.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "106-VocalRoom.wav",
+          "filename": "106-VocalRoom.wav",
+          "hf_path": "impulse/VS8F-1/106-VocalRoom.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "107-MediumRm.wav",
+          "filename": "107-MediumRm.wav",
+          "hf_path": "impulse/VS8F-1/107-MediumRm.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "108-LargeRoom.wav",
+          "filename": "108-LargeRoom.wav",
+          "hf_path": "impulse/VS8F-1/108-LargeRoom.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "109-CoolPlate.wav",
+          "filename": "109-CoolPlate.wav",
+          "hf_path": "impulse/VS8F-1/109-CoolPlate.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "110-ShortPlt.wav",
+          "filename": "110-ShortPlt.wav",
+          "hf_path": "impulse/VS8F-1/110-ShortPlt.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "111-VocalPlt.wav",
+          "filename": "111-VocalPlt.wav",
+          "hf_path": "impulse/VS8F-1/111-VocalPlt.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "112-SoftAmb.wav",
+          "filename": "112-SoftAmb.wav",
+          "hf_path": "impulse/VS8F-1/112-SoftAmb.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "113-RoomAmb.wav",
+          "filename": "113-RoomAmb.wav",
+          "hf_path": "impulse/VS8F-1/113-RoomAmb.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "114-Cathedral.wav",
+          "filename": "114-Cathedral.wav",
+          "hf_path": "impulse/VS8F-1/114-Cathedral.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "115-LongCave.wav",
+          "filename": "115-LongCave.wav",
+          "hf_path": "impulse/VS8F-1/115-LongCave.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "116-GarageDr.wav",
+          "filename": "116-GarageDr.wav",
+          "hf_path": "impulse/VS8F-1/116-GarageDr.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "117-RockKick.wav",
+          "filename": "117-RockKick.wav",
+          "hf_path": "impulse/VS8F-1/117-RockKick.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "118-RockSnare.wav",
+          "filename": "118-RockSnare.wav",
+          "hf_path": "impulse/VS8F-1/118-RockSnare.wav",
+          "size_mb": 0
+        }
+      ]
+    },
+    "VS8F-2": {
+      "parent": "impulse",
+      "models": [
+        {
+          "name": "200-R1_Reverb1.wav",
+          "filename": "200-R1_Reverb1.wav",
+          "hf_path": "impulse/VS8F-2/200-R1_Reverb1.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "201-R1_LargeHall.wav",
+          "filename": "201-R1_LargeHall.wav",
+          "hf_path": "impulse/VS8F-2/201-R1_LargeHall.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "202-R1_SmallHall.wav",
+          "filename": "202-R1_SmallHall.wav",
+          "hf_path": "impulse/VS8F-2/202-R1_SmallHall.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "203-R1_Strings.wav",
+          "filename": "203-R1_Strings.wav",
+          "hf_path": "impulse/VS8F-2/203-R1_Strings.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "204-R1_PianoHall.wav",
+          "filename": "204-R1_PianoHall.wav",
+          "hf_path": "impulse/VS8F-2/204-R1_PianoHall.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "205-R1_OrchRoom.wav",
+          "filename": "205-R1_OrchRoom.wav",
+          "hf_path": "impulse/VS8F-2/205-R1_OrchRoom.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "206-R1_VocalRoom.wav",
+          "filename": "206-R1_VocalRoom.wav",
+          "hf_path": "impulse/VS8F-2/206-R1_VocalRoom.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "207-R1_MediumRm.wav",
+          "filename": "207-R1_MediumRm.wav",
+          "hf_path": "impulse/VS8F-2/207-R1_MediumRm.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "208-R1_LargeRoom.wav",
+          "filename": "208-R1_LargeRoom.wav",
+          "hf_path": "impulse/VS8F-2/208-R1_LargeRoom.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "209-R1_CoolPlate.wav",
+          "filename": "209-R1_CoolPlate.wav",
+          "hf_path": "impulse/VS8F-2/209-R1_CoolPlate.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "210-R1_ShortPlt.wav",
+          "filename": "210-R1_ShortPlt.wav",
+          "hf_path": "impulse/VS8F-2/210-R1_ShortPlt.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "211-R1_VocalPlt.wav",
+          "filename": "211-R1_VocalPlt.wav",
+          "hf_path": "impulse/VS8F-2/211-R1_VocalPlt.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "212-R1_SoftAmb.wav",
+          "filename": "212-R1_SoftAmb.wav",
+          "hf_path": "impulse/VS8F-2/212-R1_SoftAmb.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "213-R1_RoomAmb.wav",
+          "filename": "213-R1_RoomAmb.wav",
+          "hf_path": "impulse/VS8F-2/213-R1_RoomAmb.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "214-R1_Cathedral.wav",
+          "filename": "214-R1_Cathedral.wav",
+          "hf_path": "impulse/VS8F-2/214-R1_Cathedral.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "215-R1_LongCave.wav",
+          "filename": "215-R1_LongCave.wav",
+          "hf_path": "impulse/VS8F-2/215-R1_LongCave.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "216-R1_GarageDr.wav",
+          "filename": "216-R1_GarageDr.wav",
+          "hf_path": "impulse/VS8F-2/216-R1_GarageDr.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "217-R1_RockKick.wav",
+          "filename": "217-R1_RockKick.wav",
+          "hf_path": "impulse/VS8F-2/217-R1_RockKick.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "218-R1_RockSnare.wav",
+          "filename": "218-R1_RockSnare.wav",
+          "hf_path": "impulse/VS8F-2/218-R1_RockSnare.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "220-R2_Reverb2.wav",
+          "filename": "220-R2_Reverb2.wav",
+          "hf_path": "impulse/VS8F-2/220-R2_Reverb2.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "221-R2_LargeHall.wav",
+          "filename": "221-R2_LargeHall.wav",
+          "hf_path": "impulse/VS8F-2/221-R2_LargeHall.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "222-R2_SmallHall.wav",
+          "filename": "222-R2_SmallHall.wav",
+          "hf_path": "impulse/VS8F-2/222-R2_SmallHall.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "223-R2_Strings.wav",
+          "filename": "223-R2_Strings.wav",
+          "hf_path": "impulse/VS8F-2/223-R2_Strings.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "224-R2_PianoHall.wav",
+          "filename": "224-R2_PianoHall.wav",
+          "hf_path": "impulse/VS8F-2/224-R2_PianoHall.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "225-R2_OrchRoom.wav",
+          "filename": "225-R2_OrchRoom.wav",
+          "hf_path": "impulse/VS8F-2/225-R2_OrchRoom.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "226-R2_VocalRoom.wav",
+          "filename": "226-R2_VocalRoom.wav",
+          "hf_path": "impulse/VS8F-2/226-R2_VocalRoom.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "227-R2_MediumRm.wav",
+          "filename": "227-R2_MediumRm.wav",
+          "hf_path": "impulse/VS8F-2/227-R2_MediumRm.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "228-R2_LargeRoom.wav",
+          "filename": "228-R2_LargeRoom.wav",
+          "hf_path": "impulse/VS8F-2/228-R2_LargeRoom.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "229-R2_CoolPlate.wav",
+          "filename": "229-R2_CoolPlate.wav",
+          "hf_path": "impulse/VS8F-2/229-R2_CoolPlate.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "230-R2_ShortPlt.wav",
+          "filename": "230-R2_ShortPlt.wav",
+          "hf_path": "impulse/VS8F-2/230-R2_ShortPlt.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "231-R2_VocalPlt.wav",
+          "filename": "231-R2_VocalPlt.wav",
+          "hf_path": "impulse/VS8F-2/231-R2_VocalPlt.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "232-R2_SoftAmb.wav",
+          "filename": "232-R2_SoftAmb.wav",
+          "hf_path": "impulse/VS8F-2/232-R2_SoftAmb.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "233-R2_RoomAmb.wav",
+          "filename": "233-R2_RoomAmb.wav",
+          "hf_path": "impulse/VS8F-2/233-R2_RoomAmb.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "234-R2_Cathedral.wav",
+          "filename": "234-R2_Cathedral.wav",
+          "hf_path": "impulse/VS8F-2/234-R2_Cathedral.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "235-R2_LongCave.wav",
+          "filename": "235-R2_LongCave.wav",
+          "hf_path": "impulse/VS8F-2/235-R2_LongCave.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "236-R2_GarageDr.wav",
+          "filename": "236-R2_GarageDr.wav",
+          "hf_path": "impulse/VS8F-2/236-R2_GarageDr.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "237-R2_RockKick.wav",
+          "filename": "237-R2_RockKick.wav",
+          "hf_path": "impulse/VS8F-2/237-R2_RockKick.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "238-R2_RockSnare.wav",
+          "filename": "238-R2_RockSnare.wav",
+          "hf_path": "impulse/VS8F-2/238-R2_RockSnare.wav",
+          "size_mb": 0
+        }
+      ]
+    },
+    "VS8F-3": {
+      "parent": "impulse",
+      "models": [
+        {
+          "name": "301-LargeHall.wav",
+          "filename": "301-LargeHall.wav",
+          "hf_path": "impulse/VS8F-3/301-LargeHall.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "302-SmallHall.wav",
+          "filename": "302-SmallHall.wav",
+          "hf_path": "impulse/VS8F-3/302-SmallHall.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "303-Strings.wav",
+          "filename": "303-Strings.wav",
+          "hf_path": "impulse/VS8F-3/303-Strings.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "304-PianoHall.wav",
+          "filename": "304-PianoHall.wav",
+          "hf_path": "impulse/VS8F-3/304-PianoHall.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "305-OrchRoom.wav",
+          "filename": "305-OrchRoom.wav",
+          "hf_path": "impulse/VS8F-3/305-OrchRoom.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "306-VocalRoom.wav",
+          "filename": "306-VocalRoom.wav",
+          "hf_path": "impulse/VS8F-3/306-VocalRoom.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "307-MediumRm.wav",
+          "filename": "307-MediumRm.wav",
+          "hf_path": "impulse/VS8F-3/307-MediumRm.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "308-LargeRoom.wav",
+          "filename": "308-LargeRoom.wav",
+          "hf_path": "impulse/VS8F-3/308-LargeRoom.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "309-CoolPlate.wav",
+          "filename": "309-CoolPlate.wav",
+          "hf_path": "impulse/VS8F-3/309-CoolPlate.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "310-ShortPlt.wav",
+          "filename": "310-ShortPlt.wav",
+          "hf_path": "impulse/VS8F-3/310-ShortPlt.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "311-VocalPlt.wav",
+          "filename": "311-VocalPlt.wav",
+          "hf_path": "impulse/VS8F-3/311-VocalPlt.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "312-SoftAmb.wav",
+          "filename": "312-SoftAmb.wav",
+          "hf_path": "impulse/VS8F-3/312-SoftAmb.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "313-RoomAmb.wav",
+          "filename": "313-RoomAmb.wav",
+          "hf_path": "impulse/VS8F-3/313-RoomAmb.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "314-Cathedral.wav",
+          "filename": "314-Cathedral.wav",
+          "hf_path": "impulse/VS8F-3/314-Cathedral.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "315-LongCave.wav",
+          "filename": "315-LongCave.wav",
+          "hf_path": "impulse/VS8F-3/315-LongCave.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "316-GarageDr.wav",
+          "filename": "316-GarageDr.wav",
+          "hf_path": "impulse/VS8F-3/316-GarageDr.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "317-RockKick.wav",
+          "filename": "317-RockKick.wav",
+          "hf_path": "impulse/VS8F-3/317-RockKick.wav",
+          "size_mb": 0
+        },
+        {
+          "name": "318-RockSnare.wav",
+          "filename": "318-RockSnare.wav",
+          "hf_path": "impulse/VS8F-3/318-RockSnare.wav",
+          "size_mb": 0
+        }
+      ]
+    },
+    "Apollo": {
+      "parent": "models",
+      "models": [
+        {
+          "name": "apollo_edm_big_by_essid",
+          "filename": "apollo_edm_big_by_essid.ckpt",
+          "hf_path": "models/Apollo/apollo_edm_big_by_essid.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "apollo_edm_big_by_essid",
+          "filename": "apollo_edm_big_by_essid.yaml",
+          "hf_path": "models/Apollo/apollo_edm_big_by_essid.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "apollo_edm_by_essid",
+          "filename": "apollo_edm_by_essid.ckpt",
+          "hf_path": "models/Apollo/apollo_edm_by_essid.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "apollo_edm_by_essid",
+          "filename": "apollo_edm_by_essid.yaml",
+          "hf_path": "models/Apollo/apollo_edm_by_essid.yaml",
+          "size_mb": 0
+        }
+      ]
+    },
+    "Bandit": {
+      "parent": "models",
+      "models": [
+        {
+          "name": "config_dnr_bandit_bsrnn_multi_mus64",
+          "filename": "config_dnr_bandit_bsrnn_multi_mus64.yaml",
+          "hf_path": "models/Bandit/Bandit_Plus/config_dnr_bandit_bsrnn_multi_mus64.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "model_bandit_plus_dnr_sdr_11.47",
+          "filename": "model_bandit_plus_dnr_sdr_11.47.ckpt",
+          "hf_path": "models/Bandit/Bandit_Plus/model_bandit_plus_dnr_sdr_11.47.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "checkpoint-multi_fixed",
+          "filename": "checkpoint-multi_fixed.ckpt",
+          "hf_path": "models/Bandit/Bandit_v2/checkpoint-multi_fixed.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "config_dnr_bandit_v2_mus64",
+          "filename": "config_dnr_bandit_v2_mus64.yaml",
+          "hf_path": "models/Bandit/Bandit_v2/config_dnr_bandit_v2_mus64.yaml",
+          "size_mb": 0
+        }
+      ]
+    },
+    "Demucs": {
+      "parent": "models",
+      "models": [
+        {
+          "name": "demucs",
+          "filename": "demucs.th",
+          "hf_path": "models/Demucs/Demucs_v1/demucs.th",
+          "size_mb": 0
+        },
+        {
+          "name": "demucs_extra",
+          "filename": "demucs_extra.th",
+          "hf_path": "models/Demucs/Demucs_v1/demucs_extra.th",
+          "size_mb": 0
+        },
+        {
+          "name": "light",
+          "filename": "light.th",
+          "hf_path": "models/Demucs/Demucs_v1/light.th",
+          "size_mb": 0
+        },
+        {
+          "name": "light_extra",
+          "filename": "light_extra.th",
+          "hf_path": "models/Demucs/Demucs_v1/light_extra.th",
+          "size_mb": 0
+        },
+        {
+          "name": "tasnet",
+          "filename": "tasnet.th",
+          "hf_path": "models/Demucs/Demucs_v1/tasnet.th",
+          "size_mb": 0
+        },
+        {
+          "name": "tasnet_extra",
+          "filename": "tasnet_extra.th",
+          "hf_path": "models/Demucs/Demucs_v1/tasnet_extra.th",
+          "size_mb": 0
+        },
+        {
+          "name": "demucs-e07c671f",
+          "filename": "demucs-e07c671f.th",
+          "hf_path": "models/Demucs/Demucs_v2/demucs-e07c671f.th",
+          "size_mb": 0
+        },
+        {
+          "name": "demucs48_hq-28a1282c",
+          "filename": "demucs48_hq-28a1282c.th",
+          "hf_path": "models/Demucs/Demucs_v2/demucs48_hq-28a1282c.th",
+          "size_mb": 0
+        },
+        {
+          "name": "demucs_extra-3646af93",
+          "filename": "demucs_extra-3646af93.th",
+          "hf_path": "models/Demucs/Demucs_v2/demucs_extra-3646af93.th",
+          "size_mb": 0
+        },
+        {
+          "name": "demucs_unittest-09ebc15f",
+          "filename": "demucs_unittest-09ebc15f.th",
+          "hf_path": "models/Demucs/Demucs_v2/demucs_unittest-09ebc15f.th",
+          "size_mb": 0
+        },
+        {
+          "name": "tasnet-beb46fac",
+          "filename": "tasnet-beb46fac.th",
+          "hf_path": "models/Demucs/Demucs_v2/tasnet-beb46fac.th",
+          "size_mb": 0
+        },
+        {
+          "name": "tasnet_extra-df3777b2",
+          "filename": "tasnet_extra-df3777b2.th",
+          "hf_path": "models/Demucs/Demucs_v2/tasnet_extra-df3777b2.th",
+          "size_mb": 0
+        },
+        {
+          "name": "0d19c1c6-0f06f20e",
+          "filename": "0d19c1c6-0f06f20e.th",
+          "hf_path": "models/Demucs/Demucs_v3/0d19c1c6-0f06f20e.th",
+          "size_mb": 0
+        },
+        {
+          "name": "14fc6a69-a89dd0ee",
+          "filename": "14fc6a69-a89dd0ee.th",
+          "hf_path": "models/Demucs/Demucs_v3/14fc6a69-a89dd0ee.th",
+          "size_mb": 0
+        },
+        {
+          "name": "1ef250f1-592467ce",
+          "filename": "1ef250f1-592467ce.th",
+          "hf_path": "models/Demucs/Demucs_v3/1ef250f1-592467ce.th",
+          "size_mb": 0
+        },
+        {
+          "name": "305bc58f-18378783",
+          "filename": "305bc58f-18378783.th",
+          "hf_path": "models/Demucs/Demucs_v3/305bc58f-18378783.th",
+          "size_mb": 0
+        },
+        {
+          "name": "42e558d4-196e0e1b",
+          "filename": "42e558d4-196e0e1b.th",
+          "hf_path": "models/Demucs/Demucs_v3/42e558d4-196e0e1b.th",
+          "size_mb": 0
+        },
+        {
+          "name": "464b36d7-e5a9386e",
+          "filename": "464b36d7-e5a9386e.th",
+          "hf_path": "models/Demucs/Demucs_v3/464b36d7-e5a9386e.th",
+          "size_mb": 0
+        },
+        {
+          "name": "5d2d6c55-db83574e",
+          "filename": "5d2d6c55-db83574e.th",
+          "hf_path": "models/Demucs/Demucs_v3/5d2d6c55-db83574e.th",
+          "size_mb": 0
+        },
+        {
+          "name": "6b9c2ca1-3fd82607",
+          "filename": "6b9c2ca1-3fd82607.th",
+          "hf_path": "models/Demucs/Demucs_v3/6b9c2ca1-3fd82607.th",
+          "size_mb": 0
+        },
+        {
+          "name": "7d865c68-3d5dd56b",
+          "filename": "7d865c68-3d5dd56b.th",
+          "hf_path": "models/Demucs/Demucs_v3/7d865c68-3d5dd56b.th",
+          "size_mb": 0
+        },
+        {
+          "name": "7ecf8ec1-70f50cc9",
+          "filename": "7ecf8ec1-70f50cc9.th",
+          "hf_path": "models/Demucs/Demucs_v3/7ecf8ec1-70f50cc9.th",
+          "size_mb": 0
+        },
+        {
+          "name": "7fd6ef75-a905dd85",
+          "filename": "7fd6ef75-a905dd85.th",
+          "hf_path": "models/Demucs/Demucs_v3/7fd6ef75-a905dd85.th",
+          "size_mb": 0
+        },
+        {
+          "name": "83fc094f-4a16d450",
+          "filename": "83fc094f-4a16d450.th",
+          "hf_path": "models/Demucs/Demucs_v3/83fc094f-4a16d450.th",
+          "size_mb": 0
+        },
+        {
+          "name": "902315c2-b39ce9c9",
+          "filename": "902315c2-b39ce9c9.th",
+          "hf_path": "models/Demucs/Demucs_v3/902315c2-b39ce9c9.th",
+          "size_mb": 0
+        },
+        {
+          "name": "9a6b4851-03af0aa6",
+          "filename": "9a6b4851-03af0aa6.th",
+          "hf_path": "models/Demucs/Demucs_v3/9a6b4851-03af0aa6.th",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR_Demucs_Model_1",
+          "filename": "UVR_Demucs_Model_1.yaml",
+          "hf_path": "models/Demucs/Demucs_v3/UVR_Demucs_Model_1.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "a1d90b5c-ae9d2452",
+          "filename": "a1d90b5c-ae9d2452.th",
+          "hf_path": "models/Demucs/Demucs_v3/a1d90b5c-ae9d2452.th",
+          "size_mb": 0
+        },
+        {
+          "name": "b72baf4e-8778635e",
+          "filename": "b72baf4e-8778635e.th",
+          "hf_path": "models/Demucs/Demucs_v3/b72baf4e-8778635e.th",
+          "size_mb": 0
+        },
+        {
+          "name": "c511e2ab-fe698775",
+          "filename": "c511e2ab-fe698775.th",
+          "hf_path": "models/Demucs/Demucs_v3/c511e2ab-fe698775.th",
+          "size_mb": 0
+        },
+        {
+          "name": "cfa93e08-61801ae1",
+          "filename": "cfa93e08-61801ae1.th",
+          "hf_path": "models/Demucs/Demucs_v3/cfa93e08-61801ae1.th",
+          "size_mb": 0
+        },
+        {
+          "name": "e51eebcc-c1b80bdd",
+          "filename": "e51eebcc-c1b80bdd.th",
+          "hf_path": "models/Demucs/Demucs_v3/e51eebcc-c1b80bdd.th",
+          "size_mb": 0
+        },
+        {
+          "name": "ebf34a2db",
+          "filename": "ebf34a2db.th",
+          "hf_path": "models/Demucs/Demucs_v3/ebf34a2db.th",
+          "size_mb": 0
+        },
+        {
+          "name": "fa0cb7f9-100d8bf4",
+          "filename": "fa0cb7f9-100d8bf4.th",
+          "hf_path": "models/Demucs/Demucs_v3/fa0cb7f9-100d8bf4.th",
+          "size_mb": 0
+        },
+        {
+          "name": "mdx",
+          "filename": "mdx.yaml",
+          "hf_path": "models/Demucs/Demucs_v3/mdx.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "mdx_extra",
+          "filename": "mdx_extra.yaml",
+          "hf_path": "models/Demucs/Demucs_v3/mdx_extra.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "mdx_extra_q",
+          "filename": "mdx_extra_q.yaml",
+          "hf_path": "models/Demucs/Demucs_v3/mdx_extra_q.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "mdx_q",
+          "filename": "mdx_q.yaml",
+          "hf_path": "models/Demucs/Demucs_v3/mdx_q.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "repro_mdx_a",
+          "filename": "repro_mdx_a.yaml",
+          "hf_path": "models/Demucs/Demucs_v3/repro_mdx_a.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "repro_mdx_a_hybrid_only",
+          "filename": "repro_mdx_a_hybrid_only.yaml",
+          "hf_path": "models/Demucs/Demucs_v3/repro_mdx_a_hybrid_only.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "repro_mdx_a_time_only",
+          "filename": "repro_mdx_a_time_only.yaml",
+          "hf_path": "models/Demucs/Demucs_v3/repro_mdx_a_time_only.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "04573f0d-f3cf25b2",
+          "filename": "04573f0d-f3cf25b2.th",
+          "hf_path": "models/Demucs/Demucs_v4/04573f0d-f3cf25b2.th",
+          "size_mb": 0
+        },
+        {
+          "name": "5c90dfd2-34c22ccb",
+          "filename": "5c90dfd2-34c22ccb.th",
+          "hf_path": "models/Demucs/Demucs_v4/5c90dfd2-34c22ccb.th",
+          "size_mb": 0
+        },
+        {
+          "name": "75fc33f5-1941ce65",
+          "filename": "75fc33f5-1941ce65.th",
+          "hf_path": "models/Demucs/Demucs_v4/75fc33f5-1941ce65.th",
+          "size_mb": 0
+        },
+        {
+          "name": "92cfc3b6-ef3bcb9c",
+          "filename": "92cfc3b6-ef3bcb9c.th",
+          "hf_path": "models/Demucs/Demucs_v4/92cfc3b6-ef3bcb9c.th",
+          "size_mb": 0
+        },
+        {
+          "name": "955717e8-8726e21a",
+          "filename": "955717e8-8726e21a.th",
+          "hf_path": "models/Demucs/Demucs_v4/955717e8-8726e21a.th",
+          "size_mb": 0
+        },
+        {
+          "name": "d12395a8-e57c48e6",
+          "filename": "d12395a8-e57c48e6.th",
+          "hf_path": "models/Demucs/Demucs_v4/d12395a8-e57c48e6.th",
+          "size_mb": 0
+        },
+        {
+          "name": "f7e0c4bc-ba3fe64a",
+          "filename": "f7e0c4bc-ba3fe64a.th",
+          "hf_path": "models/Demucs/Demucs_v4/f7e0c4bc-ba3fe64a.th",
+          "size_mb": 0
+        },
+        {
+          "name": "hdemucs_mmi",
+          "filename": "hdemucs_mmi.yaml",
+          "hf_path": "models/Demucs/Demucs_v4/hdemucs_mmi.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "htdemucs",
+          "filename": "htdemucs.yaml",
+          "hf_path": "models/Demucs/Demucs_v4/htdemucs.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "htdemucs_6s",
+          "filename": "htdemucs_6s.yaml",
+          "hf_path": "models/Demucs/Demucs_v4/htdemucs_6s.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "htdemucs_ft",
+          "filename": "htdemucs_ft.yaml",
+          "hf_path": "models/Demucs/Demucs_v4/htdemucs_ft.yaml",
+          "size_mb": 0
+        }
+      ]
+    },
+    "MDX23C": {
+      "parent": "models",
+      "models": [
+        {
+          "name": "MDX23C-8KFFT-InstVoc_HQ",
+          "filename": "MDX23C-8KFFT-InstVoc_HQ.ckpt",
+          "hf_path": "models/MDX23C/MDX23C-8KFFT-InstVoc_HQ.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "MDX23C-8KFFT-InstVoc_HQ_2",
+          "filename": "MDX23C-8KFFT-InstVoc_HQ_2.ckpt",
+          "hf_path": "models/MDX23C/MDX23C-8KFFT-InstVoc_HQ_2.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "MDX23C-De-Reverb-aufr33-jarredou",
+          "filename": "MDX23C-De-Reverb-aufr33-jarredou.ckpt",
+          "hf_path": "models/MDX23C/MDX23C-De-Reverb-aufr33-jarredou.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "MDX23C-DrumSep-aufr33-jarredou",
+          "filename": "MDX23C-DrumSep-aufr33-jarredou.ckpt",
+          "hf_path": "models/MDX23C/MDX23C-DrumSep-aufr33-jarredou.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "MDX23C_D1581",
+          "filename": "MDX23C_D1581.ckpt",
+          "hf_path": "models/MDX23C/MDX23C_D1581.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "config_dereverb_mdx23c",
+          "filename": "config_dereverb_mdx23c.yaml",
+          "hf_path": "models/MDX23C/config_dereverb_mdx23c.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_drumsep_mdx23c",
+          "filename": "config_drumsep_mdx23c.yaml",
+          "hf_path": "models/MDX23C/config_drumsep_mdx23c.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_mdx23c_similarity",
+          "filename": "config_mdx23c_similarity.yaml",
+          "hf_path": "models/MDX23C/config_mdx23c_similarity.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "model_2_stem_061321",
+          "filename": "model_2_stem_061321.yaml",
+          "hf_path": "models/MDX23C/model_2_stem_061321.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "model_2_stem_full_band_8k",
+          "filename": "model_2_stem_full_band_8k.yaml",
+          "hf_path": "models/MDX23C/model_2_stem_full_band_8k.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "model_mdx23c_ep_271_l1_freq_72.2383",
+          "filename": "model_mdx23c_ep_271_l1_freq_72.2383.ckpt",
+          "hf_path": "models/MDX23C/model_mdx23c_ep_271_l1_freq_72.2383.ckpt",
+          "size_mb": 0
+        }
+      ]
+    },
+    "MDXNet": {
+      "parent": "models",
+      "models": [
+        {
+          "name": "Kim_Inst",
+          "filename": "Kim_Inst.onnx",
+          "hf_path": "models/MDXNet/Kim_Inst.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "Kim_Vocal_1",
+          "filename": "Kim_Vocal_1.onnx",
+          "hf_path": "models/MDXNet/Kim_Vocal_1.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "Kim_Vocal_2",
+          "filename": "Kim_Vocal_2.onnx",
+          "hf_path": "models/MDXNet/Kim_Vocal_2.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "Reverb_HQ_By_FoxJoy",
+          "filename": "Reverb_HQ_By_FoxJoy.onnx",
+          "hf_path": "models/MDXNet/Reverb_HQ_By_FoxJoy.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-MDX-NET-Inst_1",
+          "filename": "UVR-MDX-NET-Inst_1.onnx",
+          "hf_path": "models/MDXNet/UVR-MDX-NET-Inst_1.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-MDX-NET-Inst_2",
+          "filename": "UVR-MDX-NET-Inst_2.onnx",
+          "hf_path": "models/MDXNet/UVR-MDX-NET-Inst_2.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-MDX-NET-Inst_3",
+          "filename": "UVR-MDX-NET-Inst_3.onnx",
+          "hf_path": "models/MDXNet/UVR-MDX-NET-Inst_3.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-MDX-NET-Inst_HQ_1",
+          "filename": "UVR-MDX-NET-Inst_HQ_1.onnx",
+          "hf_path": "models/MDXNet/UVR-MDX-NET-Inst_HQ_1.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-MDX-NET-Inst_HQ_2",
+          "filename": "UVR-MDX-NET-Inst_HQ_2.onnx",
+          "hf_path": "models/MDXNet/UVR-MDX-NET-Inst_HQ_2.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-MDX-NET-Inst_HQ_3",
+          "filename": "UVR-MDX-NET-Inst_HQ_3.onnx",
+          "hf_path": "models/MDXNet/UVR-MDX-NET-Inst_HQ_3.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-MDX-NET-Inst_HQ_4",
+          "filename": "UVR-MDX-NET-Inst_HQ_4.onnx",
+          "hf_path": "models/MDXNet/UVR-MDX-NET-Inst_HQ_4.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-MDX-NET-Inst_HQ_5",
+          "filename": "UVR-MDX-NET-Inst_HQ_5.onnx",
+          "hf_path": "models/MDXNet/UVR-MDX-NET-Inst_HQ_5.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-MDX-NET-Inst_Main",
+          "filename": "UVR-MDX-NET-Inst_Main.onnx",
+          "hf_path": "models/MDXNet/UVR-MDX-NET-Inst_Main.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-MDX-NET-Inst_full_292",
+          "filename": "UVR-MDX-NET-Inst_full_292.onnx",
+          "hf_path": "models/MDXNet/UVR-MDX-NET-Inst_full_292.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-MDX-NET-Voc_FT",
+          "filename": "UVR-MDX-NET-Voc_FT.onnx",
+          "hf_path": "models/MDXNet/UVR-MDX-NET-Voc_FT.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-MDX-NET_Crowd_HQ_1",
+          "filename": "UVR-MDX-NET_Crowd_HQ_1.onnx",
+          "hf_path": "models/MDXNet/UVR-MDX-NET_Crowd_HQ_1.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-MDX-NET_Inst_187_beta",
+          "filename": "UVR-MDX-NET_Inst_187_beta.onnx",
+          "hf_path": "models/MDXNet/UVR-MDX-NET_Inst_187_beta.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-MDX-NET_Inst_82_beta",
+          "filename": "UVR-MDX-NET_Inst_82_beta.onnx",
+          "hf_path": "models/MDXNet/UVR-MDX-NET_Inst_82_beta.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-MDX-NET_Inst_90_beta",
+          "filename": "UVR-MDX-NET_Inst_90_beta.onnx",
+          "hf_path": "models/MDXNet/UVR-MDX-NET_Inst_90_beta.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-MDX-NET_Main_340",
+          "filename": "UVR-MDX-NET_Main_340.onnx",
+          "hf_path": "models/MDXNet/UVR-MDX-NET_Main_340.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-MDX-NET_Main_390",
+          "filename": "UVR-MDX-NET_Main_390.onnx",
+          "hf_path": "models/MDXNet/UVR-MDX-NET_Main_390.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-MDX-NET_Main_406",
+          "filename": "UVR-MDX-NET_Main_406.onnx",
+          "hf_path": "models/MDXNet/UVR-MDX-NET_Main_406.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-MDX-NET_Main_427",
+          "filename": "UVR-MDX-NET_Main_427.onnx",
+          "hf_path": "models/MDXNet/UVR-MDX-NET_Main_427.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-MDX-NET_Main_438",
+          "filename": "UVR-MDX-NET_Main_438.onnx",
+          "hf_path": "models/MDXNet/UVR-MDX-NET_Main_438.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR_MDXNET_1_9703",
+          "filename": "UVR_MDXNET_1_9703.onnx",
+          "hf_path": "models/MDXNet/UVR_MDXNET_1_9703.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR_MDXNET_2_9682",
+          "filename": "UVR_MDXNET_2_9682.onnx",
+          "hf_path": "models/MDXNet/UVR_MDXNET_2_9682.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR_MDXNET_3_9662",
+          "filename": "UVR_MDXNET_3_9662.onnx",
+          "hf_path": "models/MDXNet/UVR_MDXNET_3_9662.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR_MDXNET_9482",
+          "filename": "UVR_MDXNET_9482.onnx",
+          "hf_path": "models/MDXNet/UVR_MDXNET_9482.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR_MDXNET_KARA",
+          "filename": "UVR_MDXNET_KARA.onnx",
+          "hf_path": "models/MDXNet/UVR_MDXNET_KARA.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR_MDXNET_KARA_2",
+          "filename": "UVR_MDXNET_KARA_2.onnx",
+          "hf_path": "models/MDXNet/UVR_MDXNET_KARA_2.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR_MDXNET_Main",
+          "filename": "UVR_MDXNET_Main.onnx",
+          "hf_path": "models/MDXNet/UVR_MDXNET_Main.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "kuielab_a_bass",
+          "filename": "kuielab_a_bass.onnx",
+          "hf_path": "models/MDXNet/kuielab_a_bass.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "kuielab_a_drums",
+          "filename": "kuielab_a_drums.onnx",
+          "hf_path": "models/MDXNet/kuielab_a_drums.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "kuielab_a_other",
+          "filename": "kuielab_a_other.onnx",
+          "hf_path": "models/MDXNet/kuielab_a_other.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "kuielab_a_vocals",
+          "filename": "kuielab_a_vocals.onnx",
+          "hf_path": "models/MDXNet/kuielab_a_vocals.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "kuielab_b_bass",
+          "filename": "kuielab_b_bass.onnx",
+          "hf_path": "models/MDXNet/kuielab_b_bass.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "kuielab_b_drums",
+          "filename": "kuielab_b_drums.onnx",
+          "hf_path": "models/MDXNet/kuielab_b_drums.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "kuielab_b_other",
+          "filename": "kuielab_b_other.onnx",
+          "hf_path": "models/MDXNet/kuielab_b_other.onnx",
+          "size_mb": 0
+        },
+        {
+          "name": "kuielab_b_vocals",
+          "filename": "kuielab_b_vocals.onnx",
+          "hf_path": "models/MDXNet/kuielab_b_vocals.onnx",
+          "size_mb": 0
+        }
+      ]
+    },
+    "Roformer": {
+      "parent": "models",
+      "models": [
+        {
+          "name": "BS_Inst_EXP_VRL",
+          "filename": "BS_Inst_EXP_VRL.ckpt",
+          "hf_path": "models/Roformer/BandSplit/BS_Inst_EXP_VRL.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "BandSplit_Roformer_4stems_FT_by_SYH99999",
+          "filename": "BandSplit_Roformer_4stems_FT_by_SYH99999.pth",
+          "hf_path": "models/Roformer/BandSplit/BandSplit_Roformer_4stems_FT_by_SYH99999.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "bs_roformer_male_female_by_aufr33_sdr_7.2889",
+          "filename": "bs_roformer_male_female_by_aufr33_sdr_7.2889.ckpt",
+          "hf_path": "models/Roformer/BandSplit/bs_roformer_male_female_by_aufr33_sdr_7.2889.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "bs_roformer_revive_by_unwa",
+          "filename": "bs_roformer_revive_by_unwa.ckpt",
+          "hf_path": "models/Roformer/BandSplit/bs_roformer_revive_by_unwa.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "bs_roformer_revive_v2_by_unwa",
+          "filename": "bs_roformer_revive_v2_by_unwa.ckpt",
+          "hf_path": "models/Roformer/BandSplit/bs_roformer_revive_v2_by_unwa.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "bs_roformer_revive_v3_by_unwa",
+          "filename": "bs_roformer_revive_v3_by_unwa.ckpt",
+          "hf_path": "models/Roformer/BandSplit/bs_roformer_revive_v3_by_unwa.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "bs_roformer_voc_gabox",
+          "filename": "bs_roformer_voc_gabox.ckpt",
+          "hf_path": "models/Roformer/BandSplit/bs_roformer_voc_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "config_BandSplit-Roformer_FNO_by-Unwa",
+          "filename": "config_BandSplit-Roformer_FNO_by-Unwa.yaml",
+          "hf_path": "models/Roformer/BandSplit/config_BandSplit-Roformer_FNO_by-Unwa.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_BandSplit-Roformer_Karaoke_Frazer_by-becruily",
+          "filename": "config_BandSplit-Roformer_Karaoke_Frazer_by-becruily.yaml",
+          "hf_path": "models/Roformer/BandSplit/config_BandSplit-Roformer_Karaoke_Frazer_by-becruily.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_BandSplit-Roformer_Resurrection_Instrumental_by-Unwa",
+          "filename": "config_BandSplit-Roformer_Resurrection_Instrumental_by-Unwa.yaml",
+          "hf_path": "models/Roformer/BandSplit/config_BandSplit-Roformer_Resurrection_Instrumental_by-Unwa.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_BandSplit-Roformer_Resurrection_Vocals_by-Unwa",
+          "filename": "config_BandSplit-Roformer_Resurrection_Vocals_by-Unwa.yaml",
+          "hf_path": "models/Roformer/BandSplit/config_BandSplit-Roformer_Resurrection_Vocals_by-Unwa.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_BandSplit-Roformer_SW_by-jarredou",
+          "filename": "config_BandSplit-Roformer_SW_by-jarredou.yaml",
+          "hf_path": "models/Roformer/BandSplit/config_BandSplit-Roformer_SW_by-jarredou.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_BandSplit_Roformer_4stems_FT_by_SYH99999",
+          "filename": "config_BandSplit_Roformer_4stems_FT_by_SYH99999.yaml",
+          "hf_path": "models/Roformer/BandSplit/config_BandSplit_Roformer_4stems_FT_by_SYH99999.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_bs_roformer_chorus_male_female",
+          "filename": "config_bs_roformer_chorus_male_female.yaml",
+          "hf_path": "models/Roformer/BandSplit/config_bs_roformer_chorus_male_female.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_bs_roformer_deverb_8_384dim_10depth",
+          "filename": "config_bs_roformer_deverb_8_384dim_10depth.yaml",
+          "hf_path": "models/Roformer/BandSplit/config_bs_roformer_deverb_8_384dim_10depth.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_bs_roformer_ep_317_sdr_12.9755",
+          "filename": "config_bs_roformer_ep_317_sdr_12.9755.yaml",
+          "hf_path": "models/Roformer/BandSplit/config_bs_roformer_ep_317_sdr_12.9755.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_bs_roformer_ep_368_sdr_12.9628",
+          "filename": "config_bs_roformer_ep_368_sdr_12.9628.yaml",
+          "hf_path": "models/Roformer/BandSplit/config_bs_roformer_ep_368_sdr_12.9628.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_bs_roformer_ep_937_sdr_10.5309",
+          "filename": "config_bs_roformer_ep_937_sdr_10.5309.yaml",
+          "hf_path": "models/Roformer/BandSplit/config_bs_roformer_ep_937_sdr_10.5309.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_bs_roformer_inst_exp_vrl",
+          "filename": "config_bs_roformer_inst_exp_vrl.yaml",
+          "hf_path": "models/Roformer/BandSplit/config_bs_roformer_inst_exp_vrl.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_bs_roformer_revive_by_unwa",
+          "filename": "config_bs_roformer_revive_by_unwa.yaml",
+          "hf_path": "models/Roformer/BandSplit/config_bs_roformer_revive_by_unwa.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_bs_roformer_voc_gabox",
+          "filename": "config_bs_roformer_voc_gabox.yaml",
+          "hf_path": "models/Roformer/BandSplit/config_bs_roformer_voc_gabox.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "deverb_bs_roformer_8_384dim_10depth",
+          "filename": "deverb_bs_roformer_8_384dim_10depth.ckpt",
+          "hf_path": "models/Roformer/BandSplit/deverb_bs_roformer_8_384dim_10depth.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "model_BandSplit-Roformer_FNO_by-Unwa",
+          "filename": "model_BandSplit-Roformer_FNO_by-Unwa.ckpt",
+          "hf_path": "models/Roformer/BandSplit/model_BandSplit-Roformer_FNO_by-Unwa.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "model_BandSplit-Roformer_Karaoke_Frazer_by-becruily",
+          "filename": "model_BandSplit-Roformer_Karaoke_Frazer_by-becruily.ckpt",
+          "hf_path": "models/Roformer/BandSplit/model_BandSplit-Roformer_Karaoke_Frazer_by-becruily.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "model_BandSplit-Roformer_Resurrection_Instrumental_by-Unwa",
+          "filename": "model_BandSplit-Roformer_Resurrection_Instrumental_by-Unwa.ckpt",
+          "hf_path": "models/Roformer/BandSplit/model_BandSplit-Roformer_Resurrection_Instrumental_by-Unwa.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "model_BandSplit-Roformer_Resurrection_Vocals_by-Unwa",
+          "filename": "model_BandSplit-Roformer_Resurrection_Vocals_by-Unwa.ckpt",
+          "hf_path": "models/Roformer/BandSplit/model_BandSplit-Roformer_Resurrection_Vocals_by-Unwa.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "model_BandSplit-Roformer_SW_by-jarredou",
+          "filename": "model_BandSplit-Roformer_SW_by-jarredou.ckpt",
+          "hf_path": "models/Roformer/BandSplit/model_BandSplit-Roformer_SW_by-jarredou.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "model_bs_roformer_ep_317_sdr_12.9755",
+          "filename": "model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+          "hf_path": "models/Roformer/BandSplit/model_bs_roformer_ep_317_sdr_12.9755.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "model_bs_roformer_ep_368_sdr_12.9628",
+          "filename": "model_bs_roformer_ep_368_sdr_12.9628.ckpt",
+          "hf_path": "models/Roformer/BandSplit/model_bs_roformer_ep_368_sdr_12.9628.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "model_bs_roformer_ep_937_sdr_10.5309",
+          "filename": "model_bs_roformer_ep_937_sdr_10.5309.ckpt",
+          "hf_path": "models/Roformer/BandSplit/model_bs_roformer_ep_937_sdr_10.5309.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "model_chorus_bs_roformer_ep_267_sdr_24.1275",
+          "filename": "model_chorus_bs_roformer_ep_267_sdr_24.1275.ckpt",
+          "hf_path": "models/Roformer/BandSplit/model_chorus_bs_roformer_ep_267_sdr_24.1275.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "MelBandRoformerBigSYHFTV1",
+          "filename": "MelBandRoformerBigSYHFTV1.ckpt",
+          "hf_path": "models/Roformer/MelBand/MelBandRoformerBigSYHFTV1.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "MelBandRoformerSYHFT",
+          "filename": "MelBandRoformerSYHFT.ckpt",
+          "hf_path": "models/Roformer/MelBand/MelBandRoformerSYHFT.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "MelBandRoformerSYHFTV2.5",
+          "filename": "MelBandRoformerSYHFTV2.5.ckpt",
+          "hf_path": "models/Roformer/MelBand/MelBandRoformerSYHFTV2.5.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "MelBandRoformerSYHFTV2",
+          "filename": "MelBandRoformerSYHFTV2.ckpt",
+          "hf_path": "models/Roformer/MelBand/MelBandRoformerSYHFTV2.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "MelBandRoformerSYHFTV3Epsilon",
+          "filename": "MelBandRoformerSYHFTV3Epsilon.ckpt",
+          "hf_path": "models/Roformer/MelBand/MelBandRoformerSYHFTV3Epsilon.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "MelBand_Roformer_4stems_FT_Large_v1_by_SYH99999",
+          "filename": "MelBand_Roformer_4stems_FT_Large_v1_by_SYH99999.ckpt",
+          "hf_path": "models/Roformer/MelBand/MelBand_Roformer_4stems_FT_Large_v1_by_SYH99999.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "MelBand_Roformer_4stems_FT_Large_v2_by_SYH99999",
+          "filename": "MelBand_Roformer_4stems_FT_Large_v2_by_SYH99999.ckpt",
+          "hf_path": "models/Roformer/MelBand/MelBand_Roformer_4stems_FT_Large_v2_by_SYH99999.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "MelBand_Roformer_4stems_Large_v1_by_Aname",
+          "filename": "MelBand_Roformer_4stems_Large_v1_by_Aname.ckpt",
+          "hf_path": "models/Roformer/MelBand/MelBand_Roformer_4stems_Large_v1_by_Aname.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "MelBand_Roformer_4stems_XL_v1_by_Aname",
+          "filename": "MelBand_Roformer_4stems_XL_v1_by_Aname.ckpt",
+          "hf_path": "models/Roformer/MelBand/MelBand_Roformer_4stems_XL_v1_by_Aname.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "aspiration_mel_band_roformer_less_aggr_sdr_18.1201",
+          "filename": "aspiration_mel_band_roformer_less_aggr_sdr_18.1201.ckpt",
+          "hf_path": "models/Roformer/MelBand/aspiration_mel_band_roformer_less_aggr_sdr_18.1201.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "aspiration_mel_band_roformer_sdr_18.9845",
+          "filename": "aspiration_mel_band_roformer_sdr_18.9845.ckpt",
+          "hf_path": "models/Roformer/MelBand/aspiration_mel_band_roformer_sdr_18.9845.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "config_MelBand-Roformer_BVE_by-Gonza",
+          "filename": "config_MelBand-Roformer_BVE_by-Gonza.yaml",
+          "hf_path": "models/Roformer/MelBand/config_MelBand-Roformer_BVE_by-Gonza.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_MelBand-Roformer_Duality_v1_by-Aname",
+          "filename": "config_MelBand-Roformer_Duality_v1_by-Aname.yaml",
+          "hf_path": "models/Roformer/MelBand/config_MelBand-Roformer_Duality_v1_by-Aname.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_MelBand-Roformer_Karaoke_Fusion_Total_by-Gonza",
+          "filename": "config_MelBand-Roformer_Karaoke_Fusion_Total_by-Gonza.yaml",
+          "hf_path": "models/Roformer/MelBand/config_MelBand-Roformer_Karaoke_Fusion_Total_by-Gonza.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_MelBand-Roformer_Karaoke_Fusion_by-Gonza",
+          "filename": "config_MelBand-Roformer_Karaoke_Fusion_by-Gonza.yaml",
+          "hf_path": "models/Roformer/MelBand/config_MelBand-Roformer_Karaoke_Fusion_by-Gonza.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_MelBand-Roformer_Karaoke_Fusion_v2_by-Gonza",
+          "filename": "config_MelBand-Roformer_Karaoke_Fusion_v2_by-Gonza.yaml",
+          "hf_path": "models/Roformer/MelBand/config_MelBand-Roformer_Karaoke_Fusion_v2_by-Gonza.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_MelBand-Roformer_Karaoke_by-Gabox",
+          "filename": "config_MelBand-Roformer_Karaoke_by-Gabox.yaml",
+          "hf_path": "models/Roformer/MelBand/config_MelBand-Roformer_Karaoke_by-Gabox.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_MelBand_Roformer_4stems_FT_Large_by_SYH99999",
+          "filename": "config_MelBand_Roformer_4stems_FT_Large_by_SYH99999.yaml",
+          "hf_path": "models/Roformer/MelBand/config_MelBand_Roformer_4stems_FT_Large_by_SYH99999.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_MelBand_Roformer_4stems_Large_v1_by_Aname",
+          "filename": "config_MelBand_Roformer_4stems_Large_v1_by_Aname.yaml",
+          "hf_path": "models/Roformer/MelBand/config_MelBand_Roformer_4stems_Large_v1_by_Aname.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_MelBand_Roformer_4stems_XL_v1_by_Aname",
+          "filename": "config_MelBand_Roformer_4stems_XL_v1_by_Aname.yaml",
+          "hf_path": "models/Roformer/MelBand/config_MelBand_Roformer_4stems_XL_v1_by_Aname.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_aspiration",
+          "filename": "config_melband_roformer_aspiration.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_aspiration.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_big_beta4",
+          "filename": "config_melband_roformer_big_beta4.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_big_beta4.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_big_beta5e",
+          "filename": "config_melband_roformer_big_beta5e.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_big_beta5e.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_big_beta6",
+          "filename": "config_melband_roformer_big_beta6.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_big_beta6.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_big_beta6x",
+          "filename": "config_melband_roformer_big_beta6x.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_big_beta6x.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_bleed_suppressor_v1",
+          "filename": "config_melband_roformer_bleed_suppressor_v1.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_bleed_suppressor_v1.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_crowd_aufr33_viperx_sdr_8.7144",
+          "filename": "config_melband_roformer_crowd_aufr33_viperx_sdr_8.7144.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_crowd_aufr33_viperx_sdr_8.7144.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_denoise_aufr33_aggr_sdr_27.9768",
+          "filename": "config_melband_roformer_denoise_aufr33_aggr_sdr_27.9768.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_denoise_aufr33_aggr_sdr_27.9768.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_denoise_aufr33_sdr_27.9959",
+          "filename": "config_melband_roformer_denoise_aufr33_sdr_27.9959.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_denoise_aufr33_sdr_27.9959.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_dereverb-echo",
+          "filename": "config_melband_roformer_dereverb-echo.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_dereverb-echo.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_dereverb-echo_sdr_13.4843_v2",
+          "filename": "config_melband_roformer_dereverb-echo_sdr_13.4843_v2.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_dereverb-echo_sdr_13.4843_v2.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_dereverb_anvuew",
+          "filename": "config_melband_roformer_dereverb_anvuew.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_dereverb_anvuew.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_dereverb_echo_v2",
+          "filename": "config_melband_roformer_dereverb_echo_v2.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_dereverb_echo_v2.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_ep_3005_sdr_11.4360",
+          "filename": "config_melband_roformer_ep_3005_sdr_11.4360.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_ep_3005_sdr_11.4360.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_guitar_becruily",
+          "filename": "config_melband_roformer_guitar_becruily.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_guitar_becruily.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_inst",
+          "filename": "config_melband_roformer_inst.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_inst.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_inst_gabox",
+          "filename": "config_melband_roformer_inst_gabox.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_inst_gabox.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_inst_metal_prev_by_mesk",
+          "filename": "config_melband_roformer_inst_metal_prev_by_mesk.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_inst_metal_prev_by_mesk.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_inst_v2",
+          "filename": "config_melband_roformer_inst_v2.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_inst_v2.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_instrumental_becruily",
+          "filename": "config_melband_roformer_instrumental_becruily.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_instrumental_becruily.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_instvoc_duality",
+          "filename": "config_melband_roformer_instvoc_duality.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_instvoc_duality.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_karaoke_aufr33_viperx_sdr_10.1956",
+          "filename": "config_melband_roformer_karaoke_aufr33_viperx_sdr_10.1956.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_karaoke_aufr33_viperx_sdr_10.1956.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_karaoke_becruily",
+          "filename": "config_melband_roformer_karaoke_becruily.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_karaoke_becruily.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_kim_ft_unwa",
+          "filename": "config_melband_roformer_kim_ft_unwa.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_kim_ft_unwa.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_small_by_aname",
+          "filename": "config_melband_roformer_small_by_aname.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_small_by_aname.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_voc_gabox",
+          "filename": "config_melband_roformer_voc_gabox.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_voc_gabox.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_vocals_becruily",
+          "filename": "config_melband_roformer_vocals_becruily.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_vocals_becruily.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_vocals_big_v1_ft",
+          "filename": "config_melband_roformer_vocals_big_v1_ft.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_vocals_big_v1_ft.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_vocals_ft",
+          "filename": "config_melband_roformer_vocals_ft.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_vocals_ft.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_vocals_fullness_aname",
+          "filename": "config_melband_roformer_vocals_fullness_aname.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_vocals_fullness_aname.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_vocals_kim",
+          "filename": "config_melband_roformer_vocals_kim.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_vocals_kim.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_melband_roformer_vocals_test_by_aname",
+          "filename": "config_melband_roformer_vocals_test_by_aname.yaml",
+          "hf_path": "models/Roformer/MelBand/config_melband_roformer_vocals_test_by_aname.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "denoise_mel_band_roformer_aufr33_aggr_sdr_27.9768",
+          "filename": "denoise_mel_band_roformer_aufr33_aggr_sdr_27.9768.ckpt",
+          "hf_path": "models/Roformer/MelBand/denoise_mel_band_roformer_aufr33_aggr_sdr_27.9768.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "denoise_mel_band_roformer_aufr33_sdr_27.9959",
+          "filename": "denoise_mel_band_roformer_aufr33_sdr_27.9959.ckpt",
+          "hf_path": "models/Roformer/MelBand/denoise_mel_band_roformer_aufr33_sdr_27.9959.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "dereverb-echo_mel_band_roformer_sdr_10.0169",
+          "filename": "dereverb-echo_mel_band_roformer_sdr_10.0169.ckpt",
+          "hf_path": "models/Roformer/MelBand/dereverb-echo_mel_band_roformer_sdr_10.0169.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "dereverb-echo_mel_band_roformer_sdr_13.4843_v2",
+          "filename": "dereverb-echo_mel_band_roformer_sdr_13.4843_v2.ckpt",
+          "hf_path": "models/Roformer/MelBand/dereverb-echo_mel_band_roformer_sdr_13.4843_v2.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "dereverb_big_mbr_ep_362",
+          "filename": "dereverb_big_mbr_ep_362.ckpt",
+          "hf_path": "models/Roformer/MelBand/dereverb_big_mbr_ep_362.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "dereverb_echo_mbr_fused",
+          "filename": "dereverb_echo_mbr_fused.ckpt",
+          "hf_path": "models/Roformer/MelBand/dereverb_echo_mbr_fused.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "dereverb_mel_band_roformer_anvuew_sdr_19.1729",
+          "filename": "dereverb_mel_band_roformer_anvuew_sdr_19.1729.ckpt",
+          "hf_path": "models/Roformer/MelBand/dereverb_mel_band_roformer_anvuew_sdr_19.1729.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "dereverb_mel_band_roformer_less_aggressive_anvuew_sdr_18.8050",
+          "filename": "dereverb_mel_band_roformer_less_aggressive_anvuew_sdr_18.8050.ckpt",
+          "hf_path": "models/Roformer/MelBand/dereverb_mel_band_roformer_less_aggressive_anvuew_sdr_18.8050.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "dereverb_mel_band_roformer_mono_anvuew_sdr_20.4029",
+          "filename": "dereverb_mel_band_roformer_mono_anvuew_sdr_20.4029.ckpt",
+          "hf_path": "models/Roformer/MelBand/dereverb_mel_band_roformer_mono_anvuew_sdr_20.4029.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "dereverb_super_big_mbr_ep_346",
+          "filename": "dereverb_super_big_mbr_ep_346.ckpt",
+          "hf_path": "models/Roformer/MelBand/dereverb_super_big_mbr_ep_346.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_bleed_suppressor_v1",
+          "filename": "mel_band_roformer_bleed_suppressor_v1.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_bleed_suppressor_v1.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_crowd_aufr33_viperx_sdr_8.7144",
+          "filename": "mel_band_roformer_crowd_aufr33_viperx_sdr_8.7144.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_crowd_aufr33_viperx_sdr_8.7144.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_inst_bleedless_v1_gabox",
+          "filename": "mel_band_roformer_inst_bleedless_v1_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_inst_bleedless_v1_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_inst_bleedless_v2_gabox",
+          "filename": "mel_band_roformer_inst_bleedless_v2_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_inst_bleedless_v2_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_inst_denoise_debleed_gabox",
+          "filename": "mel_band_roformer_inst_denoise_debleed_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_inst_denoise_debleed_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_inst_fullness_v1_gabox",
+          "filename": "mel_band_roformer_inst_fullness_v1_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_inst_fullness_v1_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_inst_fullness_v2_gabox",
+          "filename": "mel_band_roformer_inst_fullness_v2_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_inst_fullness_v2_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_inst_fullness_v3_gabox",
+          "filename": "mel_band_roformer_inst_fullness_v3_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_inst_fullness_v3_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_inst_fullness_v4_noise_gabox",
+          "filename": "mel_band_roformer_inst_fullness_v4_noise_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_inst_fullness_v4_noise_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_inst_fullness_v5_gabox",
+          "filename": "mel_band_roformer_inst_fullness_v5_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_inst_fullness_v5_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_inst_fullness_v5_noise_gabox",
+          "filename": "mel_band_roformer_inst_fullness_v5_noise_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_inst_fullness_v5_noise_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_inst_fullness_v6_gabox",
+          "filename": "mel_band_roformer_inst_fullness_v6_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_inst_fullness_v6_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_inst_fullness_v6_noise_gabox",
+          "filename": "mel_band_roformer_inst_fullness_v6_noise_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_inst_fullness_v6_noise_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_inst_fullness_v7_gabox",
+          "filename": "mel_band_roformer_inst_fullness_v7_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_inst_fullness_v7_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_inst_fullness_v7_noise_gabox",
+          "filename": "mel_band_roformer_inst_fullness_v7_noise_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_inst_fullness_v7_noise_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_inst_fullness_v8_gabox",
+          "filename": "mel_band_roformer_inst_fullness_v8_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_inst_fullness_v8_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_inst_fullness_vX_gabox",
+          "filename": "mel_band_roformer_inst_fullness_vX_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_inst_fullness_vX_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_inst_v1_gabox",
+          "filename": "mel_band_roformer_inst_v1_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_inst_v1_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_inst_v2_gabox",
+          "filename": "mel_band_roformer_inst_v2_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_inst_v2_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_inst_v3_gabox",
+          "filename": "mel_band_roformer_inst_v3_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_inst_v3_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_instrumental_becruily",
+          "filename": "mel_band_roformer_instrumental_becruily.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_instrumental_becruily.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_instrumental_gabox",
+          "filename": "mel_band_roformer_instrumental_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_instrumental_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956",
+          "filename": "mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_karaoke_aufr33_viperx_sdr_10.1956.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_karaoke_gabox",
+          "filename": "mel_band_roformer_karaoke_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_karaoke_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_kim_ft2_bleedless_unwa",
+          "filename": "mel_band_roformer_kim_ft2_bleedless_unwa.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_kim_ft2_bleedless_unwa.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_kim_ft2_unwa",
+          "filename": "mel_band_roformer_kim_ft2_unwa.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_kim_ft2_unwa.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_kim_ft_unwa",
+          "filename": "mel_band_roformer_kim_ft_unwa.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_kim_ft_unwa.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_voc_fullness_v1_gabox",
+          "filename": "mel_band_roformer_voc_fullness_v1_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_voc_fullness_v1_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_voc_fullness_v2_gabox",
+          "filename": "mel_band_roformer_voc_fullness_v2_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_voc_fullness_v2_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_voc_fullness_v3_gabox",
+          "filename": "mel_band_roformer_voc_fullness_v3_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_voc_fullness_v3_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_voc_fullness_v4_gabox",
+          "filename": "mel_band_roformer_voc_fullness_v4_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_voc_fullness_v4_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_voc_fullness_v5_gabox",
+          "filename": "mel_band_roformer_voc_fullness_v5_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_voc_fullness_v5_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_voc_fullness_v6_gabox",
+          "filename": "mel_band_roformer_voc_fullness_v6_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_voc_fullness_v6_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_voc_gabox",
+          "filename": "mel_band_roformer_voc_gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_voc_gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_vocals_becruily",
+          "filename": "mel_band_roformer_vocals_becruily.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_vocals_becruily.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "mel_band_roformer_vocals_fullness_aname",
+          "filename": "mel_band_roformer_vocals_fullness_aname.ckpt",
+          "hf_path": "models/Roformer/MelBand/mel_band_roformer_vocals_fullness_aname.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "melband_roformer_big_beta4",
+          "filename": "melband_roformer_big_beta4.ckpt",
+          "hf_path": "models/Roformer/MelBand/melband_roformer_big_beta4.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "melband_roformer_big_beta5e",
+          "filename": "melband_roformer_big_beta5e.ckpt",
+          "hf_path": "models/Roformer/MelBand/melband_roformer_big_beta5e.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "melband_roformer_big_beta6",
+          "filename": "melband_roformer_big_beta6.ckpt",
+          "hf_path": "models/Roformer/MelBand/melband_roformer_big_beta6.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "melband_roformer_big_beta6x",
+          "filename": "melband_roformer_big_beta6x.ckpt",
+          "hf_path": "models/Roformer/MelBand/melband_roformer_big_beta6x.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "melband_roformer_guitar_becruily",
+          "filename": "melband_roformer_guitar_becruily.ckpt",
+          "hf_path": "models/Roformer/MelBand/melband_roformer_guitar_becruily.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "melband_roformer_inst_metal_prev_by_mesk",
+          "filename": "melband_roformer_inst_metal_prev_by_mesk.ckpt",
+          "hf_path": "models/Roformer/MelBand/melband_roformer_inst_metal_prev_by_mesk.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "melband_roformer_inst_v1",
+          "filename": "melband_roformer_inst_v1.ckpt",
+          "hf_path": "models/Roformer/MelBand/melband_roformer_inst_v1.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "melband_roformer_inst_v1e",
+          "filename": "melband_roformer_inst_v1e.ckpt",
+          "hf_path": "models/Roformer/MelBand/melband_roformer_inst_v1e.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "melband_roformer_inst_v1e_plus",
+          "filename": "melband_roformer_inst_v1e_plus.ckpt",
+          "hf_path": "models/Roformer/MelBand/melband_roformer_inst_v1e_plus.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "melband_roformer_inst_v2",
+          "filename": "melband_roformer_inst_v2.ckpt",
+          "hf_path": "models/Roformer/MelBand/melband_roformer_inst_v2.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "melband_roformer_instvoc_duality_v1",
+          "filename": "melband_roformer_instvoc_duality_v1.ckpt",
+          "hf_path": "models/Roformer/MelBand/melband_roformer_instvoc_duality_v1.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "melband_roformer_instvoc_duality_v2",
+          "filename": "melband_roformer_instvoc_duality_v2.ckpt",
+          "hf_path": "models/Roformer/MelBand/melband_roformer_instvoc_duality_v2.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "melband_roformer_karaoke_becruily",
+          "filename": "melband_roformer_karaoke_becruily.ckpt",
+          "hf_path": "models/Roformer/MelBand/melband_roformer_karaoke_becruily.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "melband_roformer_kim_vocals_fullness_v1_by_aname",
+          "filename": "melband_roformer_kim_vocals_fullness_v1_by_aname.ckpt",
+          "hf_path": "models/Roformer/MelBand/melband_roformer_kim_vocals_fullness_v1_by_aname.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "melband_roformer_kim_vocals_fullness_v2_by_aname",
+          "filename": "melband_roformer_kim_vocals_fullness_v2_by_aname.ckpt",
+          "hf_path": "models/Roformer/MelBand/melband_roformer_kim_vocals_fullness_v2_by_aname.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "melband_roformer_kim_vocals_v1_by_aname",
+          "filename": "melband_roformer_kim_vocals_v1_by_aname.ckpt",
+          "hf_path": "models/Roformer/MelBand/melband_roformer_kim_vocals_v1_by_aname.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "melband_roformer_kim_vocals_v2_by_aname",
+          "filename": "melband_roformer_kim_vocals_v2_by_aname.ckpt",
+          "hf_path": "models/Roformer/MelBand/melband_roformer_kim_vocals_v2_by_aname.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "melband_roformer_kim_vocals_v3_by_aname",
+          "filename": "melband_roformer_kim_vocals_v3_by_aname.ckpt",
+          "hf_path": "models/Roformer/MelBand/melband_roformer_kim_vocals_v3_by_aname.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "melband_roformer_small_by_aname",
+          "filename": "melband_roformer_small_by_aname.ckpt",
+          "hf_path": "models/Roformer/MelBand/melband_roformer_small_by_aname.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "melband_roformer_vocals_bleedness_by_aname",
+          "filename": "melband_roformer_vocals_bleedness_by_aname.ckpt",
+          "hf_path": "models/Roformer/MelBand/melband_roformer_vocals_bleedness_by_aname.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "model_MelBand-Roformer_BVE_by-Gonza",
+          "filename": "model_MelBand-Roformer_BVE_by-Gonza.ckpt",
+          "hf_path": "models/Roformer/MelBand/model_MelBand-Roformer_BVE_by-Gonza.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "model_MelBand-Roformer_Duality_v1_by-Aname",
+          "filename": "model_MelBand-Roformer_Duality_v1_by-Aname.ckpt",
+          "hf_path": "models/Roformer/MelBand/model_MelBand-Roformer_Duality_v1_by-Aname.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "model_MelBand-Roformer_Karaoke_Fusion_Aggressive_by-Gonza",
+          "filename": "model_MelBand-Roformer_Karaoke_Fusion_Aggressive_by-Gonza.ckpt",
+          "hf_path": "models/Roformer/MelBand/model_MelBand-Roformer_Karaoke_Fusion_Aggressive_by-Gonza.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "model_MelBand-Roformer_Karaoke_Fusion_Aggressive_v2_by-Gonza",
+          "filename": "model_MelBand-Roformer_Karaoke_Fusion_Aggressive_v2_by-Gonza.ckpt",
+          "hf_path": "models/Roformer/MelBand/model_MelBand-Roformer_Karaoke_Fusion_Aggressive_v2_by-Gonza.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "model_MelBand-Roformer_Karaoke_Fusion_Standard_by-Gonza",
+          "filename": "model_MelBand-Roformer_Karaoke_Fusion_Standard_by-Gonza.ckpt",
+          "hf_path": "models/Roformer/MelBand/model_MelBand-Roformer_Karaoke_Fusion_Standard_by-Gonza.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "model_MelBand-Roformer_Karaoke_Fusion_Total_by-Gonza",
+          "filename": "model_MelBand-Roformer_Karaoke_Fusion_Total_by-Gonza.ckpt",
+          "hf_path": "models/Roformer/MelBand/model_MelBand-Roformer_Karaoke_Fusion_Total_by-Gonza.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "model_MelBand-Roformer_Karaoke_by-Gabox",
+          "filename": "model_MelBand-Roformer_Karaoke_by-Gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/model_MelBand-Roformer_Karaoke_by-Gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "model_MelBand-Roformer_Vocals_Balansed_v2_by-Gabox",
+          "filename": "model_MelBand-Roformer_Vocals_Balansed_v2_by-Gabox.ckpt",
+          "hf_path": "models/Roformer/MelBand/model_MelBand-Roformer_Vocals_Balansed_v2_by-Gabox.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "model_mel_band_roformer_ep_3005_sdr_11.4360",
+          "filename": "model_mel_band_roformer_ep_3005_sdr_11.4360.ckpt",
+          "hf_path": "models/Roformer/MelBand/model_mel_band_roformer_ep_3005_sdr_11.4360.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "vocals_mel_band_roformer",
+          "filename": "vocals_mel_band_roformer.ckpt",
+          "hf_path": "models/Roformer/MelBand/vocals_mel_band_roformer.ckpt",
+          "size_mb": 0
+        }
+      ]
+    },
+    "SCnet": {
+      "parent": "models",
+      "models": [
+        {
+          "name": "SCNet-large_starrytong_fixed",
+          "filename": "SCNet-large_starrytong_fixed.ckpt",
+          "hf_path": "models/SCnet/SCNet-large_starrytong_fixed.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "config_musdb18_scnet",
+          "filename": "config_musdb18_scnet.yaml",
+          "hf_path": "models/SCnet/config_musdb18_scnet.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_musdb18_scnet_large",
+          "filename": "config_musdb18_scnet_large.yaml",
+          "hf_path": "models/SCnet/config_musdb18_scnet_large.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_musdb18_scnet_large_starrytong",
+          "filename": "config_musdb18_scnet_large_starrytong.yaml",
+          "hf_path": "models/SCnet/config_musdb18_scnet_large_starrytong.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "config_musdb18_scnet_xl",
+          "filename": "config_musdb18_scnet_xl.yaml",
+          "hf_path": "models/SCnet/config_musdb18_scnet_xl.yaml",
+          "size_mb": 0
+        },
+        {
+          "name": "model_scnet_ep_54_sdr_9.8051",
+          "filename": "model_scnet_ep_54_sdr_9.8051.ckpt",
+          "hf_path": "models/SCnet/model_scnet_ep_54_sdr_9.8051.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "model_scnet_sdr_9.3244",
+          "filename": "model_scnet_sdr_9.3244.ckpt",
+          "hf_path": "models/SCnet/model_scnet_sdr_9.3244.ckpt",
+          "size_mb": 0
+        },
+        {
+          "name": "scnet_checkpoint_musdb18",
+          "filename": "scnet_checkpoint_musdb18.ckpt",
+          "hf_path": "models/SCnet/scnet_checkpoint_musdb18.ckpt",
+          "size_mb": 0
+        }
+      ]
+    },
+    "VR_Arch": {
+      "parent": "models",
+      "models": [
+        {
+          "name": "10_SP-UVR-2B-32000-1",
+          "filename": "10_SP-UVR-2B-32000-1.pth",
+          "hf_path": "models/VR_Arch/10_SP-UVR-2B-32000-1.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "11_SP-UVR-2B-32000-2",
+          "filename": "11_SP-UVR-2B-32000-2.pth",
+          "hf_path": "models/VR_Arch/11_SP-UVR-2B-32000-2.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "12_SP-UVR-3B-44100",
+          "filename": "12_SP-UVR-3B-44100.pth",
+          "hf_path": "models/VR_Arch/12_SP-UVR-3B-44100.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "13_SP-UVR-4B-44100-1",
+          "filename": "13_SP-UVR-4B-44100-1.pth",
+          "hf_path": "models/VR_Arch/13_SP-UVR-4B-44100-1.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "14_SP-UVR-4B-44100-2",
+          "filename": "14_SP-UVR-4B-44100-2.pth",
+          "hf_path": "models/VR_Arch/14_SP-UVR-4B-44100-2.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "15_SP-UVR-MID-44100-1",
+          "filename": "15_SP-UVR-MID-44100-1.pth",
+          "hf_path": "models/VR_Arch/15_SP-UVR-MID-44100-1.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "16_SP-UVR-MID-44100-2",
+          "filename": "16_SP-UVR-MID-44100-2.pth",
+          "hf_path": "models/VR_Arch/16_SP-UVR-MID-44100-2.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "17_HP-Wind_Inst-UVR",
+          "filename": "17_HP-Wind_Inst-UVR.pth",
+          "hf_path": "models/VR_Arch/17_HP-Wind_Inst-UVR.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "1_HP-UVR",
+          "filename": "1_HP-UVR.pth",
+          "hf_path": "models/VR_Arch/1_HP-UVR.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "2_HP-UVR",
+          "filename": "2_HP-UVR.pth",
+          "hf_path": "models/VR_Arch/2_HP-UVR.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "3_HP-Vocal-UVR",
+          "filename": "3_HP-Vocal-UVR.pth",
+          "hf_path": "models/VR_Arch/3_HP-Vocal-UVR.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "4_HP-Vocal-UVR",
+          "filename": "4_HP-Vocal-UVR.pth",
+          "hf_path": "models/VR_Arch/4_HP-Vocal-UVR.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "5_HP-Karaoke-UVR",
+          "filename": "5_HP-Karaoke-UVR.pth",
+          "hf_path": "models/VR_Arch/5_HP-Karaoke-UVR.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "6_HP-Karaoke-UVR",
+          "filename": "6_HP-Karaoke-UVR.pth",
+          "hf_path": "models/VR_Arch/6_HP-Karaoke-UVR.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "7_HP2-UVR",
+          "filename": "7_HP2-UVR.pth",
+          "hf_path": "models/VR_Arch/7_HP2-UVR.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "8_HP2-UVR",
+          "filename": "8_HP2-UVR.pth",
+          "hf_path": "models/VR_Arch/8_HP2-UVR.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "9_HP2-UVR",
+          "filename": "9_HP2-UVR.pth",
+          "hf_path": "models/VR_Arch/9_HP2-UVR.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "MGM_HIGHEND_v4",
+          "filename": "MGM_HIGHEND_v4.pth",
+          "hf_path": "models/VR_Arch/MGM_HIGHEND_v4.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "MGM_LOWEND_A_v4",
+          "filename": "MGM_LOWEND_A_v4.pth",
+          "hf_path": "models/VR_Arch/MGM_LOWEND_A_v4.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "MGM_LOWEND_B_v4",
+          "filename": "MGM_LOWEND_B_v4.pth",
+          "hf_path": "models/VR_Arch/MGM_LOWEND_B_v4.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "MGM_MAIN_v4",
+          "filename": "MGM_MAIN_v4.pth",
+          "hf_path": "models/VR_Arch/MGM_MAIN_v4.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-BVE-4B_SN-44100-1",
+          "filename": "UVR-BVE-4B_SN-44100-1.pth",
+          "hf_path": "models/VR_Arch/UVR-BVE-4B_SN-44100-1.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-De-Echo-Aggressive",
+          "filename": "UVR-De-Echo-Aggressive.pth",
+          "hf_path": "models/VR_Arch/UVR-De-Echo-Aggressive.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-De-Echo-Normal",
+          "filename": "UVR-De-Echo-Normal.pth",
+          "hf_path": "models/VR_Arch/UVR-De-Echo-Normal.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-De-Reverb-aufr33-jarredou",
+          "filename": "UVR-De-Reverb-aufr33-jarredou.pth",
+          "hf_path": "models/VR_Arch/UVR-De-Reverb-aufr33-jarredou.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-DeEcho-DeReverb",
+          "filename": "UVR-DeEcho-DeReverb.pth",
+          "hf_path": "models/VR_Arch/UVR-DeEcho-DeReverb.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-DeNoise-Lite",
+          "filename": "UVR-DeNoise-Lite.pth",
+          "hf_path": "models/VR_Arch/UVR-DeNoise-Lite.pth",
+          "size_mb": 0
+        },
+        {
+          "name": "UVR-DeNoise",
+          "filename": "UVR-DeNoise.pth",
+          "hf_path": "models/VR_Arch/UVR-DeNoise.pth",
+          "size_mb": 0
+        }
+      ]
+    }
+  }
+}
