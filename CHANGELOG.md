@@ -393,6 +393,21 @@ Los commits originales de estos fixes (46898d0-c8c52fd) se perdieron en un git r
 - Edge cases: silencio, audio 0.5s, archivo inexistente
 - Benchmark: PyTorch vs ONNX vs MDX-Net
 
+## v2.1.1 — 1-jun-2026 (continuación)
+
+### 🐛 Bug fixes en GPU info y frontend
+
+- **Fix:** `vram_used_mb` desaparecía del JSON cuando valía 0 (GPU idle). Quitado `omitempty` del struct Go.
+- **Fix:** VRAM calculator (`/api/gpu/vram-calculator`) siempre devolvía 0. Ahora busca en catálogo UVR + fallback 2000 MB.
+- **Fix:** Header mostrando `v2.0.0-alpha` hardcodeado → `v2.1.1`.
+- **Fix:** `API_BASE` hardcodeada a `192.168.1.87` → URLs relativas (funciona desde cualquier IP).
+
+### 📦 Catálogo y descargas
+
+- **Feat:** Filtrado de modelos `size_mb=0` (config files) del catálogo visible. De 98 → 72 modelos.
+- **Feat:** Descarga de dependencias: al bajar un modelo (.ckpt/.pth) se descargan automáticamente sus archivos .yaml asociados.
+- **Feat:** Añadido `hf_models.json` con 380 modelos del repo HuggingFace Politrees/UVR_resources organizados en 11 categorías.
+
 ## v1.4.4
 
 Última versión estable. Inamovible en rama `main`.
