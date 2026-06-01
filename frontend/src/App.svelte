@@ -512,7 +512,7 @@
 <main>
   <header>
     <h1>🎵 Onda</h1>
-    <span class="version">v2.0.0-alpha</span>
+    <span class="version">v2.1.1</span>
     <button
       class="btn-gear"
       onclick={() => (showDownloader = !showDownloader)}
