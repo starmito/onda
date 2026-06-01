@@ -1,4 +1,4 @@
-const API_BASE = 'http://192.168.1.87:3000';
+const API_BASE = '';
 
 export interface HealthComponent {
   ok: boolean;
