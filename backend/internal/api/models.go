@@ -36,6 +36,12 @@ var modelExtensions = map[string]bool{
 	".safetensors": true,
 }
 
+// modelWeightExtensions lists extensions for model weight files (used for base-name stripping).
+var modelWeightExtensions = []string{".ckpt", ".pth", ".onnx", ".th", ".safetensors"}
+
+// dependencyExtensions lists extensions for dependency files (yaml configs, supplemental weights).
+var dependencyExtensions = []string{".yaml", ".ckpt", ".pth", ".onnx", ".th"}
+
 // categoryMap translates directory names to human-readable category labels.
 // Note: VR_Models/ contains different model architectures; category is refined
 // by detectCategory() from the subdirectory name (Roformer, MelBand, SCnet, etc.)
@@ -269,6 +275,61 @@ func listModels() ModelsListResponse {
 	}
 }
 
+// loadUVRCatalog reads and parses the UVR model catalog (uvr_models.json).
+// It tries /app/uvr_models.json first (container path), then falls back to
+// the project root.
+func loadUVRCatalog() ([]UVRModelEntry, error) {
+	data, err := os.ReadFile("/app/uvr_models.json")
+	if err != nil {
+		projectRoot := findProjectRoot()
+		data, err = os.ReadFile(filepath.Join(projectRoot, "uvr_models.json"))
+		if err != nil {
+			return nil, fmt.Errorf("failed to read uvr_models.json: %w", err)
+		}
+	}
+	var catalog []UVRModelEntry
+	if err := json.Unmarshal(data, &catalog); err != nil {
+		return nil, fmt.Errorf("failed to parse uvr_models.json: %w", err)
+	}
+	return catalog, nil
+}
+
+// stripExtension tries each given extension and returns the base name
+// (filename without extension) if a match is found. Returns the original
+// filename unchanged if no extension matches.
+func stripExtension(filename string, exts []string) string {
+	lower := strings.ToLower(filename)
+	for _, ext := range exts {
+		if strings.HasSuffix(lower, ext) && len(filename) > len(ext) {
+			return filename[:len(filename)-len(ext)]
+		}
+	}
+	return filename
+}
+
+// findDependencies searches the UVR catalog for dependency entries (size_mb=0)
+// that share the same base name (after stripping extensions) as the given
+// model filename. These are typically .yaml config files needed alongside
+// model weights.
+func findDependencies(modelFilename string, catalog []UVRModelEntry) []UVRModelEntry {
+	modelBase := stripExtension(modelFilename, modelWeightExtensions)
+
+	var deps []UVRModelEntry
+	for _, entry := range catalog {
+		if entry.SizeMB != 0 {
+			continue
+		}
+		if entry.Filename == modelFilename {
+			continue // skip self
+		}
+		entryBase := stripExtension(entry.Filename, dependencyExtensions)
+		if entryBase == modelBase {
+			deps = append(deps, entry)
+		}
+	}
+	return deps
+}
+
 // handleModelsDownload initiates an async download from HuggingFace.
 // POST /api/models/download
 func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
@@ -360,6 +421,32 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 
 		// Launch async download
 		go runDirectDownload(req.URL, req.Filename, targetDir)
+
+		// Also download any dependency files (e.g., .yaml configs) that share
+		// the same base name as the model being downloaded.
+		if catalog, err := loadUVRCatalog(); err == nil {
+			deps := findDependencies(req.Filename, catalog)
+			for _, dep := range deps {
+				if dep.DownloadURL == "" {
+					continue
+				}
+				depCategory := detectCategoryFromFilename(dep.Filename)
+				depDir := filepath.Join(modelsBasePath, depCategory)
+
+				// Register a download job for this dependency
+				depStatus := &DownloadStatus{
+					Status: "downloading",
+					Repo:   dep.DownloadURL,
+					Target: "/models/" + depCategory,
+				}
+				downloadMu.Lock()
+				downloadJobs[dep.DownloadURL] = depStatus
+				downloadMu.Unlock()
+
+				go runDirectDownload(dep.DownloadURL, dep.Filename, depDir)
+				log.Printf("[models] also downloading dependency: %s → %s", dep.Filename, dep.DownloadURL)
+			}
+		}
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
