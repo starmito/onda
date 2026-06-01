@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -14,8 +17,8 @@ import (
 type GPUInfoResponse struct {
 	Name              string `json:"name,omitempty"`
 	VRAMTotalMB       int    `json:"vram_total_mb"`
-	VRAMUsedMB        int    `json:"vram_used_mb,omitempty"`
-	VRAMFreeMB        int    `json:"vram_free_mb,omitempty"`
+	VRAMUsedMB        int    `json:"vram_used_mb"`
+	VRAMFreeMB        int    `json:"vram_free_mb"`
 	UtilizationGPUPct int    `json:"utilization_gpu_pct,omitempty"`
 	TemperatureC      int    `json:"temperature_c,omitempty"`
 	Runtime           string `json:"runtime,omitempty"`
@@ -60,6 +63,61 @@ const defaultVRAMMB = 2000
 
 // fallbackAvailableVRAMMB is used when GPU info cannot be obtained.
 const fallbackAvailableVRAMMB = 16311
+
+// modelCatalogCache holds the loaded UVR model catalog for VRAM lookups.
+var (
+	modelCatalogCache []UVRModelEntry
+	catalogOnce       sync.Once
+)
+
+// loadModelCatalog ensures the UVR catalog is loaded into the cache.
+func loadModelCatalog() {
+	catalogOnce.Do(func() {
+		var data []byte
+		var err error
+		data, err = os.ReadFile("/app/uvr_models.json")
+		if err != nil {
+			data, err = os.ReadFile(filepath.Join(findProjectRoot(), "uvr_models.json"))
+		}
+		if err == nil {
+			json.Unmarshal(data, &modelCatalogCache)
+		}
+	})
+}
+
+// lookupVRAMMB returns the VRAM estimate in MB for a model name.
+// It checks the hardcoded vramEstimates map first, then the UVR catalog.
+// Falls back to defaultVRAMMB if nothing is found.
+func lookupVRAMMB(modelName string) int {
+	if vram, ok := vramEstimates[modelName]; ok {
+		return vram
+	}
+	loadModelCatalog()
+	// Try exact name match in catalog.
+	for _, m := range modelCatalogCache {
+		if m.Name == modelName {
+			return int(m.SizeMB)
+		}
+	}
+	// Try matching by name without common extensions.
+	stem := strings.TrimSuffix(modelName, ".onnx")
+	stem = strings.TrimSuffix(stem, ".ckpt")
+	stem = strings.TrimSuffix(stem, ".pth")
+	stem = strings.TrimSuffix(stem, ".th")
+	stem = strings.TrimSuffix(stem, ".safetensors")
+	for _, m := range modelCatalogCache {
+		if m.Name == stem {
+			return int(m.SizeMB)
+		}
+	}
+	// Try matching by filename (without extension) in catalog.
+	for _, m := range modelCatalogCache {
+		if m.Filename == modelName {
+			return int(m.SizeMB)
+		}
+	}
+	return defaultVRAMMB
+}
 
 // getGPUInfo queries GPU details via PyTorch inside the Docker container.
 // The onda container (python:slim) does not have nvidia-smi, so we use torch.cuda.
@@ -203,18 +261,18 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 		if pair == "" {
 			continue
 		}
-		// Split by first "=": "vocal=melband_kj" -> ["vocal", "melband_kj"]
+		// Split by first "=". If no "=", treat the entire string as a model name.
 		eqIdx := strings.Index(pair, "=")
+		var modelType, modelName string
 		if eqIdx < 0 {
-			continue
+			modelType = "unknown"
+			modelName = pair
+		} else {
+			modelType = strings.TrimSpace(pair[:eqIdx])
+			modelName = strings.TrimSpace(pair[eqIdx+1:])
 		}
-		modelType := strings.TrimSpace(pair[:eqIdx])
-		modelName := strings.TrimSpace(pair[eqIdx+1:])
 
-		vramMB, ok := vramEstimates[modelName]
-		if !ok {
-			vramMB = defaultVRAMMB
-		}
+		vramMB := lookupVRAMMB(modelName)
 
 		models = append(models, VRAMModelEntry{
 			Name:   modelName,
