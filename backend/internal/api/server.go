@@ -35,6 +35,7 @@ type UVRModelEntry struct {
 	SizeMB      int64  `json:"size_mb"`
 	Description string `json:"description,omitempty"`
 	Downloaded  bool   `json:"downloaded"`
+	Source      string `json:"source"`
 }
 
 // JobRequest represents a queued separation job.
@@ -81,6 +82,7 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("GET /api/models/{name}/config", s.handleModelsConfig)
 	s.mux.HandleFunc("POST /api/models/{name}/config", s.handleModelsConfig)
 	s.mux.HandleFunc("GET /api/models/catalog", s.handleModelsCatalog)
+	s.mux.HandleFunc("GET /api/models/catalog/hf", s.handleModelsCatalogHF)
 	s.mux.HandleFunc("/api/gpu", s.handleGPU)
 	s.mux.HandleFunc("GET /api/gpu/info", s.handleGPUInfo)
 	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)
@@ -915,6 +917,7 @@ func (s *Server) handleModelsCatalog(w http.ResponseWriter, r *http.Request) {
 
 	// Tag each catalog entry as downloaded if its filename exists on disk
 	for i := range catalog {
+		catalog[i].Source = "uvr"
 		if downloadedFiles[catalog[i].Filename] ||
 			downloadedFiles[catalog[i].Name] {
 			catalog[i].Downloaded = true
