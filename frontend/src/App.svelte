@@ -11,6 +11,7 @@
   import { detectStemType } from './lib/types';
   import { getModels, separateAudio, getStatus, uploadAudio, getLocalModels, getQueueStatus, getResults, getInputs, deleteInput } from './lib/api';
   import type { LocalModel, StatusResponse, QueueJob } from './lib/api';
+  import CatalogPanel from './lib/CatalogPanel.svelte';
 
   interface QueueFile {
     file: File;
@@ -81,6 +82,7 @@
   let showModelConfig = $state(false);
   let showModelPanel = $state(false);
   let showDownloader = $state(false);
+  let showCatalog = $state(false);
 
   // Load presets + model list + persisted data on mount
   $effect(() => {
@@ -523,6 +525,11 @@
       onclick={() => (showModelPanel = !showModelPanel)}
       title="Gestor de modelos"
     >⚙️</button>
+    <button
+      class="btn-gear"
+      onclick={() => (showCatalog = !showCatalog)}
+      title="Catálogo de modelos"
+    >📋</button>
   </header>
 
   <!-- DropZone -->
@@ -659,6 +666,13 @@
   <!-- ModelManager panel -->
   {#if showModelPanel}
     <ModelManager onclose={() => (showModelPanel = false)} initialModel={modelConfig.vocalModel || modelConfig.stemModel || undefined} />
+  {/if}
+
+  <!-- CatalogPanel -->
+  {#if showCatalog}
+    <section class="catalog-section">
+      <CatalogPanel />
+    </section>
   {/if}
 </main>
 
@@ -859,6 +873,10 @@
   }
 
   .editor-section {
+    width: 100%;
+  }
+
+  .catalog-section {
     width: 100%;
   }
 
