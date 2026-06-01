@@ -921,9 +921,19 @@ func (s *Server) handleModelsCatalog(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Filter out entries with size_mb == 0 (yaml configs, dependencies).
+	// They are still needed in uvr_models.json for dependency resolution
+	// during downloads, but should not appear in the catalog UI.
+	filtered := make([]UVRModelEntry, 0, len(catalog))
+	for _, entry := range catalog {
+		if entry.SizeMB > 0 {
+			filtered = append(filtered, entry)
+		}
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(catalog)
+	json.NewEncoder(w).Encode(filtered)
 }
 
 // handleFileServe serves generated output files from the project output directory.
