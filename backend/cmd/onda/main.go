@@ -9,7 +9,7 @@ import (
 	"github.com/starmito/onda/internal/api"
 )
 
-const version = "v2.1.0-alpha"
+const version = "v2.1.1"
 
 func main() {
 	if len(os.Args) < 2 {
