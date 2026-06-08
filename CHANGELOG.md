@@ -1,5 +1,36 @@
 # Changelog
 
+## v2.3.2 — Regresiones corregidas + bajos + UI 🧹
+
+### 🔴 Regresiones de v2.3.1 corregidas
+
+- **Rubberband paths rotos en contenedor**: `findProjectRoot()` devolvía `/` dentro del contenedor, causando que `strings.Replace` eliminara la barra inicial. Ahora se pasan paths absolutos del contenedor directamente.
+- **chmod 0755 impedía escritura uid 1000**: rubberband corre como uid 1000 en el contenedor `onda`. Restaurado `0777` en el directorio de salida del pitch.
+
+### 🟠 Medios corregidos
+
+- **Stale download status**: dos modelos con misma URL de dependencia se sobrescribían. Key compuesta `filename@URL`.
+- **pitchStr sin sanitizar** en `handlePitchFileServe`. Añadido `filepath.Clean()`.
+- **Check `_pitch` demasiado amplio**: bloqueaba archivos legítimos con `_pitch` en el nombre. Ahora verifica el directorio padre.
+
+### 🟢 Bajos backend corregidos
+
+- **copyFile sin Sync()** → añadido `out.Sync()` antes de `Close()`
+- **404 vs 200 vacío**: cuando un directorio no existe, devuelve 404 en vez de 200 con array vacío
+- **pip install silencioso**: ahora loggea errores de instalación
+- **Verificación de pip**: comprueba que pip existe antes de usarlo
+- **Upload sin check de disco**: verifica espacio libre antes de parsear 500MB en RAM
+- **Catálogo HF con sync.Once**: ahora se recarga en cada request
+
+### 🔵 UI frontend corregidos
+
+- **Progreso de cola no se actualizaba**: polling ahora actualiza pipelineStep, pipelineModel, pipelineEta
+- **AudioContext por waveform**: compartido un solo OfflineAudioContext para decodificar waveforms
+- **$inspect residual en producción**: eliminado
+- **onDestroy sin cancelación**: añadido AbortController para requests de pitch
+- **Errores red silenciados**: ahora muestra toast al fallar carga de subgrupos
+- **syncSubgroupGains ignoraba pausa**: ahora aplica cambios de volumen incluso si el player está pausado
+
 ## v2.3.1 — Bugfix masivo: pitch shift, seguridad, player 🔧
 
 ### 🐛 Bugs críticos corregidos
