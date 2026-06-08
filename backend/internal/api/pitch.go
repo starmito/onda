@@ -183,3 +183,37 @@ func copyFileLocal(src, dst string) error {
 
 	return dstFile.Sync()
 }
+
+// handleDeletePitchSubgroup removes a pitched subgroup directory.
+// DELETE /api/pitch/{song}/{pitch}
+func (s *Server) handleDeletePitchSubgroup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	song := r.PathValue("song")
+	pitchStr := r.PathValue("pitch")
+	if song == "" || pitchStr == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "song and pitch are required"})
+		return
+	}
+
+	projectRoot := findProjectRoot()
+	outputBase := filepath.Join(projectRoot, "output")
+	pitchDir := filepath.Join(outputBase, song, song+"_pitch"+pitchStr)
+
+	if err := os.RemoveAll(pitchDir); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to delete pitch subgroup: %v", err)})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
