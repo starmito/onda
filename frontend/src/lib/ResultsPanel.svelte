@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { downloadUrl, deleteSong, deleteStem as deleteStemApi } from './api';
+  import { downloadUrl, deleteSong, deleteStem as deleteStemApi, pitchStems } from './api';
   import type { ResultStem, ResultGroup } from './types';
-  import { stemEmoji } from './types';
+  import type { PitchResponse } from './api';
+  import { stemEmoji, detectStemType } from './types';
 
 
   export type { ResultStem };
@@ -67,6 +68,17 @@
 
   // Canvas refs for waveform drawing
   let waveformCanvases = $state<Record<string, HTMLCanvasElement>>({});
+
+  // Pitch shift state
+  let pitchValues = $state<Record<string, number>>({});
+  let pitchLoading = $state<Record<string, boolean>>({});
+
+  // Pitched subgroup state
+  interface PitchedSubgroup {
+    pitch: number;
+    stems: Array<{ name: string; path: string; stemType: string }>;
+  }
+  let pitchedGroups = $state<Record<string, PitchedSubgroup[]>>({});
 
   // ---- Grouping ----
 
@@ -439,6 +451,41 @@
     }
   }
 
+  async function handlePitchChange(song: string, value: number) {
+    pitchValues[song] = value;
+    pitchValues = { ...pitchValues };
+
+    if (value === 0) {
+      pitchedGroups[song] = (pitchedGroups[song] || []).filter(g => g.pitch !== 0);
+      pitchedGroups = { ...pitchedGroups };
+      return;
+    }
+
+    // Check if already processed for this pitch
+    const existing = pitchedGroups[song] || [];
+    if (existing.some(g => g.pitch === value)) return;
+
+    pitchLoading[song] = true;
+    pitchLoading = { ...pitchLoading };
+
+    try {
+      const result = await pitchStems(song, value);
+      const stems = result.files.map(f => ({
+        name: f.name,
+        path: f.path,
+        stemType: detectStemType(f.name),
+      }));
+
+      pitchedGroups[song] = [...existing, { pitch: value, stems }];
+      pitchedGroups = { ...pitchedGroups };
+    } catch (e) {
+      showToast(`Error al cambiar tono: ${e instanceof Error ? e.message : String(e)}`, 'error');
+    } finally {
+      pitchLoading[song] = false;
+      pitchLoading = { ...pitchLoading };
+    }
+  }
+
   // ---- Real waveform drawing ----
 
   let waveformDrawn = $state<Set<string>>(new Set());
@@ -591,6 +638,27 @@
           </div>
         </div>
 
+        <!-- Pitch slider -->
+        <div class="pitch-section">
+          <label class="pitch-label" for="pitch-{group.song}">
+            Tono: <strong>{pitchValues[group.song] || 0}</strong>
+          </label>
+          <input
+            id="pitch-{group.song}"
+            type="range"
+            min="-12"
+            max="12"
+            step="1"
+            value={pitchValues[group.song] || 0}
+            oninput={(e) => handlePitchChange(group.song, parseInt((e.target as HTMLInputElement).value))}
+            class="pitch-slider"
+            disabled={pitchLoading[group.song] || false}
+          />
+          {#if pitchLoading[group.song]}
+            <span class="pitch-spinner">⏳</span>
+          {/if}
+        </div>
+
         <!-- Stem rows -->
         <div class="stems-list">
           {#each group.stems as stem (stem.id)}
@@ -658,6 +726,30 @@
             </div>
           {/each}
         </div>
+
+        <!-- Pitched subgroups -->
+        {#if pitchedGroups[group.song]?.length}
+          {#each pitchedGroups[group.song] as pg (pg.pitch)}
+            <div class="pitched-group">
+              <h4 class="pitched-title">
+                {group.song} ({pg.pitch > 0 ? '+' : ''}{pg.pitch})
+              </h4>
+              {#each pg.stems as stem}
+                {@const pitchedSong = group.song + (pg.pitch > 0 ? '_pitch+' : '_pitch') + pg.pitch}
+                <div class="stem-row pitched-stem">
+                  <span class="stem-emoji">{stemEmoji(stem.stemType)}</span>
+                  <span class="stem-name">{stem.name}</span>
+                  <a
+                    class="stem-btn dl-btn"
+                    href={downloadUrl(pitchedSong, stem.name)}
+                    download={stem.name}
+                    title="Download"
+                  >⬇</a>
+                </div>
+              {/each}
+            </div>
+          {/each}
+        {/if}
       </div>
     {/each}
   </div>
@@ -1016,4 +1108,45 @@
   .toast.error { background: #f44336; }
   @keyframes toastIn { from { opacity: 0; transform: translateX(-50%) translateY(20px); } }
   @keyframes toastOut { to { opacity: 0; transform: translateX(-50%) translateY(-20px); } }
+
+  .pitch-section {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0;
+    border-top: 1px solid #2a2a3e;
+    margin-top: 0.5rem;
+  }
+  .pitch-label {
+    font-size: 0.8rem;
+    color: #c0c0d0;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .pitch-slider {
+    flex: 1;
+    max-width: 200px;
+    height: 6px;
+    accent-color: #b388ff;
+    cursor: pointer;
+  }
+  .pitch-spinner {
+    font-size: 0.85rem;
+    flex-shrink: 0;
+  }
+  .pitched-group {
+    margin-left: 1.5rem;
+    border-left: 2px solid #b388ff44;
+    padding-left: 0.75rem;
+    margin-top: 0.5rem;
+  }
+  .pitched-title {
+    margin: 0 0 0.3rem;
+    font-size: 0.85rem;
+    color: #b388ff;
+    font-weight: 600;
+  }
+  .pitched-stem {
+    opacity: 0.85;
+  }
 </style>
