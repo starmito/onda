@@ -73,6 +73,9 @@
   let pitchSliderValue = $state<Record<string, number>>({});
   let pitchProcessing = $state<Record<string, boolean>>({});
 
+  // AbortController for cancelling in-flight fetch requests on destroy
+  let abortController = new AbortController();
+
   // Pitched subgroup state with independent player
   interface PitchedSubgroupStem {
     name: string;
@@ -103,7 +106,7 @@
 
   async function loadPitchSubgroups(song: string) {
     try {
-      const subs = await getPitchSubgroups(song);
+      const subs = await getPitchSubgroups(song, abortController.signal);
       const mapped: PitchedSubgroup[] = subs.map(s => ({
         pitch: s.pitch,
         stems: s.files.map(f => ({
@@ -262,7 +265,7 @@
     for (const stem of group.stems) {
       try {
         const url = downloadUrl(song, stem.name);
-        const resp = await fetch(url);
+        const resp = await fetch(url, { signal: abortController.signal });
         const arrayBuf = await resp.arrayBuffer();
         const audioBuf = await ctx.decodeAudioData(arrayBuf);
         p.buffers.set(stemKey(song, stem.name), audioBuf);
@@ -600,7 +603,7 @@
       const loadPromises = sg.stems.map(async (stem) => {
         if (player.buffers.has(stem.name)) return;
         const url = pitchDownloadUrl(song, pitch, stem.name);
-        const resp = await fetch(url);
+        const resp = await fetch(url, { signal: abortController.signal });
         const buf = await resp.arrayBuffer();
         const audioBuf = await player.audioCtx!.decodeAudioData(buf);
         player.buffers.set(stem.name, audioBuf);
@@ -805,7 +808,7 @@
     const currentVersion = ++pitchLoadVersion;
     for (const song of songs) {
       // Usar then() en vez de await para paralelismo controlado
-      getPitchSubgroups(song).then(subs => {
+      getPitchSubgroups(song, abortController.signal).then(subs => {
         if (currentVersion !== pitchLoadVersion) return; // stale response
         const mapped = subs.map(s => ({
           pitch: s.pitch,
@@ -855,7 +858,7 @@
     let audioCtx: OfflineAudioContext | undefined;
     try {
       const url = downloadUrl(song, name);
-      const resp = await fetch(url);
+      const resp = await fetch(url, { signal: abortController.signal });
       const arrayBuf = await resp.arrayBuffer();
       audioCtx = getAudioCtx();
       const audioBuf = await audioCtx.decodeAudioData(arrayBuf);
@@ -918,7 +921,7 @@
     const h = canvas.height;
     ctx.clearRect(0, 0, w, h);
     try {
-      const resp = await fetch(url);
+      const resp = await fetch(url, { signal: abortController.signal });
       const arrayBuf = await resp.arrayBuffer();
       const audioCtx = getAudioCtx();
       const audioBuf = await audioCtx.decodeAudioData(arrayBuf);
@@ -956,6 +959,7 @@
 
   // Cleanup on component destroy
   onDestroy(() => {
+    abortController.abort();
     if (toastTimer) clearTimeout(toastTimer);
     for (const [key, player] of Object.entries(groupPlayers)) {
       player.sourceNodes.forEach(s => { try { s.stop(); } catch(e) {} });
