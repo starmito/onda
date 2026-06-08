@@ -50,6 +50,12 @@ El catálogo de descarga de modelos (ModelDownloader) no funcionaba por 4 bugs e
 - **Feat:** Descarga de dependencias: al bajar un modelo (.ckpt/.pth) se descargan automáticamente sus archivos .yaml asociados.
 - **Feat:** Añadido `hf_models.json` con 380 modelos del repo HuggingFace Politrees/UVR_resources organizados en 11 categorías.
 
+### 📦 Catálogo HF — Tamaños reales y normalización de nombres (8-jun-2026)
+
+- **Feat:** Tamaños reales de los 380 modelos HF obtenidos vía API de HuggingFace (300 checkpoints con tamaño, 80 YAML de configuración). Todos resueltos correctamente sin errores.
+- **Feat:** Normalización de nombres de modelos stem — 8 modelos `kuielab_*` ahora muestran su fuente (ej: `kuielab_a (bass stem)`).
+- **Fix:** `ModelManager.svelte` ahora muestra `display_name || name` en selectores y cabeceras.
+
 ---
 
 ## v2.1.0-alpha — Fase 5: Modelos configurables + Editor visual de pipeline ✅
