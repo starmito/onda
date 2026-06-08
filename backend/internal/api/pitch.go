@@ -1,0 +1,185 @@
+package api
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/starmito/onda/internal/audio"
+)
+
+// PitchRequest is the JSON body for POST /api/pitch.
+type PitchRequest struct {
+	Song  string `json:"song"`
+	Pitch int    `json:"pitch"`
+}
+
+// PitchResponse is returned by POST /api/pitch.
+type PitchResponse struct {
+	Song  string      `json:"song"`
+	Pitch int         `json:"pitch"`
+	Files []FileEntry `json:"files"`
+}
+
+// handlePitchShift applies rubberband pitch shift to all stems of a song
+// except drums, and saves results in a subdirectory.
+// POST /api/pitch
+func (s *Server) handlePitchShift(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req PitchRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON"})
+		return
+	}
+
+	if req.Song == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "song name is required"})
+		return
+	}
+
+	if req.Pitch == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "pitch must be non-zero"})
+		return
+	}
+
+	projectRoot := findProjectRoot()
+	outputBase := filepath.Join(projectRoot, "output")
+
+	// Source directory: /output/{song}/
+	songDir := filepath.Join(outputBase, req.Song)
+	info, err := os.Stat(songDir)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("song %q not found", req.Song)})
+		return
+	}
+	if !info.IsDir() {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("%q is not a directory", req.Song)})
+		return
+	}
+
+	// Output subdirectory: /output/{song}/{song}_pitch{+N}/
+	pitchSuffix := fmt.Sprintf("_pitch%+d", req.Pitch)
+	outDir := filepath.Join(songDir, req.Song+pitchSuffix)
+	if err := os.MkdirAll(outDir, 0755); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to create output dir: %v", err)})
+		return
+	}
+
+	// Read source stems
+	entries, err := os.ReadDir(songDir)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to read song dir: %v", err)})
+		return
+	}
+
+	var resultFiles []FileEntry
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue // skip subdirectories (like previous pitch results)
+		}
+
+		name := entry.Name()
+		ext := strings.ToLower(filepath.Ext(name))
+		if ext != ".wav" && ext != ".mp3" && ext != ".flac" && ext != ".ogg" {
+			continue // only process audio files
+		}
+
+		inputPath := filepath.Join(songDir, name)
+
+		// Determine if this is a drums stem (skip pitch processing)
+		isDrums := strings.Contains(strings.ToLower(name), "drums")
+
+		var outputName string
+		if isDrums {
+			outputName = name // drums keep original name
+		} else {
+			// Add pitch suffix before extension
+			baseName := name[:len(name)-len(ext)]
+			outputName = baseName + pitchSuffix + ext
+		}
+		outputPath := filepath.Join(outDir, outputName)
+
+		if isDrums {
+			// Copy drums as-is
+			if err := copyFileLocal(inputPath, outputPath); err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to copy drums: %v", err)})
+				return
+			}
+		} else {
+			// Apply rubberband pitch shift
+			if err := audio.RubberbandPitch(req.Pitch, inputPath, outputPath); err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("rubberband failed for %s: %v", name, err)})
+				return
+			}
+		}
+
+		resultFiles = append(resultFiles, FileEntry{
+			Name: outputName,
+			Path: outputPath,
+		})
+	}
+
+	if len(resultFiles) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "no audio files found in song directory"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(PitchResponse{
+		Song:  req.Song,
+		Pitch: req.Pitch,
+		Files: resultFiles,
+	})
+}
+
+// copyFileLocal copies a file from src to dst.
+func copyFileLocal(src, dst string) error {
+	srcFile, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer srcFile.Close()
+
+	dstFile, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer dstFile.Close()
+
+	_, err = io.Copy(dstFile, srcFile)
+	if err != nil {
+		return err
+	}
+
+	return dstFile.Sync()
+}

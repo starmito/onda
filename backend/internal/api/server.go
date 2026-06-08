@@ -89,6 +89,7 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("GET /api/gpu/info", s.handleGPUInfo)
 	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)
 	s.mux.HandleFunc("/api/separate", s.handleSeparate)
+	s.mux.HandleFunc("POST /api/pitch", s.handlePitchShift)
 	s.mux.HandleFunc("POST /api/upload", s.handleUpload)
 	s.mux.HandleFunc("GET /api/files/{song}/{file}", s.handleFileServe)
 	s.mux.HandleFunc("POST /api/backend/start", s.handleBackendStart)
