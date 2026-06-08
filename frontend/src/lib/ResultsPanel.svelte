@@ -765,7 +765,8 @@
     display: flex;
     flex-direction: column;
     gap: 0.1rem;
-    min-width: 100px;
+    min-width: 80px;
+    max-width: 200px;
   }
 
   .seek-slider {
@@ -836,11 +837,12 @@
   .stem-row {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.4rem 0.5rem;
+    gap: 0.35rem;
+    padding: 0.3rem 0.4rem;
     border-radius: 6px;
     background: #111;
     transition: background 0.2s, opacity 0.2s;
+    flex-wrap: wrap;
   }
   .stem-row:hover {
     background: #1a1a30;
@@ -853,6 +855,9 @@
     border-radius: 3px;
     flex-shrink: 0;
     display: block;
+    width: 120px;
+    max-width: 25%;
+    height: 28px;
   }
 
   .stem-emoji {
@@ -878,8 +883,10 @@
   }
 
   .stem-btn {
-    width: 28px;
-    height: 28px;
+    width: 26px;
+    height: 26px;
+    min-width: 24px;
+    min-height: 24px;
     border-radius: 4px;
     border: 1px solid #444;
     background: #2a2a3e;
