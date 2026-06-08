@@ -49,3 +49,5 @@ input/
 *.bak
 .env
 onda-backend
+.hermes/
+backend/onda
