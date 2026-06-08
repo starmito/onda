@@ -587,3 +587,19 @@ export async function deletePreset(name: string): Promise<void> {
   });
   if (!res.ok) throw new Error(`Failed to delete preset: ${res.status}`);
 }
+
+export interface PitchResponse {
+  song: string;
+  pitch: number;
+  files: Array<{ name: string; path: string }>;
+}
+
+export async function pitchStems(song: string, pitch: number): Promise<PitchResponse> {
+  const res = await fetch(`${API_BASE}/api/pitch`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ song, pitch }),
+  });
+  if (!res.ok) throw new Error(`Pitch shift failed: ${res.status}`);
+  return res.json();
+}
