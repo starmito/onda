@@ -9,7 +9,7 @@
   import ModelDownloader from './lib/ModelDownloader.svelte';
   import type { ResultStem } from './lib/types';
   import { detectStemType } from './lib/types';
-  import { getModels, separateAudio, getStatus, uploadAudio, getLocalModels, getQueueStatus, getResults, getInputs, deleteInput } from './lib/api';
+  import { getModels, separateAudio, getStatus, uploadAudio, getLocalModels, getQueueStatus, getResults, getInputs, deleteInput, getHealth } from './lib/api';
   import type { LocalModel, StatusResponse, QueueJob } from './lib/api';
 
 
@@ -55,6 +55,9 @@
   let queuePollingTimer: ReturnType<typeof setInterval> | null = null;
   let processedDoneSongs = $state<Set<string>>(new Set());
 
+  // ---- Health / Version from backend ----
+  let healthVersion = $state('');
+
   // Toast
   let toastMessage = $state('');
   let toastType = $state<'success' | 'error'>('success');
@@ -97,6 +100,11 @@
     getLocalModels()
       .then((res) => (modelInfos = res.models || []))
       .catch(() => {}); // silent fail — dropdowns just stay empty
+
+    // ── Load version from health endpoint ──
+    getHealth()
+      .then((h) => { if (h?.version) healthVersion = h.version; })
+      .catch(() => {}); // silent fail
 
     // ── Load persisted results from filesystem (/output/) ──
     getResults()
@@ -514,7 +522,7 @@
 <main>
   <header>
     <h1>🎵 Onda</h1>
-    <span class="version">v2.1.1</span>
+    <span class="version">{healthVersion || 'v2.2.0'}</span>
     <button
       class="btn-gear"
       onclick={() => (showDownloader = !showDownloader)}
