@@ -614,8 +614,8 @@ export interface PitchSubgroup {
   files: Array<{ name: string; path: string }>;
 }
 
-export async function getPitchSubgroups(song: string): Promise<PitchSubgroup[]> {
-  const res = await fetch(`${API_BASE}/api/pitch/${encodeURIComponent(song)}`);
+export async function getPitchSubgroups(song: string, signal?: AbortSignal): Promise<PitchSubgroup[]> {
+  const res = await fetch(`${API_BASE}/api/pitch/${encodeURIComponent(song)}`, { signal });
   if (!res.ok) return [];
   return res.json();
 }
