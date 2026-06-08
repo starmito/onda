@@ -790,12 +790,29 @@
     }
   }
 
+  let pitchLoadVersion = $state(0);
+
   // ---- $effect to load pitch subgroups when songGroups changes ----
 
   $effect(() => {
     const songs = songGroups.map(g => g.song);
+    const currentVersion = ++pitchLoadVersion;
     for (const song of songs) {
-      loadPitchSubgroups(song);
+      // Usar then() en vez de await para paralelismo controlado
+      getPitchSubgroups(song).then(subs => {
+        if (currentVersion !== pitchLoadVersion) return; // stale response
+        const mapped = subs.map(s => ({
+          pitch: s.pitch,
+          stems: s.files.map(f => ({
+            name: f.name,
+            path: f.path,
+            stemType: detectStemType(f.name),
+          })),
+          player: null,
+        }));
+        pitchSubgroups[song] = mapped;
+        pitchSubgroups = { ...pitchSubgroups };
+      }).catch(() => {});
     }
   });
 
