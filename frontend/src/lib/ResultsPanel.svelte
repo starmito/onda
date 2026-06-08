@@ -827,6 +827,15 @@
 
   let waveformDrawn = $state<Set<string>>(new Set());
 
+  // Shared OfflineAudioContext for waveform decoding (avoid creating one per canvas)
+  let sharedAudioCtx: OfflineAudioContext | null = null;
+  function getAudioCtx(): OfflineAudioContext {
+    if (!sharedAudioCtx || sharedAudioCtx.state === 'closed') {
+      sharedAudioCtx = new OfflineAudioContext(1, 1, 44100);
+    }
+    return sharedAudioCtx;
+  }
+
   async function drawRealWaveform(canvas: HTMLCanvasElement, song: string, name: string) {
     const key = stemKey(song, name);
     if (waveformDrawn.has(key)) return;
@@ -843,12 +852,12 @@
     const h = canvas.height;
     ctx.clearRect(0, 0, w, h);
 
-    let audioCtx: AudioContext | undefined;
+    let audioCtx: OfflineAudioContext | undefined;
     try {
       const url = downloadUrl(song, name);
       const resp = await fetch(url);
       const arrayBuf = await resp.arrayBuffer();
-      audioCtx = new AudioContext();
+      audioCtx = getAudioCtx();
       const audioBuf = await audioCtx.decodeAudioData(arrayBuf);
       const channel = audioBuf.getChannelData(0);
 
@@ -881,7 +890,7 @@
         ctx.fillRect(x, y, barWidth - 2, hVal);
       }
     } finally {
-      audioCtx?.close();
+      // Don't close shared audio context
     }
   }
 
@@ -911,7 +920,7 @@
     try {
       const resp = await fetch(url);
       const arrayBuf = await resp.arrayBuffer();
-      const audioCtx = new AudioContext();
+      const audioCtx = getAudioCtx();
       const audioBuf = await audioCtx.decodeAudioData(arrayBuf);
       const channel = audioBuf.getChannelData(0);
       const step = Math.max(1, Math.floor(channel.length / w));
@@ -926,7 +935,7 @@
         ctx.fillStyle = '#00d4ff';
         ctx.fillRect(i, (h - barH) / 2, 1, barH);
       }
-      audioCtx.close();
+      // Don't close shared audio context
     } catch {
       let hash = 0;
       for (let i = 0; i < url.length; i++) {
