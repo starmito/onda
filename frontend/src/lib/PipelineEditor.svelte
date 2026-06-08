@@ -176,7 +176,7 @@
   const viperxOut = $derived.by<GraphStem[]>(() => {
     const stems: GraphStem[] = [];
     const baseX = viperxNode.x + NODE_W + 20;
-    const baseY = 10;
+    const baseY = 12;
     if (viperxEnabled) {
       stems.push({ label: 'vocals', x: baseX, y: baseY, active: viperxStems.vocals });
       stems.push({ label: 'instrumental', x: baseX, y: baseY + Y_STEP, active: viperxStems.instrumental });
@@ -194,7 +194,7 @@
   const demucsOut = $derived.by<GraphStem[]>(() => {
     const stems: GraphStem[] = [];
     const baseX = demucsNode.x + NODE_W + 20;
-    const baseY = 8;
+    const baseY = 12;
     if (demucsEnabled) {
       stems.push({ label: 'drums', x: baseX, y: baseY, active: demucsStems.drums });
       stems.push({ label: 'bass', x: baseX, y: baseY + Y_STEP, active: demucsStems.bass });
@@ -206,7 +206,14 @@
   const svgWidth = $derived(demucsOut.length > 0
     ? demucsOut[demucsOut.length - 1].x + STEM_W + 20
     : demucsNode.x + NODE_W + 20);
-  const svgHeight = 80;
+  const svgHeight = $derived.by(() => {
+    const maxStemY = Math.max(
+      viperxOut.length > 0 ? viperxOut[viperxOut.length - 1].y + STEM_H + 12 : 0,
+      demucsOut.length > 0 ? demucsOut[demucsOut.length - 1].y + STEM_H + 12 : 0,
+      80,
+    );
+    return maxStemY + 10;
+  });
 
   function nodeColor(active: boolean): string {
     return active ? '#00d4ff' : '#3a3a5a';
