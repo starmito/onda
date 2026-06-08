@@ -674,9 +674,11 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 
 	// Delete the config JSON if it exists
 	configPath := modelConfigPath(safeName)
+	var configWarning string
 	if _, err := os.Stat(configPath); err == nil {
 		if err := os.Remove(configPath); err != nil {
 			log.Printf("[models] failed to delete config %s: %v", configPath, err)
+			configWarning = fmt.Sprintf("model deleted but config cleanup failed: %v", err)
 		} else {
 			log.Printf("[models] deleted config: %s", configPath)
 		}
@@ -688,11 +690,15 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	resp := map[string]interface{}{
 		"ok":     true,
 		"detail": fmt.Sprintf("model %q deleted", name),
-	})
+	}
+	if configWarning != "" {
+		resp["warning"] = configWarning
+	}
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(resp)
 }
 
 // runDirectDownload downloads a model file from a direct URL using wget.
