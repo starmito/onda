@@ -955,6 +955,7 @@
         }
       }
     }
+    waveformDrawn.clear();
   });
 </script>
 
