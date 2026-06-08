@@ -329,3 +329,46 @@ func (s *Server) handleDeletePitchSubgroup(w http.ResponseWriter, r *http.Reques
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
+
+// handleDeletePitchStem removes a single stem file from a pitched subgroup.
+// DELETE /api/pitch/{song}/{pitch}/{file}
+func (s *Server) handleDeletePitchStem(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	song := r.PathValue("song")
+	pitchStr := r.PathValue("pitch")
+	file := r.PathValue("file")
+	if song == "" || pitchStr == "" || file == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "song, pitch and file are required"})
+		return
+	}
+
+	projectRoot := findProjectRoot()
+	outputBase := filepath.Join(projectRoot, "output")
+	filePath := filepath.Join(outputBase, song, song+"_pitch"+pitchStr, file)
+
+	// Path traversal guard
+	if !strings.HasPrefix(filepath.Clean(filePath), filepath.Clean(outputBase)+string(filepath.Separator)) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid path"})
+		return
+	}
+
+	if err := os.Remove(filePath); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "file not found"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
