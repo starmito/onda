@@ -12,6 +12,13 @@
 - **API extendida**: `downloadModel()` acepta `filename` opcional; nueva función `getHfCatalog()`.
 - **CatalogPanel eliminado**: toda la funcionalidad absorbida en ModelDownloader.
 
+### 🐛 Bugs corregidos (08-jun-2026)
+
+- **Versión centralizada**: ahora se lee del archivo `VERSION` en la raíz del proyecto. El backend usa `api.Version` (leído vía `init()`), el frontend lo obtiene del health endpoint. Ya no hay texto hardcodeado en `App.svelte`, `server.go` ni `main.go`.
+- **Build frontend en Docker**: el Dockerfile ahora es multi-stage con un `frontend-builder` que compila el Svelte dentro del Docker build. Ya no necesita rsync ni build manual.
+- **htdemucs_ft con 0MB corregido**: ahora muestra correctamente 2800 MB en la lista de modelos instalados (su VRAM real).
+- **Skill de despliegue actualizada**: documenta el workflow correcto con build multi-stage y versión centralizada.
+
 ## v2.1.1 — Catálogo de modelos UVR funcional + fixes de UI ✅
 
 ### 🐛 Catálogo de modelos — 4 bugs críticos arreglados (31-may-2026)
