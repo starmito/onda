@@ -92,6 +92,7 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("POST /api/pitch", s.handlePitchShift)
 	s.mux.HandleFunc("GET /api/pitch/{song}", s.handleListPitchSubgroups)
 	s.mux.HandleFunc("DELETE /api/pitch/{song}/{pitch}", s.handleDeletePitchSubgroup)
+	s.mux.HandleFunc("DELETE /api/pitch/{song}/{pitch}/{file}", s.handleDeletePitchStem)
 	s.mux.HandleFunc("POST /api/upload", s.handleUpload)
 	s.mux.HandleFunc("GET /api/files/{song}/{file}", s.handleFileServe)
 	s.mux.HandleFunc("POST /api/backend/start", s.handleBackendStart)
