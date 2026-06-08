@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -713,6 +714,7 @@ func loadModelConfig(name string) (ModelConfig, error) {
 	}
 	var cfg ModelConfig
 	if err := json.Unmarshal(data, &cfg); err != nil {
+		log.Printf("WARN: failed to parse model config %s: %v, using defaults", path, err)
 		return modelConfigDefaults(), nil
 	}
 	return cfg, nil
