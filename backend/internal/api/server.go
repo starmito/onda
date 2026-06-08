@@ -959,8 +959,9 @@ func (s *Server) handlePitchFileServe(w http.ResponseWriter, r *http.Request) {
 
 	// Path traversal guard
 	song = filepath.Clean(song)
+	pitchStr = filepath.Clean(pitchStr)
 	file = filepath.Clean(file)
-	if strings.Contains(file, "..") || strings.Contains(song, "..") {
+	if strings.Contains(file, "..") || strings.Contains(song, "..") || strings.Contains(pitchStr, "..") {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
