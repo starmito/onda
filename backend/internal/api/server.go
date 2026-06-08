@@ -93,6 +93,7 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("GET /api/pitch/{song}", s.handleListPitchSubgroups)
 	s.mux.HandleFunc("DELETE /api/pitch/{song}/{pitch}", s.handleDeletePitchSubgroup)
 	s.mux.HandleFunc("DELETE /api/pitch/{song}/{pitch}/{file}", s.handleDeletePitchStem)
+	s.mux.HandleFunc("GET /api/pitch/files/{song}/{pitch}/{file}", s.handlePitchFileServe)
 	s.mux.HandleFunc("POST /api/upload", s.handleUpload)
 	s.mux.HandleFunc("GET /api/files/{song}/{file}", s.handleFileServe)
 	s.mux.HandleFunc("POST /api/backend/start", s.handleBackendStart)
@@ -943,6 +944,37 @@ func (s *Server) handleModelsCatalog(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(filtered)
+}
+
+// handlePitchFileServe serves generated pitch-shifted files from the output directory.
+// GET /api/pitch/files/{song}/{pitch}/{file}
+func (s *Server) handlePitchFileServe(w http.ResponseWriter, r *http.Request) {
+	song := r.PathValue("song")
+	pitchStr := r.PathValue("pitch")
+	file := r.PathValue("file")
+
+	// Path traversal guard
+	song = filepath.Clean(song)
+	file = filepath.Clean(file)
+	if strings.Contains(file, "..") || strings.Contains(song, "..") {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	projectRoot := findProjectRoot()
+	outputBase := filepath.Join(projectRoot, "output")
+
+	// Build path: /output/{song}/{song}_pitch{pitch}/{file}
+	filePath := filepath.Join(outputBase, song, song+"_pitch"+pitchStr, file)
+
+	// Verify the file is inside the output directory
+	absPath, err := filepath.Abs(filePath)
+	if err != nil || !strings.HasPrefix(absPath, filepath.Clean(outputBase)+string(filepath.Separator)) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	http.ServeFile(w, r, absPath)
 }
 
 // handleFileServe serves generated output files from the project output directory.

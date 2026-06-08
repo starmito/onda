@@ -159,7 +159,7 @@ func (s *Server) handlePitchShift(w http.ResponseWriter, r *http.Request) {
 
 		resultFiles = append(resultFiles, FileEntry{
 			Name: outputName,
-			Path: outputPath,
+			Path: "/api/pitch/files/" + req.Song + "/" + fmt.Sprintf("%+d", req.Pitch) + "/" + outputName,
 		})
 	}
 
@@ -247,7 +247,7 @@ func (s *Server) handleListPitchSubgroups(w http.ResponseWriter, r *http.Request
 			if !se.IsDir() {
 				files = append(files, FileEntry{
 					Name: se.Name(),
-					Path: filepath.Join(subDir, se.Name()),
+					Path: "/api/pitch/files/" + song + "/" + pitchStr + "/" + se.Name(),
 				})
 			}
 		}
