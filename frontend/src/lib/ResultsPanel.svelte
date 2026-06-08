@@ -660,6 +660,10 @@
     if (player.animFrame) cancelAnimationFrame(player.animFrame);
     player.sourceNodes.forEach(s => { try { s.stop(); } catch(e) {} });
     player.sourceNodes.clear();
+    player.duration = 0;
+    player.loaded = false;
+    player.buffers.clear();
+    player.gainNodes.clear();
     pitchSubgroups[song] = [...subs];
     pitchSubgroups = { ...pitchSubgroups };
   }
