@@ -759,7 +759,7 @@
     const subs = pitchSubgroups[song] || [];
     const sg = subs.find(s => s.pitch === pitch);
     const player = sg?.player;
-    if (!player || !player.playing) return;
+    if (!player) return; // solo retornar si no hay player, aunque no esté playing
     const hasSolo = sg.stems.some(s => stemStates[`pitch:${song}:${pitch}:${s.name}`]?.solo);
     for (const stem of sg.stems) {
       const key = `pitch:${song}:${pitch}:${stem.name}`;
