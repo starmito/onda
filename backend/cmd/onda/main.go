@@ -9,11 +9,9 @@ import (
 	"github.com/starmito/onda/internal/api"
 )
 
-const version = "v2.1.1"
-
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Println("Onda " + version + " — Audio separation tool")
+		fmt.Println("Onda " + api.Version + " — Audio separation tool")
 		fmt.Println()
 		fmt.Println("Usage:")
 		fmt.Println("  onda serve [--addr :PORT]   Start API server")
@@ -45,7 +43,7 @@ func main() {
 	case "models":
 		fmt.Println("onda models — not implemented yet")
 	case "version":
-		fmt.Println(version)
+		fmt.Println(api.Version)
 	default:
 		fmt.Printf("Unknown command: %s\n", os.Args[1])
 		os.Exit(1)

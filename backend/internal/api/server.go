@@ -17,8 +17,6 @@ import (
 	"github.com/starmito/onda/internal/cli"
 )
 
-const version = "v2.1.1"
-
 // FileEntry describes a generated stem file.
 type FileEntry struct {
 	Name string `json:"name"`
@@ -150,17 +148,17 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	// ── Version mismatch detection ──
 	var mismatches []map[string]string
-	if frontendVersion != "" && frontendVersion != version {
+	if frontendVersion != "" && frontendVersion != Version {
 		mismatches = append(mismatches, map[string]string{
 			"component": "frontend",
-			"expected":  version,
+			"expected":  Version,
 			"actual":    frontendVersion,
 		})
 	}
-	if pipelineVersion != "" && pipelineVersion != version {
+	if pipelineVersion != "" && pipelineVersion != Version {
 		mismatches = append(mismatches, map[string]string{
 			"component": "pipeline",
-			"expected":  version,
+			"expected":  Version,
 			"actual":    pipelineVersion,
 		})
 	}
@@ -185,22 +183,22 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		gpuObj = map[string]interface{}{"ok": false, "code": "E3", "detail": gpuInfo}
 	}
 
-	frontendOK := frontendVersion == version
+	frontendOK := frontendVersion == Version
 	frontendObj := map[string]interface{}{
 		"ok":      frontendOK,
 		"version": frontendVersion,
 	}
 	if !frontendOK && frontendVersion != "" {
-		frontendObj["detail"] = fmt.Sprintf("version mismatch: expected %s, got %s", version, frontendVersion)
+		frontendObj["detail"] = fmt.Sprintf("version mismatch: expected %s, got %s", Version, frontendVersion)
 	}
 
-	pipelineOK := pipelineVersion == version
+	pipelineOK := pipelineVersion == Version
 	pipelineObj := map[string]interface{}{
 		"ok":      pipelineOK,
 		"version": pipelineVersion,
 	}
 	if !pipelineOK && pipelineVersion != "" {
-		pipelineObj["detail"] = fmt.Sprintf("version mismatch: expected %s, got %s", version, pipelineVersion)
+		pipelineObj["detail"] = fmt.Sprintf("version mismatch: expected %s, got %s", Version, pipelineVersion)
 	}
 
 	mismatchObj := map[string]interface{}{"ok": true}
@@ -213,11 +211,11 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	resp := map[string]interface{}{
 		"status":  status,
-		"version": version,
+		"version": Version,
 		"backend": map[string]interface{}{
 			"ok":      backendOK,
 			"detail":  backendDetail,
-			"version": version,
+			"version": Version,
 		},
 		"frontend":         frontendObj,
 		"pipeline":         pipelineObj,

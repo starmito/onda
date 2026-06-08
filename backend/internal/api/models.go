@@ -252,7 +252,7 @@ func listModels() ModelsListResponse {
 			DisplayName:    "HTDemucs FT",
 			Category:       "Demucs",
 			Path:           "",
-			SizeMB:         0,
+			SizeMB:         2800,
 			VramEstimateMB: 2800,
 		})
 		categorySet["Demucs"] = true
