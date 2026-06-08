@@ -101,6 +101,13 @@
   // Narrow: solo htdemucs_ft (VRAM formula + shifts/segment/jobs section)
   let isDemucs = $derived.by(() => selectedModel === 'htdemucs_ft');
 
+  // Display name for the selected model
+  let selectedModelDisplayName = $derived.by(() => {
+    if (!selectedModel) return '';
+    const found = models.find(m => m.name === selectedModel);
+    return found?.display_name || found?.name || selectedModel;
+  });
+
   // Broad: todos los Demucs (para deshabilitar sliders inaplicables)
   let isDemucsFamily = $derived.by(() => {
     const found = models.find(m => m.name === selectedModel);
@@ -232,7 +239,7 @@
     <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div class="panel" onclick={(e: MouseEvent) => e.stopPropagation()} role="dialog">
       <div class="panel-header">
-        <h2>⚙️ Modelos{selectedModel ? ` — ${selectedModel}` : ''}</h2>
+        <h2>⚙️ Modelos{selectedModelDisplayName ? ` — ${selectedModelDisplayName}` : ''}</h2>
         <button class="btn-close" onclick={onclose}>✕</button>
       </div>
 
@@ -245,7 +252,7 @@
             {#each groupedModels as group}
               <optgroup label={group.category}>
                 {#each group.models as m}
-                  <option value={m.name}>{m.name}</option>
+                  <option value={m.name}>{m.display_name || m.name}</option>
                 {/each}
               </optgroup>
             {/each}

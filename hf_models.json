@@ -1104,48 +1104,56 @@
         },
         {
           "name": "kuielab_a_bass",
+          "display_name": "kuielab_a (bass stem)",
           "filename": "kuielab_a_bass.onnx",
           "hf_path": "models/MDXNet/kuielab_a_bass.onnx",
           "size_mb": 0
         },
         {
           "name": "kuielab_a_drums",
+          "display_name": "kuielab_a (drums stem)",
           "filename": "kuielab_a_drums.onnx",
           "hf_path": "models/MDXNet/kuielab_a_drums.onnx",
           "size_mb": 0
         },
         {
           "name": "kuielab_a_other",
+          "display_name": "kuielab_a (other stem)",
           "filename": "kuielab_a_other.onnx",
           "hf_path": "models/MDXNet/kuielab_a_other.onnx",
           "size_mb": 0
         },
         {
           "name": "kuielab_a_vocals",
+          "display_name": "kuielab_a (vocals stem)",
           "filename": "kuielab_a_vocals.onnx",
           "hf_path": "models/MDXNet/kuielab_a_vocals.onnx",
           "size_mb": 0
         },
         {
           "name": "kuielab_b_bass",
+          "display_name": "kuielab_b (bass stem)",
           "filename": "kuielab_b_bass.onnx",
           "hf_path": "models/MDXNet/kuielab_b_bass.onnx",
           "size_mb": 0
         },
         {
           "name": "kuielab_b_drums",
+          "display_name": "kuielab_b (drums stem)",
           "filename": "kuielab_b_drums.onnx",
           "hf_path": "models/MDXNet/kuielab_b_drums.onnx",
           "size_mb": 0
         },
         {
           "name": "kuielab_b_other",
+          "display_name": "kuielab_b (other stem)",
           "filename": "kuielab_b_other.onnx",
           "hf_path": "models/MDXNet/kuielab_b_other.onnx",
           "size_mb": 0
         },
         {
           "name": "kuielab_b_vocals",
+          "display_name": "kuielab_b (vocals stem)",
           "filename": "kuielab_b_vocals.onnx",
           "hf_path": "models/MDXNet/kuielab_b_vocals.onnx",
           "size_mb": 0
