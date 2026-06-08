@@ -177,6 +177,14 @@ func (s *Server) handleListPitchSubgroups(w http.ResponseWriter, r *http.Request
 	outputBase := filepath.Join(projectRoot, "output")
 	songDir := filepath.Join(outputBase, song)
 
+	// Path traversal guard
+	if !strings.HasPrefix(filepath.Clean(songDir), filepath.Clean(outputBase)+string(filepath.Separator)) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid song name"})
+		return
+	}
+
 	entries, err := os.ReadDir(songDir)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -206,8 +214,8 @@ func (s *Server) handleListPitchSubgroups(w http.ResponseWriter, r *http.Request
 		}
 		pitchStr := parts[1]
 		var pitch int
-		fmt.Sscanf(pitchStr, "%d", &pitch)
-		if pitch == 0 {
+		n, err := fmt.Sscanf(pitchStr, "%d", &pitch)
+		if n != 1 || err != nil || pitch == 0 {
 			continue
 		}
 
@@ -286,6 +294,14 @@ func (s *Server) handleDeletePitchSubgroup(w http.ResponseWriter, r *http.Reques
 	projectRoot := findProjectRoot()
 	outputBase := filepath.Join(projectRoot, "output")
 	pitchDir := filepath.Join(outputBase, song, song+"_pitch"+pitchStr)
+
+	// Path traversal guard
+	if !strings.HasPrefix(filepath.Clean(pitchDir), filepath.Clean(outputBase)+string(filepath.Separator)) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid song or pitch"})
+		return
+	}
 
 	if err := os.RemoveAll(pitchDir); err != nil {
 		w.Header().Set("Content-Type", "application/json")
