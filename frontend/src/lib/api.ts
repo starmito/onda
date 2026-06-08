@@ -88,6 +88,11 @@ export function downloadUrl(song: string, file: string): string {
   return `${API_BASE}/api/files/${encodeURIComponent(song)}/${encodeURIComponent(file)}`;
 }
 
+export function pitchDownloadUrl(song: string, pitch: number, file: string): string {
+  const pitchStr = pitch > 0 ? '+' + pitch : String(pitch);
+  return `${API_BASE}/api/pitch/files/${encodeURIComponent(song)}/${encodeURIComponent(pitchStr)}/${encodeURIComponent(file)}`;
+}
+
 export async function uploadAudio(file: File): Promise<UploadResponse> {
   try {
     const formData = new FormData();
