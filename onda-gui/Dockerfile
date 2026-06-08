@@ -1,3 +1,11 @@
+# ── Stage 0: Compilar frontend Svelte ──
+FROM node:22-alpine AS frontend-builder
+WORKDIR /src
+COPY frontend/package.json frontend/package-lock.json ./
+RUN npm ci --silent
+COPY frontend/ ./
+RUN npm run build
+
 # ── Stage 1: Compilar backend Go ──
 FROM golang:1.26-alpine AS builder
 WORKDIR /src
@@ -21,8 +29,8 @@ RUN chmod +x /entrypoint.sh
 COPY --from=builder /onda-backend /usr/bin/onda-backend
 RUN chmod +x /usr/bin/onda-backend
 
-# Frontend Svelte
-COPY frontend/dist/ /usr/share/nginx/html/
+# Frontend Svelte (from frontend-builder stage)
+COPY --from=frontend-builder /src/dist/ /usr/share/nginx/html/
 RUN echo "${ONDA_VERSION}" > /usr/share/nginx/html/VERSION
 
 # ── Pipeline + project root ──
