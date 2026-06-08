@@ -95,6 +95,14 @@ func (s *Server) handlePitchShift(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to create output dir: %v", err)})
 		return
 	}
+	// Force 0777 because umask may filter MkdirAll to 0755
+	// rubberband runs as uid 1000 in the onda container and needs write access
+	if err := os.Chmod(outDir, 0777); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to chmod output dir: %v", err)})
+		return
+	}
 
 	// Read source stems
 	entries, err := os.ReadDir(songDir)
