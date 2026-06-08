@@ -257,6 +257,7 @@ export async function getLocalModels(): Promise<LocalModelsResponse> {
 export interface DownloadModelRequest {
   source: 'huggingface';
   repo: string;
+  filename?: string;  // optional specific file to download
 }
 
 export interface DownloadModelResponse {
@@ -264,8 +265,9 @@ export interface DownloadModelResponse {
   message?: string;
 }
 
-export async function downloadModel(repo: string): Promise<DownloadModelResponse> {
+export async function downloadModel(repo: string, filename?: string): Promise<DownloadModelResponse> {
   const body: DownloadModelRequest = { source: 'huggingface', repo };
+  if (filename) body.filename = filename;
   const res = await fetch(`${API_BASE}/api/models/download`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -484,6 +486,18 @@ export interface UVRModelEntry {
   downloaded: boolean;
 }
 
+export interface HFModelEntry {
+  name: string;
+  filename: string;
+  hf_path: string;
+  size_mb: number;
+  category: string;
+}
+
+export interface HfCatalogResponse {
+  categories: Record<string, { models: HFModelEntry[] }>;
+}
+
 export async function getModelCatalog(): Promise<UVRModelEntry[]> {
   try {
     const res = await fetch(`${API_BASE}/api/models/catalog`);
@@ -500,6 +514,14 @@ export async function getModelCatalog(): Promise<UVRModelEntry[]> {
     if (err instanceof Error) throw err;
     throw new Error(`Unexpected error fetching model catalog: ${String(err)}`);
   }
+}
+
+export async function getHfCatalog(): Promise<HfCatalogResponse> {
+  const res = await fetch(`${API_BASE}/api/models/catalog/hf`);
+  if (!res.ok) {
+    throw new Error(`HF catalog fetch failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as HfCatalogResponse;
 }
 
 export interface DownloadModelStatusResponse {
