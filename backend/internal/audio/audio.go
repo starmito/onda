@@ -43,5 +43,8 @@ func copyFile(src, dst string) error {
 		return fmt.Errorf("cannot copy file data: %w", err)
 	}
 
+	if err := out.Sync(); err != nil {
+		return err
+	}
 	return out.Close()
 }
