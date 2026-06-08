@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.2.0 — Interfaces unificadas + pantalla completa 🖥️
+
+### 🎨 UI (08-jun-2026)
+
+- **ModelDownloader y ModelManager convertidos a pantalla completa** con botón "← Volver" en la cabecera (antes eran paneles laterales deslizantes).
+- **Catálogo HF integrado** en ModelDownloader — los modelos de Politrees/UVR_resources ahora aparecen en la misma pantalla que los modelos UVR.
+- **Filtros de fuente**: 3 botones tipo pill debajo del buscador — "Todas las fuentes", "UVR", "Hugging Face" — para mostrar solo los modelos de una fuente.
+- **Badge de fuente** en cada modelo: etiqueta "UVR" (verde) o "HF" (azul) al lado del botón de descargar.
+- **Descarga .yaml automática**: al descargar un checkpoint (.ckpt/.pth) de HF, también se descarga su archivo .yaml asociado.
+- **API extendida**: `downloadModel()` acepta `filename` opcional; nueva función `getHfCatalog()`.
+- **CatalogPanel eliminado**: toda la funcionalidad absorbida en ModelDownloader.
+
 ## v2.1.1 — Catálogo de modelos UVR funcional + fixes de UI ✅
 
 ### 🐛 Catálogo de modelos — 4 bugs críticos arreglados (31-may-2026)
