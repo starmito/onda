@@ -51,7 +51,7 @@
 
   // ── Auto-detect: ViperX vocals → disable Demucs vocals ──
   let demucsVocalsAutoDisabled = $derived(
-    viperxEnabled && viperxStems.vocals
+    demucsEnabled && viperxEnabled && viperxStems.vocals
   );
 
   // Sync: when auto-disabled, uncheck Demucs vocals
