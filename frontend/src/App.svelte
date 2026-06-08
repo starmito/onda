@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import ResultsPanel from './lib/ResultsPanel.svelte';
-  import PipelinePanel from './lib/PipelinePanel.svelte';
   import PipelineEditor from './lib/PipelineEditor.svelte';
 
   import StatusBar from './lib/StatusBar.svelte';
@@ -39,7 +38,6 @@
   let separating = $state(false);
   let results = $state<ResultStem[]>([]);
   let modelsError = $state(false);
-  let pitchValue = $state(0);
   let pipelineStatus = $state<'idle'|'running'|'done'|'error'>('idle');
   let pipelineStep = $state('');
   let pipelineSong = $state('');
@@ -215,37 +213,6 @@
     );
   }
 
-  function handlePitchApply(pitch: number) {
-    pitchValue = pitch;
-  }
-
-  // ---- Per-step handlers (PipelineConfig individual buttons) ----
-  async function handleViperxOnly(config: PipelineConfigType) {
-    await handlePipelineStart({ ...config, demucs: false });
-    // Force refresh after pipeline completes
-    setTimeout(async () => {
-      try {
-        const status = await getStatus();
-        if (status.status === 'done' && status.files && status.files.length > 0) {
-          loadResults(status);
-        }
-      } catch { /* ignore transient errors */ }
-    }, 5000);
-  }
-
-  async function handleDemucsOnly(config: PipelineConfigType) {
-    await handlePipelineStart({ ...config, viperx: false });
-    // Force refresh after pipeline completes
-    setTimeout(async () => {
-      try {
-        const status = await getStatus();
-        if (status.status === 'done' && status.files && status.files.length > 0) {
-          loadResults(status);
-        }
-      } catch { /* ignore transient errors */ }
-    }, 5000);
-  }
-
   // ---- Pipeline start ----
   async function handlePipelineStart(config: PipelineConfigType) {
     // Clear any existing polling
@@ -310,7 +277,6 @@
           await separateAudio({
             preset,
             input: path,
-            pitch: pitchValue !== 0 ? pitchValue : undefined,
             viperx: config.viperx,
             viperx_keep: config.viperxKeep,
             viperx_model: config.viperxModel,
@@ -543,18 +509,6 @@
       </div>
     </section>
   {/if}
-
-  <!-- PipelinePanel -->
-  <section class="pipeline-section">
-    <PipelinePanel
-      disabled={separating}
-      queueJobs={queueJobs}
-      onstart={handlePipelineStart}
-      onviperxonly={handleViperxOnly}
-      ondemucsonly={handleDemucsOnly}
-      onpitch={handlePitchApply}
-    />
-  </section>
 
   <!-- PipelineEditor -->
   <section class="editor-section">
@@ -814,9 +768,6 @@
   }
 
   /* Sections */
-  .pipeline-section {
-    width: 100%;
-  }
 
 
   .editor-section {
