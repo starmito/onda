@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/starmito/onda/internal/cli"
@@ -832,6 +833,26 @@ func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
 
 // handleUpload accepts a multipart file upload and saves it to disk.
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
+	// Determine input directory: prefer project root /input,
+	// fall back to a temp dir if it doesn't exist.
+	projectRoot := findProjectRoot()
+	inputDir := filepath.Join(projectRoot, "input")
+	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
+		os.MkdirAll(inputDir, 0755)
+	}
+
+	// Check disk space before parsing the form (500MB max)
+	var diskStat syscall.Statfs_t
+	if err := syscall.Statfs(inputDir, &diskStat); err == nil {
+		freeBytes := diskStat.Bavail * uint64(diskStat.Bsize)
+		if freeBytes < 500<<20 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInsufficientStorage)
+			json.NewEncoder(w).Encode(map[string]string{"error": "disk space too low for upload"})
+			return
+		}
+	}
+
 	// Limit to 500MB
 	r.ParseMultipartForm(500 << 20)
 	file, header, err := r.FormFile("file")
@@ -842,14 +863,6 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer file.Close()
-
-	// Determine input directory: prefer /home/starmito/projects/onda/input,
-	// fall back to a temp dir if it doesn't exist.
-	projectRoot := findProjectRoot()
-	inputDir := filepath.Join(projectRoot, "input")
-	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
-		os.MkdirAll(inputDir, 0755)
-	}
 
 	// Sanitize filename to prevent path traversal
 	safeName := filepath.Base(header.Filename)

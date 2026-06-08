@@ -4,28 +4,17 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
-	"sync"
-)
-
-var (
-	hfCatalogData []byte
-	hfCatalogOnce sync.Once
-	hfCatalogErr  error
 )
 
 func loadHFCatalog() ([]byte, error) {
-	hfCatalogOnce.Do(func() {
-		// Try container path first, then project root
-		for _, p := range []string{"/app/hf_models.json", "hf_models.json"} {
-			data, err := os.ReadFile(p)
-			if err == nil {
-				hfCatalogData = data
-				return
-			}
+	// Try container path first, then project root
+	for _, p := range []string{"/app/hf_models.json", "hf_models.json"} {
+		data, err := os.ReadFile(p)
+		if err == nil {
+			return data, nil
 		}
-		hfCatalogErr = os.ErrNotExist
-	})
-	return hfCatalogData, hfCatalogErr
+	}
+	return nil, os.ErrNotExist
 }
 
 func (s *Server) handleModelsCatalogHF(w http.ResponseWriter, r *http.Request) {
