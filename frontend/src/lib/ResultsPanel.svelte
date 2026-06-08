@@ -704,6 +704,8 @@
     if (!player) return;
     const seekTo = parseFloat((e.target as HTMLInputElement).value);
     const wasPlaying = player.playing && !player.paused;
+    // Cancel previous animation frame
+    if (player.animFrame) cancelAnimationFrame(player.animFrame);
     if (wasPlaying) {
       player.sourceNodes.forEach(s => { try { s.stop(); } catch(e) {} });
       player.sourceNodes.clear();
@@ -722,6 +724,7 @@
         source.start(0, seekTo);
         player.sourceNodes.set(name, source);
       }
+      startSubgroupTimer(song, pitch);
     }
   }
 
