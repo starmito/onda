@@ -14,7 +14,7 @@ func RubberbandPitch(semitones int, input, output string) error {
 		// Si pitch=0, copiar el archivo en vez de procesar
 		return copyFile(input, output)
 	}
-	cmd := exec.Command("rubberband", "-p", fmt.Sprintf("%d", semitones), input, output)
+	cmd := exec.Command("docker", "exec", "onda", "rubberband", "-p", fmt.Sprintf("%d", semitones), input, output)
 	outputBytes, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("rubberband failed: %w\nOutput: %s", err, string(outputBytes))
@@ -22,8 +22,9 @@ func RubberbandPitch(semitones int, input, output string) error {
 	return nil
 }
 
-// IsRubberbandInstalled verifica si rubberband está disponible en el PATH
+// IsRubberbandInstalled verifica si rubberband está disponible dentro del contenedor onda
 func IsRubberbandInstalled() bool {
-	_, err := exec.LookPath("rubberband")
+	cmd := exec.Command("docker", "exec", "onda", "which", "rubberband")
+	err := cmd.Run()
 	return err == nil
 }
