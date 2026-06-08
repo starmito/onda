@@ -527,11 +527,16 @@ func runHuggingFaceDownload(repo, targetDir string) {
 		// If python3 fails, try installing huggingface_hub and retry
 		log.Printf("[models] python3 download attempt failed: %v — trying pip install", err)
 
-		installCtx, installCancel := context.WithTimeout(context.Background(), 120*time.Second)
-		defer installCancel()
-		installCmd := exec.CommandContext(installCtx, "pip", "install", "huggingface_hub")
-		if installOutput, installErr := installCmd.CombinedOutput(); installErr != nil {
-			log.Printf("[models] pip install failed: %v — output: %s", installErr, string(installOutput))
+		// Check if pip is available before attempting install
+		if err := exec.Command("which", "pip").Run(); err != nil {
+			log.Printf("[models] pip not found, skipping huggingface_hub install")
+		} else {
+			installCtx, installCancel := context.WithTimeout(context.Background(), 120*time.Second)
+			defer installCancel()
+			installCmd := exec.CommandContext(installCtx, "pip", "install", "huggingface_hub")
+			if installOutput, installErr := installCmd.CombinedOutput(); installErr != nil {
+				log.Printf("[models] pip install failed: %v — output: %s", installErr, string(installOutput))
+			}
 		}
 
 		// Retry download
