@@ -310,6 +310,13 @@
         const status = await getQueueStatus();
         queueJobs = status.jobs || [];
 
+        // Update progress UI from processing job
+        const processingJob = queueJobs.find(j => j.status === 'processing');
+        if (processingJob) {
+          pipelineSong = processingJob.song;
+          pipelineStep = 'processing';
+        }
+
         // Check for newly done jobs → accumulate results
         for (const job of queueJobs) {
           if (job.status === 'done' && !processedDoneSongs.has(job.song)) {
