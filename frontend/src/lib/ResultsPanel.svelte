@@ -781,7 +781,12 @@
       const sg = subs.find(s => s.pitch === pitch);
       if (sg) {
         sg.stems = sg.stems.filter(s => s.name !== stemName);
-        pitchSubgroups[song] = [...subs];
+        if (sg.stems.length === 0) {
+          // Eliminar subgrupo entero
+          pitchSubgroups[song] = (pitchSubgroups[song] || []).filter(s => s.pitch !== pitch);
+        } else {
+          pitchSubgroups[song] = [...subs];
+        }
         pitchSubgroups = { ...pitchSubgroups };
       }
       showToast(`Stem "${stemName}" eliminado`, 'success');
