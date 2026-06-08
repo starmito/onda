@@ -1,5 +1,38 @@
 # Changelog
 
+## v2.3.1 — Bugfix masivo: pitch shift, seguridad, player 🔧
+
+### 🐛 Bugs críticos corregidos
+
+- **Pitch shift no funcionaba**: `docker exec rubberband` recibía paths del host en vez de paths del contenedor (`/output/...`). Corregido convirtiendo paths automáticamente. Añadido timeout de 60s.
+- **PitchResponse devolvía paths absolutos del servidor**: el frontend recibía `/home/starmito/.../output/...` en vez de URLs HTTP. Nuevo endpoint `GET /api/pitch/files/{song}/{pitch}/{file}` para servir archivos de subgrupos.
+- **Reproductor de subgrupos no cargaba audio**: las URLs de descarga no coincidían con la estructura de directorios del servidor. Nuevo helper `pitchDownloadUrl()` en el frontend.
+- **Waveform y enlaces de descarga rotos**: usaban `stem.path` (ruta absoluta del servidor) como href. Corregido usando URLs HTTP.
+
+### 🟠 Bugs graves corregidos
+
+- **Inyección de código Python en descarga HF**: el parámetro `repo` se interpolaba directamente en un script Python sin sanitizar. Corregido escapando comillas simples.
+- **Path traversal en upload**: `header.Filename` iba directo a `filepath.Join` sin sanitizar. Corregido con `filepath.Base()`.
+- **handleDeleteFile**: permitía borrar archivos en subdirectorios arbitrarios de `output/`. Corregido rechazando paths que contengan `_pitch`.
+- **stopSubgroup()**: no reseteaba `duration`, `buffers`, `gainNodes`. El slider de seek mostraba tiempo incorrecto tras stop.
+- **toggleSubgroupSolo()**: no silenciaba los demás stems cuando se activaba Solo. Nueva función `syncSubgroupGains()`.
+- **handleSubgroupSeekChange()**: no reiniciaba el timer de reproducción tras hacer seek. Corregido cancelando y reiniciando `startSubgroupTimer()`.
+
+### 🟡 Bugs medios corregidos
+
+- **Chmod 0777** en directorios de pitch → 0755
+- **Race condition en presets**: `saveUserPresets()` fuera del write lock. Movido dentro.
+- **handleDeleteModel**: error de limpieza de config silencioso → incluye warning en respuesta
+- **Prefix check sin trailing separator**: `HasPrefix(absPath, outputPrefix)` podía dar falso positivo
+- **loadModelConfig**: errores de parseo silenciosos → ahora logea warning
+- **Colisión en tracker de descargas**: dos modelos con misma dependencia se sobrescribían. Key compuesta `filename@URL`.
+- **handleSeekInput**: no actualizaba `pauseOffset` → al pausar tras arrastrar slider, la reanudación iba a posición incorrecta
+- **$effect loadPitchSubgroups**: race conditions con respuestas fuera de orden. Añadido contador de versión.
+- **waveformDrawn**: memory leak (Set nunca se limpiaba). Limpiado en `onDestroy`.
+- **Último stem de subgrupo**: al borrarlo, el subgrupo quedaba vacío. Ahora se elimina automáticamente.
+- **buildConfig()**: no incluía `preset` → siempre usaba default. Corregido.
+- **demucsVocalsAutoDisabled**: no chequeaba `demucsEnabled` → se autodesactivaba innecesariamente.
+
 ## v2.3.0 — Pitch shift + subgrupos + limpieza de pipeline 🎛️
 
 ### 🎵 Nuevas funcionalidades
