@@ -223,8 +223,7 @@ func (s *Server) handleListPitchSubgroups(w http.ResponseWriter, r *http.Request
 		}
 		pitchStr := name[idx+6:] // len("_pitch") = 6
 		var pitch int
-		n, err := fmt.Sscanf(pitchStr, "%d", &pitch)
-		if n != 1 || err != nil || pitch == 0 {
+		if _, err := fmt.Sscanf(pitchStr, "%d", &pitch); err != nil {
 			continue
 		}
 
