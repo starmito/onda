@@ -9,7 +9,7 @@
   import ModelDownloader from './lib/ModelDownloader.svelte';
   import type { ResultStem } from './lib/types';
   import { detectStemType } from './lib/types';
-  import { getModels, separateAudio, getStatus, uploadAudio, getLocalModels, getQueueStatus, getResults, getInputs, deleteInput, getHealth } from './lib/api';
+  import { separateAudio, getStatus, uploadAudio, getLocalModels, getQueueStatus, getResults, getInputs, deleteInput, getHealth } from './lib/api';
   import type { LocalModel, StatusResponse, QueueJob } from './lib/api';
 
 
@@ -36,7 +36,6 @@
 
   // ---- State ----
   let queueFiles = $state<QueueFile[]>([]);
-  let presets = $state<Record<string, any>>({});
   let separating = $state(false);
   let results = $state<ResultStem[]>([]);
   let modelsError = $state(false);
@@ -87,15 +86,8 @@
   let showDownloader = $state(false);
 
 
-  // Load presets + model list + persisted data on mount
+  // Load model list + persisted data on mount
   $effect(() => {
-    // Load presets
-    getModels()
-      .then((p) => (presets = p))
-      .catch(() => {
-        modelsError = true;
-      });
-
     // Load local model list
     getLocalModels()
       .then((res) => (modelInfos = res.models || []))
@@ -243,22 +235,6 @@
     pitchValue = pitch;
   }
 
-  // ---- Preset start (from PresetSelector) ----
-  function handlePresetStart(preset: string) {
-    const p = presets[preset];
-    if (!p) {
-      alert('Preset not found: ' + preset);
-      return;
-    }
-    handlePipelineStart({
-      preset,
-      viperx: !!p.vocalModel,
-      viperxKeep: 'both',
-      demucs: !!p.stemModel,
-      demucsKeep: ['drums', 'bass', 'other', 'vocals'],
-    });
-  }
-
   // ---- Per-step handlers (PipelineConfig individual buttons) ----
   async function handleViperxOnly(config: PipelineConfigType) {
     await handlePipelineStart({ ...config, demucs: false });
@@ -342,7 +318,7 @@
         return;
       }
 
-      const preset = config.preset || (Object.keys(presets).length > 0 ? 'balance' : 'htdemucs');
+      const preset = config.preset || (config.viperxModel ? 'custom' : 'balance');
 
       // Enqueue each uploaded file via separateAudio
       for (const { qf, path } of uploaded) {
@@ -588,7 +564,6 @@
   <section class="pipeline-section">
     <PipelinePanel
       disabled={separating}
-      presets={presets}
       queueJobs={queueJobs}
       onstart={handlePipelineStart}
       onviperxonly={handleViperxOnly}
