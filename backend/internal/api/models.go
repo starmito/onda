@@ -530,7 +530,9 @@ func runHuggingFaceDownload(repo, targetDir string) {
 		installCtx, installCancel := context.WithTimeout(context.Background(), 120*time.Second)
 		defer installCancel()
 		installCmd := exec.CommandContext(installCtx, "pip", "install", "huggingface_hub")
-		installCmd.CombinedOutput() // ignore install errors
+		if installOutput, installErr := installCmd.CombinedOutput(); installErr != nil {
+			log.Printf("[models] pip install failed: %v — output: %s", installErr, string(installOutput))
+		}
 
 		// Retry download
 		retryCtx, retryCancel := context.WithTimeout(context.Background(), 300*time.Second)
