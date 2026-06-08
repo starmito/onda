@@ -436,6 +436,7 @@
     if (p) {
       p.seekValue = time;
       p.currentTime = time;
+      p.pauseOffset = time;
     }
   }
 
