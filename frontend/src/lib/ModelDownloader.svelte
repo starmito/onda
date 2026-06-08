@@ -1,11 +1,13 @@
 <script lang="ts">
   import {
     getModelCatalog,
+    getHfCatalog,
     getLocalModels,
     downloadModel,
     uploadModel,
     deleteModel,
     type UVRModelEntry,
+    type HFModelEntry,
     type LocalModel,
   } from './api';
 
@@ -24,6 +26,15 @@
   let catalog = $state<UVRModelEntry[]>([]);
   let catalogLoading = $state(true);
   let catalogError = $state(false);
+
+  // ---- Source filter state ----
+  type SourceFilter = 'all' | 'uvr' | 'hf';
+  let sourceFilter = $state<SourceFilter>('all');
+
+  // ---- HF catalog state ----
+  let hfCatalog = $state<HFModelEntry[]>([]);
+  let hfCatalogLoading = $state(false);
+  let hfCatalogError = $state(false);
 
   // ---- Downloading state ----
   let downloading = $state<Set<string>>(new Set());
@@ -72,6 +83,28 @@
     }
   });
 
+  // Load HF catalog
+  $effect(() => {
+    hfCatalogLoading = true;
+    getHfCatalog()
+      .then(data => {
+        const all: HFModelEntry[] = [];
+        for (const [cat, info] of Object.entries(data.categories)) {
+          for (const m of info.models) {
+            if (m.size_mb > 0) {
+              all.push({ ...m, category: cat });
+            }
+          }
+        }
+        hfCatalog = all;
+        hfCatalogLoading = false;
+      })
+      .catch(() => {
+        hfCatalogError = true;
+        hfCatalogLoading = false;
+      });
+  });
+
   // ---- Load installed models when tab changes ----
   $effect(() => {
     if (tab !== 'installed') return;
@@ -87,11 +120,52 @@
       });
   });
 
-  // ---- Derived: filtered + grouped catalog ----
+  // ---- Derived: combined catalog, filtered, grouped ----
+  type SourceType = 'uvr' | 'hf';
+
+  interface CombinedModel {
+    name: string;
+    display_name?: string;
+    category: string;
+    size_mb: number;
+    description?: string;
+    downloaded: boolean;
+    source: SourceType;
+    huggingface_repo?: string;
+    filename?: string;
+    hf_path?: string;
+  }
+
+  let combinedModels = $derived.by(() => {
+    const uvrMapped: CombinedModel[] = (sourceFilter === 'hf' ? [] : catalog).map(m => ({
+      name: m.name,
+      display_name: m.display_name,
+      category: m.category,
+      size_mb: m.size_mb,
+      description: m.description,
+      downloaded: m.downloaded,
+      source: 'uvr' as SourceType,
+      huggingface_repo: m.huggingface_repo,
+      filename: m.filename,
+    }));
+
+    const hfMapped: CombinedModel[] = (sourceFilter === 'uvr' ? [] : hfCatalog).map(m => ({
+      name: m.name,
+      category: m.category,
+      size_mb: m.size_mb,
+      downloaded: false,
+      source: 'hf' as SourceType,
+      hf_path: m.hf_path,
+      filename: m.filename,
+    }));
+
+    return [...uvrMapped, ...hfMapped];
+  });
+
   let filtered = $derived.by(() => {
-    if (!search) return catalog;
+    if (!search) return combinedModels;
     const q = search.toLowerCase();
-    return catalog.filter(
+    return combinedModels.filter(
       (m) =>
         m.name.toLowerCase().includes(q) ||
         m.display_name?.toLowerCase().includes(q) ||
@@ -100,19 +174,24 @@
   });
 
   let groupedCatalog = $derived.by(() => {
-    const groups: Record<string, UVRModelEntry[]> = {};
+    const groups: Record<string, CombinedModel[]> = {};
     const seen = new Set<string>(); // track unique model identities
     
     // Pre-process: filter sub-components + rename Demucs v2/v3 without mutating state
     const entries = filtered.flatMap(m => {
-      // Skip Demucs sub-components (UUID-named .th files)
-      if (/^[0-9a-f]{8}-[0-9a-f]{8}$/i.test(m.name) && m.filename?.endsWith('.th')) return [];
-      const isDemucsV2 = ['demucs.th', 'demucs_extra.th', 'tasnet.th', 'tasnet_extra.th', 'light.th', 'light_extra.th'].includes(m.filename);
-      const isDemucsV3 = m.filename?.match(/^(demucs|demucs_extra|tasnet|tasnet_extra)-[0-9a-f]{8}\.th$/);
-      if (isDemucsV2 && m.display_name === m.name) {
-        return { ...m, display_name: m.name + ' (v2)' };
-      } else if (isDemucsV3 && m.display_name === m.name) {
-        return { ...m, display_name: m.name + ' (v3)' };
+      // Solo UVR models tienen Demucs sub-components
+      if (m.source === 'uvr') {
+        // Skip entries without filename (shouldn't happen for UVR models)
+        if (!m.filename) return m;
+        // Skip Demucs sub-components (UUID-named .th files)
+        if (/^[0-9a-f]{8}-[0-9a-f]{8}$/i.test(m.name) && m.filename.endsWith('.th')) return [];
+        const isDemucsV2 = (['demucs.th', 'demucs_extra.th', 'tasnet.th', 'tasnet_extra.th', 'light.th', 'light_extra.th'] as string[]).includes(m.filename);
+        const isDemucsV3 = m.filename.match(/^(demucs|demucs_extra|tasnet|tasnet_extra)-[0-9a-f]{8}\.th$/);
+        if (isDemucsV2 && m.display_name === m.name) {
+          return { ...m, display_name: m.name + ' (v2)' };
+        } else if (isDemucsV3 && m.display_name === m.name) {
+          return { ...m, display_name: m.name + ' (v3)' };
+        }
       }
       return m;
     });
@@ -154,7 +233,7 @@
       'VR_Arch',
       'Other',
     ];
-    const sorted: { category: string; models: UVRModelEntry[] }[] = [];
+    const sorted: { category: string; models: CombinedModel[] }[] = [];
     for (const cat of order) {
       if (groups[cat] && groups[cat].length > 0) {
         sorted.push({ category: cat, models: groups[cat] });
@@ -167,7 +246,7 @@
 
     // Second pass: dedup by display_name — keep weights, discard configs
     for (const group of sorted) {
-      const byDisplayName = new Map<string, UVRModelEntry>();
+      const byDisplayName = new Map<string, CombinedModel>();
       for (const m of group.models) {
         const dn = m.display_name || m.name;
         const existing = byDisplayName.get(dn);
@@ -194,25 +273,35 @@
     }
   }
 
-  async function startDownload(model: UVRModelEntry) {
-    if (!model.huggingface_repo) return;
+  async function startDownload(model: CombinedModel) {
     const set = new Set(downloading);
-    set.add(model.filename);
+    set.add(model.filename || model.name);
     downloading = set;
-    downloadErrors.delete(model.filename);
+    downloadErrors.delete(model.filename || model.name);
     downloadErrors = new Map(downloadErrors);
 
     try {
-      await downloadModel(model.huggingface_repo);
-      // Refresh catalog to update downloaded status
+      if (model.source === 'uvr') {
+        await downloadModel(model.huggingface_repo!);
+      } else {
+        await downloadModel('Politrees/UVR_resources', model.hf_path);
+        // If checkpoint, also download .yaml
+        if (model.filename?.match(/\.(ckpt|pth)$/i)) {
+          const baseName = model.filename!.slice(0, model.filename!.lastIndexOf('.'));
+          const yamlEntry = hfCatalog.find(m => m.filename === baseName + '.yaml');
+          if (yamlEntry) {
+            await downloadModel('Politrees/UVR_resources', yamlEntry.hf_path);
+          }
+        }
+      }
       await refreshCatalog();
     } catch (err: any) {
       const errors = new Map(downloadErrors);
-      errors.set(model.filename, err.message || 'Download failed');
+      errors.set(model.filename || model.name, err.message || 'Download failed');
       downloadErrors = errors;
     } finally {
       const set2 = new Set(downloading);
-      set2.delete(model.filename);
+      set2.delete(model.filename || model.name);
       downloading = set2;
     }
   }
@@ -348,6 +437,25 @@
         />
       </div>
 
+        <!-- Source filters -->
+        <div class="source-filters">
+          <button
+            class="source-btn"
+            class:active={sourceFilter === 'all'}
+            onclick={() => (sourceFilter = 'all')}
+          >Todas las fuentes</button>
+          <button
+            class="source-btn"
+            class:active={sourceFilter === 'uvr'}
+            onclick={() => (sourceFilter = 'uvr')}
+          >UVR</button>
+          <button
+            class="source-btn"
+            class:active={sourceFilter === 'hf'}
+            onclick={() => (sourceFilter = 'hf')}
+          >Hugging Face</button>
+        </div>
+
       {#if catalogLoading}
         <div class="empty-state">Cargando catálogo...</div>
       {:else if catalogError}
@@ -371,20 +479,23 @@
                     <span class="model-size">{formatSize(model.size_mb)}</span>
                   </div>
                   <div class="model-action">
+                    <span class="source-badge" class:uvr={model.source === 'uvr'} class:hf={model.source === 'hf'}>
+                      {model.source === 'uvr' ? 'UVR' : 'HF'}
+                    </span>
                     {#if model.downloaded}
                       <span class="check-icon" title="Ya instalado">✅</span>
-                    {:else if downloading.has(model.filename)}
+                    {:else if downloading.has(model.filename || model.name)}
                       <span class="spinner">⏳</span>
                     {:else}
                       <button
                         class="btn-download"
                         onclick={() => startDownload(model)}
-                        disabled={!model.huggingface_repo}
+                        disabled={model.source === 'uvr' ? !model.huggingface_repo : !model.hf_path}
                       >
                         Descargar
                       </button>
-                      {#if downloadErrors.has(model.filename)}
-                        <span class="download-error" title={downloadErrors.get(model.filename)}>❌</span>
+                      {#if downloadErrors.has(model.filename || model.name)}
+                        <span class="download-error" title={downloadErrors.get(model.filename || model.name)}>❌</span>
                       {/if}
                     {/if}
                   </div>
@@ -804,5 +915,48 @@
   .feedback.error {
     background: #3a1b1b;
     color: #e57373;
+  }
+
+  .source-filters {
+    display: flex;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+    justify-content: center;
+  }
+
+  .source-btn {
+    padding: 0.4rem 1rem;
+    background: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    border-radius: 20px;
+    color: #888;
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .source-btn:hover {
+    border-color: #555;
+    color: #c0c0d0;
+  }
+  .source-btn.active {
+    background: #00d4ff22;
+    border-color: #00d4ff;
+    color: #00d4ff;
+  }
+
+  .source-badge {
+    font-size: 0.65rem;
+    padding: 0.15rem 0.4rem;
+    border-radius: 4px;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+  .source-badge.uvr {
+    background: #1b3a2a;
+    color: #81c784;
+  }
+  .source-badge.hf {
+    background: #1b2a3a;
+    color: #64b5f6;
   }
 </style>
