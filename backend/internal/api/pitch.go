@@ -217,11 +217,11 @@ func (s *Server) handleListPitchSubgroups(w http.ResponseWriter, r *http.Request
 		}
 
 		// Extract pitch value from directory name: {song}_pitch{+N}
-		parts := strings.Split(name, "_pitch")
-		if len(parts) != 2 {
+		idx := strings.LastIndex(name, "_pitch")
+		if idx < 0 {
 			continue
 		}
-		pitchStr := parts[1]
+		pitchStr := name[idx+6:] // len("_pitch") = 6
 		var pitch int
 		n, err := fmt.Sscanf(pitchStr, "%d", &pitch)
 		if n != 1 || err != nil || pitch == 0 {
