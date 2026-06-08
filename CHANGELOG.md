@@ -18,6 +18,11 @@
 - **Build frontend en Docker**: el Dockerfile ahora es multi-stage con un `frontend-builder` que compila el Svelte dentro del Docker build. Ya no necesita rsync ni build manual.
 - **htdemucs_ft con 0MB corregido**: ahora muestra correctamente 2800 MB en la lista de modelos instalados (su VRAM real).
 - **Skill de despliegue actualizada**: documenta el workflow correcto con build multi-stage y versión centralizada.
+- **Presets persistentes en backend**: nueva API REST (`GET/POST/DELETE /api/presets`) con persistencia en archivo JSON. PipelineEditor guarda/carga presets desde el servidor. Se unifican presets built-in (turbo, balance, master, ultimate) con los del usuario.
+- **Selector de presets duplicado eliminado**: PipelinePanel ya no tiene su propio selector de presets — todo se gestiona desde PipelineEditor.
+- **ConfigPanel eliminado**: el desplegable "Configuración avanzada" no estaba conectado al pipeline real.
+- **Reproductores de stems responsive**: los botones ya no se salen del cuadro al hacer zoom en el navegador (flex-wrap, tamaños reducidos).
+- **SVG del editor corregido**: altura dinámica para que los 3 stems de Demucs se vean completos (ya no se corta el tercero).
 
 ## v2.1.1 — Catálogo de modelos UVR funcional + fixes de UI ✅
 
