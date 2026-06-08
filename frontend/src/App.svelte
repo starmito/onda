@@ -171,9 +171,6 @@
       });
   });
 
-  // Debug: trace results reactivity for production diagnosis
-  $inspect('results changed:', results.length, results);
-
   // Cleanup timers on unmount
   onDestroy(() => {
     if (pollingTimer) clearInterval(pollingTimer);
