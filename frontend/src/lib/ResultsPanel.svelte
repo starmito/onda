@@ -115,8 +115,9 @@
       }));
       pitchSubgroups[song] = mapped;
       pitchSubgroups = { ...pitchSubgroups };
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error(`Failed to load pitch subgroups for ${song}:`, err);
+      showToast(`Error loading pitch groups: ${err instanceof Error ? err.message : String(err)}`, 'error');
     }
   }
 
@@ -817,7 +818,10 @@
         }));
         pitchSubgroups[song] = mapped;
         pitchSubgroups = { ...pitchSubgroups };
-      }).catch(() => {});
+      }).catch((err) => {
+        console.error(`Failed to load pitch subgroups for ${song}:`, err);
+        showToast(`Error loading pitch groups: ${err instanceof Error ? err.message : String(err)}`, 'error');
+      });
     }
   });
 
