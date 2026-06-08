@@ -100,12 +100,14 @@
     {#if expandedHF && hfData?.categories}
       {#each Object.entries(hfData.categories) as [cat, info]}
         {@const models = info.models || []}
+        {@const filtered = models.filter(m => m.size_mb > 0)}
         <div class="category-section">
-          <h4>{cat} ({models.length})</h4>
+          <h4>{cat} ({filtered.length})</h4>
           <div class="model-list">
-            {#each models as model (model.hf_path || model.filename)}
+            {#each filtered as model (model.hf_path || model.filename)}
               <div class="model-row">
                 <span class="model-name" title={model.name}>{model.name}</span>
+                <span class="model-size">{model.size_mb} MB</span>
                 <span class="model-filename">{model.filename}</span>
                 <button 
                   class="dl-btn" 
