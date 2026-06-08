@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { downloadUrl, deleteSong, deleteStem as deleteStemApi, pitchStems, getPitchSubgroups, deletePitchSubgroup, deletePitchStem } from './api';
+  import { downloadUrl, pitchDownloadUrl, deleteSong, deleteStem as deleteStemApi, pitchStems, getPitchSubgroups, deletePitchSubgroup, deletePitchStem } from './api';
   import type { ResultStem, ResultGroup } from './types';
   import type { PitchResponse, PitchSubgroup } from './api';
   import { stemEmoji, detectStemType } from './types';
@@ -559,7 +559,6 @@
     const player = getOrCreateSubgroupPlayer(song, pitch);
     const subs = pitchSubgroups[song] || [];
     const sg = subs.find(s => s.pitch === pitch)!;
-    const key = subgroupSongKey(song, pitch);
 
     // Stop all other subgroup players for this song
     for (const s of subs) {
@@ -598,7 +597,7 @@
       player.loaded = false;
       const loadPromises = sg.stems.map(async (stem) => {
         if (player.buffers.has(stem.name)) return;
-        const url = downloadUrl(key, stem.name);
+        const url = pitchDownloadUrl(song, pitch, stem.name);
         const resp = await fetch(url);
         const buf = await resp.arrayBuffer();
         const audioBuf = await player.audioCtx!.decodeAudioData(buf);
@@ -1121,7 +1120,7 @@
                   {@const subState = stemStates[stemId] ?? { muted: false, solo: false, volume: 100 }}
                   <div class="stem-row pitched-stem" class:muted={subState.muted}>
                     <canvas class="waveform-mini" width="120" height="28"
-                      data-url={stem.path}
+                      data-url={pitchDownloadUrl(group.song, sg.pitch, stem.name)}
                       use:waveformUrl></canvas>
                     <span class="stem-emoji">{stemEmoji(stem.stemType)}</span>
                     <span class="stem-name" title={stem.name}>{stem.name}</span>
@@ -1135,7 +1134,7 @@
                           oninput={(e) => handleSubgroupVolume(e, group.song, sg.pitch, stem.name)} class="vol-slider" />
                         <span class="vol-label">{subState.volume}</span>
                       </div>
-                      <a class="stem-btn dl-btn" href={stem.path} download={stem.name}>⬇</a>
+                      <a class="stem-btn dl-btn" href={pitchDownloadUrl(group.song, sg.pitch, stem.name)} download={stem.name}>⬇</a>
                       <button class="stem-btn delete-stem-btn"
                         onclick={() => handleDeleteSubgroupStem(group.song, sg.pitch, stem.name)}>✕</button>
                     </div>
