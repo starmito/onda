@@ -1,5 +1,35 @@
 # Changelog
 
+## v2.3.0 — Pitch shift + subgrupos + limpieza de pipeline 🎛️
+
+### 🎵 Nuevas funcionalidades
+
+- **Pitch shift post-procesamiento**: nuevo endpoint `POST /api/pitch`. Slider de tono debajo de cada grupo de stems en ResultsPanel con botón "🎵 Cambiar tono".
+- **Subgrupos con pitch**: al cambiar el tono, se genera un subgrupo anidado con reproducción independiente (▶⏸⏹ seek). Cada stem tiene Mute, Solo, Volumen, Descargar y Eliminar.
+- **Múltiples subgrupos**: se pueden tener varios subgrupos por canción (+2, -5, +12...) independientes entre sí.
+- **Persistencia**: los subgrupos se guardan en el servidor y sobreviven a recargas del navegador.
+- **Drums sin procesar**: los stems de drums se copian sin aplicar pitch shift.
+
+### 🗑️ Limpieza
+
+- **PipelinePanel eliminado**: la sección redundante con ViperX/Demucs/Pitch ya no se muestra. PipelineEditor es la única interfaz de configuración del pipeline.
+- **ConfigPanel eliminado**: el desplegable "Configuración avanzada" no estaba conectado al pipeline real.
+- **Selector de presets duplicado eliminado**: PipelinePanel ya no tenía su propio selector — todo se gestiona desde PipelineEditor.
+
+### 🐛 Bugs corregidos
+
+- **Rubberband en contenedor equivocado**: el backend ejecutaba `rubberband` como comando local en `onda-gui` donde no estaba instalado. Corregido ejecutando dentro del contenedor `onda` via `docker exec`.
+- **Permisos de escritura**: el directorio de salida del pitch se creaba como root pero rubberband corre como uid 1000. Corregido con `os.Chmod(outDir, 0777)`.
+- **Download URL de subgrupos**: usaba la API incorrecta (404). Corregido usando la ruta directa servida por nginx.
+- **Delete stem individual**: daba 405 por usar DELETE en estáticos de nginx. Nuevo endpoint `DELETE /api/pitch/{song}/{pitch}/{file}`.
+- **Waveform de subgrupos**: no se dibujaba por usar URL incorrecta. Nueva función `waveformFromUrl` con ruta directa.
+- **Path traversal en POST /api/pitch**: no tenía guard de seguridad a diferencia de GET y DELETE.
+
+### 🎨 UI
+
+- **Reproductores de stems responsive**: los botones ya no se salen del cuadro al hacer zoom en el navegador (flex-wrap, tamaños reducidos).
+- **SVG del editor corregido**: altura dinámica para que los 3 stems de Demucs se vean completos (ya no se corta el tercero).
+
 ## v2.2.0 — Interfaces unificadas + pantalla completa 🖥️
 
 ### 🎨 UI (08-jun-2026)
@@ -23,8 +53,6 @@
 - **ConfigPanel eliminado**: el desplegable "Configuración avanzada" no estaba conectado al pipeline real.
 - **Reproductores de stems responsive**: los botones ya no se salen del cuadro al hacer zoom en el navegador (flex-wrap, tamaños reducidos).
 - **SVG del editor corregido**: altura dinámica para que los 3 stems de Demucs se vean completos (ya no se corta el tercero).
-- **PipelinePanel eliminado**: la sección redundante con ViperX/Demucs/Pitch ya no se muestra. PipelineEditor es la única interfaz de configuración del pipeline.
-- **Pitch shift post-procesamiento**: nuevo endpoint `POST /api/pitch`. Slider de tono debajo de cada grupo de stems en ResultsPanel. Al cambiar el tono, se genera un subgrupo anidado con los stems procesados (+ drums sin procesar).
 
 ## v2.1.1 — Catálogo de modelos UVR funcional + fixes de UI ✅
 
