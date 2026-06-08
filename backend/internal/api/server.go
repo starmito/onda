@@ -849,7 +849,9 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		os.MkdirAll(inputDir, 0755)
 	}
 
-	destPath := filepath.Join(inputDir, header.Filename)
+	// Sanitize filename to prevent path traversal
+	safeName := filepath.Base(header.Filename)
+	destPath := filepath.Join(inputDir, safeName)
 	dst, err := os.Create(destPath)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -867,7 +869,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// The path inside the container is /input/filename
-	containerPath := "/input/" + header.Filename
+	containerPath := "/input/" + safeName
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"path": containerPath})
