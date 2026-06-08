@@ -34,9 +34,9 @@ func loadUserPresets() {
 	userPresets = presets
 }
 
-func saveUserPresets() error {
-	userPresetsMu.RLock()
-	defer userPresetsMu.RUnlock()
+// saveUserPresetsLocked writes user presets to disk.
+// Must be called with userPresetsMu already held (write lock).
+func saveUserPresetsLocked() error {
 	data, err := json.MarshalIndent(userPresets, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal presets: %w", err)
@@ -84,9 +84,9 @@ func (s *Server) handleSavePreset(w http.ResponseWriter, r *http.Request) {
 
 	userPresetsMu.Lock()
 	userPresets[preset.Name] = preset
+	err := saveUserPresetsLocked()
 	userPresetsMu.Unlock()
-
-	if err := saveUserPresets(); err != nil {
+	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
@@ -108,9 +108,9 @@ func (s *Server) handleDeletePreset(w http.ResponseWriter, r *http.Request) {
 
 	userPresetsMu.Lock()
 	delete(userPresets, name)
+	err := saveUserPresetsLocked()
 	userPresetsMu.Unlock()
-
-	if err := saveUserPresets(); err != nil {
+	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
