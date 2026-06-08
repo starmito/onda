@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { LocalModel } from './api';
-  import { getLocalModels } from './api';
+  import { getLocalModels, getPresets, savePreset, deletePreset } from './api';
+  import type { PresetData } from './api';
 
   // ── Props ──
   let {
@@ -214,7 +215,7 @@
     return active ? '#4caf50' : '#3a3a5a';
   }
 
-  // ── Presets (localStorage) ──
+  // ── Presets (backend API) ──
   interface PipelinePreset {
     name: string;
     viperxModel: string;
@@ -225,63 +226,69 @@
     demucsStems: string[];
   }
 
-  const STORAGE_KEY = 'onda-pipeline-presets';
-
-  function loadPresets(): PipelinePreset[] {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) return JSON.parse(raw) as PipelinePreset[];
-    } catch { /* ignore corrupted data */ }
-    return [];
-  }
-
-  function savePresetsToStorage(presetsList: PipelinePreset[]) {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(presetsList));
-    } catch { /* storage full or unavailable */ }
-  }
-
-  let savedPresets = $state<PipelinePreset[]>(loadPresets());
+  let savedPresets = $state<PipelinePreset[]>([]);
   let presetNameInput = $state('');
   let selectedPreset = $state('');
+  let presetsLoading = $state(true);
+  let presetsError = $state(false);
 
-  function handleSavePreset() {
+  // Load presets from backend API
+  $effect(() => {
+    getPresets()
+      .then(data => {
+        const list: PipelinePreset[] = Object.entries(data).map(([name, p]) => ({
+          name,
+          viperxModel: p.vocalModel,
+          demucsModel: p.stemModel,
+          viperxEnabled: !!p.vocalModel,
+          demucsEnabled: !!p.stemModel,
+          viperxStems: ['vocals', 'instrumental'],
+          demucsStems: ['drums', 'bass', 'other', 'vocals'],
+        }));
+        savedPresets = list;
+        presetsLoading = false;
+      })
+      .catch(() => {
+        presetsError = true;
+        presetsLoading = false;
+      });
+  });
+
+  async function handleSavePreset() {
     const name = presetNameInput.trim();
     if (!name) return;
 
-    const vStems: string[] = [];
-    if (viperxStems.vocals) vStems.push('vocals');
-    if (viperxStems.instrumental) vStems.push('instrumental');
-
-    const dStems: string[] = [];
-    if (demucsStems.drums) dStems.push('drums');
-    if (demucsStems.bass) dStems.push('bass');
-    if (demucsStems.other) dStems.push('other');
-    if (demucsStems.vocals) dStems.push('vocals');
-
-    const preset: PipelinePreset = {
+    const presetData: PresetData = {
       name,
-      viperxModel,
-      demucsModel,
-      viperxEnabled,
-      demucsEnabled,
-      viperxStems: vStems,
-      demucsStems: dStems,
+      vocalModel: viperxModel,
+      vocalOverlap: 4,
+      stemModel: demucsModel,
+      drumsModel: '',
+      bassModel: '',
+      otherModel: '',
+      pitch: 0,
+      description: '',
     };
 
-    // Replace existing or add new
-    const idx = savedPresets.findIndex((p) => p.name === name);
-    let updated: PipelinePreset[];
-    if (idx >= 0) {
-      updated = [...savedPresets];
-      updated[idx] = preset;
-    } else {
-      updated = [...savedPresets, preset];
+    try {
+      await savePreset(presetData);
+      // Reload presets list from API
+      const data = await getPresets();
+      const list: PipelinePreset[] = Object.entries(data).map(([n, p]) => ({
+        name: n,
+        viperxModel: p.vocalModel,
+        demucsModel: p.stemModel,
+        viperxEnabled: !!p.vocalModel,
+        demucsEnabled: !!p.stemModel,
+        viperxStems: ['vocals', 'instrumental'],
+        demucsStems: ['drums', 'bass', 'other', 'vocals'],
+      }));
+      savedPresets = list;
+      selectedPreset = name;
+      presetNameInput = '';
+    } catch {
+      // Handle error silently
     }
-    savedPresets = updated;
-    savePresetsToStorage(updated);
-    selectedPreset = name;
-    presetNameInput = '';
   }
 
   function handleLoadPreset(e: Event) {
@@ -308,12 +315,15 @@
     };
   }
 
-  function handleDeletePreset() {
+  async function handleDeletePreset() {
     if (!selectedPreset) return;
-    const updated = savedPresets.filter((p) => p.name !== selectedPreset);
-    savedPresets = updated;
-    savePresetsToStorage(updated);
-    selectedPreset = '';
+    try {
+      await deletePreset(selectedPreset);
+      savedPresets = savedPresets.filter(p => p.name !== selectedPreset);
+      selectedPreset = '';
+    } catch {
+      // Handle error silently
+    }
   }
 </script>
 
@@ -419,6 +429,11 @@
   <!-- Presets: Save / Load / Delete -->
   <div class="section">
     <span class="label">Presets</span>
+    {#if presetsLoading}
+      <div class="loading-hint">Cargando presets...</div>
+    {:else if presetsError}
+      <div class="error-hint">Error al cargar presets</div>
+    {/if}
     <div class="preset-row">
       <input
         type="text"
@@ -750,6 +765,16 @@
   }
   .input:focus {
     border-color: #00d4ff;
+  }
+  .loading-hint {
+    font-size: 0.8rem;
+    color: #888;
+    padding: 0.25rem 0;
+  }
+  .error-hint {
+    font-size: 0.8rem;
+    color: #e57373;
+    padding: 0.25rem 0;
   }
   .btn-sm {
     padding: 0.4rem 0.8rem;
