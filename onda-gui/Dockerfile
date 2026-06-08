@@ -18,7 +18,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /onda-backend ./cmd/onda/
 FROM nginx:alpine
 ARG ONDA_VERSION=v2.2.0
 
-RUN apk add --no-cache bash docker-cli
+RUN apk add --no-cache bash docker-cli rubberband
 
 # nginx + entrypoint
 COPY onda-gui/nginx.conf /etc/nginx/nginx.conf
