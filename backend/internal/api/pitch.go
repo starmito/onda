@@ -96,7 +96,7 @@ func (s *Server) handlePitchShift(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// Make world-writable so rubberband (running as uid 1000 in onda container) can write
-	if err := os.Chmod(outDir, 0777); err != nil {
+	if err := os.Chmod(outDir, 0755); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to chmod output dir: %v", err)})
