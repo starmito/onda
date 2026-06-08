@@ -1,0 +1,122 @@
+package api
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+	"sync"
+
+	"github.com/starmito/onda/internal/cli"
+)
+
+const userPresetsFile = "/app/presets_user.json"
+
+var (
+	userPresets   map[string]cli.Preset
+	userPresetsMu sync.RWMutex
+)
+
+func init() {
+	userPresets = make(map[string]cli.Preset)
+	loadUserPresets()
+}
+
+func loadUserPresets() {
+	data, err := os.ReadFile(userPresetsFile)
+	if err != nil {
+		return
+	}
+	var presets map[string]cli.Preset
+	if err := json.Unmarshal(data, &presets); err != nil {
+		return
+	}
+	userPresets = presets
+}
+
+func saveUserPresets() error {
+	userPresetsMu.RLock()
+	defer userPresetsMu.RUnlock()
+	data, err := json.MarshalIndent(userPresets, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal presets: %w", err)
+	}
+	if err := os.WriteFile(userPresetsFile, data, 0644); err != nil {
+		return fmt.Errorf("write presets: %w", err)
+	}
+	return nil
+}
+
+// getAllPresets returns built-in presets + user presets merged.
+// User presets with the same name override built-in ones.
+func getAllPresets() map[string]cli.Preset {
+	result := make(map[string]cli.Preset, len(cli.Presets)+len(userPresets))
+	for k, v := range cli.Presets {
+		result[k] = v
+	}
+	userPresetsMu.RLock()
+	defer userPresetsMu.RUnlock()
+	for k, v := range userPresets {
+		result[k] = v
+	}
+	return result
+}
+
+func (s *Server) handleGetPresets(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(getAllPresets())
+}
+
+func (s *Server) handleSavePreset(w http.ResponseWriter, r *http.Request) {
+	var preset cli.Preset
+	if err := json.NewDecoder(r.Body).Decode(&preset); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON"})
+		return
+	}
+	if preset.Name == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "preset name is required"})
+		return
+	}
+
+	userPresetsMu.Lock()
+	userPresets[preset.Name] = preset
+	userPresetsMu.Unlock()
+
+	if err := saveUserPresets(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleDeletePreset(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	if name == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "preset name is required"})
+		return
+	}
+
+	userPresetsMu.Lock()
+	delete(userPresets, name)
+	userPresetsMu.Unlock()
+
+	if err := saveUserPresets(); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}

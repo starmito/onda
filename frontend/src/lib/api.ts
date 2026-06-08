@@ -552,3 +552,38 @@ export async function deleteModel(name: string): Promise<DeleteModelResponse> {
   }
   return (await res.json()) as DeleteModelResponse;
 }
+
+// ---- Presets API ---- 
+export interface PresetData {
+  name: string;
+  vocalModel: string;
+  vocalOverlap: number;
+  stemModel: string;
+  drumsModel: string;
+  bassModel: string;
+  otherModel: string;
+  pitch: number;
+  description: string;
+}
+
+export async function getPresets(): Promise<Record<string, PresetData>> {
+  const res = await fetch(`${API_BASE}/api/presets`);
+  if (!res.ok) throw new Error(`Failed to fetch presets: ${res.status}`);
+  return res.json();
+}
+
+export async function savePreset(preset: PresetData): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/presets`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(preset),
+  });
+  if (!res.ok) throw new Error(`Failed to save preset: ${res.status}`);
+}
+
+export async function deletePreset(name: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/presets/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`Failed to delete preset: ${res.status}`);
+}
