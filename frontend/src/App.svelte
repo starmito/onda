@@ -3,14 +3,14 @@
   import ResultsPanel from './lib/ResultsPanel.svelte';
   import PipelinePanel from './lib/PipelinePanel.svelte';
   import PipelineEditor from './lib/PipelineEditor.svelte';
-  import ConfigPanel from './lib/ConfigPanel.svelte';
+
   import StatusBar from './lib/StatusBar.svelte';
   import ModelManager from './lib/ModelManager.svelte';
   import ModelDownloader from './lib/ModelDownloader.svelte';
   import type { ResultStem } from './lib/types';
   import { detectStemType } from './lib/types';
-  import { separateAudio, getStatus, uploadAudio, getLocalModels, getQueueStatus, getResults, getInputs, deleteInput, getHealth } from './lib/api';
-  import type { LocalModel, StatusResponse, QueueJob } from './lib/api';
+  import { separateAudio, getStatus, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth } from './lib/api';
+  import type { StatusResponse, QueueJob } from './lib/api';
 
 
   interface QueueFile {
@@ -71,28 +71,12 @@
     }, 3000);
   }
 
-  // Advanced model config
-  let modelConfig = $state({
-    vocalModel: '',
-    stemModel: '',
-    drumsModel: '',
-    bassModel: '',
-    otherModel: '',
-    vocalOverlap: 4,
-  });
-  let modelInfos = $state<LocalModel[]>([]);
-  let showModelConfig = $state(false);
   let showModelPanel = $state(false);
   let showDownloader = $state(false);
 
 
   // Load model list + persisted data on mount
   $effect(() => {
-    // Load local model list
-    getLocalModels()
-      .then((res) => (modelInfos = res.models || []))
-      .catch(() => {}); // silent fail — dropdowns just stay empty
-
     // ── Load version from health endpoint ──
     getHealth()
       .then((h) => { if (h?.version) healthVersion = h.version; })
@@ -581,13 +565,6 @@
     />
   </section>
 
-  <!-- ConfigPanel -->
-  <section class="config-section">
-    <ConfigPanel
-      disabled={separating}
-      onchange={(cfg) => (modelConfig = cfg)}
-    />
-  </section>
 
   <!-- Progress -->
   {#if pipelineStatus !== 'idle'}
@@ -643,7 +620,7 @@
 
   <!-- ModelManager panel -->
   {#if showModelPanel}
-    <ModelManager onclose={() => (showModelPanel = false)} initialModel={modelConfig.vocalModel || modelConfig.stemModel || undefined} />
+    <ModelManager onclose={() => (showModelPanel = false)} initialModel={undefined} />
   {/if}
 
 
@@ -841,9 +818,6 @@
     width: 100%;
   }
 
-  .config-section {
-    width: 100%;
-  }
 
   .editor-section {
     width: 100%;
