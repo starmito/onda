@@ -994,7 +994,7 @@ func (s *Server) handleFileServe(w http.ResponseWriter, r *http.Request) {
 	// Verify the file is inside the output directory
 	outputPrefix := filepath.Join(projectRoot, "output")
 	absPath, err := filepath.Abs(filePath)
-	if err != nil || !strings.HasPrefix(absPath, outputPrefix) {
+	if err != nil || !strings.HasPrefix(absPath, outputPrefix+string(filepath.Separator)) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -1094,7 +1094,7 @@ func (s *Server) handleDeleteSong(w http.ResponseWriter, r *http.Request) {
 	// Verify inside output/
 	outputPrefix := filepath.Join(projectRoot, "output")
 	absPath, err := filepath.Abs(dirPath)
-	if err != nil || !strings.HasPrefix(absPath, outputPrefix) {
+	if err != nil || !strings.HasPrefix(absPath, outputPrefix+string(filepath.Separator)) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
@@ -1149,7 +1149,7 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 	// Verify inside output/
 	outputPrefix := filepath.Join(projectRoot, "output")
 	absPath, err := filepath.Abs(filePath)
-	if err != nil || !strings.HasPrefix(absPath, outputPrefix) {
+	if err != nil || !strings.HasPrefix(absPath, outputPrefix+string(filepath.Separator)) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
