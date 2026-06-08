@@ -63,6 +63,15 @@ func (s *Server) handlePitchShift(w http.ResponseWriter, r *http.Request) {
 
 	// Source directory: /output/{song}/
 	songDir := filepath.Join(outputBase, req.Song)
+
+	// Path traversal guard
+	if !strings.HasPrefix(filepath.Clean(songDir), filepath.Clean(outputBase)+string(filepath.Separator)) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid song name"})
+		return
+	}
+
 	info, err := os.Stat(songDir)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
