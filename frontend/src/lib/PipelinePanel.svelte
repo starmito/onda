@@ -3,7 +3,6 @@
 
   let {
     disabled = false,
-    presets = {} as Record<string, any>,
     queueJobs = [] as QueueJob[],
     onstart,
     onviperxonly,
@@ -11,33 +10,18 @@
     onpitch,
   }: {
     disabled?: boolean;
-    presets?: Record<string, any>;
     queueJobs?: QueueJob[];
     onstart?: (config: any) => void;
     onviperxonly?: (config: any) => void;
     ondemucsonly?: (config: any) => void;
     onpitch?: (pitch: number) => void;
   } = $props();
-
-  let selectedPreset = $state('');
   let viperxEnabled = $state(true);
   let viperxKeep = $state<'both' | 'vocals' | 'instrumental'>('both');
   let demucsEnabled = $state(true);
   let demucsKeep = $state({ drums: true, bass: true, other: true, vocals: true });
   let pitch = $state(0);
   let gpuInfo = $state<GpuInfo | null>(null);
-
-  const presetKeys = $derived(Object.keys(presets));
-
-  function handlePresetChange(e: Event) {
-    const val = (e.target as HTMLSelectElement).value;
-    selectedPreset = val;
-    if (val && presets[val]) {
-      const p = presets[val];
-      viperxEnabled = !!p.vocalModel;
-      demucsEnabled = !!p.stemModel;
-    }
-  }
 
   function buildConfig() {
     const dk: string[] = [];
@@ -50,7 +34,6 @@
       viperxKeep: viperxEnabled ? viperxKeep : undefined,
       demucs: demucsEnabled,
       demucsKeep: demucsEnabled ? dk : undefined,
-      preset: selectedPreset || undefined,
     };
   }
 
@@ -97,23 +80,6 @@
 </script>
 
 <div class="pipeline-card">
-  <!-- Preset selector -->
-  <div class="section">
-    <label class="label" for="preset-select">Preset</label>
-    <select
-      id="preset-select"
-      class="select"
-      bind:value={selectedPreset}
-      onchange={handlePresetChange}
-      disabled={disabled}
-    >
-      <option value="">-- Seleccionar preset --</option>
-      {#each presetKeys as key}
-        <option value={key}>{presets[key]?.name || key} — {presets[key]?.description || ''}</option>
-      {/each}
-    </select>
-  </div>
-
   <!-- Step toggles -->
   <div class="section">
     <label class="step-row">
