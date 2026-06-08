@@ -444,8 +444,6 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 				}
 				downloadMu.Lock()
 				downloadJobs[depKey] = depStatus
-				// Also register under plain URL for runDirectDownload status lookups.
-				downloadJobs[dep.DownloadURL] = depStatus
 				downloadMu.Unlock()
 
 				go runDirectDownload(dep.DownloadURL, dep.Filename, depDir)
@@ -712,12 +710,11 @@ func runDirectDownload(url, filename, targetDir string) {
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		log.Printf("[models] failed to create target dir %s: %v", targetDir, err)
 		downloadMu.Lock()
-		// Try plain URL first, then composite key (filename + "@" + url).
-		// Composite key is used for dependency downloads to avoid key collisions.
-		if status, ok := downloadJobs[url]; ok {
+		// Try composite key (filename@url) first, then plain URL as fallback.
+		if status, ok := downloadJobs[filename+"@"+url]; ok {
 			status.Status = "error"
 			status.Error = fmt.Sprintf("failed to create target directory: %v", err)
-		} else if status, ok := downloadJobs[filename+"@"+url]; ok {
+		} else if status, ok := downloadJobs[url]; ok {
 			status.Status = "error"
 			status.Error = fmt.Sprintf("failed to create target directory: %v", err)
 		}
@@ -738,10 +735,11 @@ func runDirectDownload(url, filename, targetDir string) {
 	downloadMu.Lock()
 	defer downloadMu.Unlock()
 
-	// Try plain URL first, then composite key for dependency downloads.
-	status, ok := downloadJobs[url]
+	// Try composite key (filename@url) first, then plain URL as fallback.
+	// Composite key is used for dependency downloads to avoid key collisions.
+	status, ok := downloadJobs[filename+"@"+url]
 	if !ok {
-		status, ok = downloadJobs[filename+"@"+url]
+		status, ok = downloadJobs[url]
 	}
 	if !ok {
 		log.Printf("[models] no download job found for %s (url=%s)", filename, url)
