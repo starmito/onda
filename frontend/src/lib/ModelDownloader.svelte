@@ -303,15 +303,14 @@
   }
 </script>
 
-<div class="backdrop" onclick={onclose} role="presentation">
-  <!-- svelte-ignore a11y_click_events_have_key_events -->
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="panel" onclick={(e: MouseEvent) => e.stopPropagation()} role="dialog">
-    <div class="panel-header">
-      <h2>📥 Modelos</h2>
-      <button class="btn-close" onclick={onclose}>✕</button>
-    </div>
+<div class="fullscreen">
+  <div class="fullscreen-header">
+    <button class="btn-back" onclick={onclose}>← Volver</button>
+    <h2>📥 Gestor de Modelos</h2>
+    <div></div>
+  </div>
 
+  <div class="fullscreen-body">
     <!-- Tab bar -->
     <div class="tab-bar">
       <button
@@ -337,197 +336,195 @@
       </button>
     </div>
 
-    <div class="panel-body">
-      <!-- ========= TAB: DOWNLOAD ========= -->
-      {#if tab === 'download'}
-        <!-- Search -->
-        <div class="search-wrap">
-          <input
-            type="text"
-            class="search-input"
-            placeholder="Buscar modelos..."
-            bind:value={search}
-          />
-        </div>
-
-        {#if catalogLoading}
-          <div class="empty-state">Cargando catálogo...</div>
-        {:else if catalogError}
-          <div class="empty-state error">Error al cargar el catálogo</div>
-        {:else if filtered.length === 0}
-          <div class="empty-state">
-            {search ? 'Sin resultados para "' + search + '"' : 'Catálogo vacío'}
-          </div>
-        {:else}
-          <div class="catalog-list">
-            {#each groupedCatalog as group (group.category)}
-              <div class="category-group">
-                <h3 class="category-title">{group.category}</h3>
-                {#each group.models as model}
-                  <div class="model-row">
-                    <div class="model-info">
-                      <span class="model-name">{model.display_name || model.name}</span>
-                      {#if model.description}
-                        <span class="model-desc">{model.description}</span>
-                      {/if}
-                      <span class="model-size">{formatSize(model.size_mb)}</span>
-                    </div>
-                    <div class="model-action">
-                      {#if model.downloaded}
-                        <span class="check-icon" title="Ya instalado">✅</span>
-                      {:else if downloading.has(model.filename)}
-                        <span class="spinner">⏳</span>
-                      {:else}
-                        <button
-                          class="btn-download"
-                          onclick={() => startDownload(model)}
-                          disabled={!model.huggingface_repo}
-                        >
-                          Descargar
-                        </button>
-                        {#if downloadErrors.has(model.filename)}
-                          <span class="download-error" title={downloadErrors.get(model.filename)}>❌</span>
-                        {/if}
-                      {/if}
-                    </div>
-                  </div>
-                {/each}
-              </div>
-            {/each}
-          </div>
-        {/if}
-
-      <!-- ========= TAB: UPLOAD ========= -->
-      {:else if tab === 'upload'}
-        <div
-          class="dropzone"
-          class:uploading={uploadingModel}
-          ondragover={handleUploadDragOver}
-          ondrop={handleUploadDrop}
-          onclick={() => document.getElementById('model-upload-input')?.click()}
-          role="button"
-          tabindex="0"
-        >
-          <span class="dropzone-icon">📤</span>
-          <span class="dropzone-text">
-            {uploadingModel ? 'Subiendo...' : 'Arrastra archivos de modelo aquí o haz clic'}
-          </span>
-          <span class="dropzone-hint">.ckpt, .pth, .onnx, .safetensors, .pt</span>
-        </div>
+    <!-- ========= TAB: DOWNLOAD ========= -->
+    {#if tab === 'download'}
+      <!-- Search -->
+      <div class="search-wrap">
         <input
-          id="model-upload-input"
-          type="file"
-          hidden
-          accept=".ckpt,.pth,.onnx,.safetensors,.pt"
-          multiple
-          onchange={handleUploadSelect}
+          type="text"
+          class="search-input"
+          placeholder="Buscar modelos..."
+          bind:value={search}
         />
+      </div>
 
-        {#if uploadMessage}
-          <div class="feedback" class:success={uploadMessageType === 'success'} class:error={uploadMessageType === 'error'}>
-            {uploadMessage}
-          </div>
-        {/if}
-
-      <!-- ========= TAB: INSTALLED ========= -->
-      {:else if tab === 'installed'}
-        {#if installedLoading}
-          <div class="empty-state">Cargando...</div>
-        {:else if localModels.length === 0}
-          <div class="empty-state">No hay modelos instalados</div>
-        {:else}
-          <div class="installed-list">
-            {#each localModels as model (model.name)}
-              <div class="installed-row">
-                <div class="installed-info">
-                  <span class="installed-name">{model.display_name || model.name}</span>
-                  <span class="installed-cat">{model.category}</span>
-                  <span class="installed-size">{formatSize(model.size_mb)}</span>
+      {#if catalogLoading}
+        <div class="empty-state">Cargando catálogo...</div>
+      {:else if catalogError}
+        <div class="empty-state error">Error al cargar el catálogo</div>
+      {:else if filtered.length === 0}
+        <div class="empty-state">
+          {search ? 'Sin resultados para "' + search + '"' : 'Catálogo vacío'}
+        </div>
+      {:else}
+        <div class="catalog-list">
+          {#each groupedCatalog as group (group.category)}
+            <div class="category-group">
+              <h3 class="category-title">{group.category}</h3>
+              {#each group.models as model}
+                <div class="model-row">
+                  <div class="model-info">
+                    <span class="model-name">{model.display_name || model.name}</span>
+                    {#if model.description}
+                      <span class="model-desc">{model.description}</span>
+                    {/if}
+                    <span class="model-size">{formatSize(model.size_mb)}</span>
+                  </div>
+                  <div class="model-action">
+                    {#if model.downloaded}
+                      <span class="check-icon" title="Ya instalado">✅</span>
+                    {:else if downloading.has(model.filename)}
+                      <span class="spinner">⏳</span>
+                    {:else}
+                      <button
+                        class="btn-download"
+                        onclick={() => startDownload(model)}
+                        disabled={!model.huggingface_repo}
+                      >
+                        Descargar
+                      </button>
+                      {#if downloadErrors.has(model.filename)}
+                        <span class="download-error" title={downloadErrors.get(model.filename)}>❌</span>
+                      {/if}
+                    {/if}
+                  </div>
                 </div>
-                <button class="btn-delete" onclick={() => handleDeleteModel(model)} title="Eliminar modelo">
-                  🗑️
-                </button>
-              </div>
-            {/each}
-          </div>
-        {/if}
-
-        {#if deleteFeedback}
-          <div class="feedback" class:success={deleteFeedbackType === 'success'} class:error={deleteFeedbackType === 'error'}>
-            {deleteFeedback}
-          </div>
-        {/if}
+              {/each}
+            </div>
+          {/each}
+        </div>
       {/if}
-    </div>
+
+    <!-- ========= TAB: UPLOAD ========= -->
+    {:else if tab === 'upload'}
+      <div
+        class="dropzone"
+        class:uploading={uploadingModel}
+        ondragover={handleUploadDragOver}
+        ondrop={handleUploadDrop}
+        onclick={() => document.getElementById('model-upload-input')?.click()}
+        role="button"
+        tabindex="0"
+      >
+        <span class="dropzone-icon">📤</span>
+        <span class="dropzone-text">
+          {uploadingModel ? 'Subiendo...' : 'Arrastra archivos de modelo aquí o haz clic'}
+        </span>
+        <span class="dropzone-hint">.ckpt, .pth, .onnx, .safetensors, .pt</span>
+      </div>
+      <input
+        id="model-upload-input"
+        type="file"
+        hidden
+        accept=".ckpt,.pth,.onnx,.safetensors,.pt"
+        multiple
+        onchange={handleUploadSelect}
+      />
+
+      {#if uploadMessage}
+        <div class="feedback" class:success={uploadMessageType === 'success'} class:error={uploadMessageType === 'error'}>
+          {uploadMessage}
+        </div>
+      {/if}
+
+    <!-- ========= TAB: INSTALLED ========= -->
+    {:else if tab === 'installed'}
+      {#if installedLoading}
+        <div class="empty-state">Cargando...</div>
+      {:else if localModels.length === 0}
+        <div class="empty-state">No hay modelos instalados</div>
+      {:else}
+        <div class="installed-list">
+          {#each localModels as model (model.name)}
+            <div class="installed-row">
+              <div class="installed-info">
+                <span class="installed-name">{model.display_name || model.name}</span>
+                <span class="installed-cat">{model.category}</span>
+                <span class="installed-size">{formatSize(model.size_mb)}</span>
+              </div>
+              <button class="btn-delete" onclick={() => handleDeleteModel(model)} title="Eliminar modelo">
+                🗑️
+              </button>
+            </div>
+          {/each}
+        </div>
+      {/if}
+
+      {#if deleteFeedback}
+        <div class="feedback" class:success={deleteFeedbackType === 'success'} class:error={deleteFeedbackType === 'error'}>
+          {deleteFeedback}
+        </div>
+      {/if}
+    {/if}
   </div>
 </div>
 
 <style>
-  .backdrop {
+  .fullscreen {
     position: fixed;
     top: 0;
+    left: 0;
     right: 0;
     bottom: 0;
-    left: 0;
-    background: rgba(0, 0, 0, 0.5);
-    z-index: 950;
-    display: flex;
-    justify-content: flex-end;
-  }
-
-  .panel {
-    width: 440px;
-    max-width: 95vw;
-    height: 100%;
-    background: #1a1a2e;
-    border-left: 1px solid #2a2a4a;
+    background: #0a0a14;
+    z-index: 900;
     display: flex;
     flex-direction: column;
-    overflow-y: auto;
-    animation: slideIn 0.25s ease;
+    animation: fadeIn 0.2s ease;
   }
 
-  @keyframes slideIn {
-    from { transform: translateX(100%); }
-    to { transform: translateX(0); }
-  }
-
-  .panel-header {
+  .fullscreen-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    padding: 1rem 1.25rem;
+    gap: 1rem;
+    padding: 0.75rem 1.25rem;
     border-bottom: 1px solid #2a2a4a;
-    flex-shrink: 0;
+    background: #1a1a2e;
   }
 
-  .panel-header h2 {
+  .fullscreen-header h2 {
     margin: 0;
     font-size: 1.1rem;
     color: #e0e0e0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    flex: 1;
+    text-align: center;
   }
 
-  .btn-close {
+  .btn-back {
     background: none;
-    border: none;
-    color: #666;
-    font-size: 1.1rem;
+    border: 1px solid #2a2a4a;
+    border-radius: 6px;
+    color: #00d4ff;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.8rem;
     cursor: pointer;
-    padding: 0.25rem 0.5rem;
-    flex-shrink: 0;
+    transition: border-color 0.15s;
   }
-  .btn-close:hover {
-    color: #e57373;
+  .btn-back:hover {
+    border-color: #00d4ff;
+  }
+
+  .fullscreen-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.25rem;
+    max-width: 800px;
+    margin: 0 auto;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
 
   /* Tab bar */
   .tab-bar {
     display: flex;
-    border-bottom: 1px solid #2a2a4a;
-    flex-shrink: 0;
+    justify-content: center;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
   }
 
   .tab-btn {
@@ -548,15 +545,6 @@
   .tab-btn.active {
     color: #00d4ff;
     border-bottom-color: #00d4ff;
-  }
-
-  .panel-body {
-    padding: 1rem 1.25rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-    flex: 1;
-    overflow-y: auto;
   }
 
   /* Search */
