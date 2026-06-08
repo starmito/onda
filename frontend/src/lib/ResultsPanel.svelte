@@ -731,10 +731,7 @@
     const current = stemStates[key] || { muted: false, solo: false, volume: 100 };
     stemStates[key] = { ...current, muted: !current.muted };
     stemStates = { ...stemStates };
-    const subs = pitchSubgroups[song] || [];
-    const sg = subs.find(s => s.pitch === pitch);
-    const gain = sg?.player?.gainNodes.get(stemName);
-    if (gain) gain.gain.value = stemStates[key].muted ? 0 : stemStates[key].volume / 100;
+    syncSubgroupGains(song, pitch);
   }
 
   function toggleSubgroupSolo(song: string, pitch: number, stemName: string) {
@@ -742,6 +739,7 @@
     const current = stemStates[key] || { muted: false, solo: false, volume: 100 };
     stemStates[key] = { ...current, solo: !current.solo };
     stemStates = { ...stemStates };
+    syncSubgroupGains(song, pitch);
   }
 
   function handleSubgroupVolume(e: Event, song: string, pitch: number, stemName: string) {
@@ -750,10 +748,25 @@
     const current = stemStates[key] || { muted: false, solo: false, volume: 100 };
     stemStates[key] = { ...current, volume: val };
     stemStates = { ...stemStates };
+    syncSubgroupGains(song, pitch);
+  }
+
+  function syncSubgroupGains(song: string, pitch: number) {
     const subs = pitchSubgroups[song] || [];
     const sg = subs.find(s => s.pitch === pitch);
-    const gain = sg?.player?.gainNodes.get(stemName);
-    if (gain) gain.gain.value = val / 100;
+    const player = sg?.player;
+    if (!player || !player.playing) return;
+    const hasSolo = sg.stems.some(s => stemStates[`pitch:${song}:${pitch}:${s.name}`]?.solo);
+    for (const stem of sg.stems) {
+      const key = `pitch:${song}:${pitch}:${stem.name}`;
+      const gain = player.gainNodes.get(stem.name);
+      if (gain) {
+        const state = stemStates[key] || { muted: false, solo: false, volume: 100 };
+        if (state.muted) gain.gain.value = 0;
+        else if (hasSolo && !state.solo) gain.gain.value = 0;
+        else gain.gain.value = (state.volume ?? 100) / 100;
+      }
+    }
   }
 
   async function handleDeleteSubgroupStem(song: string, pitch: number, stemName: string) {
