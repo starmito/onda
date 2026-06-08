@@ -59,6 +59,33 @@
     } catch(e) {}
     downloading.delete(key);
     downloading = downloading;
+
+    // If downloading a checkpoint (.ckpt or .pth), also download its associated .yaml
+    if ((filename.endsWith('.ckpt') || filename.endsWith('.pth')) && hfData?.categories) {
+      const baseName = filename.slice(0, filename.lastIndexOf('.'));
+      const yamlName = baseName + '.yaml';
+
+      // Search all categories for a .yaml with matching base name
+      for (const catInfo of Object.values(hfData.categories) as any[]) {
+        const models: any[] = catInfo.models || [];
+        const yamlModel = models.find((m: any) => m.filename === yamlName);
+        if (yamlModel) {
+          const yamlKey = `hf:yaml:${yamlName}`;
+          downloading.add(yamlKey);
+          downloading = downloading;
+          try {
+            await fetch('/api/models/download', {
+              method: 'POST',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({source: 'huggingface', repo: `Politrees/UVR_resources`, filename: yamlModel.hf_path})
+            });
+          } catch(e) {}
+          downloading.delete(yamlKey);
+          downloading = downloading;
+          break;
+        }
+      }
+    }
   }
 </script>
 
