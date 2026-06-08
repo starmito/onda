@@ -1139,7 +1139,7 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 	file = filepath.Clean(file)
 
 	// B6: Prevent deleting files inside pitch subdirectories via this endpoint
-	if strings.Contains(file, "_pitch") {
+	if strings.Contains(filepath.Dir(file), "_pitch") {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "cannot delete files in pitch subdirectories"})
