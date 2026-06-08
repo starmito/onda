@@ -503,9 +503,14 @@ func (s *Server) handleModelsDownloadStatus(w http.ResponseWriter, r *http.Reque
 
 // runHuggingFaceDownload executes the huggingface_hub snapshot_download in a background goroutine.
 func runHuggingFaceDownload(repo, targetDir string) {
+	// Escape single quotes to prevent Python code injection.
+	// python3 -c receives the script directly (no shell), so we use
+	// Python string escaping: \' inside single-quoted string.
+	safeRepo := strings.ReplaceAll(repo, "'", "\\'")
+	safeTarget := strings.ReplaceAll(targetDir, "'", "\\'")
 	script := fmt.Sprintf(
 		"from huggingface_hub import snapshot_download; snapshot_download('%s', local_dir='%s')",
-		repo, targetDir,
+		safeRepo, safeTarget,
 	)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
