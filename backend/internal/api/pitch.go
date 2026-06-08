@@ -162,6 +162,86 @@ func (s *Server) handlePitchShift(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// handleListPitchSubgroups returns existing pitch subgroups for a song.
+// GET /api/pitch/{song}
+func (s *Server) handleListPitchSubgroups(w http.ResponseWriter, r *http.Request) {
+	song := r.PathValue("song")
+	if song == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "song is required"})
+		return
+	}
+
+	projectRoot := findProjectRoot()
+	outputBase := filepath.Join(projectRoot, "output")
+	songDir := filepath.Join(outputBase, song)
+
+	entries, err := os.ReadDir(songDir)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode([]interface{}{})
+		return
+	}
+
+	type subgroupInfo struct {
+		Pitch int         `json:"pitch"`
+		Files []FileEntry `json:"files"`
+	}
+	var subgroups []subgroupInfo
+
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.Contains(name, "_pitch") {
+			continue
+		}
+
+		// Extract pitch value from directory name: {song}_pitch{+N}
+		parts := strings.Split(name, "_pitch")
+		if len(parts) != 2 {
+			continue
+		}
+		pitchStr := parts[1]
+		var pitch int
+		fmt.Sscanf(pitchStr, "%d", &pitch)
+		if pitch == 0 {
+			continue
+		}
+
+		// Read files in this subdirectory
+		subDir := filepath.Join(songDir, name)
+		subEntries, err := os.ReadDir(subDir)
+		if err != nil {
+			continue
+		}
+
+		var files []FileEntry
+		for _, se := range subEntries {
+			if !se.IsDir() {
+				files = append(files, FileEntry{
+					Name: se.Name(),
+					Path: filepath.Join(subDir, se.Name()),
+				})
+			}
+		}
+
+		subgroups = append(subgroups, subgroupInfo{
+			Pitch: pitch,
+			Files: files,
+		})
+	}
+
+	if subgroups == nil {
+		subgroups = []subgroupInfo{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(subgroups)
+}
+
 // copyFileLocal copies a file from src to dst.
 func copyFileLocal(src, dst string) error {
 	srcFile, err := os.Open(src)
