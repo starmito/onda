@@ -622,3 +622,11 @@ export async function deletePitchSubgroup(song: string, pitch: number): Promise<
   });
   if (!res.ok) throw new Error(`Failed to delete pitch subgroup: ${res.status}`);
 }
+
+export async function deletePitchStem(song: string, pitch: number, fileName: string): Promise<void> {
+  const pitchStr = pitch > 0 ? '+' + pitch : String(pitch);
+  const res = await fetch(`${API_BASE}/api/pitch/${encodeURIComponent(song)}/${encodeURIComponent(pitchStr)}/${encodeURIComponent(fileName)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`Failed to delete pitch stem: ${res.status}`);
+}

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { downloadUrl, deleteSong, deleteStem as deleteStemApi, pitchStems, getPitchSubgroups, deletePitchSubgroup } from './api';
+  import { downloadUrl, deleteSong, deleteStem as deleteStemApi, pitchStems, getPitchSubgroups, deletePitchSubgroup, deletePitchStem } from './api';
   import type { ResultStem, ResultGroup } from './types';
   import type { PitchResponse, PitchSubgroup } from './api';
   import { stemEmoji, detectStemType } from './types';
@@ -753,11 +753,10 @@
     if (gain) gain.gain.value = val / 100;
   }
 
-  async function handleDeleteSubgroupStem(song: string, pitch: number, stemName: string, path: string) {
+  async function handleDeleteSubgroupStem(song: string, pitch: number, stemName: string) {
     if (!confirm(`Delete "${stemName}"?`)) return;
     try {
-      const resp = await fetch(path, { method: 'DELETE' });
-      if (!resp.ok) throw new Error('Delete failed');
+      await deletePitchStem(song, pitch, stemName);
       const subs = pitchSubgroups[song] || [];
       const sg = subs.find(s => s.pitch === pitch);
       if (sg) {
@@ -843,6 +842,61 @@
   function waveformAction(node: HTMLCanvasElement, params: { song: string; name: string }) {
     waveformCanvases[stemKey(params.song, params.name)] = node;
     drawRealWaveform(node, params.song, params.name);
+  }
+
+  function waveformUrl(node: HTMLCanvasElement) {
+    const url = node.dataset.url;
+    if (!url) return;
+    waveformCanvases[url] = node;
+    drawWaveformFromUrl(node, url);
+  }
+
+  async function drawWaveformFromUrl(canvas: HTMLCanvasElement, url: string) {
+    if (waveformDrawn.has(url)) return;
+    waveformDrawn.add(url);
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    canvas.width = canvas.clientWidth * dpr;
+    canvas.height = canvas.clientHeight * dpr;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    try {
+      const resp = await fetch(url);
+      const arrayBuf = await resp.arrayBuffer();
+      const audioCtx = new AudioContext();
+      const audioBuf = await audioCtx.decodeAudioData(arrayBuf);
+      const channel = audioBuf.getChannelData(0);
+      const step = Math.max(1, Math.floor(channel.length / w));
+      for (let i = 0; i < w; i++) {
+        let max = 0;
+        const start = i * step;
+        const end = Math.min(start + step, channel.length);
+        for (let j = start; j < end; j++) {
+          max = Math.max(max, Math.abs(channel[j]));
+        }
+        const barH = Math.max(1, max * h);
+        ctx.fillStyle = '#00d4ff';
+        ctx.fillRect(i, (h - barH) / 2, 1, barH);
+      }
+      audioCtx.close();
+    } catch {
+      let hash = 0;
+      for (let i = 0; i < url.length; i++) {
+        hash = ((hash << 5) - hash) + url.charCodeAt(i);
+        hash |= 0;
+      }
+      ctx.fillStyle = '#00d4ff';
+      const barCount = 40;
+      const barWidth = w / barCount;
+      for (let i = 0; i < barCount; i++) {
+        const hVal = ((Math.abs(hash + i * 31) % 80) / 100) * h * 0.8 + h * 0.1;
+        const x = i * barWidth + 1;
+        const y = (h - hVal) / 2;
+        ctx.fillRect(x, y, barWidth - 2, hVal);
+      }
+    }
   }
 
   // Cleanup on component destroy
@@ -1067,7 +1121,8 @@
                   {@const subState = stemStates[stemId] ?? { muted: false, solo: false, volume: 100 }}
                   <div class="stem-row pitched-stem" class:muted={subState.muted}>
                     <canvas class="waveform-mini" width="120" height="28"
-                      use:waveformAction={{ song: subgroupSongKey(group.song, sg.pitch), name: stem.name }}></canvas>
+                      data-url={stem.path}
+                      use:waveformUrl></canvas>
                     <span class="stem-emoji">{stemEmoji(stem.stemType)}</span>
                     <span class="stem-name" title={stem.name}>{stem.name}</span>
                     <div class="stem-controls">
@@ -1080,9 +1135,9 @@
                           oninput={(e) => handleSubgroupVolume(e, group.song, sg.pitch, stem.name)} class="vol-slider" />
                         <span class="vol-label">{subState.volume}</span>
                       </div>
-                      <a class="stem-btn dl-btn" href={downloadUrl(subgroupSongKey(group.song, sg.pitch), stem.name)} download={stem.name}>⬇</a>
+                      <a class="stem-btn dl-btn" href={stem.path} download={stem.name}>⬇</a>
                       <button class="stem-btn delete-stem-btn"
-                        onclick={() => handleDeleteSubgroupStem(group.song, sg.pitch, stem.name, stem.path)}>✕</button>
+                        onclick={() => handleDeleteSubgroupStem(group.song, sg.pitch, stem.name)}>✕</button>
                     </div>
                   </div>
                 {/each}
