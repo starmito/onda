@@ -23,6 +23,8 @@
 - **ConfigPanel eliminado**: el desplegable "Configuración avanzada" no estaba conectado al pipeline real.
 - **Reproductores de stems responsive**: los botones ya no se salen del cuadro al hacer zoom en el navegador (flex-wrap, tamaños reducidos).
 - **SVG del editor corregido**: altura dinámica para que los 3 stems de Demucs se vean completos (ya no se corta el tercero).
+- **PipelinePanel eliminado**: la sección redundante con ViperX/Demucs/Pitch ya no se muestra. PipelineEditor es la única interfaz de configuración del pipeline.
+- **Pitch shift post-procesamiento**: nuevo endpoint `POST /api/pitch`. Slider de tono debajo de cada grupo de stems en ResultsPanel. Al cambiar el tono, se genera un subgrupo anidado con los stems procesados (+ drums sin procesar).
 
 ## v2.1.1 — Catálogo de modelos UVR funcional + fixes de UI ✅
 
