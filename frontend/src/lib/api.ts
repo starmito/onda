@@ -603,3 +603,22 @@ export async function pitchStems(song: string, pitch: number): Promise<PitchResp
   if (!res.ok) throw new Error(`Pitch shift failed: ${res.status}`);
   return res.json();
 }
+
+export interface PitchSubgroup {
+  pitch: number;
+  files: Array<{ name: string; path: string }>;
+}
+
+export async function getPitchSubgroups(song: string): Promise<PitchSubgroup[]> {
+  const res = await fetch(`${API_BASE}/api/pitch/${encodeURIComponent(song)}`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
+export async function deletePitchSubgroup(song: string, pitch: number): Promise<void> {
+  const pitchStr = pitch > 0 ? '+' + pitch : String(pitch);
+  const res = await fetch(`${API_BASE}/api/pitch/${encodeURIComponent(song)}/${encodeURIComponent(pitchStr)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) throw new Error(`Failed to delete pitch subgroup: ${res.status}`);
+}

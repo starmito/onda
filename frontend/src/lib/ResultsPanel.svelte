@@ -1,8 +1,8 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { downloadUrl, deleteSong, deleteStem as deleteStemApi, pitchStems } from './api';
+  import { downloadUrl, deleteSong, deleteStem as deleteStemApi, pitchStems, getPitchSubgroups, deletePitchSubgroup } from './api';
   import type { ResultStem, ResultGroup } from './types';
-  import type { PitchResponse } from './api';
+  import type { PitchResponse, PitchSubgroup } from './api';
   import { stemEmoji, detectStemType } from './types';
 
 
@@ -70,15 +70,55 @@
   let waveformCanvases = $state<Record<string, HTMLCanvasElement>>({});
 
   // Pitch shift state
-  let pitchValues = $state<Record<string, number>>({});
-  let pitchLoading = $state<Record<string, boolean>>({});
+  let pitchSliderValue = $state<Record<string, number>>({});
+  let pitchProcessing = $state<Record<string, boolean>>({});
 
-  // Pitched subgroup state
+  // Pitched subgroup state with independent player
+  interface PitchedSubgroupStem {
+    name: string;
+    path: string;
+    stemType: string;
+  }
+
   interface PitchedSubgroup {
     pitch: number;
-    stems: Array<{ name: string; path: string; stemType: string }>;
+    stems: PitchedSubgroupStem[];
+    player: {
+      audioCtx: AudioContext | null;
+      playing: boolean;
+      paused: boolean;
+      currentTime: number;
+      duration: number;
+      seekValue: number;
+      sourceNodes: Map<string, AudioBufferSourceNode>;
+      gainNodes: Map<string, GainNode>;
+      buffers: Map<string, AudioBuffer>;
+      startTime: number;
+      pauseOffset: number;
+      animFrame: number | null;
+      loaded: boolean;
+    } | null;
   }
-  let pitchedGroups = $state<Record<string, PitchedSubgroup[]>>({});
+  let pitchSubgroups = $state<Record<string, PitchedSubgroup[]>>({});
+
+  async function loadPitchSubgroups(song: string) {
+    try {
+      const subs = await getPitchSubgroups(song);
+      const mapped: PitchedSubgroup[] = subs.map(s => ({
+        pitch: s.pitch,
+        stems: s.files.map(f => ({
+          name: f.name,
+          path: f.path,
+          stemType: detectStemType(f.name),
+        })),
+        player: null,
+      }));
+      pitchSubgroups[song] = mapped;
+      pitchSubgroups = { ...pitchSubgroups };
+    } catch {
+      // ignore
+    }
+  }
 
   // ---- Grouping ----
 
@@ -451,22 +491,16 @@
     }
   }
 
-  async function handlePitchChange(song: string, value: number) {
-    pitchValues[song] = value;
-    pitchValues = { ...pitchValues };
+  async function handleApplyPitch(song: string) {
+    const value = pitchSliderValue[song] || 0;
+    if (value === 0) return;
 
-    if (value === 0) {
-      pitchedGroups[song] = (pitchedGroups[song] || []).filter(g => g.pitch !== 0);
-      pitchedGroups = { ...pitchedGroups };
-      return;
-    }
+    // Check if already exists
+    const existing = pitchSubgroups[song] || [];
+    if (existing.some(s => s.pitch === value)) return;
 
-    // Check if already processed for this pitch
-    const existing = pitchedGroups[song] || [];
-    if (existing.some(g => g.pitch === value)) return;
-
-    pitchLoading[song] = true;
-    pitchLoading = { ...pitchLoading };
+    pitchProcessing[song] = true;
+    pitchProcessing = { ...pitchProcessing };
 
     try {
       const result = await pitchStems(song, value);
@@ -476,17 +510,275 @@
         stemType: detectStemType(f.name),
       }));
 
-      pitchedGroups[song] = [...existing, { pitch: value, stems }];
-      pitchedGroups = { ...pitchedGroups };
+      pitchSubgroups[song] = [...existing, { pitch: value, stems, player: null }];
+      pitchSubgroups = { ...pitchSubgroups };
     } catch (e) {
       showToast(`Error al cambiar tono: ${e instanceof Error ? e.message : String(e)}`, 'error');
     } finally {
-      pitchLoading[song] = false;
-      pitchLoading = { ...pitchLoading };
+      pitchProcessing[song] = false;
+      pitchProcessing = { ...pitchProcessing };
     }
   }
 
-  // ---- Real waveform drawing ----
+  async function handleDeletePitchSubgroup(song: string, pitch: number) {
+    if (!confirm(`¿Eliminar subgrupo ${song} (${pitch > 0 ? '+' : ''}${pitch})?`)) return;
+    try {
+      await deletePitchSubgroup(song, pitch);
+      pitchSubgroups[song] = (pitchSubgroups[song] || []).filter(s => s.pitch !== pitch);
+      pitchSubgroups = { ...pitchSubgroups };
+      showToast(`Subgrupo ${pitch > 0 ? '+' : ''}${pitch} eliminado`, 'success');
+    } catch (e) {
+      showToast(`Error: ${e instanceof Error ? e.message : String(e)}`, 'error');
+    }
+  }
+
+  // ---- Subgroup player functions ----
+
+  function subgroupSongKey(song: string, pitch: number): string {
+    return song + (pitch > 0 ? '_pitch+' : '_pitch') + pitch;
+  }
+
+  function getOrCreateSubgroupPlayer(song: string, pitch: number): NonNullable<PitchedSubgroup['player']> {
+    const subs = pitchSubgroups[song] || [];
+    const idx = subs.findIndex(s => s.pitch === pitch);
+    if (idx === -1) throw new Error('Subgroup not found');
+    const sg = subs[idx];
+    if (!sg.player) {
+      sg.player = {
+        audioCtx: null, playing: false, paused: false, currentTime: 0, duration: 0,
+        seekValue: 0, sourceNodes: new Map(), gainNodes: new Map(), buffers: new Map(),
+        startTime: 0, pauseOffset: 0, animFrame: null, loaded: false,
+      };
+      pitchSubgroups[song] = [...subs];
+      pitchSubgroups = { ...pitchSubgroups };
+    }
+    return sg.player!;
+  }
+
+  async function playSubgroup(song: string, pitch: number) {
+    const player = getOrCreateSubgroupPlayer(song, pitch);
+    const subs = pitchSubgroups[song] || [];
+    const sg = subs.find(s => s.pitch === pitch)!;
+    const key = subgroupSongKey(song, pitch);
+
+    // Stop all other subgroup players for this song
+    for (const s of subs) {
+      if (s.pitch !== pitch && s.player?.playing) {
+        stopSubgroup(song, s.pitch);
+      }
+    }
+
+    try {
+      if (!player.audioCtx) {
+        player.audioCtx = new AudioContext();
+      }
+
+      if (player.paused && player.buffers.size > 0) {
+        // Resume
+        player.playing = true;
+        player.paused = false;
+        player.startTime = player.audioCtx.currentTime - player.pauseOffset;
+        for (const [name, buffer] of player.buffers) {
+          const source = player.audioCtx.createBufferSource();
+          source.buffer = buffer;
+          const gain = player.gainNodes.get(name) || player.audioCtx.createGain();
+          const stemState = stemStates[`pitch:${song}:${pitch}:${name}`] || { muted: false, solo: false, volume: 100 };
+          gain.gain.value = stemState.muted ? 0 : stemState.volume / 100;
+          source.connect(gain);
+          gain.connect(player.audioCtx.destination);
+          source.start(0, player.pauseOffset);
+          player.sourceNodes.set(name, source);
+          player.gainNodes.set(name, gain);
+        }
+        startSubgroupTimer(song, pitch);
+        return;
+      }
+
+      // Start fresh: load and play all stems
+      player.loaded = false;
+      const loadPromises = sg.stems.map(async (stem) => {
+        if (player.buffers.has(stem.name)) return;
+        const url = downloadUrl(key, stem.name);
+        const resp = await fetch(url);
+        const buf = await resp.arrayBuffer();
+        const audioBuf = await player.audioCtx!.decodeAudioData(buf);
+        player.buffers.set(stem.name, audioBuf);
+        if (!player.duration || player.duration < audioBuf.duration) {
+          player.duration = audioBuf.duration;
+        }
+      });
+
+      await Promise.all(loadPromises);
+      player.loaded = true;
+      player.playing = true;
+      player.paused = false;
+      player.pauseOffset = 0;
+      player.startTime = player.audioCtx.currentTime;
+
+      for (const [name, buffer] of player.buffers) {
+        const source = player.audioCtx.createBufferSource();
+        source.buffer = buffer;
+        const gain = player.audioCtx.createGain();
+        const stemState = stemStates[`pitch:${song}:${pitch}:${name}`] || { muted: false, solo: false, volume: 100 };
+        gain.gain.value = stemState.muted ? 0 : stemState.volume / 100;
+        source.connect(gain);
+        gain.connect(player.audioCtx.destination);
+        source.start(0);
+        player.sourceNodes.set(name, source);
+        player.gainNodes.set(name, gain);
+      }
+
+      startSubgroupTimer(song, pitch);
+    } catch (e) {
+      showToast(`Error playing subgroup: ${e}`, 'error');
+    }
+  }
+
+  function pauseSubgroup(song: string, pitch: number) {
+    const subs = pitchSubgroups[song] || [];
+    const sg = subs.find(s => s.pitch === pitch);
+    const player = sg?.player;
+    if (!player || !player.playing || player.paused) return;
+
+    player.paused = true;
+    player.pauseOffset = player.audioCtx!.currentTime - player.startTime;
+    if (player.animFrame) cancelAnimationFrame(player.animFrame);
+    player.sourceNodes.forEach(s => { try { s.stop(); } catch(e) {} });
+    player.sourceNodes.clear();
+  }
+
+  function stopSubgroup(song: string, pitch: number) {
+    const subs = pitchSubgroups[song] || [];
+    const sg = subs.find(s => s.pitch === pitch);
+    const player = sg?.player;
+    if (!player) return;
+
+    player.playing = false;
+    player.paused = false;
+    player.currentTime = 0;
+    player.seekValue = 0;
+    player.pauseOffset = 0;
+    if (player.animFrame) cancelAnimationFrame(player.animFrame);
+    player.sourceNodes.forEach(s => { try { s.stop(); } catch(e) {} });
+    player.sourceNodes.clear();
+    pitchSubgroups[song] = [...subs];
+    pitchSubgroups = { ...pitchSubgroups };
+  }
+
+  function startSubgroupTimer(song: string, pitch: number) {
+    const subs = pitchSubgroups[song] || [];
+    const sg = subs.find(s => s.pitch === pitch);
+    const player = sg?.player;
+    if (!player) return;
+
+    function tick() {
+      if (!player.playing || player.paused) return;
+      player.currentTime = player.audioCtx!.currentTime - player.startTime;
+      player.seekValue = player.currentTime;
+      if (player.currentTime >= player.duration) {
+        stopSubgroup(song, pitch);
+        return;
+      }
+      pitchSubgroups[song] = [...subs];
+      pitchSubgroups = { ...pitchSubgroups };
+      player.animFrame = requestAnimationFrame(tick);
+    }
+    player.animFrame = requestAnimationFrame(tick);
+  }
+
+  function handleSubgroupSeekInput(e: Event, song: string, pitch: number) {
+    const subs = pitchSubgroups[song] || [];
+    const sg = subs.find(s => s.pitch === pitch);
+    const player = sg?.player;
+    if (!player) return;
+    player.seekValue = parseFloat((e.target as HTMLInputElement).value);
+  }
+
+  async function handleSubgroupSeekChange(e: Event, song: string, pitch: number) {
+    const subs = pitchSubgroups[song] || [];
+    const sg = subs.find(s => s.pitch === pitch);
+    const player = sg?.player;
+    if (!player) return;
+    const seekTo = parseFloat((e.target as HTMLInputElement).value);
+    const wasPlaying = player.playing && !player.paused;
+    if (wasPlaying) {
+      player.sourceNodes.forEach(s => { try { s.stop(); } catch(e) {} });
+      player.sourceNodes.clear();
+      player.pauseOffset = seekTo;
+      player.currentTime = seekTo;
+      player.startTime = player.audioCtx!.currentTime - seekTo;
+      for (const [name, buffer] of player.buffers) {
+        if (player.sourceNodes.has(name)) continue;
+        const source = player.audioCtx!.createBufferSource();
+        source.buffer = buffer;
+        const gain = player.gainNodes.get(name) || player.audioCtx!.createGain();
+        const stemState = stemStates[`pitch:${song}:${pitch}:${name}`] || { muted: false, solo: false, volume: 100 };
+        gain.gain.value = stemState.muted ? 0 : stemState.volume / 100;
+        source.connect(gain);
+        gain.connect(player.audioCtx!.destination);
+        source.start(0, seekTo);
+        player.sourceNodes.set(name, source);
+      }
+    }
+  }
+
+  // Subgroup stem controls
+  function toggleSubgroupMute(song: string, pitch: number, stemName: string) {
+    const key = `pitch:${song}:${pitch}:${stemName}`;
+    const current = stemStates[key] || { muted: false, solo: false, volume: 100 };
+    stemStates[key] = { ...current, muted: !current.muted };
+    stemStates = { ...stemStates };
+    const subs = pitchSubgroups[song] || [];
+    const sg = subs.find(s => s.pitch === pitch);
+    const gain = sg?.player?.gainNodes.get(stemName);
+    if (gain) gain.gain.value = stemStates[key].muted ? 0 : stemStates[key].volume / 100;
+  }
+
+  function toggleSubgroupSolo(song: string, pitch: number, stemName: string) {
+    const key = `pitch:${song}:${pitch}:${stemName}`;
+    const current = stemStates[key] || { muted: false, solo: false, volume: 100 };
+    stemStates[key] = { ...current, solo: !current.solo };
+    stemStates = { ...stemStates };
+  }
+
+  function handleSubgroupVolume(e: Event, song: string, pitch: number, stemName: string) {
+    const key = `pitch:${song}:${pitch}:${stemName}`;
+    const val = parseInt((e.target as HTMLInputElement).value);
+    const current = stemStates[key] || { muted: false, solo: false, volume: 100 };
+    stemStates[key] = { ...current, volume: val };
+    stemStates = { ...stemStates };
+    const subs = pitchSubgroups[song] || [];
+    const sg = subs.find(s => s.pitch === pitch);
+    const gain = sg?.player?.gainNodes.get(stemName);
+    if (gain) gain.gain.value = val / 100;
+  }
+
+  async function handleDeleteSubgroupStem(song: string, pitch: number, stemName: string, path: string) {
+    if (!confirm(`Delete "${stemName}"?`)) return;
+    try {
+      const resp = await fetch(path, { method: 'DELETE' });
+      if (!resp.ok) throw new Error('Delete failed');
+      const subs = pitchSubgroups[song] || [];
+      const sg = subs.find(s => s.pitch === pitch);
+      if (sg) {
+        sg.stems = sg.stems.filter(s => s.name !== stemName);
+        pitchSubgroups[song] = [...subs];
+        pitchSubgroups = { ...pitchSubgroups };
+      }
+      showToast(`Stem "${stemName}" eliminado`, 'success');
+    } catch (e) {
+      showToast(`Error: ${e instanceof Error ? e.message : String(e)}`, 'error');
+    }
+  }
+
+  // ---- $effect to load pitch subgroups when songGroups changes ----
+
+  $effect(() => {
+    const songs = songGroups.map(g => g.song);
+    for (const song of songs) {
+      loadPitchSubgroups(song);
+    }
+  });
 
   let waveformDrawn = $state<Set<string>>(new Set());
 
@@ -560,6 +852,17 @@
       player.sourceNodes.forEach(s => { try { s.stop(); } catch(e) {} });
       player.audioCtx?.close();
       if (player.animFrame) cancelAnimationFrame(player.animFrame);
+    }
+    // Cleanup subgroup players
+    for (const subs of Object.values(pitchSubgroups)) {
+      for (const sg of subs) {
+        const p = sg.player;
+        if (p) {
+          p.sourceNodes.forEach(s => { try { s.stop(); } catch(e) {} });
+          p.audioCtx?.close();
+          if (p.animFrame) cancelAnimationFrame(p.animFrame);
+        }
+      }
     }
   });
 </script>
@@ -638,25 +941,27 @@
           </div>
         </div>
 
-        <!-- Pitch slider -->
+        <!-- Pitch controls -->
         <div class="pitch-section">
-          <label class="pitch-label" for="pitch-{group.song}">
-            Tono: <strong>{pitchValues[group.song] || 0}</strong>
+          <label class="pitch-label">
+            Tono: <strong>{pitchSliderValue[group.song] || 0}</strong>
           </label>
           <input
-            id="pitch-{group.song}"
             type="range"
+            class="pitch-slider"
             min="-12"
             max="12"
             step="1"
-            value={pitchValues[group.song] || 0}
-            oninput={(e) => handlePitchChange(group.song, parseInt((e.target as HTMLInputElement).value))}
-            class="pitch-slider"
-            disabled={pitchLoading[group.song] || false}
+            value={pitchSliderValue[group.song] || 0}
+            oninput={(e) => { pitchSliderValue[group.song] = parseInt((e.target as HTMLInputElement).value); pitchSliderValue = { ...pitchSliderValue }; }}
           />
-          {#if pitchLoading[group.song]}
-            <span class="pitch-spinner">⏳</span>
-          {/if}
+          <button
+            class="pitch-apply-btn"
+            onclick={() => handleApplyPitch(group.song)}
+            disabled={pitchProcessing[group.song] || !(pitchSliderValue[group.song] || 0)}
+          >
+            {pitchProcessing[group.song] ? '⏳' : '🎵 Cambiar tono'}
+          </button>
         </div>
 
         <!-- Stem rows -->
@@ -727,26 +1032,61 @@
           {/each}
         </div>
 
-        <!-- Pitched subgroups -->
-        {#if pitchedGroups[group.song]?.length}
-          {#each pitchedGroups[group.song] as pg (pg.pitch)}
+        <!-- Pitch subgroups -->
+        {#if pitchSubgroups[group.song]?.length}
+          {#each pitchSubgroups[group.song] as sg (sg.pitch)}
+            {@const subPlayer = sg.player}
             <div class="pitched-group">
-              <h4 class="pitched-title">
-                {group.song} ({pg.pitch > 0 ? '+' : ''}{pg.pitch})
-              </h4>
-              {#each pg.stems as stem}
-                {@const pitchedSong = group.song + (pg.pitch > 0 ? '_pitch+' : '_pitch') + pg.pitch}
-                <div class="stem-row pitched-stem">
-                  <span class="stem-emoji">{stemEmoji(stem.stemType)}</span>
-                  <span class="stem-name">{stem.name}</span>
-                  <a
-                    class="stem-btn dl-btn"
-                    href={downloadUrl(pitchedSong, stem.name)}
-                    download={stem.name}
-                    title="Download"
-                  >⬇</a>
+              <!-- Subgroup header -->
+              <div class="pitched-header">
+                <h4 class="pitched-title">
+                  {group.song} ({sg.pitch > 0 ? '+' : ''}{sg.pitch})
+                </h4>
+                <button class="pitched-delete-btn" onclick={() => handleDeletePitchSubgroup(group.song, sg.pitch)} title="Eliminar subgrupo">🗑</button>
+              </div>
+
+              <!-- Subgroup playback controls -->
+              <div class="song-header pitched-playback">
+                <button class="ctrl-btn play-btn" onclick={() => playSubgroup(group.song, sg.pitch)} disabled={subPlayer?.playing && !subPlayer?.paused}>▶</button>
+                <button class="ctrl-btn pause-btn" onclick={() => pauseSubgroup(group.song, sg.pitch)} disabled={!subPlayer?.playing || subPlayer?.paused}>⏸</button>
+                <button class="ctrl-btn stop-btn" onclick={() => stopSubgroup(group.song, sg.pitch)} disabled={!subPlayer?.playing && !subPlayer?.paused}>⏹</button>
+                <div class="seek-area">
+                  <input type="range" min="0" max={subPlayer?.duration || 100} step="0.1" value={subPlayer?.seekValue || 0}
+                    disabled={!subPlayer?.playing && !subPlayer?.paused}
+                    oninput={(e) => handleSubgroupSeekInput(e, group.song, sg.pitch)}
+                    onchange={(e) => handleSubgroupSeekChange(e, group.song, sg.pitch)}
+                    class="seek-slider" />
+                  <span class="time-display">{fmtTime(subPlayer?.currentTime)} / {fmtTime(subPlayer?.duration)}</span>
                 </div>
-              {/each}
+              </div>
+
+              <!-- Subgroup stems -->
+              <div class="stems-list">
+                {#each sg.stems as stem}
+                  {@const stemId = `pitch:${group.song}:${sg.pitch}:${stem.name}`}
+                  {@const subState = stemStates[stemId] ?? { muted: false, solo: false, volume: 100 }}
+                  <div class="stem-row pitched-stem" class:muted={subState.muted}>
+                    <canvas class="waveform-mini" width="120" height="28"
+                      use:waveformAction={{ song: subgroupSongKey(group.song, sg.pitch), name: stem.name }}></canvas>
+                    <span class="stem-emoji">{stemEmoji(stem.stemType)}</span>
+                    <span class="stem-name" title={stem.name}>{stem.name}</span>
+                    <div class="stem-controls">
+                      <button class="stem-btn mute-btn" class:active={subState.muted}
+                        onclick={() => toggleSubgroupMute(group.song, sg.pitch, stem.name)}>M</button>
+                      <button class="stem-btn solo-btn" class:active={subState.solo}
+                        onclick={() => toggleSubgroupSolo(group.song, sg.pitch, stem.name)}>S</button>
+                      <div class="vol-slider-wrap">
+                        <input type="range" min="0" max="100" value={subState.volume}
+                          oninput={(e) => handleSubgroupVolume(e, group.song, sg.pitch, stem.name)} class="vol-slider" />
+                        <span class="vol-label">{subState.volume}</span>
+                      </div>
+                      <a class="stem-btn dl-btn" href={downloadUrl(subgroupSongKey(group.song, sg.pitch), stem.name)} download={stem.name}>⬇</a>
+                      <button class="stem-btn delete-stem-btn"
+                        onclick={() => handleDeleteSubgroupStem(group.song, sg.pitch, stem.name, stem.path)}>✕</button>
+                    </div>
+                  </div>
+                {/each}
+              </div>
             </div>
           {/each}
         {/if}
@@ -1125,26 +1465,55 @@
   }
   .pitch-slider {
     flex: 1;
-    max-width: 200px;
-    height: 6px;
+    max-width: 150px;
     accent-color: #b388ff;
     cursor: pointer;
   }
-  .pitch-spinner {
-    font-size: 0.85rem;
-    flex-shrink: 0;
+  .pitch-apply-btn {
+    padding: 0.3rem 0.8rem;
+    background: #b388ff;
+    border: none;
+    border-radius: 6px;
+    color: #0a0a14;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
   }
+  .pitch-apply-btn:hover:not(:disabled) { opacity: 0.9; }
+  .pitch-apply-btn:disabled { opacity: 0.4; cursor: not-allowed; }
   .pitched-group {
     margin-left: 1.5rem;
     border-left: 2px solid #b388ff44;
     padding-left: 0.75rem;
-    margin-top: 0.5rem;
+    margin-top: 0.75rem;
+    padding-bottom: 0.5rem;
+  }
+  .pitched-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.3rem;
   }
   .pitched-title {
-    margin: 0 0 0.3rem;
+    margin: 0;
     font-size: 0.85rem;
     color: #b388ff;
     font-weight: 600;
+  }
+  .pitched-delete-btn {
+    background: none;
+    border: 1px solid #4a2a2a;
+    border-radius: 4px;
+    color: #e57373;
+    font-size: 0.8rem;
+    cursor: pointer;
+    padding: 0.15rem 0.4rem;
+  }
+  .pitched-delete-btn:hover { background: #3a1a1a; }
+  .pitched-playback {
+    padding-bottom: 0.3rem;
+    margin-bottom: 0.3rem;
   }
   .pitched-stem {
     opacity: 0.85;
