@@ -37,6 +37,19 @@ El catálogo de descarga de modelos (ModelDownloader) no funcionaba por 4 bugs e
 
 `c262734`, `ac6361a`, `615bab7`, `bcc5628`, `f62498f`, `edbebd7`, `b042382`, `005c43b`, `185d765`, `37e8645`
 
+### 🐛 Bug fixes en GPU info y frontend (1-jun-2026)
+
+- **Fix:** `vram_used_mb` desaparecía del JSON cuando valía 0 (GPU idle). Quitado `omitempty` del struct Go.
+- **Fix:** VRAM calculator (`/api/gpu/vram-calculator`) siempre devolvía 0. Ahora busca en catálogo UVR + fallback 2000 MB.
+- **Fix:** Header mostrando `v2.0.0-alpha` hardcodeado → `v2.1.1`.
+- **Fix:** `API_BASE` hardcodeada a `192.168.1.87` → URLs relativas (funciona desde cualquier IP).
+
+### 📦 Catálogo y descargas (1-jun-2026)
+
+- **Feat:** Filtrado de modelos `size_mb=0` (config files) del catálogo visible. De 98 → 72 modelos.
+- **Feat:** Descarga de dependencias: al bajar un modelo (.ckpt/.pth) se descargan automáticamente sus archivos .yaml asociados.
+- **Feat:** Añadido `hf_models.json` con 380 modelos del repo HuggingFace Politrees/UVR_resources organizados en 11 categorías.
+
 ---
 
 ## v2.1.0-alpha — Fase 5: Modelos configurables + Editor visual de pipeline ✅
@@ -392,21 +405,6 @@ Los commits originales de estos fixes (46898d0-c8c52fd) se perdieron en un git r
 - End-to-end: Demucs ONNX, MDX-Net ONNX, Pipeline HTTP API
 - Edge cases: silencio, audio 0.5s, archivo inexistente
 - Benchmark: PyTorch vs ONNX vs MDX-Net
-
-## v2.1.1 — 1-jun-2026 (continuación)
-
-### 🐛 Bug fixes en GPU info y frontend
-
-- **Fix:** `vram_used_mb` desaparecía del JSON cuando valía 0 (GPU idle). Quitado `omitempty` del struct Go.
-- **Fix:** VRAM calculator (`/api/gpu/vram-calculator`) siempre devolvía 0. Ahora busca en catálogo UVR + fallback 2000 MB.
-- **Fix:** Header mostrando `v2.0.0-alpha` hardcodeado → `v2.1.1`.
-- **Fix:** `API_BASE` hardcodeada a `192.168.1.87` → URLs relativas (funciona desde cualquier IP).
-
-### 📦 Catálogo y descargas
-
-- **Feat:** Filtrado de modelos `size_mb=0` (config files) del catálogo visible. De 98 → 72 modelos.
-- **Feat:** Descarga de dependencias: al bajar un modelo (.ckpt/.pth) se descargan automáticamente sus archivos .yaml asociados.
-- **Feat:** Añadido `hf_models.json` con 380 modelos del repo HuggingFace Politrees/UVR_resources organizados en 11 categorías.
 
 ## v1.4.4
 
