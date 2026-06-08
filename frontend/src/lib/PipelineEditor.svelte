@@ -128,6 +128,7 @@
     if (demucsStems.vocals) dStems.push('vocals');
 
     return {
+      preset: selectedPreset || undefined,
       viperx: viperxEnabled,
       viperxModel,
       viperxStems: vStems,
