@@ -224,26 +224,22 @@
 </script>
 
 {#if loading}
-  <div class="backdrop">
-    <div class="panel">
-      <div class="panel-header">
-        <h2>⚙️ Modelos</h2>
-        <button class="btn-close" onclick={onclose}>✕</button>
-      </div>
-      <div class="panel-body loading-text">Cargando...</div>
+  <div class="fullscreen">
+    <div class="fullscreen-header">
+      <button class="btn-back" onclick={onclose}>← Volver</button>
+      <h2>⚙️ Configuración de Modelos</h2>
+      <div><!-- spacer --></div>
     </div>
+    <div class="fullscreen-body loading-text">Cargando...</div>
   </div>
 {:else}
-  <div class="backdrop" onclick={onclose} role="presentation">
-    <!-- svelte-ignore a11y_click_events_have_key_events -->
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="panel" onclick={(e: MouseEvent) => e.stopPropagation()} role="dialog">
-      <div class="panel-header">
-        <h2>⚙️ Modelos{selectedModelDisplayName ? ` — ${selectedModelDisplayName}` : ''}</h2>
-        <button class="btn-close" onclick={onclose}>✕</button>
-      </div>
-
-      <div class="panel-body">
+  <div class="fullscreen">
+    <div class="fullscreen-header">
+      <button class="btn-back" onclick={onclose}>← Volver</button>
+      <h2>⚙️ {selectedModelDisplayName || 'Configuración de Modelos'}</h2>
+      <div><!-- spacer --></div>
+    </div>
+    <div class="fullscreen-body">
         <!-- Model selector -->
         <div class="field">
           <label for="model-select">Modelo:</label>
@@ -468,74 +464,66 @@
         {/if}
       </div>
     </div>
-  </div>
-{/if}
+  {/if}
 
 <style>
-  .backdrop {
+  .fullscreen {
     position: fixed;
     top: 0;
+    left: 0;
     right: 0;
     bottom: 0;
-    left: 0;
-    background: rgba(0, 0, 0, 0.5);
-    z-index: 950;
-    display: flex;
-    justify-content: flex-end;
-  }
-
-  .panel {
-    width: 340px;
-    max-width: 90vw;
-    height: 100%;
-    background: #1a1a2e;
-    border-left: 1px solid #2a2a4a;
+    background: #0a0a14;
+    z-index: 900;
     display: flex;
     flex-direction: column;
-    overflow-y: auto;
-    animation: slideIn 0.25s ease;
+    animation: fadeIn 0.2s ease;
   }
 
-  @keyframes slideIn {
-    from { transform: translateX(100%); }
-    to { transform: translateX(0); }
-  }
-
-  .panel-header {
+  .fullscreen-header {
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    padding: 1rem 1.25rem;
+    gap: 1rem;
+    padding: 0.75rem 1.25rem;
     border-bottom: 1px solid #2a2a4a;
+    background: #1a1a2e;
   }
 
-  .panel-header h2 {
+  .fullscreen-header h2 {
     margin: 0;
     font-size: 1.1rem;
     color: #e0e0e0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    flex: 1;
+    text-align: center;
   }
 
-  .btn-close {
+  .btn-back {
     background: none;
-    border: none;
-    color: #666;
-    font-size: 1.1rem;
+    border: 1px solid #2a2a4a;
+    border-radius: 6px;
+    color: #00d4ff;
+    font-size: 0.85rem;
+    padding: 0.3rem 0.8rem;
     cursor: pointer;
-    padding: 0.25rem 0.5rem;
-    flex-shrink: 0;
+    transition: border-color 0.15s;
   }
-  .btn-close:hover {
-    color: #e57373;
+  .btn-back:hover {
+    border-color: #00d4ff;
   }
 
-  .panel-body {
-    padding: 1.25rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1.25rem;
+  .fullscreen-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 1.5rem;
+    max-width: 600px;
+    margin: 0 auto;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
 
   .loading-text {
