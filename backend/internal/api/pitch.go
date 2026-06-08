@@ -197,6 +197,7 @@ func (s *Server) handleListPitchSubgroups(w http.ResponseWriter, r *http.Request
 	entries, err := os.ReadDir(songDir)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode([]interface{}{})
 		return
 	}

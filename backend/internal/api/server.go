@@ -263,7 +263,7 @@ func (s *Server) handleResults(w http.ResponseWriter, r *http.Request) {
 	entries, err := os.ReadDir(outputDir)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode([]ResultsGroup{})
 		return
 	}
@@ -331,7 +331,7 @@ func (s *Server) handleInputs(w http.ResponseWriter, r *http.Request) {
 	entries, err := os.ReadDir(inputDir)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode([]InputEntry{})
 		return
 	}
