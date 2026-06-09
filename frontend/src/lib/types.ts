@@ -20,15 +20,5 @@ export function detectStemType(name: string): string {
   return 'other';
 }
 
-export function groupBySong(stems: ResultStem[]): ResultGroup[] {
-  const map = new Map<string, ResultStem[]>();
-  for (const s of stems) {
-    const list = map.get(s.song) || [];
-    list.push(s);
-    map.set(s.song, list);
-  }
-  return Array.from(map.entries()).map(([song, stems]) => ({ song, stems }));
-}
-
 const EMOJIS: Record<string, string> = { drums: '🥁', bass: '🎸', other: '🎹', vocals: '🎤', instrumental: '🎵' };
 export function stemEmoji(type: string): string { return EMOJIS[type] || '🎵'; }

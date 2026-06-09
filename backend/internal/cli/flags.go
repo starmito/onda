@@ -31,8 +31,8 @@ func ParsePipelineFlags(args []string) (*PipelineFlags, error) {
 	fs := flag.NewFlagSet("pipeline", flag.ContinueOnError)
 
 	// Modern flags
-	vocalModel := fs.String("vocal-model", "", "Vocal separation model (overrides preset)")
-	vocalOverlap := fs.Int("vocal-overlap", 0, "Vocal overlap (overrides preset)")
+	vocalModel := fs.String("vocal-model", "", "Vocal separation model")
+	vocalOverlap := fs.Int("vocal-overlap", 0, "Vocal overlap")
 	vocalKeep := fs.String("vocal-keep", "both", "Keep: both, vocals, instrumental")
 	stemModel := fs.String("stem-model", "", "Stem separation model")
 	stemKeep := fs.String("stem-keep", "", "Stems to keep: drums,bass,other,vocals or all")
@@ -127,54 +127,8 @@ func ParsePipelineFlags(args []string) (*PipelineFlags, error) {
 	return flags, nil
 }
 
-// ResolvePreset applies a preset configuration, allowing individual flag overrides.
-func (f *PipelineFlags) ResolvePreset() error {
-	p, ok := Presets[f.Preset]
-	if !ok {
-		validPresets := make([]string, 0, len(Presets))
-		for name := range Presets {
-			validPresets = append(validPresets, name)
-		}
-		return fmt.Errorf("unknown preset %q: valid presets are %s", f.Preset, strings.Join(validPresets, ", "))
-	}
-
-	// Apply preset defaults if not overridden
-	if f.VocalModel == "" {
-		f.VocalModel = p.VocalModel
-	}
-	if !f.hasVocalOverlap {
-		f.VocalOverlap = p.VocalOverlap
-	}
-	if f.StemModel == "" {
-		f.StemModel = p.StemModel
-	}
-	if f.DrumsModel == "" {
-		f.DrumsModel = p.DrumsModel
-	}
-	if f.BassModel == "" {
-		f.BassModel = p.BassModel
-	}
-	if f.OtherModel == "" {
-		f.OtherModel = p.OtherModel
-	}
-	if !f.hasPitch {
-		f.Pitch = p.Pitch
-	}
-
-	return nil
-}
-
 // Validate checks that all flags contain valid values.
 func (f *PipelineFlags) Validate() error {
-	// Validate preset
-	if _, ok := Presets[f.Preset]; !ok {
-		validPresets := make([]string, 0, len(Presets))
-		for name := range Presets {
-			validPresets = append(validPresets, name)
-		}
-		return fmt.Errorf("unknown preset %q: valid presets are %s", f.Preset, strings.Join(validPresets, ", "))
-	}
-
 	// Validate vocal-keep
 	validVocalKeep := map[string]bool{"both": true, "vocals": true, "instrumental": true}
 	if !validVocalKeep[f.VocalKeep] {
