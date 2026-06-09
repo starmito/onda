@@ -2,6 +2,10 @@
 
 ## v2.4.0-alpha (2026-06-09)
 
+### v2.4.0-alpha.1 (2026-06-09)
+
+- Fix: presets API restaurada (regresión por limpieza agresiva en 4ab3cc1)
+
 ### Fase 7 — Optimización y limpieza
 
 - Eliminadas ~880 líneas de código muerto (Go, Svelte, Python)
