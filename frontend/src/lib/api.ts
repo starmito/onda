@@ -308,6 +308,8 @@ export interface QueueJob {
   current_step?: number;
   total_steps?: number;
   step_name?: string;
+  eta?: string;
+  device?: string;
   error?: string;
   files?: { name: string; path: string }[];
 }

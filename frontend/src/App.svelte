@@ -41,6 +41,8 @@
   let pipelineStep = $state('');
   let pipelineSong = $state('');
   let currentProgress = $state(0);
+  let pipelineEta = $state('');
+  let inferenceDevice = $state('');
 
   // ---- Queue state ----
   let queueJobs = $state<QueueJob[]>([]);
@@ -348,6 +350,8 @@
     pipelineStatus = 'running';
     pipelineStep = '';
     currentProgress = 0;
+    pipelineEta = '';
+    inferenceDevice = '';
     queueJobs = [];
     processedDoneSongs = new Set();
 
@@ -429,7 +433,10 @@
         const processingJob = queueJobs.find(j => j.status === 'processing');
         if (processingJob) {
           pipelineSong = processingJob.song;
-          pipelineStep = 'processing';
+          pipelineStep = processingJob.step_name || 'processing';
+          currentProgress = (processingJob.progress || 0) / 100;
+          if (processingJob.eta) pipelineEta = processingJob.eta;
+          if (processingJob.device) inferenceDevice = processingJob.device;
         }
 
         // Check for newly done jobs → accumulate results
@@ -666,6 +673,12 @@
           <span class="progress-pct">{Math.round(currentProgress * 100)}%</span>
           {#if pipelineSong}
             <span class="progress-song">{pipelineSong}</span>
+          {/if}
+          {#if pipelineEta}
+            <span class="progress-eta">⏱ {pipelineEta}</span>
+          {/if}
+          {#if inferenceDevice}
+            <span class="progress-device">{inferenceDevice === 'cuda' || inferenceDevice === 'gpu' ? 'Ejecutando en GPU' : 'Ejecutando en CPU'}</span>
           {/if}
         </div>
       </div>
@@ -1091,6 +1104,13 @@
   .progress-pct {
     font-weight: 700;
     color: #00d4ff;
+  }
+  .progress-eta {
+    color: #ffb74d;
+  }
+  .progress-device {
+    color: #81c784;
+    font-weight: 600;
   }
 
   /* Toast */
