@@ -248,10 +248,10 @@
           name,
           viperxModel: p.vocalModel,
           demucsModel: p.stemModel,
-          viperxEnabled: !!p.vocalModel,
-          demucsEnabled: !!p.stemModel,
-          viperxStems: ['vocals', 'instrumental'],
-          demucsStems: ['drums', 'bass', 'other', 'vocals'],
+          viperxEnabled: p.viperxEnabled,
+          demucsEnabled: p.demucsEnabled,
+          viperxStems: p.viperxStems || ['vocals', 'instrumental'],
+          demucsStems: p.demucsStems || ['drums', 'bass', 'other', 'vocals'],
         }));
         savedPresets = list;
         presetsLoading = false;
@@ -266,30 +266,43 @@
     const name = presetNameInput.trim();
     if (!name) return;
 
+    const vStems: string[] = [];
+    if (viperxStems.vocals) vStems.push('vocals');
+    if (viperxStems.instrumental) vStems.push('instrumental');
+
+    const dStems: string[] = [];
+    if (demucsStems.drums) dStems.push('drums');
+    if (demucsStems.bass) dStems.push('bass');
+    if (demucsStems.other) dStems.push('other');
+    if (demucsStems.vocals) dStems.push('vocals');
+
     const presetData: PresetData = {
       name,
+      viperxEnabled,
+      demucsEnabled,
       vocalModel: viperxModel,
       vocalOverlap: 4,
       stemModel: demucsModel,
       drumsModel: '',
       bassModel: '',
       otherModel: '',
+      viperxStems: vStems,
+      demucsStems: dStems,
       pitch: 0,
       description: '',
     };
 
     try {
       await savePreset(presetData);
-      // Reload presets list from API
       const data = await getPresets();
       const list: PipelinePreset[] = Object.entries(data).map(([n, p]) => ({
         name: n,
         viperxModel: p.vocalModel,
         demucsModel: p.stemModel,
-        viperxEnabled: !!p.vocalModel,
-        demucsEnabled: !!p.stemModel,
-        viperxStems: ['vocals', 'instrumental'],
-        demucsStems: ['drums', 'bass', 'other', 'vocals'],
+        viperxEnabled: p.viperxEnabled,
+        demucsEnabled: p.demucsEnabled,
+        viperxStems: p.viperxStems || ['vocals', 'instrumental'],
+        demucsStems: p.demucsStems || ['drums', 'bass', 'other', 'vocals'],
       }));
       savedPresets = list;
       selectedPreset = name;
