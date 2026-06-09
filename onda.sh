@@ -46,9 +46,7 @@ esac
 if ! docker ps --format '{{.Names}}' | grep -qx onda 2>/dev/null; then
     echo "🚀 Starting Onda (${GPU_TYPE})..."
     GPU_TYPE="${GPU_TYPE}" GPU_DOCKERFILE="${GPU_DOCKERFILE}" \
-        docker compose -f "${SCRIPT_DIR}/docker-compose.yml" \
-                       -f "${SCRIPT_DIR}/docker-compose.${GPU_TYPE}.yml" \
-                       up -d onda 2>&1 | tail -3
+        docker compose -f "${SCRIPT_DIR}/docker-compose.yml" up -d onda 2>&1 | tail -3
 fi
 
 # ── Route command ────────────────────────────────────
