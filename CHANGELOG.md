@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.4.2-alpha (2026-06-10)
+
+### Fixed
+- VRAM calculator: reactividad Svelte 5 corregida (sliders ahora disparan recálculo)
+- Device indicator: muestra "Ejecutando en GPU/CPU" durante inferencia activa
+- Eliminado banner GPU estático del header (no aportaba información)
+
 ## v2.4.1-alpha (2026-06-09)
 
 ### Fixed
