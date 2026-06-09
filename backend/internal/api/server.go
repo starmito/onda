@@ -407,6 +407,15 @@ func (s *Server) worker() {
 		cmd := exec.Command("docker", dockerArgs...)
 		out, err := cmd.CombinedOutput()
 
+		// Log all pipeline output to ring buffer
+		for _, line := range strings.Split(string(out), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			Log("pipeline", "info", line)
+		}
+
 		s.jobsMu.Lock()
 		if state, ok := s.jobs[job.Song]; ok {
 			if err != nil {
