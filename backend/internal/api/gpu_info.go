@@ -276,6 +276,33 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Parse segment_size query parameter (larger segments = more VRAM).
+	segmentSize := 0
+	segmentSizeParam := r.URL.Query().Get("segment_size")
+	if segmentSizeParam != "" {
+		if ss, err := strconv.Atoi(segmentSizeParam); err == nil && ss > 0 {
+			segmentSize = ss
+		}
+	}
+
+	// Parse overlap query parameter (small additive VRAM factor).
+	overlap := 0.0
+	overlapParam := r.URL.Query().Get("overlap")
+	if overlapParam != "" {
+		if o, err := strconv.ParseFloat(overlapParam, 64); err == nil && o > 0 {
+			overlap = o
+		}
+	}
+
+	// Parse batch_size query parameter (multiplies VRAM for batched processing).
+	batchSize := 0
+	batchSizeParam := r.URL.Query().Get("batch_size")
+	if batchSizeParam != "" {
+		if bs, err := strconv.Atoi(batchSizeParam); err == nil && bs > 0 {
+			batchSize = bs
+		}
+	}
+
 	// Parse models query parameter: models=vocal=melband_kj,stems=htdemucs_ft
 	modelsParam := r.URL.Query().Get("models")
 	if modelsParam == "" {
@@ -315,16 +342,36 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 
 		vramMB := lookupVRAMMB(modelName)
 
+		// Convert to float64 for precise multiplicative adjustments.
+		estimated := float64(vramMB)
+
 		// Apply chunk_size factor for ViperX/Roformer models.
 		if chunkSize > 0 && isViperXOrRoformer(modelName) {
-			multiplier := 1.0 + float64(chunkSize)/float64(defaultChunkSize)*chunkVRAMFactor
-			vramMB = int(float64(vramMB) * multiplier)
+			estimated *= 1.0 + float64(chunkSize)/float64(defaultChunkSize)*chunkVRAMFactor
+		}
+
+		// Apply batch_size factor: batch=4 → ×2 (i.e., batch/2).
+		if batchSize > 0 {
+			estimated *= float64(batchSize) / 2.0
+		}
+
+		// Apply segment_size factor: larger segments use more memory.
+		// Reference is 256; every 1024 over that adds 50 %.
+		if segmentSize > 0 {
+			estimated *= 1.0 + (float64(segmentSize)-256.0)/1024.0*0.5
+		}
+
+		// Apply overlap factor: small additive multiplier.
+		if overlap > 0 {
+			estimated *= 1.0 + overlap*0.3
 		}
 
 		// Apply shifts factor for Demucs models: N passes ≈ N× VRAM.
 		if shifts > 1 && isDemucsModel(modelName) {
-			vramMB *= shifts
+			estimated *= float64(shifts)
 		}
+
+		vramMB = int(estimated)
 
 		models = append(models, VRAMModelEntry{
 			Name:   modelName,
