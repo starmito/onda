@@ -2,6 +2,13 @@
 
 ## v2.4.0-alpha (2026-06-09)
 
+### v2.4.0-alpha.2 (2026-06-09)
+
+- Fix: VRAM calculator ahora incluye chunk_size en ViperX/Roformer
+- Fix: VRAM calculator ahora incluye shifts en modelos Demucs
+- Feat: progreso por paso en la cola (Paso 1/2 ViperX 65%)
+- Fix: timestamps de pipeline verificados (LogWithNano intacto)
+
 ### v2.4.0-alpha.1 (2026-06-09)
 
 - Fix: presets API restaurada (regresión por limpieza agresiva en 4ab3cc1)
