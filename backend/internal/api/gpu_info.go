@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -221,6 +222,16 @@ func (s *Server) handleGPUInfo(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(info)
 }
 
+// isViperXOrRoformer returns true for ViperX and Roformer models that
+// are sensitive to chunk_size in their VRAM calculation.
+func isViperXOrRoformer(modelName string) bool {
+	switch modelName {
+	case "melband_kj", "melband_roformer", "polarformer", "viperx", "viperx_other":
+		return true
+	}
+	return false
+}
+
 // handleVRAMCalculator serves GET /api/gpu/vram-calculator with VRAM estimates
 // for the requested models and available GPU memory.
 func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
@@ -231,6 +242,15 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 			"error": fmt.Sprintf("method %s not allowed", r.Method),
 		})
 		return
+	}
+
+	// Parse chunk_size query parameter (affects VRAM for ViperX/Roformer models).
+	chunkSize := 0
+	chunkSizeParam := r.URL.Query().Get("chunk_size")
+	if chunkSizeParam != "" {
+		if cs, err := strconv.Atoi(chunkSizeParam); err == nil && cs > 0 {
+			chunkSize = cs
+		}
 	}
 
 	// Parse models query parameter: models=vocal=melband_kj,stems=htdemucs_ft
@@ -246,6 +266,11 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 
 	var models []VRAMModelEntry
 	totalVRAM := 0
+
+	// defaultChunkSize is the reference chunk_size (1024) used in the VRAM formula.
+	const defaultChunkSize = 1024
+	// chunkVRAMFactor controls how strongly chunk_size affects VRAM estimation.
+	const chunkVRAMFactor = 0.25
 
 	// Split by comma: "vocal=melband_kj,stems=htdemucs_ft"
 	pairs := strings.Split(modelsParam, ",")
@@ -266,6 +291,12 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 		}
 
 		vramMB := lookupVRAMMB(modelName)
+
+		// Apply chunk_size factor for ViperX/Roformer models.
+		if chunkSize > 0 && isViperXOrRoformer(modelName) {
+			multiplier := 1.0 + float64(chunkSize)/float64(defaultChunkSize)*chunkVRAMFactor
+			vramMB = int(float64(vramMB) * multiplier)
+		}
 
 		models = append(models, VRAMModelEntry{
 			Name:   modelName,
