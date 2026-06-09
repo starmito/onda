@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.4.3-alpha (2026-06-10)
+
+### Fixed
+- VRAM: race condition corregida (loadConfig async causaba primera llamada con defaults)
+- Progreso: jobs "done" ahora muestran 100% en vez de 0%
+- Progreso: barra total calculada ponderando todos los jobs en cola
+
 ## v2.4.2-alpha (2026-06-10)
 
 ### Fixed
