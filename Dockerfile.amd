@@ -11,9 +11,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 # ROCm image already includes: torch, torchaudio, torchvision
 # Install only extra deps
-COPY requirements-docker.txt /tmp/
+COPY requirements-docker-amd.txt /tmp/
 RUN SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True \
-    pip install --no-cache-dir -r /tmp/requirements-docker.txt
+    pip install --no-cache-dir -r /tmp/requirements-docker-amd.txt
 
 WORKDIR /app
 COPY . .
