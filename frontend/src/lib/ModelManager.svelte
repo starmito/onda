@@ -252,7 +252,7 @@
 {#if loading}
   <div class="fullscreen">
     <div class="fullscreen-header">
-      <button class="btn-back" onclick={onclose}>← Volver</button>
+      <button class="btn-close" onclick={onclose}>✕</button>
       <h2>⚙️ Configuración de Modelos</h2>
       <div><!-- spacer --></div>
     </div>
@@ -261,7 +261,7 @@
 {:else}
   <div class="fullscreen">
     <div class="fullscreen-header">
-      <button class="btn-back" onclick={onclose}>← Volver</button>
+      <button class="btn-close" onclick={onclose}>✕</button>
       <h2>⚙️ {selectedModelDisplayName || 'Configuración de Modelos'}</h2>
       <div><!-- spacer --></div>
     </div>
@@ -548,6 +548,14 @@
   .btn-back:hover {
     border-color: #00d4ff;
   }
+  .btn-close {
+    position: absolute; top: 12px; right: 12px;
+    background: transparent; border: 1px solid #555; color: #aaa;
+    font-size: 18px; width: 32px; height: 32px; border-radius: 6px;
+    cursor: pointer; display: flex; align-items: center; justify-content: center;
+    z-index: 10;
+  }
+  .btn-close:hover { background: rgba(255,255,255,0.1); color: #fff; }
 
   .fullscreen-body {
     flex: 1;
