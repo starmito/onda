@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.3.3 (2026-06-10)
+
+### Fixed
+- Model configs se pierden al redeploy — ahora persisten en /config/model_configs/
+- Presets de usuario no persisten — ahora guardados en /config/presets_user.json
+- Errores desaparecen muy rápido — ahora banner persistente con botón copiar
+
+### Added
+- Sistema de logs con ring buffer en memoria (GET /api/logs)
+- Panel de logs en la UI con colores y detalle expandible
+
 ## v2.3.2 — Regresiones corregidas + bajos + UI 🧹
 
 ### 🔴 Regresiones de v2.3.1 corregidas
