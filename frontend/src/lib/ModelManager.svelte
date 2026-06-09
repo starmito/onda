@@ -128,6 +128,13 @@
       return;
     }
 
+    // SNAPSHOT: read ALL reactive values synchronously so $effect tracks them
+    const cs = chunkSize;
+    const sh = shifts;
+    const ss = segmentSize;
+    const ov = overlap;
+    const bs = batchSize;
+
     // Debounce timer (avoid rapid-fire calls during slider drag)
     let cancelled = false;
     const timer = setTimeout(async () => {
@@ -137,11 +144,11 @@
         const params: { models: string; chunk_size?: number; shifts?: number; segment_size?: number; overlap?: number; batch_size?: number } = {
           models: model,
         };
-        if (chunkSize > 0) params.chunk_size = chunkSize;
-        if (shifts > 1) params.shifts = shifts;
-        if (segmentSize > 0) params.segment_size = segmentSize;
-        if (overlap > 0) params.overlap = overlap;
-        if (batchSize > 0) params.batch_size = batchSize;
+        if (cs > 0) params.chunk_size = cs;
+        if (sh > 1) params.shifts = sh;
+        if (ss > 0) params.segment_size = ss;
+        if (ov > 0) params.overlap = ov;
+        if (bs > 0) params.batch_size = bs;
         const result = await getVRAMCalculator(params);
         if (!cancelled) {
           vramCalcResult = result;
