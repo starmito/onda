@@ -561,12 +561,16 @@ export async function deleteModel(name: string): Promise<DeleteModelResponse> {
 // ---- Presets API ---- 
 export interface PresetData {
   name: string;
+  viperxEnabled: boolean;
+  demucsEnabled: boolean;
   vocalModel: string;
   vocalOverlap: number;
   stemModel: string;
   drumsModel: string;
   bassModel: string;
   otherModel: string;
+  viperxStems: string[];
+  demucsStems: string[];
   pitch: number;
   description: string;
 }
