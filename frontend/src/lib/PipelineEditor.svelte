@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { LocalModel } from './api';
-  import { getLocalModels, getPresets, savePreset, deletePreset } from './api';
+  import { getLocalModels, getPresets, savePreset, deletePreset, setDefaultPreset } from './api';
   import type { PresetData } from './api';
 
   // ── Props ──
@@ -243,6 +243,9 @@
   let saveSuccess = $state(false);
   let saveTimer: ReturnType<typeof setTimeout> | null = null;
 
+  let defaultSuccess = $state(false);
+  let defaultTimer: ReturnType<typeof setTimeout> | null = null;
+
   let deleteSelectedPreset = $state('');
   let deleteConfirmVisible = $state(false);
 
@@ -343,6 +346,18 @@
       other: preset.demucsStems.includes('other'),
       vocals: preset.demucsStems.includes('vocals'),
     };
+  }
+
+  async function handleSetDefault() {
+    if (!selectedPreset) return;
+    try {
+      await setDefaultPreset(selectedPreset);
+      defaultSuccess = true;
+      if (defaultTimer) clearTimeout(defaultTimer);
+      defaultTimer = setTimeout(() => { defaultSuccess = false; }, 5000);
+    } catch {
+      // Handle error silently
+    }
   }
 
   async function handleDeletePreset() {
@@ -586,6 +601,16 @@
     </button>
     {#if saveSuccess}
       <div class="save-banner">✅ Preset guardado correctamente</div>
+    {/if}
+  </div>
+
+  <!-- Set Default Preset Button -->
+  <div class="section default-section">
+    <button class="btn-default-large" onclick={handleSetDefault} disabled={disabled || !selectedPreset}>
+      ⭐ Establecer como predeterminado
+    </button>
+    {#if defaultSuccess}
+      <div class="save-banner">✅ Establecido como predeterminado</div>
     {/if}
   </div>
 
@@ -860,6 +885,9 @@
   .btn-save-large { background: #4caf50; color: white; border: none; padding: 14px 40px; border-radius: 10px; font-size: 17px; font-weight: bold; cursor: pointer; min-width: 240px; transition: background 0.2s; }
   .btn-save-large:hover { background: #43a047; }
   .btn-save-large:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-default-large { width: 100%; margin-top: 10px; padding: 12px; background: linear-gradient(135deg, #f9a825, #f57f17); color: #1a1a2e; border: none; border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer; }
+  .btn-default-large:hover { opacity: 0.9; }
+  .btn-default-large:disabled { opacity: 0.3; cursor: not-allowed; }
   .save-banner { background: #2e7d32; color: white; padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: 500; }
   .delete-preset-section { margin-top: 20px; border-top: 1px solid #333; padding-top: 16px; }
   .btn-delete-large { width: 100%; margin-top: 10px; padding: 12px; background: transparent; border: 2px solid #dc3545; color: #dc3545; border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer; transition: all 0.2s; }
