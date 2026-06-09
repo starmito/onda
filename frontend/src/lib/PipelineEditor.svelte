@@ -240,6 +240,12 @@
   let presetsLoading = $state(true);
   let presetsError = $state(false);
 
+  let saveSuccess = $state(false);
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+
+  let deleteSelectedPreset = $state('');
+  let deleteConfirmVisible = $state(false);
+
   // Load presets from backend API
   $effect(() => {
     getPresets()
@@ -307,6 +313,9 @@
       savedPresets = list;
       selectedPreset = name;
       presetNameInput = '';
+      saveSuccess = true;
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => { saveSuccess = false; }, 5000);
     } catch {
       // Handle error silently
     }
@@ -337,23 +346,63 @@
   }
 
   async function handleDeletePreset() {
-    if (!selectedPreset) return;
+    if (!deleteSelectedPreset) return;
     try {
-      await deletePreset(selectedPreset);
-      savedPresets = savedPresets.filter(p => p.name !== selectedPreset);
-      selectedPreset = '';
+      await deletePreset(deleteSelectedPreset);
+      savedPresets = savedPresets.filter(p => p.name !== deleteSelectedPreset);
+      deleteSelectedPreset = '';
+      deleteConfirmVisible = false;
     } catch {
       // Handle error silently
     }
   }
+
+  function handleDeletePresetConfirm() {
+    if (!deleteSelectedPreset) return;
+    deleteConfirmVisible = true;
+  }
 </script>
 
 <div class="editor-card">
-  <h2 class="editor-title">🎛 Editor de Pipeline</h2>
+  <h2 class="editor-title">🎛 Editor de Presets</h2>
+
+  <!-- Presets: Load -->
+  <div class="section">
+    <span class="label">Presets</span>
+    {#if presetsLoading}
+      <div class="loading-hint">Cargando presets...</div>
+    {:else if presetsError}
+      <div class="error-hint">Error al cargar presets</div>
+    {/if}
+    {#if savedPresets.length > 0}
+      <div class="preset-row">
+        <select
+          class="select"
+          value={selectedPreset}
+          onchange={handleLoadPreset}
+          disabled={disabled}
+        >
+          <option value="">-- Mis presets --</option>
+          {#each savedPresets as p}
+            <option value={p.name}>{p.name}</option>
+          {/each}
+        </select>
+      </div>
+    {/if}
+    <div class="preset-row">
+      <input
+        type="text"
+        class="input"
+        placeholder="Nombre del preset"
+        bind:value={presetNameInput}
+        disabled={disabled}
+      />
+    </div>
+  </div>
 
   <!-- ViperX Model Selector -->
   <div class="section">
-    <label class="label" for="viperx-model">Modelo ViperX</label>
+    <label class="label" for="viperx-model">Modelo separador de Voces</label>
     <select
       id="viperx-model"
       class="select"
@@ -372,7 +421,7 @@
 
   <!-- Demucs Model Selector -->
   <div class="section">
-    <label class="label" for="demucs-model">Modelo Demucs</label>
+    <label class="label" for="demucs-model">Modelo separador de Stems</label>
     <select
       id="demucs-model"
       class="select"
@@ -397,7 +446,7 @@
         bind:checked={viperxEnabled}
         disabled={disabled}
       />
-      <span class="step-label">Paso 1: ViperX (separación vocal)</span>
+      <span class="step-label">Paso 1: Separación de Voces</span>
     </label>
     <div class="step-options" class:disabled-step={!viperxEnabled}>
       <label class="chip">
@@ -418,7 +467,7 @@
         bind:checked={demucsEnabled}
         disabled={disabled}
       />
-      <span class="step-label">Paso 2: Demucs (separación stems)</span>
+      <span class="step-label">Paso 2: Separación de Stems</span>
     </label>
     <div class="step-options" class:disabled-step={!demucsEnabled}>
       <label class="chip">
@@ -445,51 +494,6 @@
         {/if}
       </label>
     </div>
-  </div>
-
-  <!-- Presets: Save / Load / Delete -->
-  <div class="section">
-    <span class="label">Presets</span>
-    {#if presetsLoading}
-      <div class="loading-hint">Cargando presets...</div>
-    {:else if presetsError}
-      <div class="error-hint">Error al cargar presets</div>
-    {/if}
-    <div class="preset-row">
-      <input
-        type="text"
-        class="input"
-        placeholder="Nombre del preset"
-        bind:value={presetNameInput}
-        disabled={disabled}
-      />
-      <button class="btn btn-sm btn-save" onclick={handleSavePreset} disabled={disabled || !presetNameInput.trim()}>
-        💾 Guardar
-      </button>
-    </div>
-    {#if savedPresets.length > 0}
-      <div class="preset-row">
-        <select
-          class="select"
-          value={selectedPreset}
-          onchange={handleLoadPreset}
-          disabled={disabled}
-        >
-          <option value="">-- Mis presets --</option>
-          {#each savedPresets as p}
-            <option value={p.name}>{p.name}</option>
-          {/each}
-        </select>
-        <button
-          class="btn btn-sm btn-delete"
-          onclick={handleDeletePreset}
-          disabled={disabled || !selectedPreset}
-          title="Eliminar preset"
-        >
-          🗑️
-        </button>
-      </div>
-    {/if}
   </div>
 
   <!-- SVG Pipeline Graph -->
@@ -575,19 +579,42 @@
     </svg>
   </div>
 
-  <!-- hint when no files -->
-  {#if !hasFiles}
-    <p class="hint">📁 Sube un archivo de audio para ejecutar el pipeline</p>
-  {/if}
+  <!-- Save Preset Button -->
+  <div class="preset-save-section">
+    <button class="btn-save-large" onclick={handleSavePreset} disabled={disabled || !presetNameInput.trim()}>
+      💾 Guardar Preset
+    </button>
+    {#if saveSuccess}
+      <div class="save-banner">✅ Preset guardado correctamente</div>
+    {/if}
+  </div>
 
-  <!-- Action -->
-  <div class="actions">
-    {#if !hasFiles}
-      <span class="no-files-msg">📁 Sin archivos</span>
-    {:else}
-      <button class="btn btn-primary" onclick={handleStart} disabled={disabled}>
-        ▶ Ejecutar
+  <!-- Delete Presets Section -->
+  <div class="section delete-preset-section">
+    <span class="label">🗑 Eliminar Presets</span>
+    {#if savedPresets.length > 0}
+      <div class="preset-row">
+        <select class="select" bind:value={deleteSelectedPreset} disabled={disabled}>
+          <option value="">-- Seleccionar preset --</option>
+          {#each savedPresets as p}
+            <option value={p.name}>{p.name}</option>
+          {/each}
+        </select>
+      </div>
+      <button class="btn-delete-large" onclick={handleDeletePresetConfirm} disabled={disabled || !deleteSelectedPreset}>
+        🗑 Eliminar Preset
       </button>
+      {#if deleteConfirmVisible}
+        <div class="delete-confirm">
+          <p>¿Eliminar "{deleteSelectedPreset}"? Esta acción no se puede deshacer.</p>
+          <div class="delete-confirm-actions">
+            <button class="btn-cancel" onclick={() => deleteConfirmVisible = false}>Cancelar</button>
+            <button class="btn-confirm-delete" onclick={handleDeletePreset}>Sí, eliminar</button>
+          </div>
+        </div>
+      {/if}
+    {:else}
+      <p class="hint">No hay presets guardados.</p>
     {/if}
   </div>
 </div>
@@ -828,4 +855,19 @@
   .btn-delete:hover:not(:disabled) {
     background: #4a2a2a;
   }
+
+  .preset-save-section { margin-top: 20px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .btn-save-large { background: #4caf50; color: white; border: none; padding: 14px 40px; border-radius: 10px; font-size: 17px; font-weight: bold; cursor: pointer; min-width: 240px; transition: background 0.2s; }
+  .btn-save-large:hover { background: #43a047; }
+  .btn-save-large:disabled { opacity: 0.4; cursor: not-allowed; }
+  .save-banner { background: #2e7d32; color: white; padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: 500; }
+  .delete-preset-section { margin-top: 20px; border-top: 1px solid #333; padding-top: 16px; }
+  .btn-delete-large { width: 100%; margin-top: 10px; padding: 12px; background: transparent; border: 2px solid #dc3545; color: #dc3545; border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer; transition: all 0.2s; }
+  .btn-delete-large:hover { background: #dc3545; color: white; }
+  .btn-delete-large:disabled { opacity: 0.3; cursor: not-allowed; }
+  .delete-confirm { margin-top: 12px; padding: 12px; background: rgba(220,53,69,0.1); border: 1px solid #dc3545; border-radius: 8px; text-align: center; }
+  .delete-confirm p { color: #eee; margin: 0 0 10px 0; font-size: 14px; }
+  .delete-confirm-actions { display: flex; gap: 10px; justify-content: center; }
+  .btn-cancel { padding: 8px 20px; background: #444; color: #eee; border: none; border-radius: 6px; cursor: pointer; }
+  .btn-confirm-delete { padding: 8px 20px; background: #dc3545; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
 </style>
