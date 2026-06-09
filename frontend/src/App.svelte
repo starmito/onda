@@ -700,7 +700,11 @@
             <button class="log-tab" class:active={logTab === 'services'} onclick={() => { logTab = 'services'; loadServiceLogs(); }}>Servicios</button>
           </div>
           {#if logTab === 'services'}
-            <select bind:value={serviceLogLimit} class="log-filter">
+            <select 
+                value={serviceLogLimit}
+                onchange={(e) => serviceLogLimit = parseInt((e.target as HTMLSelectElement).value)}
+                class="log-filter"
+            >
               <option value={50}>Últimos 50</option>
               <option value={100}>Últimos 100</option>
               <option value={500}>Últimos 500</option>
