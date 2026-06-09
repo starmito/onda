@@ -86,7 +86,7 @@ report_progress() {
     fi
     progress_float=$(awk "BEGIN {printf \"%.2f\", $progress/100}")
     cat > "$STATUS_FILE" << JSONEOF
-{"status":"$status","step":"$step","progress":$progress_float,"song":"${SONG:-}","elapsed":$elapsed,"eta":$eta,"vocal_model":"$VIPERX_MODEL_DISPLAY","stem_model":"$DEMUCS_MODEL_DISPLAY","segment_size":$SEGMENT_SIZE,"overlap":$OVERLAP,"chunk_size":$CHUNK_SIZE,"batch_size":$BATCH_SIZE,"device":"$DEVICE","shifts":$SHIFTS,"demucs_segment":$DEMUCS_SEGMENT,"jobs":$JOBS}
+{"status":"$status","step":"$step","progress":$progress_float,"song":"${SONG:-}","elapsed":$elapsed,"eta":$eta,"vocal_model":"${VIPERX_MODEL_DISPLAY:-}","stem_model":"${DEMUCS_MODEL_DISPLAY:-}","segment_size":${SEGMENT_SIZE:-0},"overlap":${OVERLAP:-0},"chunk_size":${CHUNK_SIZE:-0},"batch_size":${BATCH_SIZE:-0},"device":"${DEVICE:-cpu}","shifts":${SHIFTS:-1},"demucs_segment":${DEMUCS_SEGMENT:-0},"jobs":${JOBS:-0}}
 JSONEOF
 }
 trap 'report_progress "error" "${CURRENT_STEP:-unknown}" 0' ERR
