@@ -291,7 +291,7 @@ if $VIPERX; then
                 report_progress "running" "viperx" $global_pct
             fi
         fi
-        sleep 1
+        sleep 0.2
     done
     wait $VIPERX_PID
     echo "   ✅ Viperx done"

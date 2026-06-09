@@ -19,6 +19,7 @@ def _write_progress(progress_file, chunk, total):
     try:
         with open(progress_file, 'w') as pf:
             pf.write('{"step":"viperx","progress":%.4f,"chunk":%d,"total_chunks":%d}' % (progress, chunk, total))
+            pf.flush()
     except Exception:
         pass  # Non-critical; don't crash the pipeline over a progress write failure
 
