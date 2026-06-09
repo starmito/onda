@@ -246,7 +246,6 @@
   let defaultSuccess = $state(false);
   let defaultTimer: ReturnType<typeof setTimeout> | null = null;
 
-  let deleteSelectedPreset = $state('');
   let deleteConfirmVisible = $state(false);
 
   // Load presets from backend API
@@ -361,11 +360,11 @@
   }
 
   async function handleDeletePreset() {
-    if (!deleteSelectedPreset) return;
+    if (!selectedPreset) return;
     try {
-      await deletePreset(deleteSelectedPreset);
-      savedPresets = savedPresets.filter(p => p.name !== deleteSelectedPreset);
-      deleteSelectedPreset = '';
+      await deletePreset(selectedPreset);
+      savedPresets = savedPresets.filter(p => p.name !== selectedPreset);
+      selectedPreset = '';
       deleteConfirmVisible = false;
     } catch {
       // Handle error silently
@@ -373,7 +372,7 @@
   }
 
   function handleDeletePresetConfirm() {
-    if (!deleteSelectedPreset) return;
+    if (!selectedPreset) return;
     deleteConfirmVisible = true;
   }
 </script>
@@ -594,7 +593,7 @@
   <!-- ════════════════════════════════ -->
   <h3 class="category-title">✏️ Editor de Presets</h3>
 
-  <!-- Load Preset Dropdown (moved here from category 1) -->
+  <!-- Single Preset Selector (for both default + delete) -->
   <div class="section">
     <span class="label">Mis presets</span>
     {#if presetsLoading}
@@ -606,8 +605,7 @@
       <div class="preset-row">
         <select
           class="select"
-          value={selectedPreset}
-          onchange={handleLoadPreset}
+          bind:value={selectedPreset}
           disabled={disabled}
         >
           <option value="">-- Mis presets --</option>
@@ -634,32 +632,19 @@
   <!-- Generous separator to avoid accidental delete clicks -->
   <div class="delete-separator"></div>
 
-  <!-- Delete Presets Section -->
+  <!-- Delete Preset Button -->
   <div class="section delete-preset-section">
-    <span class="label">🗑 Eliminar Presets</span>
-    {#if savedPresets.length > 0}
-      <div class="preset-row">
-        <select class="select" bind:value={deleteSelectedPreset} disabled={disabled}>
-          <option value="">-- Seleccionar preset --</option>
-          {#each savedPresets as p}
-            <option value={p.name}>{p.name}</option>
-          {/each}
-        </select>
-      </div>
-      <button class="btn-delete-large" onclick={handleDeletePresetConfirm} disabled={disabled || !deleteSelectedPreset}>
-        🗑 Eliminar Preset
-      </button>
-      {#if deleteConfirmVisible}
-        <div class="delete-confirm">
-          <p>¿Eliminar "{deleteSelectedPreset}"? Esta acción no se puede deshacer.</p>
-          <div class="delete-confirm-actions">
-            <button class="btn-cancel" onclick={() => deleteConfirmVisible = false}>Cancelar</button>
-            <button class="btn-confirm-delete" onclick={handleDeletePreset}>Sí, eliminar</button>
-          </div>
+    <button class="btn-delete-large" onclick={handleDeletePresetConfirm} disabled={disabled || !selectedPreset}>
+      🗑 Eliminar Preset
+    </button>
+    {#if deleteConfirmVisible}
+      <div class="delete-confirm">
+        <p>¿Eliminar "{selectedPreset}"? Esta acción no se puede deshacer.</p>
+        <div class="delete-confirm-actions">
+          <button class="btn-cancel" onclick={() => deleteConfirmVisible = false}>Cancelar</button>
+          <button class="btn-confirm-delete" onclick={handleDeletePreset}>Sí, eliminar</button>
         </div>
-      {/if}
-    {:else}
-      <p class="hint">No hay presets guardados.</p>
+      </div>
     {/if}
   </div>
 </div>
