@@ -110,6 +110,8 @@
   let logTab = $state<'events' | 'services'>('events');
   let serviceLogs = $state<Array<{nano: number, level: string, service: string, message: string}>>([]);
   let serviceLogsLoading = $state(false);
+  let serviceLogLimit = $state(50);
+  let displayed = $derived(serviceLogLimit > 0 ? serviceLogs.slice(0, serviceLogLimit) : serviceLogs);
 
   async function loadServiceLogs() {
     serviceLogsLoading = true;
@@ -697,6 +699,14 @@
             <button class="log-tab" class:active={logTab === 'events'} onclick={() => logTab = 'events'}>Eventos</button>
             <button class="log-tab" class:active={logTab === 'services'} onclick={() => { logTab = 'services'; loadServiceLogs(); }}>Servicios</button>
           </div>
+          {#if logTab === 'services'}
+            <select bind:value={serviceLogLimit} class="log-filter">
+              <option value={50}>Últimos 50</option>
+              <option value={100}>Últimos 100</option>
+              <option value={500}>Últimos 500</option>
+              <option value={0}>Todos</option>
+            </select>
+          {/if}
           <button class="btn-icon" onclick={() => showLogs = false}>✕</button>
         </div>
         <div class="logs-list">
@@ -722,7 +732,7 @@
             {:else if serviceLogs.length === 0}
               <p class="logs-empty">No se pudieron cargar los logs de servicios.</p>
             {:else}
-              {#each serviceLogs as log}
+              {#each displayed as log}
                 <div
                   class="log-row log-{log.level}"
                   onclick={() => logDetail = log}
