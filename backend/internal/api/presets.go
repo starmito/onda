@@ -11,15 +11,19 @@ import (
 )
 
 const userPresetsFile = "/config/presets_user.json"
+const defaultPresetFile = "/config/default_preset.json"
 
 var (
-	userPresets   map[string]cli.Preset
-	userPresetsMu sync.RWMutex
+	userPresets      map[string]cli.Preset
+	userPresetsMu    sync.RWMutex
+	defaultPresetName string
+	defaultPresetMu  sync.RWMutex
 )
 
 func init() {
 	userPresets = make(map[string]cli.Preset)
 	loadUserPresets()
+	loadDefaultPreset()
 }
 
 func loadUserPresets() {
@@ -120,6 +124,76 @@ func (s *Server) handleDeletePreset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	Log("backend", "info", "Preset deleted: "+name)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// loadDefaultPreset reads the default preset name from disk.
+func loadDefaultPreset() {
+	data, err := os.ReadFile(defaultPresetFile)
+	if err != nil {
+		return
+	}
+	var entry struct {
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(data, &entry); err != nil {
+		return
+	}
+	defaultPresetMu.Lock()
+	defaultPresetName = entry.Name
+	defaultPresetMu.Unlock()
+}
+
+func (s *Server) handleGetDefaultPreset(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	defaultPresetMu.RLock()
+	name := defaultPresetName
+	defaultPresetMu.RUnlock()
+	if name == "" {
+		json.NewEncoder(w).Encode(nil)
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]string{"name": name})
+}
+
+func (s *Server) handleSetDefaultPreset(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON"})
+		return
+	}
+	if body.Name == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "name is required"})
+		return
+	}
+
+	defaultPresetMu.Lock()
+	defaultPresetName = body.Name
+	defaultPresetMu.Unlock()
+
+	data, err := json.Marshal(map[string]string{"name": body.Name})
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "marshal error"})
+		return
+	}
+	if err := os.WriteFile(defaultPresetFile, data, 0644); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "write error"})
+		return
+	}
+
+	Log("backend", "success", "Default preset set: "+body.Name)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})

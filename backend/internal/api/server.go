@@ -81,6 +81,8 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("GET /api/presets", s.handleGetPresets)
 	s.mux.HandleFunc("POST /api/presets", s.handleSavePreset)
 	s.mux.HandleFunc("DELETE /api/presets/{name}", s.handleDeletePreset)
+	s.mux.HandleFunc("GET /api/presets/default", s.handleGetDefaultPreset)
+	s.mux.HandleFunc("POST /api/presets/default", s.handleSetDefaultPreset)
 	s.mux.HandleFunc("GET /api/logs", s.handleGetLogs)
 	s.mux.HandleFunc("GET /api/logs/services", s.handleGetServiceLogs)
 	s.mux.HandleFunc("/api/models", s.handleModels)
