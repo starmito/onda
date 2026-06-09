@@ -4,6 +4,11 @@
 
 ### v2.4.0-alpha.2 (2026-06-09)
 
+- Fix: VRAM calculator UI ahora usa endpoint del backend (chunk_size y shifts afectan)
+- Feat: indicador GPU/CPU en la interfaz
+- Fix: progreso de inferencia usa set_progress_bar nativo de UVR (por chunk, no cada 10)
+- Feat: auto-refresh de logs (3s Eventos, 5s Servicios) + botón refrescar manual
+
 - Fix: VRAM calculator ahora incluye chunk_size en ViperX/Roformer
 - Fix: VRAM calculator ahora incluye shifts en modelos Demucs
 - Feat: progreso por paso en la cola (Paso 1/2 ViperX 65%)
