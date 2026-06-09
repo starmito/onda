@@ -17,7 +17,6 @@ func main() {
 		fmt.Println("  onda serve [--addr :PORT]   Start API server")
 		fmt.Println("  onda pipeline [flags]       Run separation pipeline")
 		fmt.Println("  onda version                Show version")
-		fmt.Println("  onda models                 List available models and presets")
 		os.Exit(0)
 	}
 
@@ -40,8 +39,6 @@ func main() {
 		if err := cmd.Run(); err != nil {
 			os.Exit(1)
 		}
-	case "models":
-		fmt.Println("onda models — not implemented yet")
 	case "version":
 		fmt.Println(api.Version)
 	default:
