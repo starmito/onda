@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.3.8 (2026-06-09)
+
+### Fixed
+- Timestamps de docker logs mostraban hora actual — ahora se parsea el timestamp real de nginx
+- Filtro "Todos" en Servicios no funcionaba por coerción string↔number
+
 ## v2.3.7 (2026-06-09)
 
 ### Fixed
