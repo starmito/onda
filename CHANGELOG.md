@@ -1,5 +1,12 @@
 # Changelog
 
+## v2.4.4-alpha (2026-06-10)
+
+### Fixed
+- pipeline_status.json se limpia al iniciar pipeline (ya no muestra estado "done" residual)
+- Reporte de progreso inicial en ViperX y Demucs (barra arranca en 0%, no vacío)
+- Progreso intermedio para Demucs (conteo de stems generados vs esperados)
+
 ## v2.4.3-alpha (2026-06-10)
 
 ### Fixed
