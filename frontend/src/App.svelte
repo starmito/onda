@@ -83,8 +83,22 @@
   // Logs panel state
   const API_BASE = '';
   let showLogs = $state(false);
-  let logs = $state<Array<{nano: number, level: string, message: string}>>([]);
-  let expandedLog = $state<number | null>(null);
+  let logs = $state<Array<{nano: number, level: string, service: string, message: string}>>([]);
+  let logDetail = $state<{nano: number, level: string, service: string, message: string} | null>(null);
+  let logTab = $state<'events' | 'services'>('events');
+  let serviceLogs = $state<Array<{nano: number, level: string, service: string, message: string}>>([]);
+  let serviceLogsLoading = $state(false);
+
+  async function loadServiceLogs() {
+    serviceLogsLoading = true;
+    try {
+      const res = await fetch(`${API_BASE}/api/logs/services`);
+      serviceLogs = await res.json();
+    } catch {
+      serviceLogs = [];
+    }
+    serviceLogsLoading = false;
+  }
 
   async function loadLogs() {
     try {
@@ -628,25 +642,70 @@
     <div class="logs-overlay" onclick={() => showLogs = false}>
       <div class="logs-panel" onclick={(e) => e.stopPropagation()}>
         <div class="logs-header">
-          <h2>📋 Registros del sistema</h2>
+          <h2>📋 Registros</h2>
+          <div class="log-tabs">
+            <button class="log-tab" class:active={logTab === 'events'} onclick={() => logTab = 'events'}>Eventos</button>
+            <button class="log-tab" class:active={logTab === 'services'} onclick={() => { logTab = 'services'; loadServiceLogs(); }}>Servicios</button>
+          </div>
           <button class="btn-icon" onclick={() => showLogs = false}>✕</button>
         </div>
         <div class="logs-list">
-          {#if logs.length === 0}
-            <p class="logs-empty">No hay registros todavía.</p>
+          {#if logTab === 'events'}
+            {#if logs.length === 0}
+              <p class="logs-empty">No hay registros todavía.</p>
+            {:else}
+              {#each logs as log}
+                <div
+                  class="log-row log-{log.level}"
+                  onclick={() => logDetail = log}
+                >
+                  <span class="log-time">{new Date(log.nano / 1e6).toLocaleString()}</span>
+                  <span class="log-service" style="color: {log.service === 'pipeline' ? '#ff9800' : log.service === 'inference' ? '#9c27b0' : '#6c757d'}">{log.service}</span>
+                  <span class="log-level">{log.level === 'error' ? '🔴' : log.level === 'success' ? '🟢' : '⚪'}</span>
+                  <span class="log-msg">{log.message.slice(0, 80)}{log.message.length > 80 ? '...' : ''}</span>
+                </div>
+              {/each}
+            {/if}
           {:else}
-            {#each logs as log, i}
-              <div
-                class="log-row log-{log.level}"
-                class:log-expanded={expandedLog === i}
-                onclick={() => expandedLog = expandedLog === i ? null : i}
-              >
-                <span class="log-time">{new Date(log.nano / 1e6).toLocaleString()}</span>
-                <span class="log-level">{log.level === 'error' ? '🔴' : log.level === 'success' ? '🟢' : '⚪'}</span>
-                <span class="log-msg">{expandedLog === i ? log.message : log.message.slice(0, 80) + (log.message.length > 80 ? '...' : '')}</span>
-              </div>
-            {/each}
+            {#if serviceLogsLoading}
+              <p class="logs-empty">Cargando logs de servicios...</p>
+            {:else if serviceLogs.length === 0}
+              <p class="logs-empty">No se pudieron cargar los logs de servicios.</p>
+            {:else}
+              {#each serviceLogs as log}
+                <div
+                  class="log-row log-{log.level}"
+                  onclick={() => logDetail = log}
+                >
+                  <span class="log-service" style="color: {log.service === 'onda' ? '#ff9800' : '#2196f3'}">{log.service}</span>
+                  <span class="log-level">{log.level === 'error' ? '🔴' : '⚪'}</span>
+                  <span class="log-msg">{log.message.slice(0, 100)}{log.message.length > 100 ? '...' : ''}</span>
+                </div>
+              {/each}
+            {/if}
           {/if}
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if logDetail}
+    <div class="logs-overlay" onclick={() => logDetail = null}>
+      <div class="log-detail-panel" onclick={(e) => e.stopPropagation()}>
+        <div class="logs-header">
+          <h2>Detalle del evento</h2>
+          <button class="btn-icon" onclick={() => logDetail = null}>✕</button>
+        </div>
+        <div class="log-detail-meta">
+          <span class="log-detail-level" class:log-error={logDetail.level === 'error'} class:log-success={logDetail.level === 'success'}>
+            {logDetail.level === 'error' ? '🔴 Error' : logDetail.level === 'success' ? '🟢 Éxito' : '⚪ Info'}
+          </span>
+          <span class="log-detail-service">Servicio: {logDetail.service}</span>
+          <span class="log-detail-time">{new Date(logDetail.nano / 1e6).toLocaleString()}</span>
+        </div>
+        <pre class="log-detail-msg">{logDetail.message}</pre>
+        <div class="log-detail-actions">
+          <button class="btn-icon" onclick={() => copyToClipboard(logDetail!.message)}>📋 Copiar</button>
         </div>
       </div>
     </div>
@@ -1074,8 +1133,73 @@
   .log-row.log-error { border-left-color: #dc3545; }
   .log-row.log-success { border-left-color: #28a745; }
   .log-row.log-info { border-left-color: #6c757d; }
-  .log-expanded { background: rgba(255,255,255,0.08); }
   .log-time { color: #888; white-space: nowrap; min-width: 140px; font-family: monospace; font-size: 11px; }
   .log-level { flex-shrink: 0; width: 20px; text-align: center; }
   .log-msg { color: #ddd; word-break: break-word; flex: 1; }
+
+  .log-tabs {
+    display: flex;
+    gap: 4px;
+    margin: 0 16px;
+  }
+  .log-tab {
+    background: transparent;
+    border: 1px solid #444;
+    color: #aaa;
+    padding: 4px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 13px;
+  }
+  .log-tab.active {
+    background: #333;
+    color: #fff;
+    border-color: #666;
+  }
+  .log-service {
+    font-size: 11px;
+    min-width: 70px;
+    font-weight: bold;
+    flex-shrink: 0;
+  }
+
+  .log-detail-panel {
+    background: #1e1e2e;
+    border-radius: 12px;
+    width: 90vw;
+    max-width: 700px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  }
+  .log-detail-meta {
+    display: flex;
+    gap: 16px;
+    padding: 12px 20px;
+    border-bottom: 1px solid #333;
+    font-size: 13px;
+    color: #aaa;
+  }
+  .log-detail-level { font-weight: bold; }
+  .log-error { color: #dc3545; }
+  .log-success { color: #28a745; }
+  .log-detail-msg {
+    flex: 1;
+    overflow: auto;
+    padding: 20px;
+    margin: 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    color: #ddd;
+    line-height: 1.5;
+  }
+  .log-detail-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding: 12px 20px;
+    border-top: 1px solid #333;
+  }
 </style>
