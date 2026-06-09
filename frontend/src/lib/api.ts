@@ -305,6 +305,9 @@ export interface QueueJob {
   song: string;
   status: 'waiting' | 'processing' | 'done' | 'error';
   progress: number;
+  current_step?: number;
+  total_steps?: number;
+  step_name?: string;
   error?: string;
   files?: { name: string; path: string }[];
 }

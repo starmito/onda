@@ -510,6 +510,14 @@
       default: return 'badge';
     }
   }
+
+  function getJobForQueueFile(qf: QueueFile): QueueJob | undefined {
+    return queueJobs.find(j => {
+      // Match by song name (strip extension from qf.file.name)
+      const qfSong = qf.file.name.replace(/\.[^.]+$/, '');
+      return j.song === qfSong || j.song.startsWith(qfSong);
+    });
+  }
 </script>
 
 <main>
@@ -566,6 +574,7 @@
       </div>
       <div class="queue-list">
         {#each queueFiles as qf (qf.id)}
+          {@const job = getJobForQueueFile(qf)}
           <div class="queue-row">
             <input
               type="checkbox"
@@ -574,6 +583,13 @@
               disabled={qf.status === 'done'}
             />
             <span class="queue-name" title={qf.file.name}>{qf.file.name}</span>
+            {#if job?.status === 'processing'}
+              <span class="queue-step">Paso {job.current_step || 1}/{job.total_steps || 2}</span>
+              <div class="queue-progress-bar-wrap">
+                <div class="queue-progress-bar-fill" style="width: {job.progress || 0}%"></div>
+              </div>
+              <span class="queue-progress-pct">{job.progress || 0}%</span>
+            {/if}
             <span class={statusBadgeClass(qf.status)}>{qf.status}</span>
             <button class="btn-remove" onclick={() => handleRemoveQueueFile(qf.id)}>✕</button>
           </div>
@@ -901,6 +917,35 @@
     white-space: nowrap;
     min-width: 0;
     color: #e0e0e0;
+  }
+  .queue-step {
+    font-size: 0.7rem;
+    color: #00d4ff;
+    font-weight: 600;
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .queue-progress-bar-wrap {
+    width: 60px;
+    height: 5px;
+    background: #0a0a14;
+    border-radius: 3px;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+  .queue-progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #00d4ff, #b388ff);
+    border-radius: 3px;
+    transition: width 0.3s ease;
+  }
+  .queue-progress-pct {
+    font-size: 0.7rem;
+    color: #888;
+    font-weight: 600;
+    flex-shrink: 0;
+    min-width: 2.5rem;
+    text-align: right;
   }
   .badge {
     padding: 0.15rem 0.5rem;
