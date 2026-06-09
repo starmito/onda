@@ -93,7 +93,7 @@ func (s *Server) handleSavePreset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	Log("success", "Preset saved: "+preset.Name)
+	Log("backend", "success", "Preset saved: "+preset.Name)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -119,7 +119,7 @@ func (s *Server) handleDeletePreset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	Log("info", "Preset deleted: "+name)
+	Log("backend", "info", "Preset deleted: "+name)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
