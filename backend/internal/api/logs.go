@@ -74,6 +74,9 @@ func (s *Server) handleGetServiceLogs(w http.ResponseWriter, r *http.Request) {
 	services := []string{"onda", "onda-gui"}
 	var allLogs []LogEntry
 
+	baseNano := time.Now().UnixNano()
+	var lineIdx int64
+
 	for _, svc := range services {
 		cmd := exec.Command("docker", "logs", "--tail", "50", svc)
 		out, err := cmd.CombinedOutput()
@@ -91,11 +94,12 @@ func (s *Server) handleGetServiceLogs(w http.ResponseWriter, r *http.Request) {
 				level = "error"
 			}
 			allLogs = append(allLogs, LogEntry{
-				Nano:    time.Now().UnixNano(),
+				Nano:    baseNano - lineIdx,
 				Level:   level,
 				Service: svc,
 				Message: line,
 			})
+			lineIdx++
 		}
 	}
 
