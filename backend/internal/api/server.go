@@ -79,6 +79,7 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("GET /api/presets", s.handleGetPresets)
 	s.mux.HandleFunc("POST /api/presets", s.handleSavePreset)
 	s.mux.HandleFunc("DELETE /api/presets/{name}", s.handleDeletePreset)
+	s.mux.HandleFunc("GET /api/logs", s.handleGetLogs)
 	s.mux.HandleFunc("/api/models", s.handleModels)
 	s.mux.HandleFunc("GET /api/models/list", s.handleModelsList)
 	s.mux.HandleFunc("POST /api/models/download", s.handleModelsDownload)
@@ -410,6 +411,7 @@ func (s *Server) worker() {
 			if err != nil {
 				state.Status = "error"
 				state.Error = strings.TrimSpace(string(out))
+				Log("error", "Pipeline failed: "+err.Error())
 			} else {
 				state.Status = "done"
 				state.Files = listStems(job.Song)
@@ -638,6 +640,8 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	// Enqueue the job
 	s.jobQueue <- JobRequest{Song: song, Args: pipelineArgs, Config: req}
 
+	Log("success", "Job queued: "+song)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
 	json.NewEncoder(w).Encode(map[string]string{
@@ -691,8 +695,7 @@ func sanitizeModelName(name string) string {
 
 // modelConfigDir returns the path to the per-model config directory (ensures it exists).
 func modelConfigDir() string {
-	projectRoot := findProjectRoot()
-	dir := filepath.Join(projectRoot, "model_configs")
+	dir := "/config/model_configs"
 	os.MkdirAll(dir, 0755)
 	return dir
 }
@@ -819,6 +822,8 @@ func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		Log("success", "Config saved: "+name)
+
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{
 			"ok":     "true",
@@ -860,6 +865,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "no file provided"})
+		Log("error", "Upload failed: "+err.Error())
 		return
 	}
 	defer file.Close()
@@ -872,6 +878,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to save file"})
+		Log("error", "Upload failed: "+err.Error())
 		return
 	}
 	defer dst.Close()
@@ -880,8 +887,11 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to write file"})
+		Log("error", "Upload failed: "+err.Error())
 		return
 	}
+
+	Log("success", "Uploaded: "+safeName)
 
 	// The path inside the container is /input/filename
 	containerPath := "/input/" + safeName
@@ -1222,6 +1232,8 @@ func (s *Server) handleDeleteInput(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
+
+	Log("info", "Deleted input: "+name)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
