@@ -27,7 +27,7 @@
     {/each}
   </select>
 
-  <button class="btn-execute-large" onclick={onExecute} disabled={disabled || !hasFiles}>
+  <button class="btn-execute-large" onclick={onExecute} disabled={disabled || !hasFiles || !selectedPreset}>
     ▶ Ejecutar
   </button>
 
