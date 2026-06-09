@@ -7,29 +7,8 @@ import (
 	"strings"
 )
 
-// Preset defines what models and parameters each preset uses.
-type Preset struct {
-	Name           string   `json:"name"`
-	ViperxEnabled  bool     `json:"viperxEnabled"`
-	DemucsEnabled  bool     `json:"demucsEnabled"`
-	VocalModel     string   `json:"vocalModel"`
-	VocalOverlap   int      `json:"vocalOverlap"`
-	StemModel      string   `json:"stemModel"`
-	DrumsModel     string   `json:"drumsModel"`
-	BassModel      string   `json:"bassModel"`
-	OtherModel     string   `json:"otherModel"`
-	ViperxStems    []string `json:"viperxStems"`
-	DemucsStems    []string `json:"demucsStems"`
-	Pitch          int      `json:"pitch"`
-	Description    string   `json:"description"`
-}
-
-// Presets is the map of all built-in presets (empty — only user presets are used).
-var Presets = map[string]Preset{}
-
 // PipelineFlags holds all parsed CLI flags for the pipeline subcommand.
 type PipelineFlags struct {
-	Preset       string
 	VocalModel   string
 	VocalOverlap int
 	VocalKeep    string   // both, vocals, instrumental
@@ -52,7 +31,6 @@ func ParsePipelineFlags(args []string) (*PipelineFlags, error) {
 	fs := flag.NewFlagSet("pipeline", flag.ContinueOnError)
 
 	// Modern flags
-	preset := fs.String("preset", "balance", "Preset to use: turbo, balance, master, ultimate")
 	vocalModel := fs.String("vocal-model", "", "Vocal separation model (overrides preset)")
 	vocalOverlap := fs.Int("vocal-overlap", 0, "Vocal overlap (overrides preset)")
 	vocalKeep := fs.String("vocal-keep", "both", "Keep: both, vocals, instrumental")
@@ -88,7 +66,6 @@ func ParsePipelineFlags(args []string) (*PipelineFlags, error) {
 	}
 
 	flags := &PipelineFlags{
-		Preset:       *preset,
 		VocalModel:   *vocalModel,
 		VocalOverlap: *vocalOverlap,
 		VocalKeep:    *vocalKeep,
@@ -140,11 +117,6 @@ func ParsePipelineFlags(args []string) (*PipelineFlags, error) {
 		if !flags.hasPitch {
 			flags.Pitch = 0
 		}
-	}
-
-	// Resolve preset (applies defaults, allows overrides)
-	if err := flags.ResolvePreset(); err != nil {
-		return nil, err
 	}
 
 	// Validate
