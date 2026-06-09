@@ -64,7 +64,29 @@
   let errorBanner = $state<{ message: string } | null>(null);
 
   function copyToClipboard(text: string) {
-    navigator.clipboard.writeText(text).catch(() => {});
+    // navigator.clipboard requires HTTPS or localhost — fallback for HTTP
+    if (navigator.clipboard && window.isSecureContext) {
+      navigator.clipboard.writeText(text).catch(() => fallbackCopy(text));
+    } else {
+      fallbackCopy(text);
+    }
+  }
+
+  function fallbackCopy(text: string) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.position = 'fixed';
+    ta.style.left = '-9999px';
+    ta.style.top = '-9999px';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try {
+      document.execCommand('copy');
+    } catch {
+      // silently fail
+    }
+    document.body.removeChild(ta);
   }
 
   function showToast(message: string, type: 'success' | 'error') {
