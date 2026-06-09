@@ -247,14 +247,25 @@
   });
 
   // ---- File Queue handlers ----
-  function handleFilesAdded(newFiles: File[]) {
-    const newItems: QueueFile[] = newFiles.map((f) => ({
-      file: f,
-      id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`,
-      status: 'waiting',
-      checked: true,
-    }));
-    queueFiles = [...queueFiles, ...newItems];
+  async function handleFilesAdded(newFiles: File[]) {
+    for (const f of newFiles) {
+      const id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
+      const qf: QueueFile = {
+        file: f,
+        id,
+        status: 'uploading',
+        checked: true,
+      };
+      queueFiles = [...queueFiles, qf];
+      try {
+        const res = await uploadAudio(f);
+        qf.status = 'waiting';
+        qf.path = res.path;
+      } catch (err: any) {
+        qf.status = 'error';
+        qf.errorMsg = err.message || 'Upload failed';
+      }
+    }
   }
 
   function handleDropZoneFile(f: File) {
