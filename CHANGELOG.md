@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.4.1-alpha (2026-06-09)
+
+### Fixed
+- VRAM calculator: reconoce nombres completos de modelo (BS_Roformer_Viperx, no solo "viperx")
+- VRAM calculator: incluye segment_size, overlap, batch_size en la fórmula
+- Progreso: barra de progreso lee valor real del queue status (ya no se queda en 0%)
+- Device indicator: muestra "Ejecutando en GPU/CPU" durante inferencia activa
+
 ## v2.4.0-alpha (2026-06-09)
 
 ### v2.4.0-alpha.2 (2026-06-09)
