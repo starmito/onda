@@ -15,6 +15,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/starmito/onda/internal/cli"
 )
 
 // FileEntry describes a generated stem file.
@@ -73,6 +75,10 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("GET /api/queue/status", s.handleQueueStatus)
 	s.mux.HandleFunc("GET /api/results", s.handleResults)
 	s.mux.HandleFunc("GET /api/inputs", s.handleInputs)
+	// Presets API (must be BEFORE /api/models catch-all)
+	s.mux.HandleFunc("GET /api/presets", s.handleGetPresets)
+	s.mux.HandleFunc("POST /api/presets", s.handleSavePreset)
+	s.mux.HandleFunc("DELETE /api/presets/{name}", s.handleDeletePreset)
 	s.mux.HandleFunc("GET /api/logs", s.handleGetLogs)
 	s.mux.HandleFunc("GET /api/logs/services", s.handleGetServiceLogs)
 	s.mux.HandleFunc("/api/models", s.handleModels)
@@ -471,6 +477,7 @@ func buildPipelineArgs(req SeparateRequest) (song string, args []string) {
 		args = append(args, "--rubberband", "--pitch", fmt.Sprintf("%d", req.Pitch))
 	}
 
+	preset := getAllPresets()[req.Preset]
 	if req.VocalModel != "" {
 		modelDir := resolveModelDir(req.VocalModel)
 		if modelDir != "" {
@@ -478,6 +485,9 @@ func buildPipelineArgs(req SeparateRequest) (song string, args []string) {
 		}
 	}
 	stemModel := req.StemModel
+	if stemModel == "" {
+		stemModel = preset.StemModel
+	}
 	if stemModel != "" {
 		args = append(args, "--demucs-model", stemModel)
 	}
@@ -559,7 +569,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(map[string]interface{}{})
+	json.NewEncoder(w).Encode(cli.Presets)
 }
 
 // SeparateRequest is the JSON body for POST /api/separate.
@@ -609,6 +619,19 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 			"error": fmt.Sprintf("invalid JSON: %v", err),
 		})
 		return
+	}
+
+	// Validate preset (optional — if provided, must exist in user presets)
+	if req.Preset != "" {
+		_, ok := getAllPresets()[req.Preset]
+		if !ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": fmt.Sprintf("unknown preset %q", req.Preset),
+			})
+			return
+		}
 	}
 
 	// Build pipeline arguments and extract song name
