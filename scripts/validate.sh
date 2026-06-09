@@ -22,7 +22,7 @@ echo "📁 Required files"
 [ -f Dockerfile ] || [ -f Dockerfile.v2 ]       ; check "Dockerfile"
 [ -f docker-compose.yml ]  ; check "docker-compose.yml"
 [ -f .dockerignore ]       ; check ".dockerignore"
-[ -f requirements-docker-v2.txt ]; check "requirements-docker-v2.txt"
+[ -f requirements-docker.txt ]; check "requirements-docker.txt"
 echo ""
 
 # ── 2. Bash syntax ──
@@ -85,15 +85,14 @@ fi
 echo ""
 
 # ── 7. Git state ──
-# ── 7. Git state ──
 echo "🔀 Git state"
 if git rev-parse --git-dir >/dev/null 2>&1; then
-    git diff --quiet || { echo -e "  ⚠ Uncommitted changes exist"; warn=1; }
-    git diff --cached --quiet || { echo -e "  ⚠ Staged changes not committed"; warn=1; }
-    UNPUSHED=0
-    if [ "" -eq 0 ]; then echo -e "  ✓ All commits pushed"; pass=1; else echo -e "  ⚠  unpushed commits"; warn=1; fi
+    git diff --quiet || { echo -e "  ⚠ Uncommitted changes exist"; warn=$((warn+1)); }
+    git diff --cached --quiet || { echo -e "  ⚠ Staged changes not committed"; warn=$((warn+1)); }
+    UNPUSHED=$(git log @{u}.. 2>/dev/null | grep -c "^commit " || echo "0")
+    if [ "$UNPUSHED" -eq 0 ]; then echo -e "  ✓ All commits pushed"; pass=$((pass+1)); else echo -e "  ⚠ $UNPUSHED unpushed commits"; warn=$((warn+1)); fi
 else
-    echo -e "  ⚠ Not a git repository — skipping git checks"; warn=1
+    echo -e "  ⚠ Not a git repository — skipping git checks"; warn=$((warn+1))
 fi
 echo ""
 
