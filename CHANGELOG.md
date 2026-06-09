@@ -1,5 +1,17 @@
 # Changelog
 
+## v2.3.4 (2026-06-10)
+
+### Fixed
+- Presets guardan y restauran el estado COMPLETO del pipeline (pasos activos, stems, modelos)
+- Errores de pipeline muestran la salida real de stderr en los logs (antes solo "exit status 1")
+
+### Added
+- Campo `service` en logs (backend, pipeline, inference)
+- Panel de detalle al hacer click en un log (mensaje completo + metadata + botón copiar)
+- Pestaña "Servicios" con logs reales de docker (onda, onda-gui)
+- Colores por servicio en el visor de logs
+
 ## v2.3.3 (2026-06-10)
 
 ### Fixed
