@@ -40,6 +40,22 @@ func Log(service, level, message string) {
 	}
 }
 
+// LogWithNano añade una entrada al ring buffer con un timestamp específico.
+func LogWithNano(service, level, message string, nano int64) {
+	logBufferMu.Lock()
+	defer logBufferMu.Unlock()
+	entry := LogEntry{
+		Nano:    nano,
+		Level:   level,
+		Service: service,
+		Message: message,
+	}
+	logBuffer = append(logBuffer, entry)
+	if len(logBuffer) > maxLogEntries {
+		logBuffer = logBuffer[len(logBuffer)-maxLogEntries:]
+	}
+}
+
 func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	logBufferMu.RLock()

@@ -132,7 +132,9 @@
   async function loadLogs() {
     try {
       const res = await fetch(`${API_BASE}/api/logs`);
-      logs = await res.json();
+      const allLogs = await res.json();
+      // Events tab: exclude detailed pipeline info lines
+      logs = allLogs.filter((e: any) => !(e.service === 'pipeline' && e.level === 'info'));
     } catch (e) {
       logs = [];
     }
@@ -259,11 +261,13 @@
       queueFiles = [...queueFiles, qf];
       try {
         const res = await uploadAudio(f);
-        qf.status = 'waiting';
-        qf.path = res.path;
+        queueFiles = queueFiles.map(q =>
+          q.id === id ? { ...q, status: 'waiting', path: res.path } : q
+        );
       } catch (err: any) {
-        qf.status = 'error';
-        qf.errorMsg = err.message || 'Upload failed';
+        queueFiles = queueFiles.map(q =>
+          q.id === id ? { ...q, status: 'error', errorMsg: err.message || 'Upload failed' } : q
+        );
       }
     }
   }

@@ -407,13 +407,15 @@ func (s *Server) worker() {
 		cmd := exec.Command("docker", dockerArgs...)
 		out, err := cmd.CombinedOutput()
 
-		// Log all pipeline output to ring buffer
-		for _, line := range strings.Split(string(out), "\n") {
+		// Log all pipeline output to ring buffer with distinct timestamps
+		baseNano := time.Now().UnixNano()
+		lines := strings.Split(string(out), "\n")
+		for i, line := range lines {
 			line = strings.TrimSpace(line)
 			if line == "" {
 				continue
 			}
-			Log("pipeline", "info", line)
+			LogWithNano("pipeline", "info", line, baseNano-int64(i))
 		}
 
 		s.jobsMu.Lock()
