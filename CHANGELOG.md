@@ -1,5 +1,39 @@
 # Changelog
 
+## v2.5.1 (2026-06-09)
+
+### Added
+- **Default preset persistente**: endpoint `GET/POST /api/presets/default` que guarda el preset predeterminado en `/config/default_preset.json`. El frontend lo carga automáticamente al iniciar.
+- **Botón "Establecer como predeterminado"** en el Gestor de Presets, con confirmación visual verde.
+- **Reorganización del Gestor de Presets** en dos categorías: "Crear Presets" (configuración + guardar) y "Editor de Presets" (un solo selector para establecer predeterminado y eliminar).
+
+### Changed
+- **Selector de presets unificado**: un solo dropdown en "Editor de Presets" sirve para ambas acciones (predeterminado y eliminar). Eliminado el selector duplicado de la sección de eliminar.
+- Botón "Ejecutar" en PresetsPanel se deshabilita si no hay preset seleccionado.
+
+## v2.5.0-alpha (2026-06-09)
+
+### Added
+- **Botón 🎛 Gestor de Presets** en la UI principal que abre el editor en modal fullscreen.
+- **PresetsPanel**: nuevo componente con selector de preset, botón Ejecutar y barra de progreso integrada.
+- **Cabecera de cola**: fila de encabezado con checkbox maestro, columnas "Título", "Progreso" y "Estado".
+- **Banner de confirmación**: tras guardar un preset, banner verde "✅ Preset guardado correctamente" durante 5 segundos.
+- **Sección "🗑 Eliminar Presets"** con confirmación explícita antes de borrar.
+
+### Changed
+- **PipelineEditor renombrado** a "Gestor de Presets" con etiquetas descriptivas: "Modelo separador de Voces/Stems", "Separación de Voces/Stems".
+- **Botón Guardar Preset** grande y centrado (💾), con estilo verde prominente.
+- **Ventana de Logs**: convertida a modal fullscreen unificado (mismo patrón que ModelManager/ModelDownloader).
+- **✕ reemplaza "← Volver"** en ModelManager y ModelDownloader para consistencia visual.
+
+### Fixed
+- **Ventanas fullscreen unificadas**: PresetEditor y Logs usan `.fullscreen` (pantalla completa), mismo patrón que ModelManager. Eliminado `modal-overlay`/`modal-panel`.
+- **Barra de progreso en idle**: ya no muestra 100% falso — solo se activa con `status === 'running'`.
+- **PresetsPanel estrecho**: anchura ampliada para mejor legibilidad.
+- **Botón ✕ alineado**: header flex con ✕ a la izquierda y título centrado en todas las ventanas.
+- **Refresco de presets**: al cerrar el Editor, la lista de presets se recarga automáticamente.
+- **Tamaños de ventana inconsistentes**: todas las modales usan las mismas dimensiones y estilos.
+
 ## v2.4.4 (2026-06-10)
 
 ### Fixed
