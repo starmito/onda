@@ -309,9 +309,7 @@
     separating = true;
     pipelineStatus = 'running';
     pipelineStep = '';
-    pipelineError = '';
     currentProgress = 0;
-    pipelineEta = 0;
     queueJobs = [];
     processedDoneSongs = new Set();
 
@@ -442,23 +440,6 @@
         // Silently keep polling on transient network errors
       }
     }, 500);
-  }
-
-  function extractSongFromName(name: string): string {
-    return name.replace(/_(vocals|drums|bass|other|instrumental)\.\w+$/i, '');
-  }
-
-  function loadResults(status: StatusResponse) {
-    if (status.files && status.files.length > 0) {
-      const newResults: ResultStem[] = status.files.map((f: any) => ({
-        name: f.name,
-        path: f.path,
-        song: status.song || extractSongFromName(f.name),
-        stemType: detectStemType(f.name),
-      }));
-      results = [...newResults];
-      pipelineStatus = 'done';
-    }
   }
 
   // ---- ResultsPanel delete callbacks ---- 
@@ -620,9 +601,6 @@
           {#if pipelineStep}
             <span class="progress-step">{pipelineStep}</span>
           {/if}
-          {#if pipelineModel}
-            <span class="progress-model">{pipelineModel}</span>
-          {/if}
         </div>
         <div class="progress-bar-wrap">
           <div class="progress-bar-fill" style="width: {currentProgress * 100}%"></div>
@@ -632,13 +610,7 @@
           {#if pipelineSong}
             <span class="progress-song">{pipelineSong}</span>
           {/if}
-          {#if pipelineEta > 0}
-            <span class="progress-eta">ETA: {pipelineEta}s</span>
-          {/if}
         </div>
-        {#if pipelineError}
-          <div class="progress-error">{pipelineError}</div>
-        {/if}
       </div>
     </section>
   {/if}
