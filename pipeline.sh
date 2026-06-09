@@ -280,7 +280,7 @@ if $VIPERX; then
     while kill -0 $VIPERX_PID 2>/dev/null; do
         if [ -f "$VIPERX_PROGRESS_FILE" ]; then
             chunk=$(python3 -c "import json; print(json.load(open("$VIPERX_PROGRESS_FILE")).get("chunk",0))" 2>/dev/null || echo 0)
-            total=$(python3 -c "import json; print(json.load(open("$VIPERX_PROGRESS_FILE")).get("total",0))" 2>/dev/null || echo 0)
+            total=$(python3 -c "import json; print(json.load(open("$VIPERX_PROGRESS_FILE")).get("total_chunks",0))" 2>/dev/null || echo 0)
             if [ -n "$chunk" ] && [ -n "$total" ] && [ "$total" -gt 0 ]; then
                 step_pct=$(( chunk * 100 / total ))
                 global_pct=$(( VIPERX_START + (step_pct * (VIPERX_END - VIPERX_START) / 100) ))
@@ -341,18 +341,11 @@ if $DEMUCS; then
     [ "${DEMUCS_SEGMENT}" -gt 0 ] && DEMUCS_ARGS+=(--segment "${DEMUCS_SEGMENT}")
     [ "${JOBS}" -gt 0 ] && DEMUCS_ARGS+=(-j "${JOBS}")
 
-    # Run demucs, capture stdout, parse tqdm percentage for real-time progress
-    # Demucs uses \r (carriage return) for tqdm progress bars — split them into lines
-    demucs "${DEMUCS_ARGS[@]}" "${DEMUCS_INPUT}" 2>&1 | \
-    tr '\r' '\n' | \
-    while IFS= read -r line; do
-        echo "$line"  # still echo for logging
-        if [[ "$line" =~ ([0-9]+)% ]]; then
-            pct="${BASH_REMATCH[1]}"
-            global_pct=$(( DEMUCS_START + (pct * (DEMUCS_END - DEMUCS_START) / 100) ))
-            report_progress "running" "demucs" $global_pct
-        fi
-    done
+    # Run demucs directly; progress is tracked via pipeline_status.json step boundaries.
+    # Removed the fragile tqdm regex that broke on different Demucs output formats.
+    report_progress "running" "demucs" $DEMUCS_START
+    run_with_elapsed demucs "${DEMUCS_ARGS[@]}" "${DEMUCS_INPUT}"
+    report_progress "running" "demucs" $DEMUCS_END
     echo "   ✅ HTDemucs_ft done"
 
     # Find stem directory
