@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -89,10 +90,16 @@ func (s *Server) handlePitchShift(w http.ResponseWriter, r *http.Request) {
 	// Output subdirectory: /output/{song}/{song}_pitch{+N}/
 	pitchSuffix := fmt.Sprintf("_pitch%+d", req.Pitch)
 	outDir := filepath.Join(songDir, req.Song+pitchSuffix)
-	if err := os.MkdirAll(outDir, 0777); err != nil {
+
+	// Create output directory INSIDE the onda container (as uid 1000),
+	// so it's writable by rubberband (also uid 1000 in onda).
+	// Bind-mount ZFS prevents chmod from working across container boundaries.
+	containerOutDir := "/output/" + req.Song + "/" + req.Song + pitchSuffix
+	mkdirCmd := exec.Command("docker", "exec", "onda", "mkdir", "-p", containerOutDir)
+	if out, err := mkdirCmd.CombinedOutput(); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to create output dir: %v", err)})
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to create output dir: %v (output: %s)", err, string(out))})
 		return
 	}
 
