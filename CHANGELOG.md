@@ -1,5 +1,10 @@
 # Changelog
 
+## v2.3.7 (2026-06-09)
+
+### Fixed
+- Timestamps de docker logs idénticos en pestaña Servicios — ahora cada línea tiene nano decreciente
+
 ## v2.3.6 (2026-06-09)
 
 ### Fixed
