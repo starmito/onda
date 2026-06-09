@@ -972,11 +972,6 @@
     font-size: 0.8rem;
     color: #c0c0d0;
   }
-  .progress-model {
-    font-size: 0.7rem;
-    color: #606080;
-    margin-left: auto;
-  }
   .progress-bar-wrap {
     width: 100%;
     height: 8px;
@@ -999,16 +994,6 @@
   .progress-pct {
     font-weight: 700;
     color: #00d4ff;
-  }
-  .progress-eta {
-    margin-left: auto;
-  }
-  .progress-error {
-    font-size: 0.8rem;
-    color: #e57373;
-    background: #2a1a1a;
-    padding: 0.5rem;
-    border-radius: 6px;
   }
 
   /* Toast */
