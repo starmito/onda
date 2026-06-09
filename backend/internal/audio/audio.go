@@ -13,6 +13,7 @@ func SupportedExtensions() []string {
 	return []string{".wav", ".mp3", ".flac", ".ogg", ".m4a", ".aiff", ".wma"}
 }
 
+// Deprecated: only used in tests
 // IsAudioFile comprueba si un archivo tiene extensión de audio soportada
 func IsAudioFile(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))

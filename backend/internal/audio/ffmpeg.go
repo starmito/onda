@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+// Deprecated: only used in tests
 // ConvertToWav convierte cualquier archivo de audio a WAV usando ffmpeg.
 // sampleRate: frecuencia de muestreo en Hz (0 para mantener la original)
 func ConvertToWav(input, output string, sampleRate int) error {
@@ -24,6 +25,7 @@ func ConvertToWav(input, output string, sampleRate int) error {
 	return nil
 }
 
+// Deprecated: only used in tests
 // GetDuration obtiene la duración de un archivo de audio en segundos usando ffprobe.
 func GetDuration(input string) (float64, error) {
 	cmd := exec.Command(
@@ -74,6 +76,7 @@ func GetDuration(input string) (float64, error) {
 	return duration, nil
 }
 
+// Deprecated: only used in tests
 // IsFfmpegInstalled verifica si ffmpeg está disponible en el PATH
 func IsFfmpegInstalled() bool {
 	_, err := exec.LookPath("ffmpeg")

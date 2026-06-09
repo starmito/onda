@@ -31,6 +31,7 @@ func RubberbandPitch(semitones int, input, output string) error {
 	return nil
 }
 
+// Deprecated: only used in tests
 // IsRubberbandInstalled verifica si rubberband está disponible dentro del contenedor onda
 func IsRubberbandInstalled() bool {
 	cmd := exec.Command("docker", "exec", "onda", "which", "rubberband")
