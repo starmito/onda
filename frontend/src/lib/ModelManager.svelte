@@ -134,11 +134,14 @@
       vramCalcLoading = true;
       vramCalcError = false;
       try {
-        const params: { models: string; chunk_size?: number; shifts?: number } = {
+        const params: { models: string; chunk_size?: number; shifts?: number; segment_size?: number; overlap?: number; batch_size?: number } = {
           models: model,
         };
         if (chunkSize > 0) params.chunk_size = chunkSize;
-        if (shifts > 0) params.shifts = shifts;
+        if (shifts > 1) params.shifts = shifts;
+        if (segmentSize > 0) params.segment_size = segmentSize;
+        if (overlap > 0) params.overlap = overlap;
+        if (batchSize > 0) params.batch_size = batchSize;
         const result = await getVRAMCalculator(params);
         if (!cancelled) {
           vramCalcResult = result;

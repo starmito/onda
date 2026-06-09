@@ -582,6 +582,9 @@ export async function getVRAMCalculator(params: {
   models: string;
   chunk_size?: number;
   shifts?: number;
+  segment_size?: number;
+  overlap?: number;
+  batch_size?: number;
 }): Promise<VRAMCalculatorResponse> {
   const qs = new URLSearchParams();
   qs.set('models', params.models);
@@ -590,6 +593,15 @@ export async function getVRAMCalculator(params: {
   }
   if (params.shifts !== undefined && params.shifts > 0) {
     qs.set('shifts', String(params.shifts));
+  }
+  if (params.segment_size !== undefined && params.segment_size > 0) {
+    qs.set('segment_size', String(params.segment_size));
+  }
+  if (params.overlap !== undefined && params.overlap > 0) {
+    qs.set('overlap', String(params.overlap));
+  }
+  if (params.batch_size !== undefined && params.batch_size > 0) {
+    qs.set('batch_size', String(params.batch_size));
   }
   const res = await fetch(`${API_BASE}/api/gpu/vram-calculator?${qs.toString()}`);
   if (!res.ok) {
