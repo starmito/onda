@@ -9,15 +9,19 @@ import (
 
 // Preset defines what models and parameters each preset uses.
 type Preset struct {
-	Name        string `json:"name"`
-	VocalModel  string `json:"vocalModel"`
-	VocalOverlap int   `json:"vocalOverlap"`
-	StemModel   string `json:"stemModel"`
-	DrumsModel  string `json:"drumsModel"`
-	BassModel   string `json:"bassModel"`
-	OtherModel  string `json:"otherModel"`
-	Pitch       int    `json:"pitch"`
-	Description string `json:"description"`
+	Name           string   `json:"name"`
+	ViperxEnabled  bool     `json:"viperxEnabled"`
+	DemucsEnabled  bool     `json:"demucsEnabled"`
+	VocalModel     string   `json:"vocalModel"`
+	VocalOverlap   int      `json:"vocalOverlap"`
+	StemModel      string   `json:"stemModel"`
+	DrumsModel     string   `json:"drumsModel"`
+	BassModel      string   `json:"bassModel"`
+	OtherModel     string   `json:"otherModel"`
+	ViperxStems    []string `json:"viperxStems"`
+	DemucsStems    []string `json:"demucsStems"`
+	Pitch          int      `json:"pitch"`
+	Description    string   `json:"description"`
 }
 
 // Presets is the map of all available presets.
