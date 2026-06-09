@@ -321,6 +321,11 @@
     );
   }
 
+  function handleToggleAll() {
+    const allChecked = queueFiles.every(qf => qf.checked);
+    queueFiles = queueFiles.map(qf => ({ ...qf, checked: !allChecked }));
+  }
+
   // ---- Pipeline start ----
   async function handlePipelineStart(config: PipelineConfigType) {
     // Clear any existing polling
@@ -637,6 +642,18 @@
       <div class="queue-header">
         <span class="queue-title">📋 Cola ({queueFiles.length})</span>
         <button class="btn-clear" onclick={handleClearQueue}>Limpiar</button>
+      </div>
+      <div class="queue-columns-header">
+        <input
+          type="checkbox"
+          checked={queueFiles.length > 0 && queueFiles.every(qf => qf.checked)}
+          onchange={handleToggleAll}
+          title="Seleccionar / Deseleccionar todas"
+        />
+        <span class="col-title">Título</span>
+        <span class="col-progress">Progreso</span>
+        <span class="col-status">Estado</span>
+        <span class="col-action"></span>
       </div>
       <div class="queue-list">
         {#each queueFiles as qf (qf.id)}
@@ -991,6 +1008,23 @@
     flex-direction: column;
     gap: 0.3rem;
   }
+  .queue-columns-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 12px;
+    background: rgba(255,255,255,0.03);
+    border-bottom: 1px solid #2a2a4a;
+    font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    color: #888;
+  }
+  .queue-columns-header input[type="checkbox"] {
+    flex-shrink: 0; width: 16px; height: 16px;
+    cursor: pointer; accent-color: #00d4ff;
+  }
+  .col-title { flex: 1; }
+  .col-progress { width: 180px; text-align: center; }
+  .col-status { width: 90px; text-align: center; }
+  .col-action { width: 32px; }
   .queue-row {
     display: flex;
     align-items: center;
