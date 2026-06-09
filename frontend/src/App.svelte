@@ -60,13 +60,39 @@
   let toastType = $state<'success' | 'error'>('success');
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
+  // Persistent error banner
+  let errorBanner = $state<{ message: string } | null>(null);
+
+  function copyToClipboard(text: string) {
+    navigator.clipboard.writeText(text).catch(() => {});
+  }
+
   function showToast(message: string, type: 'success' | 'error') {
-    toastMessage = message;
-    toastType = type;
-    if (toastTimer) clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => {
-      toastMessage = '';
-    }, 3000);
+    if (type === 'error') {
+      errorBanner = { message };
+    } else {
+      toastMessage = message;
+      toastType = type;
+      if (toastTimer) clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => {
+        toastMessage = '';
+      }, 3000);
+    }
+  }
+
+  // Logs panel state
+  const API_BASE = '';
+  let showLogs = $state(false);
+  let logs = $state<Array<{nano: number, level: string, message: string}>>([]);
+  let expandedLog = $state<number | null>(null);
+
+  async function loadLogs() {
+    try {
+      const res = await fetch(`${API_BASE}/api/logs`);
+      logs = await res.json();
+    } catch (e) {
+      logs = [];
+    }
   }
 
   let showModelPanel = $state(false);
@@ -463,6 +489,11 @@
       onclick={() => (showModelPanel = !showModelPanel)}
       title="Gestor de modelos"
     >⚙️</button>
+    <button
+      class="btn-gear"
+      onclick={() => { showLogs = !showLogs; if (showLogs) loadLogs(); }}
+      title="Registros del sistema"
+    >📋</button>
   </header>
 
   <!-- DropZone -->
@@ -571,6 +602,17 @@
     <div class="toast {toastType}">{toastMessage}</div>
   {/if}
 
+  <!-- Error Banner (persistent) -->
+  {#if errorBanner}
+    <div class="error-banner">
+      <span class="error-banner-text">{errorBanner.message}</span>
+      <div class="error-banner-actions">
+        <button class="btn-icon" title="Copiar error" onclick={() => copyToClipboard(errorBanner!.message)}>📋</button>
+        <button class="btn-icon" title="Cerrar" onclick={() => errorBanner = null}>✕</button>
+      </div>
+    </div>
+  {/if}
+
   <!-- ModelDownloader panel -->
   {#if showDownloader}
     <ModelDownloader onclose={() => (showDownloader = false)} />
@@ -579,6 +621,35 @@
   <!-- ModelManager panel -->
   {#if showModelPanel}
     <ModelManager onclose={() => (showModelPanel = false)} initialModel={undefined} />
+  {/if}
+
+  <!-- Logs panel -->
+  {#if showLogs}
+    <div class="logs-overlay" onclick={() => showLogs = false}>
+      <div class="logs-panel" onclick={(e) => e.stopPropagation()}>
+        <div class="logs-header">
+          <h2>📋 Registros del sistema</h2>
+          <button class="btn-icon" onclick={() => showLogs = false}>✕</button>
+        </div>
+        <div class="logs-list">
+          {#if logs.length === 0}
+            <p class="logs-empty">No hay registros todavía.</p>
+          {:else}
+            {#each logs as log, i}
+              <div
+                class="log-row log-{log.level}"
+                class:log-expanded={expandedLog === i}
+                on:click={() => expandedLog = expandedLog === i ? null : i}
+              >
+                <span class="log-time">{new Date(log.nano / 1e6).toLocaleString()}</span>
+                <span class="log-level">{log.level === 'error' ? '🔴' : log.level === 'success' ? '🟢' : '⚪'}</span>
+                <span class="log-msg">{expandedLog === i ? log.message : log.message.slice(0, 80) + (log.message.length > 80 ? '...' : '')}</span>
+              </div>
+            {/each}
+          {/if}
+        </div>
+      </div>
+    </div>
   {/if}
 
 
@@ -913,4 +984,98 @@
       font-size: 1.5rem;
     }
   }
+
+  /* Error Banner */
+  .error-banner {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #dc3545;
+    color: white;
+    padding: 12px 20px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    z-index: 10000;
+    max-width: 90vw;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  }
+  .error-banner-text {
+    flex: 1;
+    word-break: break-word;
+    max-height: 150px;
+    overflow-y: auto;
+  }
+  .error-banner-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .btn-icon {
+    background: rgba(255,255,255,0.2);
+    border: 1px solid rgba(255,255,255,0.3);
+    color: white;
+    padding: 6px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+  }
+  .btn-icon:hover {
+    background: rgba(255,255,255,0.3);
+  }
+
+  /* Logs Panel */
+  .logs-overlay {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.5);
+    z-index: 9999;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .logs-panel {
+    background: #1e1e2e;
+    border-radius: 12px;
+    width: 90vw;
+    max-width: 700px;
+    max-height: 80vh;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  }
+  .logs-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 16px 20px;
+    border-bottom: 1px solid #333;
+  }
+  .logs-header h2 { margin: 0; color: #eee; font-size: 18px; }
+  .logs-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+  }
+  .logs-empty { color: #888; text-align: center; padding: 40px; }
+  .log-row {
+    display: flex;
+    gap: 10px;
+    padding: 8px 12px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    border-left: 3px solid transparent;
+    margin-bottom: 2px;
+  }
+  .log-row:hover { background: rgba(255,255,255,0.05); }
+  .log-row.log-error { border-left-color: #dc3545; }
+  .log-row.log-success { border-left-color: #28a745; }
+  .log-row.log-info { border-left-color: #6c757d; }
+  .log-expanded { background: rgba(255,255,255,0.08); }
+  .log-time { color: #888; white-space: nowrap; min-width: 140px; font-family: monospace; font-size: 11px; }
+  .log-level { flex-shrink: 0; width: 20px; text-align: center; }
+  .log-msg { color: #ddd; word-break: break-word; flex: 1; }
 </style>
