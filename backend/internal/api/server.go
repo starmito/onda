@@ -45,12 +45,15 @@ type JobRequest struct {
 
 // JobState tracks the status of a separation job.
 type JobState struct {
-	Song     string      `json:"song"`
-	Status   string      `json:"status"` // waiting, processing, done, error
-	Progress int         `json:"progress"`
-	Error    string      `json:"error,omitempty"`
-	Files    []FileEntry `json:"files,omitempty"`
-	Index    int         `json:"index"`
+	Song        string      `json:"song"`
+	Status      string      `json:"status"` // waiting, processing, done, error
+	Progress    int         `json:"progress"`
+	Error       string      `json:"error,omitempty"`
+	Files       []FileEntry `json:"files,omitempty"`
+	Index       int         `json:"index"`
+	CurrentStep int         `json:"current_step"`
+	TotalSteps  int         `json:"total_steps"`
+	StepName    string      `json:"step_name"`
 }
 
 // Server wraps the HTTP server with routes, middleware, and a sequential job queue.
@@ -376,8 +379,37 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 	s.jobsMu.RLock()
 	defer s.jobsMu.RUnlock()
 
+	// Read pipeline status file for live step/progress info
+	type PipelineStatusJSON struct {
+		Status   string  `json:"status"`
+		Step     string  `json:"step"`
+		Progress float64 `json:"progress"`
+	}
+	var pipelineStatus PipelineStatusJSON
+	projectRoot := findProjectRoot()
+	statusPath := filepath.Join(projectRoot, "output", "pipeline_status.json")
+	if data, err := os.ReadFile(statusPath); err == nil {
+		json.Unmarshal(data, &pipelineStatus)
+	}
+
+	// Step name mapping and ordering
+	stepOrder := map[string]int{"viperx": 1, "demucs": 2, "rubberband": 3}
+
 	var jobList []*JobState
 	for _, j := range s.jobs {
+		// For the processing job, inject live step/progress from pipeline_status.json
+		if j.Status == "processing" && pipelineStatus.Status != "" {
+			j.StepName = capitalizeStep(pipelineStatus.Step)
+			j.CurrentStep = stepOrder[pipelineStatus.Step]
+			if j.CurrentStep == 0 {
+				j.CurrentStep = 1
+			}
+			j.Progress = int(pipelineStatus.Progress * 100)
+			// Ensure total_steps is at least current_step
+			if j.TotalSteps < j.CurrentStep {
+				j.TotalSteps = j.CurrentStep
+			}
+		}
 		jobList = append(jobList, j)
 	}
 	sort.Slice(jobList, func(i, j int) bool {
@@ -390,6 +422,22 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"jobs": jobList})
+}
+
+// capitalizeStep returns a display-friendly step name.
+func capitalizeStep(step string) string {
+	switch step {
+	case "viperx":
+		return "ViperX"
+	case "demucs":
+		return "Demucs"
+	case "rubberband":
+		return "Rubberband"
+	case "complete":
+		return "Complete"
+	default:
+		return step
+	}
 }
 
 // worker processes jobs sequentially from the queue.
@@ -646,7 +694,22 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	s.jobs[song] = &JobState{Song: song, Status: "waiting", Index: s.nextIndex}
+	// Compute total pipeline steps
+	totalSteps := 0
+	if req.Viperx {
+		totalSteps++
+	}
+	if req.Demucs {
+		totalSteps++
+	}
+	if req.Pitch != 0 {
+		totalSteps++
+	}
+	if totalSteps == 0 {
+		totalSteps = 2 // default: viperx + demucs
+	}
+
+	s.jobs[song] = &JobState{Song: song, Status: "waiting", Index: s.nextIndex, TotalSteps: totalSteps}
 	s.nextIndex++
 	s.jobsMu.Unlock()
 
