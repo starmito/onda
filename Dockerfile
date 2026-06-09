@@ -17,9 +17,9 @@ RUN pip install --no-cache-dir --target /deps \
     demucs==4.0.1 --no-deps
 
 # Dependencias restantes fijadas
-COPY requirements-docker-v2.txt /tmp/
+COPY requirements-docker.txt /tmp/
 RUN SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True \
-    pip install --no-cache-dir --target /deps -r /tmp/requirements-docker-v2.txt
+    pip install --no-cache-dir --target /deps -r /tmp/requirements-docker.txt
 
 # ── Runtime stage ────────────────────────────────────
 FROM python:3.12-slim AS runtime
