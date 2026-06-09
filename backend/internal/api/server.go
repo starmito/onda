@@ -416,6 +416,7 @@ func (s *Server) worker() {
 			} else {
 				state.Status = "done"
 				state.Files = listStems(job.Song)
+				Log("pipeline", "success", fmt.Sprintf("Pipeline completed: %s (%d stems)", job.Song, len(state.Files)))
 			}
 		}
 		s.jobsMu.Unlock()

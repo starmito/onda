@@ -114,8 +114,15 @@
   async function loadServiceLogs() {
     serviceLogsLoading = true;
     try {
-      const res = await fetch(`${API_BASE}/api/logs/services`);
-      serviceLogs = await res.json();
+      // Merge ring buffer events + docker logs
+      const [eventsRes, svcRes] = await Promise.all([
+        fetch(`${API_BASE}/api/logs`),
+        fetch(`${API_BASE}/api/logs/services`)
+      ]);
+      const events = await eventsRes.json();
+      const svcLogs = await svcRes.json();
+      // Merge and sort by nano (newest first)
+      serviceLogs = [...events, ...svcLogs].sort((a, b) => b.nano - a.nano);
     } catch {
       serviceLogs = [];
     }
@@ -705,8 +712,9 @@
                   class="log-row log-{log.level}"
                   onclick={() => logDetail = log}
                 >
-                  <span class="log-service" style="color: {log.service === 'onda' ? '#ff9800' : '#2196f3'}">{log.service}</span>
-                  <span class="log-level">{log.level === 'error' ? '🔴' : '⚪'}</span>
+                  <span class="log-time">{new Date(log.nano / 1e6).toLocaleString()}</span>
+                  <span class="log-service" style="color: {log.service === 'pipeline' ? '#ff9800' : log.service === 'backend' ? '#2196f3' : log.service === 'onda' ? '#9c27b0' : '#6c757d'}">{log.service}</span>
+                  <span class="log-level">{log.level === 'error' ? '🔴' : log.level === 'success' ? '🟢' : '⚪'}</span>
                   <span class="log-msg">{log.message.slice(0, 100)}{log.message.length > 100 ? '...' : ''}</span>
                 </div>
               {/each}

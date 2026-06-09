@@ -150,6 +150,7 @@ func (s *Server) handlePitchShift(w http.ResponseWriter, r *http.Request) {
 		} else {
 			// Apply rubberband pitch shift
 			if err := audio.RubberbandPitch(req.Pitch, inputPath, outputPath); err != nil {
+				Log("pipeline", "error", fmt.Sprintf("Rubberband failed for %s: %v", name, err))
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusInternalServerError)
 				json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("rubberband failed for %s: %v", name, err)})
@@ -171,6 +172,7 @@ func (s *Server) handlePitchShift(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
+	Log("pipeline", "success", fmt.Sprintf("Pitch shift +%d applied to %s (%d stems)", req.Pitch, req.Song, len(resultFiles)))
 	json.NewEncoder(w).Encode(PitchResponse{
 		Song:  req.Song,
 		Pitch: req.Pitch,
