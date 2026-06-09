@@ -286,9 +286,15 @@
     }
 
     try {
-      // Upload all checked files
+      // Upload all checked files (skip if already on server)
       const uploaded: { qf: QueueFile; path: string }[] = [];
       for (const qf of checked) {
+        // If file already has a server path (restored from filesystem), skip upload
+        if (qf.path) {
+          qf.status = 'processing';
+          uploaded.push({ qf, path: qf.path });
+          continue;
+        }
         try {
           const res = await uploadAudio(qf.file);
           qf.status = 'processing';

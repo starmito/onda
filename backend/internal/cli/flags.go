@@ -24,48 +24,8 @@ type Preset struct {
 	Description    string   `json:"description"`
 }
 
-// Presets is the map of all available presets.
-var Presets = map[string]Preset{
-	"custom": {
-		Name:         "custom",
-		VocalModel:   "polarformer",
-		VocalOverlap: 4,
-		StemModel:    "htdemucs_ft",
-		Description:  "Configuración personalizada desde PipelineConfig",
-	},
-	"turbo": {
-		Name:         "turbo",
-		VocalModel:   "melband_kj",
-		VocalOverlap: 2,
-		StemModel:    "htdemucs_ft",
-		Description:  "Rápido, ~8GB VRAM",
-	},
-	"balance": {
-		Name:         "balance",
-		VocalModel:   "polarformer",
-		VocalOverlap: 4,
-		StemModel:    "htdemucs_ft",
-		Description:  "Recomendado, ~12GB VRAM",
-	},
-	"master": {
-		Name:         "master",
-		VocalModel:   "polarformer",
-		VocalOverlap: 8,
-		StemModel:    "htdemucs_ft",
-		BassModel:    "htdemucs_bass",
-		Description:  "Máxima calidad vocal, ~12GB VRAM",
-	},
-	"ultimate": {
-		Name:         "ultimate",
-		VocalModel:   "polarformer",
-		VocalOverlap: 8,
-		StemModel:    "",
-		DrumsModel:   "htdemucs_drums",
-		BassModel:    "htdemucs_bass",
-		OtherModel:   "viperx_other",
-		Description:  "Mejor por stem, 4 pases dedicados, ~12GB VRAM",
-	},
-}
+// Presets is the map of all built-in presets (empty — only user presets are used).
+var Presets = map[string]Preset{}
 
 // PipelineFlags holds all parsed CLI flags for the pipeline subcommand.
 type PipelineFlags struct {
