@@ -10,7 +10,7 @@ import (
 	"github.com/starmito/onda/internal/cli"
 )
 
-const userPresetsFile = "/app/presets_user.json"
+const userPresetsFile = "/config/presets_user.json"
 
 var (
 	userPresets   map[string]cli.Preset
@@ -93,6 +93,8 @@ func (s *Server) handleSavePreset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	Log("success", "Preset saved: "+preset.Name)
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
@@ -116,6 +118,8 @@ func (s *Server) handleDeletePreset(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
+
+	Log("info", "Preset deleted: "+name)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
