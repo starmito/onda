@@ -15,8 +15,6 @@ import (
 	"sync"
 	"syscall"
 	"time"
-
-	"github.com/starmito/onda/internal/cli"
 )
 
 // FileEntry describes a generated stem file.
@@ -569,7 +567,7 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(cli.Presets)
+	json.NewEncoder(w).Encode(getAllPresets())
 }
 
 // SeparateRequest is the JSON body for POST /api/separate.
