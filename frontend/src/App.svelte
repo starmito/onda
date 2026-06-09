@@ -110,7 +110,6 @@
   let serviceLogLimit = $state(50);
   let displayed = $derived(serviceLogLimit > 0 ? serviceLogs.slice(0, serviceLogLimit) : serviceLogs);
   let logsPollTimer: ReturnType<typeof setInterval> | null = null;
-  let serviceLogsPollTimer: ReturnType<typeof setInterval> | null = null;
 
   async function loadServiceLogs() {
     serviceLogsLoading = true;
@@ -143,7 +142,6 @@
 
   function stopLogsPolling() {
     if (logsPollTimer) { clearInterval(logsPollTimer); logsPollTimer = null; }
-    if (serviceLogsPollTimer) { clearInterval(serviceLogsPollTimer); serviceLogsPollTimer = null; }
   }
 
   function startLogsPolling() {
@@ -153,8 +151,7 @@
       loadLogs(); // immediate load
       logsPollTimer = setInterval(loadLogs, 3000);
     } else if (logTab === 'services') {
-      loadServiceLogs(); // immediate load
-      serviceLogsPollTimer = setInterval(loadServiceLogs, 5000);
+      loadServiceLogs(); // manual refresh only (no auto-refresh)
     }
   }
 
