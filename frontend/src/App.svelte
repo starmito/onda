@@ -166,6 +166,7 @@
 
   let showModelPanel = $state(false);
   let showDownloader = $state(false);
+  let showPresetEditor = $state(false);
 
 
   // Load model list + persisted data on mount
@@ -596,6 +597,11 @@
     >⚙️</button>
     <button
       class="btn-gear"
+      onclick={() => (showPresetEditor = !showPresetEditor)}
+      title="Editor de Presets"
+    >🎛</button>
+    <button
+      class="btn-gear"
       onclick={() => { showLogs = !showLogs; if (showLogs) loadLogs(); }}
       title="Registros del sistema"
     >📋</button>
@@ -658,14 +664,7 @@
     </section>
   {/if}
 
-  <!-- PipelineEditor -->
-  <section class="editor-section">
-    <PipelineEditor
-      disabled={separating}
-      hasFiles={queueFiles.length > 0}
-      onstart={handlePipelineStart}
-    />
-  </section>
+
 
 
   <!-- Progress -->
@@ -731,6 +730,25 @@
   <!-- ModelManager panel -->
   {#if showModelPanel}
     <ModelManager onclose={() => (showModelPanel = false)} initialModel={undefined} />
+  {/if}
+
+  <!-- PresetEditor modal -->
+  {#if showPresetEditor}
+    <div class="modal-overlay" onclick={() => showPresetEditor = false}>
+      <div class="modal-panel preset-editor-panel" onclick={(e) => e.stopPropagation()}>
+        <div class="modal-header">
+          <h2>🎛 Editor de Presets</h2>
+          <button class="btn-close" onclick={() => showPresetEditor = false}>✕</button>
+        </div>
+        <div class="modal-body">
+          <PipelineEditor
+            disabled={separating}
+            hasFiles={queueFiles.length > 0}
+            onstart={handlePipelineStart}
+          />
+        </div>
+      </div>
+    </div>
   {/if}
 
   <!-- Logs panel -->
@@ -1357,4 +1375,27 @@
     padding: 12px 20px;
     border-top: 1px solid #333;
   }
+.modal-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.6); z-index: 10000;
+  display: flex; align-items: center; justify-content: center;
+}
+.modal-panel {
+  background: #1a1a2e; border-radius: 12px;
+  width: 90vw; max-width: 700px; max-height: 85vh;
+  display: flex; flex-direction: column;
+  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+.modal-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 16px 20px; border-bottom: 1px solid #333;
+}
+.modal-header h2 { margin: 0; color: #eee; font-size: 18px; }
+.modal-body { flex: 1; overflow-y: auto; padding: 20px; }
+.btn-close {
+  background: transparent; border: 1px solid #555; color: #aaa;
+  font-size: 18px; width: 32px; height: 32px; border-radius: 6px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+}
+.btn-close:hover { background: rgba(255,255,255,0.1); color: #fff; }
 </style>
