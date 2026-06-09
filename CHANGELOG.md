@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.4.0-alpha (2026-06-09)
+
+### Fase 7 — Optimización y limpieza
+
+- Eliminadas ~880 líneas de código muerto (Go, Svelte, Python)
+- 3 duplicidades unificadas (copyFile, loaders catálogo, groupBySong)
+- 4 requirements.txt consolidados en 2 (NVIDIA + AMD)
+- 5 funciones API + 4 interfaces huérfanas eliminadas del frontend
+- Componente PipelinePanel.svelte (441 líneas) eliminado
+- Dependencia @tauri-apps/api no usada eliminada
+- Presets legacy + tests rotos eliminados
+- onda.sh reparado (referencias rotas a compose files)
+- validate.sh reparado (bug en chequeo git)
+- CSS huérfano eliminado
+
 ## v2.3.8 (2026-06-09)
 
 ### Fixed
