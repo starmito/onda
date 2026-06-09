@@ -639,7 +639,7 @@
               <div
                 class="log-row log-{log.level}"
                 class:log-expanded={expandedLog === i}
-                on:click={() => expandedLog = expandedLog === i ? null : i}
+                onclick={() => expandedLog = expandedLog === i ? null : i}
               >
                 <span class="log-time">{new Date(log.nano / 1e6).toLocaleString()}</span>
                 <span class="log-level">{log.level === 'error' ? '🔴' : log.level === 'success' ? '🟢' : '⚪'}</span>
