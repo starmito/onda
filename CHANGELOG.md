@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.3.5 (2026-06-09)
+
+### Fixed
+- Archivos arrastrados se pierden al refrescar — ahora se suben al servidor inmediatamente al arrastrar
+- Logs de pipeline/inferencia no visibles — ahora cada línea de stdout/stderr de pipeline.sh se guarda en el ring buffer
+
 ## v2.3.4 (2026-06-10)
 
 ### Fixed
