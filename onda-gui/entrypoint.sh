@@ -1,6 +1,9 @@
 #!/bin/sh
 set -e
 
+# ── Create persistent config directories ──
+mkdir -p /config/model_configs
+
 # ── Start Go backend ──
 echo "→ Starting Go backend on :3001..."
 /usr/bin/onda-backend serve --addr :3001 &
