@@ -411,7 +411,7 @@ func (s *Server) worker() {
 			if err != nil {
 				state.Status = "error"
 				state.Error = strings.TrimSpace(string(out))
-				Log("error", "Pipeline failed: "+err.Error())
+				Log("pipeline", "error", "Pipeline failed for "+job.Song+": "+strings.TrimSpace(string(out)))
 			} else {
 				state.Status = "done"
 				state.Files = listStems(job.Song)
@@ -640,7 +640,7 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	// Enqueue the job
 	s.jobQueue <- JobRequest{Song: song, Args: pipelineArgs, Config: req}
 
-	Log("success", "Job queued: "+song)
+	Log("backend", "success", "Job queued: "+song)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
@@ -822,7 +822,7 @@ func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		Log("success", "Config saved: "+name)
+		Log("backend", "success", "Config saved: "+name)
 
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{
@@ -865,7 +865,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "no file provided"})
-		Log("error", "Upload failed: "+err.Error())
+		Log("backend", "error", "Upload failed: "+err.Error())
 		return
 	}
 	defer file.Close()
@@ -878,7 +878,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to save file"})
-		Log("error", "Upload failed: "+err.Error())
+		Log("backend", "error", "Upload failed: "+err.Error())
 		return
 	}
 	defer dst.Close()
@@ -887,11 +887,11 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to write file"})
-		Log("error", "Upload failed: "+err.Error())
+		Log("backend", "error", "Upload failed: "+err.Error())
 		return
 	}
 
-	Log("success", "Uploaded: "+safeName)
+	Log("backend", "success", "Uploaded: "+safeName)
 
 	// The path inside the container is /input/filename
 	containerPath := "/input/" + safeName
@@ -1233,7 +1233,7 @@ func (s *Server) handleDeleteInput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	Log("info", "Deleted input: "+name)
+	Log("backend", "info", "Deleted input: "+name)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
