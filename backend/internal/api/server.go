@@ -739,31 +739,6 @@ func loadModelConfig(name string) (ModelConfig, error) {
 	return cfg, nil
 }
 
-// applyModelConfigToArgs appends inference flags from a ModelConfig to an args slice.
-func applyModelConfigToArgs(args []string, cfg ModelConfig) []string {
-	args = append(args, "--segment-size", fmt.Sprintf("%d", cfg.SegmentSize))
-	args = append(args, "--overlap", fmt.Sprintf("%.2f", cfg.Overlap))
-	if cfg.ChunkSize > 0 {
-		args = append(args, "--chunk-size", fmt.Sprintf("%d", cfg.ChunkSize))
-	}
-	if cfg.BatchSize > 0 {
-		args = append(args, "--batch-size", fmt.Sprintf("%d", cfg.BatchSize))
-	}
-	if cfg.Device != "" {
-		args = append(args, "--device", cfg.Device)
-	}
-	// Demucs PyTorch-specific flags (only meaningful for htdemucs_ft)
-	if cfg.Shifts > 0 {
-		args = append(args, "--shifts", fmt.Sprintf("%d", cfg.Shifts))
-	}
-	if cfg.Segment > 0 {
-		args = append(args, "--demucs-segment", fmt.Sprintf("%d", cfg.Segment))
-	}
-	if cfg.Jobs > 0 {
-		args = append(args, "--jobs", fmt.Sprintf("%d", cfg.Jobs))
-	}
-	return args
-}
 
 // handleModelsConfig saves or retrieves per-model inference configuration.
 // GET  /api/models/{name}/config  — returns the config for a model (defaults if none saved)
