@@ -48,6 +48,7 @@
   let queueJobs = $state<QueueJob[]>([]);
   let queuePollingTimer: ReturnType<typeof setInterval> | null = null;
   let processedDoneSongs = $state<Set<string>>(new Set());
+  let activeSongNames = $state<Set<string>>(new Set()); // songs submitted in current batch
 
   // ---- Health / Version from backend ----
   let healthVersion = $state('');
@@ -343,6 +344,7 @@
     inferenceDevice = '';
     queueJobs = [];
     processedDoneSongs = new Set();
+    activeSongNames = new Set();
 
     // Mark checked files as uploading
     for (const qf of checked) {
@@ -381,6 +383,9 @@
 
       // Enqueue each uploaded file via separateAudio
       for (const { qf, path } of uploaded) {
+        // Track song name for total progress
+        const songName = path.split('/').pop()?.replace(/\.[^.]+$/, '') || '';
+        activeSongNames.add(songName);
         try {
           await separateAudio({
             preset,
@@ -427,17 +432,21 @@
           if (processingJob.device) inferenceDevice = processingJob.device;
         }
 
-        // Calculate total progress across all jobs
-        if (queueJobs.length > 0) {
+        // Calculate total progress across ALL submitted songs in this batch
+        if (queueJobs.length > 0 && activeSongNames.size > 0) {
           let totalSteps = 0;
           let completedSteps = 0;
           for (const job of queueJobs) {
-            if (job.total_steps) totalSteps += job.total_steps;
+            // Only count jobs from the current batch
+            if (!activeSongNames.has(job.song)) continue;
+            const steps = job.total_steps || 1;
+            totalSteps += steps;
             if (job.status === 'done') {
-              completedSteps += (job.total_steps || 1);
-            } else if (job.status === 'processing' && job.current_step) {
-              completedSteps += (job.current_step - 1) + (job.progress || 0) / 100;
+              completedSteps += steps;
+            } else if (job.status === 'processing') {
+              completedSteps += (job.current_step || 1) - 1 + (job.progress || 0) / 100;
             }
+            // waiting/error jobs contribute 0
           }
           if (totalSteps > 0) {
             currentProgress = completedSteps / totalSteps;
