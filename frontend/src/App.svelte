@@ -426,9 +426,25 @@
         if (processingJob) {
           pipelineSong = processingJob.song;
           pipelineStep = processingJob.step_name || 'processing';
-          currentProgress = (processingJob.progress || 0) / 100;
           if (processingJob.eta) pipelineEta = processingJob.eta;
           if (processingJob.device) inferenceDevice = processingJob.device;
+        }
+
+        // Calculate total progress across all jobs
+        if (queueJobs.length > 0) {
+          let totalSteps = 0;
+          let completedSteps = 0;
+          for (const job of queueJobs) {
+            if (job.total_steps) totalSteps += job.total_steps;
+            if (job.status === 'done') {
+              completedSteps += (job.total_steps || 1);
+            } else if (job.status === 'processing' && job.current_step) {
+              completedSteps += (job.current_step - 1) + (job.progress || 0) / 100;
+            }
+          }
+          if (totalSteps > 0) {
+            currentProgress = completedSteps / totalSteps;
+          }
         }
 
         // Check for newly done jobs → accumulate results
@@ -471,6 +487,7 @@
           queuePollingTimer = null;
           separating = false;
           pipelineStatus = queueJobs.some((j) => j.status === 'error') ? 'error' : 'done';
+          pipelineStep = 'Completado';
           currentProgress = 1;
         }
       } catch (e) {
