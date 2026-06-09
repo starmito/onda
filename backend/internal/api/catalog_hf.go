@@ -3,18 +3,10 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-	"os"
 )
 
 func loadHFCatalog() ([]byte, error) {
-	// Try container path first, then project root
-	for _, p := range []string{"/app/hf_models.json", "hf_models.json"} {
-		data, err := os.ReadFile(p)
-		if err == nil {
-			return data, nil
-		}
-	}
-	return nil, os.ErrNotExist
+	return readProjectFile("hf_models.json")
 }
 
 func (s *Server) handleModelsCatalogHF(w http.ResponseWriter, r *http.Request) {

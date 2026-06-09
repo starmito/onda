@@ -5,9 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -73,12 +71,7 @@ var (
 // loadModelCatalog ensures the UVR catalog is loaded into the cache.
 func loadModelCatalog() {
 	catalogOnce.Do(func() {
-		var data []byte
-		var err error
-		data, err = os.ReadFile("/app/uvr_models.json")
-		if err != nil {
-			data, err = os.ReadFile(filepath.Join(findProjectRoot(), "uvr_models.json"))
-		}
+		data, err := readProjectFile("uvr_models.json")
 		if err == nil {
 			json.Unmarshal(data, &modelCatalogCache)
 		}

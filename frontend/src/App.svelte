@@ -8,8 +8,8 @@
   import ModelDownloader from './lib/ModelDownloader.svelte';
   import type { ResultStem } from './lib/types';
   import { detectStemType } from './lib/types';
-  import { separateAudio, getStatus, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth } from './lib/api';
-  import type { StatusResponse, QueueJob } from './lib/api';
+  import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth } from './lib/api';
+  import type { QueueJob } from './lib/api';
 
 
   interface QueueFile {
@@ -37,15 +37,10 @@
   let queueFiles = $state<QueueFile[]>([]);
   let separating = $state(false);
   let results = $state<ResultStem[]>([]);
-  let modelsError = $state(false);
   let pipelineStatus = $state<'idle'|'running'|'done'|'error'>('idle');
   let pipelineStep = $state('');
   let pipelineSong = $state('');
-  let pipelineEta = $state(0);
   let currentProgress = $state(0);
-  let pipelineError = $state('');
-  let pipelineModel = $state('');
-  let pollingTimer: ReturnType<typeof setInterval> | null = null;
 
   // ---- Queue state ----
   let queueJobs = $state<QueueJob[]>([]);
@@ -246,7 +241,6 @@
 
   // Cleanup timers on unmount
   onDestroy(() => {
-    if (pollingTimer) clearInterval(pollingTimer);
     if (queuePollingTimer) clearInterval(queuePollingTimer);
   });
 
@@ -299,10 +293,6 @@
   // ---- Pipeline start ----
   async function handlePipelineStart(config: PipelineConfigType) {
     // Clear any existing polling
-    if (pollingTimer) {
-      clearInterval(pollingTimer);
-      pollingTimer = null;
-    }
     if (queuePollingTimer) {
       clearInterval(queuePollingTimer);
       queuePollingTimer = null;

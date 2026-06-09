@@ -279,13 +279,9 @@ func listModels() ModelsListResponse {
 // It tries /app/uvr_models.json first (container path), then falls back to
 // the project root.
 func loadUVRCatalog() ([]UVRModelEntry, error) {
-	data, err := os.ReadFile("/app/uvr_models.json")
+	data, err := readProjectFile("uvr_models.json")
 	if err != nil {
-		projectRoot := findProjectRoot()
-		data, err = os.ReadFile(filepath.Join(projectRoot, "uvr_models.json"))
-		if err != nil {
-			return nil, fmt.Errorf("failed to read uvr_models.json: %w", err)
-		}
+		return nil, fmt.Errorf("failed to read uvr_models.json: %w", err)
 	}
 	var catalog []UVRModelEntry
 	if err := json.Unmarshal(data, &catalog); err != nil {
