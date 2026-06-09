@@ -609,15 +609,17 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Validate preset
-	_, ok := getAllPresets()[req.Preset]
-	if !ok {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": fmt.Sprintf("unknown preset %q", req.Preset),
-		})
-		return
+	// Validate preset (optional — if provided, must exist in user presets)
+	if req.Preset != "" {
+		_, ok := getAllPresets()[req.Preset]
+		if !ok {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": fmt.Sprintf("unknown preset %q", req.Preset),
+			})
+			return
+		}
 	}
 
 	// Build pipeline arguments and extract song name
