@@ -295,6 +295,25 @@
     stopLogsPolling();
   });
 
+  // ---- Presets refresh (called when editor closes) ----
+  function refreshPresets() {
+    getPresets().then(data => {
+      const list = Object.entries(data).map(([name, p]: [string, any]) => ({
+        name,
+        config: {
+          preset: name,
+          viperx: p.viperxEnabled ?? true,
+          viperxModel: p.vocalModel || 'BS_Roformer_Viperx',
+          viperxStems: p.viperxStems || ['vocals', 'instrumental'],
+          demucs: p.demucsEnabled ?? true,
+          demucsModel: p.stemModel || 'htdemucs_ft',
+          demucsStems: p.demucsStems || ['drums', 'bass', 'other'],
+        }
+      }));
+      savedPresets = list;
+    }).catch(() => {});
+  }
+
   // ---- File Queue handlers ----
   async function handleFilesAdded(newFiles: File[]) {
     for (const f of newFiles) {
@@ -766,11 +785,11 @@
 
   <!-- PresetEditor modal -->
   {#if showPresetEditor}
-    <div class="modal-overlay" onclick={() => showPresetEditor = false}>
+    <div class="modal-overlay" onclick={() => { showPresetEditor = false; refreshPresets(); }}>
       <div class="modal-panel preset-editor-panel" onclick={(e) => e.stopPropagation()}>
         <div class="modal-header">
           <h2>🎛 Editor de Presets</h2>
-          <button class="btn-close" onclick={() => showPresetEditor = false}>✕</button>
+          <button class="btn-close" onclick={() => { showPresetEditor = false; refreshPresets(); }}>✕</button>
         </div>
         <div class="modal-body">
           <PipelineEditor
@@ -1312,7 +1331,7 @@
     background: #1e1e2e;
     border-radius: 12px;
     width: 90vw;
-    max-width: 700px;
+    max-width: 900px;
     max-height: 80vh;
     display: flex;
     flex-direction: column;
@@ -1380,7 +1399,7 @@
     background: #1e1e2e;
     border-radius: 12px;
     width: 90vw;
-    max-width: 700px;
+    max-width: 900px;
     max-height: 80vh;
     display: flex;
     flex-direction: column;
@@ -1415,6 +1434,11 @@
     padding: 12px 20px;
     border-top: 1px solid #333;
   }
+.logs-overlay {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.6); z-index: 10000;
+  display: flex; align-items: center; justify-content: center;
+}
 .modal-overlay {
   position: fixed; top: 0; left: 0; right: 0; bottom: 0;
   background: rgba(0,0,0,0.6); z-index: 10000;
@@ -1422,7 +1446,7 @@
 }
 .modal-panel {
   background: #1a1a2e; border-radius: 12px;
-  width: 90vw; max-width: 700px; max-height: 85vh;
+  width: 90vw; max-width: 900px; max-height: 90vh;
   display: flex; flex-direction: column;
   box-shadow: 0 8px 32px rgba(0,0,0,0.5);
 }
@@ -1436,6 +1460,7 @@
   background: transparent; border: 1px solid #555; color: #aaa;
   font-size: 18px; width: 32px; height: 32px; border-radius: 6px;
   cursor: pointer; display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
 }
 .btn-close:hover { background: rgba(255,255,255,0.1); color: #fff; }
 </style>

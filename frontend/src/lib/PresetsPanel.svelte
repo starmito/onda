@@ -31,7 +31,7 @@
     ▶ Ejecutar
   </button>
 
-  {#if status !== 'idle'}
+  {#if status === 'running'}
     <div class="progress-card">
       <div class="progress-header">
         <span class="progress-status">{status}</span>
@@ -53,7 +53,7 @@
 </section>
 
 <style>
-  .presets-section { background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 12px; padding: 20px; margin: 12px 0; }
+  .presets-section { width: 100%; box-sizing: border-box; background: #1a1a2e; border: 1px solid #2a2a4a; border-radius: 12px; padding: 20px; margin: 12px 0; }
   .presets-title { margin: 0 0 16px 0; color: #00d4ff; font-size: 1rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
   .preset-select-large { width: 100%; padding: 14px 16px; background: #0a0a14; border: 1px solid #333; border-radius: 8px; color: #eee; font-size: 16px; cursor: pointer; margin-bottom: 12px; }
   .preset-select-large:focus { outline: none; border-color: #00d4ff; }
