@@ -49,6 +49,7 @@
 
   // ---- Health / Version from backend ----
   let healthVersion = $state('');
+  let gpuLabel = $state('');
 
   // Toast
   let toastMessage = $state('');
@@ -107,6 +108,8 @@
   let serviceLogsLoading = $state(false);
   let serviceLogLimit = $state(50);
   let displayed = $derived(serviceLogLimit > 0 ? serviceLogs.slice(0, serviceLogLimit) : serviceLogs);
+  let logsPollTimer: ReturnType<typeof setInterval> | null = null;
+  let serviceLogsPollTimer: ReturnType<typeof setInterval> | null = null;
 
   async function loadServiceLogs() {
     serviceLogsLoading = true;
@@ -137,6 +140,31 @@
     }
   }
 
+  function stopLogsPolling() {
+    if (logsPollTimer) { clearInterval(logsPollTimer); logsPollTimer = null; }
+    if (serviceLogsPollTimer) { clearInterval(serviceLogsPollTimer); serviceLogsPollTimer = null; }
+  }
+
+  function startLogsPolling() {
+    stopLogsPolling();
+    if (!showLogs) return;
+    if (logTab === 'events') {
+      loadLogs(); // immediate load
+      logsPollTimer = setInterval(loadLogs, 3000);
+    } else if (logTab === 'services') {
+      loadServiceLogs(); // immediate load
+      serviceLogsPollTimer = setInterval(loadServiceLogs, 5000);
+    }
+  }
+
+  // Auto-refresh: start/stop polling based on panel state and active tab
+  $effect(() => {
+    // Track showLogs and logTab — re-run effect when either changes
+    showLogs; logTab;
+    startLogsPolling();
+    return stopLogsPolling;
+  });
+
   let showModelPanel = $state(false);
   let showDownloader = $state(false);
 
@@ -145,7 +173,16 @@
   onMount(() => {
     // ── Load version from health endpoint ──
     getHealth()
-      .then((h) => { if (h?.version) healthVersion = h.version; })
+      .then((h) => {
+        if (h?.version) healthVersion = h.version;
+        // Extract GPU name from health.gpu.detail (format: "NVIDIA GeForce RTX 5060 Ti, 0 MiB, 16311 MiB")
+        if (h?.gpu?.ok && h?.gpu?.detail) {
+          const gpuName = h.gpu.detail.split(',')[0]?.trim() || h.gpu.detail;
+          gpuLabel = 'GPU: ' + gpuName;
+        } else {
+          gpuLabel = 'CPU';
+        }
+      })
       .catch(() => {}); // silent fail
 
     // ── Load persisted results from filesystem (/output/) ──
@@ -242,6 +279,7 @@
   // Cleanup timers on unmount
   onDestroy(() => {
     if (queuePollingTimer) clearInterval(queuePollingTimer);
+    stopLogsPolling();
   });
 
   // ---- File Queue handlers ----
@@ -524,6 +562,9 @@
   <header>
     <h1>🎵 Onda</h1>
     <span class="version">{healthVersion || 'v2.2.0'}</span>
+    {#if gpuLabel}
+      <span class="gpu-label">{gpuLabel}</span>
+    {/if}
     <button
       class="btn-gear"
       onclick={() => (showDownloader = !showDownloader)}
@@ -689,6 +730,7 @@
               <option value={0}>Todos</option>
             </select>
           {/if}
+          <button class="btn-refresh" onclick={() => logTab === 'events' ? loadLogs() : loadServiceLogs()} title="Refrescar">🔄</button>
           <button class="btn-icon" onclick={() => showLogs = false}>✕</button>
         </div>
         <div class="logs-list">
@@ -809,6 +851,16 @@
     color: #555;
     font-weight: 500;
     letter-spacing: 0.5px;
+  }
+
+  .gpu-label {
+    font-size: 0.75rem;
+    color: #00d4ff;
+    font-weight: 600;
+    padding: 0.15rem 0.5rem;
+    border: 1px solid #00d4ff33;
+    border-radius: 4px;
+    background: #00d4ff0a;
   }
 
   .btn-gear {
@@ -1140,6 +1192,20 @@
   }
   .btn-icon:hover {
     background: rgba(255,255,255,0.3);
+  }
+
+  .btn-refresh {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: white;
+    padding: 6px 10px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px;
+    transition: background 0.2s;
+  }
+  .btn-refresh:hover {
+    background: rgba(255,255,255,0.25);
   }
 
   /* Logs Panel */
