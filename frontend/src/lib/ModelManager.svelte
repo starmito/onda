@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getModelConfig, setModelConfig, getLocalModels, getGpuInfo, type ModelConfigResponse, type LocalModel, type GpuInfo } from './api';
+  import { getModelConfig, setModelConfig, getLocalModels, getGpuInfo, getVRAMCalculator, type ModelConfigResponse, type LocalModel, type GpuInfo, type VRAMCalculatorResponse } from './api';
 
   interface Props {
     onclose?: () => void;
@@ -26,53 +26,15 @@
   let totalVramMb = $state<number | null>(null);
   let vramError = $state(false);
 
-  // Derived VRAM estimate
-  let selectedModelSizeMb = $derived.by(() => {
-    if (!selectedModel) return null;
-    const found = models.find(m => m.name === selectedModel);
-    if (!found) return null;
-    return found.vram_estimate_mb || found.size_mb || null;
-  });
+  // VRAM calculator result from backend API
+  let vramCalcResult = $state<VRAMCalculatorResponse | null>(null);
+  let vramCalcLoading = $state(false);
+  let vramCalcError = $state(false);
 
-  let estimatedVramMb = $derived.by(() => {
-    if (selectedModelSizeMb === null) return null;
-    const base = selectedModelSizeMb;
-
-    // Demucs (htdemucs_ft) uses its own set of parameters: segment (duration
-    // in seconds) and jobs (parallel workers). Shifts are sequential offsets
-    // with a single model load, so they do not scale VRAM.
-    if (isDemucs) {
-      const segSec = segment === 0 ? 7.8 : segment;  // default Demucs segment = 7.8s
-      const segBaseline = 7.8;
-      const segFactor = segSec / segBaseline;         // 1.0 at default
-      const jobsCount = jobs === 0 ? 1 : jobs;
-      // jobs scale sub-linearly (not full model copies, but worker overhead)
-      const jobsFactor = 1 + (jobsCount - 1) * 0.3;
-      const total = base * segFactor * jobsFactor;
-      return Math.round(total);
-    }
-
-    const bs = batchSize === 0 ? 1 : batchSize;
-
-    // Activation memory scales with segment size (relative to default 256)
-    // and overlap (redundant processing of overlapping regions).
-    // At default segment=256, overlap=0, activations are ~25% of model weights.
-    // Chunk size does NOT scale model VRAM — it only affects audio batch
-    // throughput, so it is intentionally excluded from this formula.
-    const activationRatio = 0.25;
-    const segmentFactor = segmentSize / 256;
-    const overlapFactor = 1 + overlap;
-    const activationMemory = base * activationRatio * segmentFactor * overlapFactor;
-
-    // Batch size multiplies everything (multiple copies or larger batches)
-    const total = (base + activationMemory) * Math.max(1, bs);
-
-    return Math.round(total);
-  });
-
+  // Derived VRAM percentage bar
   let vramPercent = $derived.by(() => {
-    if (estimatedVramMb === null || totalVramMb == null || totalVramMb <= 0) return null;
-    return (estimatedVramMb / totalVramMb) * 100;
+    if (vramCalcResult === null || totalVramMb == null || totalVramMb <= 0) return null;
+    return (vramCalcResult.total_vram_mb / totalVramMb) * 100;
   });
 
   // Group models by category for optgroup
@@ -154,6 +116,47 @@
       }
     }
     loadGpu();
+  });
+
+  // Call backend VRAM calculator when parameters change
+  $effect(() => {
+    const model = selectedModel;
+    if (!model) {
+      vramCalcResult = null;
+      vramCalcLoading = false;
+      vramCalcError = false;
+      return;
+    }
+
+    // Debounce timer (avoid rapid-fire calls during slider drag)
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      vramCalcLoading = true;
+      vramCalcError = false;
+      try {
+        const params: { models: string; chunk_size?: number; shifts?: number } = {
+          models: model,
+        };
+        if (chunkSize > 0) params.chunk_size = chunkSize;
+        if (shifts > 0) params.shifts = shifts;
+        const result = await getVRAMCalculator(params);
+        if (!cancelled) {
+          vramCalcResult = result;
+          vramCalcLoading = false;
+        }
+      } catch {
+        if (!cancelled) {
+          vramCalcError = true;
+          vramCalcResult = null;
+          vramCalcLoading = false;
+        }
+      }
+    }, 300);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   });
 
   async function loadConfig(modelName: string): Promise<void> {
@@ -421,13 +424,22 @@
             </div>
           {/if}
 
-          <!-- VRAM Estimation -->
-          {#if estimatedVramMb !== null}
+          <!-- VRAM Estimation (from backend calculator) -->
+          {#if vramCalcLoading}
+            <div class="vram-section">
+              <div class="vram-text muted">Calculando VRAM...</div>
+            </div>
+          {:else if vramCalcResult !== null}
             <div class="vram-section">
               <div class="vram-header">
                 <span>🧠 VRAM Estimada</span>
                 {#if vramPercent !== null}
                   <span class="vram-pct" style="color: {vramBarColor(vramPercent)}">{vramPercent.toFixed(0)}%</span>
+                {/if}
+                {#if vramCalcResult.fits}
+                  <span class="vram-fits">✓ Cabe</span>
+                {:else}
+                  <span class="vram-fits vram-fits-no">✗ No cabe</span>
                 {/if}
               </div>
               <div class="vram-bar-track">
@@ -437,12 +449,15 @@
                 ></div>
               </div>
               <div class="vram-text">
-                Estimado: {formatGb(estimatedVramMb)}
+                Estimado: {formatGb(vramCalcResult.total_vram_mb)}
                 {#if totalVramMb !== null} / {formatGb(totalVramMb)}{/if}
                 {#if vramPercent !== null} ({vramPercent.toFixed(0)}%){/if}
+                {#if vramCalcResult.free_after_mb !== undefined}
+                  · Libre después: {formatGb(vramCalcResult.free_after_mb)}
+                {/if}
               </div>
             </div>
-          {:else if vramError}
+          {:else if vramCalcError || vramError}
             <div class="vram-section">
               <div class="vram-text muted">VRAM no disponible</div>
             </div>
@@ -682,6 +697,19 @@
   .vram-pct {
     font-weight: 700;
     font-size: 0.85rem;
+  }
+
+  .vram-fits {
+    font-size: 0.7rem;
+    font-weight: 600;
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+    background: #1b3a1b;
+    color: #81c784;
+  }
+  .vram-fits-no {
+    background: #3a1b1b;
+    color: #e57373;
   }
 
   .vram-bar-track {

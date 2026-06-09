@@ -562,3 +562,38 @@ export async function deletePitchStem(song: string, pitch: number, fileName: str
   });
   if (!res.ok) throw new Error(`Failed to delete pitch stem: ${res.status}`);
 }
+
+// ---- VRAM Calculator ----
+export interface VRAMModelEntry {
+  name: string;
+  type: string;
+  vram_mb: number;
+}
+
+export interface VRAMCalculatorResponse {
+  models: VRAMModelEntry[];
+  total_vram_mb: number;
+  available_vram_mb: number;
+  free_after_mb: number;
+  fits: boolean;
+}
+
+export async function getVRAMCalculator(params: {
+  models: string;
+  chunk_size?: number;
+  shifts?: number;
+}): Promise<VRAMCalculatorResponse> {
+  const qs = new URLSearchParams();
+  qs.set('models', params.models);
+  if (params.chunk_size !== undefined && params.chunk_size > 0) {
+    qs.set('chunk_size', String(params.chunk_size));
+  }
+  if (params.shifts !== undefined && params.shifts > 0) {
+    qs.set('shifts', String(params.shifts));
+  }
+  const res = await fetch(`${API_BASE}/api/gpu/vram-calculator?${qs.toString()}`);
+  if (!res.ok) {
+    throw new Error(`VRAM calculator failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as VRAMCalculatorResponse;
+}
