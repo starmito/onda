@@ -1,11 +1,19 @@
 # Changelog
 
-## v2.4.4-alpha (2026-06-10)
+## v2.4.4 (2026-06-10)
 
 ### Fixed
-- pipeline_status.json se limpia al iniciar pipeline (ya no muestra estado "done" residual)
-- Reporte de progreso inicial en ViperX y Demucs (barra arranca en 0%, no vacío)
-- Progreso intermedio para Demucs (conteo de stems generados vs esperados)
+- **Barra de progreso individual**: Python escribe `pipeline_status.json` directamente en cada chunk (~1% por actualización). Eliminado el frágil `report_progress` en bash.
+- **Barra de progreso total**: solo cuenta jobs del batch actual (ignora jobs históricos). Peso igual por paso: 1 canción × 2 pasos = 50% cada paso, 2 canciones × 1 paso = 50% cada una.
+- **Polling rápido**: frontend consulta `/api/queue/status` cada 500ms (eventos) y 200ms (pipeline_status.json).
+- **Pestaña Servicios**: sin auto-refresh (solo botón manual) para permitir revisar logs antiguos.
+- **`set -u` crash**: variables en heredocs de `report_progress` usan `${VAR:-default}` para evitar crash por unbound variable.
+- **Timestamps**: `LogWithNano()` con nano decreciente por línea para orden correcto en logs.
+- **Filtro "Todos"**: `<select>` usa `onchange` + `parseInt()` en vez de `bind:value` para evitar coerción string↔number.
+- **Versión frontend**: `ONDA_VERSION` se inyecta desde entorno; Dockerfile multi-stage sin valor fijo.
+- **pipeline_status.json**: se limpia al iniciar pipeline (ya no muestra estado "done" residual).
+- Reporte de progreso inicial en ViperX y Demucs (barra arranca en 0%, no vacío).
+- Progreso intermedio para Demucs (conteo de stems generados vs esperados).
 
 ## v2.4.3-alpha (2026-06-10)
 
