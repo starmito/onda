@@ -11,6 +11,17 @@ from lib_v5.mel_band_roformer import MelBandRoformer
 from lib_v5.bs_roformer import BSRoformer
 warnings.filterwarnings("ignore")
 
+def _write_progress(progress_file, chunk, total):
+    """Write per-chunk progress to a JSON file for real-time tracking.
+    Format: {"step": "viperx", "progress": 0.45, "chunk": 45, "total_chunks": 100}
+    """
+    progress = chunk / total if total > 0 else 0.0
+    try:
+        with open(progress_file, 'w') as pf:
+            pf.write('{"step":"viperx","progress":%.4f,"chunk":%d,"total_chunks":%d}' % (progress, chunk, total))
+    except Exception:
+        pass  # Non-critical; don't crash the pipeline over a progress write failure
+
 def separate(model_dir, input_path, output_dir="output", progress_file=None, num_overlap=None):
     ckpts = sorted([f for f in os.listdir(model_dir) if f.endswith('.ckpt')])
     yamls = sorted([f for f in os.listdir(model_dir) if f.endswith('.yaml')])
@@ -87,8 +98,7 @@ def separate(model_dir, input_path, output_dir="output", progress_file=None, num
     print(f"Processing {total} chunks...")
     # Write initial progress
     if progress_file:
-        with open(progress_file, 'w') as pf:
-            pf.write('{"chunk":0,"total":' + str(total) + '}')
+        _write_progress(progress_file, 0, total)
     
     with torch.inference_mode():
         i = 0
@@ -128,11 +138,11 @@ def separate(model_dir, input_path, output_dir="output", progress_file=None, num
                         counter[s, :, start:end] += win[:common]
                     chunk_idx += 1
                 
+                # Write progress on EVERY chunk (not every 10) for real-time tracking
                 if chunk_idx % 10 == 0:
                     print(f"  {chunk_idx}/{total} chunks...")
-                    if progress_file:
-                        with open(progress_file, 'w') as pf:
-                            pf.write('{"chunk":' + str(chunk_idx) + ',"total":' + str(total) + '}')
+                if progress_file:
+                    _write_progress(progress_file, chunk_idx, total)
                 batch_data, batch_starts = [], []
     
     result = result / (counter + 1e-8)
