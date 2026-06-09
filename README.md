@@ -1,283 +1,122 @@
-# Onda v2.1.1
+# 🎵 Onda — Separación de fuentes musicales con IA
 
-AI-powered audio source separation with GPU acceleration. Split songs into vocals, drums, bass, and other stems using state-of-the-art deep learning models.
+Interfaz web para separar voces e instrumentos de cualquier canción usando modelos deep learning (Demucs, ViperX) con aceleración NVIDIA GPU.
 
-Built on top of UVR (Ultimate Vocal Remover) techniques with a modern web UI, Docker orchestration, and sequential job queue.
+![Version](https://img.shields.io/badge/version-v2.3.8-blue)
+![License](https://img.shields.io/badge/license-MIT-green)
 
-## Features
+## ✨ Características
 
-### Core Separation
+- 🎤 **Separación vocal/instrumental** con ViperX (Roformer)
+- 🥁 **Separación multi-stem** con Demucs HT (drums, bass, other, vocals)
+- 🎛️ **Pipeline configurable**: elige qué modelos usar y en qué orden
+- 💾 **Presets**: guarda y carga configuraciones del pipeline
+- 🎹 **Pitch shift**: cambia el tono de stems generados sin re-procesar
+- 📋 **Cola de procesamiento**: arrastra múltiples canciones, procesa en lote
+- 📊 **Logs en tiempo real**: eventos del pipeline, logs de servicios, salida de inferencia
+- 🖥️ **WebUI responsive**: Svelte 5 + backend Go
+- 🐳 **Dockerizado**: un solo `docker compose up -d`
+- 🚀 **GPU NVIDIA**: aceleración CUDA para inferencia rápida
 
-- **Vocal removal & stem splitting:** Extract vocals, drums, bass, and other from any audio file
-- **Multiple AI models:**
-  - **Roformer family** — ViperX (BS Roformer), MelBand Roformer, PolarFormer
-  - **Demucs** — htdemucs_ft (PyTorch), htdemucs, htdemucs_6s, hdemucs_mmi
-  - **Demucs ONNX** — 56 specialists (vocals, drums, bass, other per model)
-  - **MDX-Net** — Kim Vocal 1 & 2, UVR MDX-Net Main
-  - **SCnet** — 8 models for additional separation quality
-- **Pitch control:** Semitone shifting (-12 to +12) applied before separation
-- **~60x realtime** on RTX 5060 Ti (3:54 song in ~4 seconds)
+## 📋 Requisitos
 
-### Model Management
+- **Docker** y **docker compose** v2
+- **NVIDIA GPU** con drivers instalados
+- **NVIDIA Container Toolkit** (`nvidia-docker2`)
+- **Modelos UVR**: descargar desde la interfaz web (aprox 2-4 GB cada uno)
 
-- **Model catalog:** Browse and download 98 UVR models with real file sizes (sourced via HTTP HEAD from GitHub Releases, HuggingFace, and Facebook CDN)
-- **Per-model configuration:** Segment size, overlap, chunk size, batch size, shifts, segment duration, parallel jobs
-- **VRAM calculator:** Real-time GPU memory estimation with interactive sliders — additive formula prevents unrealistic high-end predictions
-- **Model deletion:** Remove model files directly from the UI
-
-### Pipeline & Queue
-
-- **Pipeline editor:** Visual drag-and-drop pipeline builder with SVG flow graph
-- **Sequential queue:** FIFO job processing with persistent results across page reloads
-- **Multi-step pipeline:** ViperX vocal extraction → Demucs stem splitting → pitch shifting — all in one run
-
-### Web UI
-
-- **Dark-themed Svelte 5 interface** with TypeScript
-- **Audio player** with waveform visualization and per-stem mute/solo
-- **Status bar** with real-time health indicators (backend, frontend, pipeline, GPU, disk, Docker)
-- **Version mismatch detection** across all components
-- **GPU monitor** with VRAM usage and temperature polling
-
-## Hardware Requirements
-
-- **NVIDIA GPU** with CUDA support (tested on RTX 5060 Ti 16 GB)
-- Minimum **16 GB system RAM**
-- ~28 GB disk space for all 98 models (individual models range from 64 MB to 3.2 GB)
-
-## Software Requirements
-
-- **Docker** 24+ with `docker compose` plugin
-- **NVIDIA Container Toolkit** (`nvidia-container-toolkit`)
-- Linux host (tested on Ubuntu 24.04 / Debian)
-
-## Quick Start
+## 🚀 Instalación
 
 ```bash
-# 1. Clone the repo
 git clone https://github.com/starmito/onda.git
 cd onda
-git checkout v2.1.0-alpha
 
-# 2. Create .env file (or use defaults)
-cat > .env << 'EOF'
-MODEL_DIR=./models
-HOST_UID=1000
-HOST_GID=1000
-ONDA_PORT=3000
-EOF
+# Configurar variables de entorno (opcional)
+cp .env.example .env
+# Editar .env: MODEL_DIR (ruta a modelos), ONDA_PORT, etc.
 
-# 3. Create required directories
-mkdir -p models input output
+# Descargar modelos desde la WebUI (http://localhost:3000 → Modelos)
+# o colocar manualmente en ./models/: Demucs, ViperX, Roformer...
 
-# 4. Download at least one model (e.g., ViperX)
-mkdir -p models/VR_Models/BS_Roformer_Viperx
-# Download .ckpt from: https://github.com/TRvlvr/model_repo/releases
-# Place .ckpt file in models/VR_Models/BS_Roformer_Viperx/
-
-# 5. Build and start
-docker compose up -d --build
-
-# 6. Open http://localhost:3000
+# Arrancar
+docker compose up -d
 ```
 
-### Directory Layout
+Abre http://localhost:3000
+
+## 🎯 Uso rápido
+
+1. **Arrastra** uno o varios archivos de audio (WAV, MP3, FLAC, OGG, M4A)
+2. **Configura el pipeline**: elige ViperX (vocal/inst) y/o Demucs (4 stems)
+3. **(Opcional) Guarda un preset** con tu configuración
+4. **Marca** las canciones a procesar y pulsa **Ejecutar**
+5. **Descarga** los stems desde Results o aplica **pitch shift**
+
+## 🏗️ Arquitectura
 
 ```
-onda/
-├── models/          # Model files (~27 GB, mounted as /models)
-├── input/           # Upload directory (auto-created)
-└── output/          # Results directory (auto-created)
+┌─────────────┐     ┌──────────────┐     ┌──────────────┐
+│  Navegador  │────▶│   onda-gui   │────▶│     onda     │
+│  (Svelte 5) │     │ (Go + Nginx) │     │ (Python+CUDA)│
+└─────────────┘     └──────────────┘     └──────────────┘
+                           │                      │
+                     docker exec             PyTorch
+                     pipeline.sh             Demucs/ViperX
+                           │                      │
+                    ┌──────┴──────┐        ┌──────┴──────┐
+                    │   /input/   │        │   /output/  │
+                    │  (bind mnt) │        │  (bind mnt) │
+                    └─────────────┘        └─────────────┘
 ```
 
-## Architecture
+- **onda**: contenedor de inferencia (Python + PyTorch + CUDA)
+- **onda-gui**: servidor único (Go backend + Nginx + Svelte frontend compilado)
+- **/input/, /output/**: bind mounts al host, persistentes
+- **/config/**: bind mount para presets y configuraciones
 
-Onda runs as two Docker containers orchestrated by `docker compose`:
+## 🔧 Endpoints principales
 
-**`onda` — Inference container (Python + PyTorch + CUDA)**
-- PyTorch with CUDA support
-- Demucs, Roformer, MDX-Net inference scripts
-- Pipeline orchestrator (`pipeline.sh`)
-- Health check verifies CUDA availability via PyTorch
+| Endpoint | Descripción |
+|---|---|
+| `GET /api/health` | Estado del sistema (GPU, disco, versiones) |
+| `POST /api/upload` | Subir archivo de audio |
+| `POST /api/separate` | Lanzar pipeline de separación |
+| `GET /api/queue/status` | Estado de la cola de procesamiento |
+| `GET /api/results` | Stems generados |
+| `POST /api/pitch` | Pitch shift sobre stems |
+| `GET /api/logs` | Logs de eventos |
+| `GET /api/logs/services` | Logs de servicios (docker + pipeline) |
+| `GET /api/presets` | Presets guardados |
 
-**`onda-gui` — API + Frontend container (Go + nginx + Svelte)**
-- Go API server on port 3001 (proxied through nginx)
-- nginx serves the Svelte 5 frontend and reverse-proxies API calls
-- Docker socket mounted for container orchestration
-- Model catalog (`uvr_models.json`) with 98 entries
+## 🏷️ Versionado
 
-### Stack
+Este proyecto sigue versionado semántico (MAJOR.MINOR.PATCH).
 
-- **Frontend:** Svelte 5 + TypeScript, served by nginx
-- **Backend:** Go API server (port 3001 internally, exposed on 3000)
-- **Inference:** Python/PyTorch in `onda` container (Demucs, Roformer, MDX-Net)
-- **Orchestration:** `docker compose` with health checks and GPU passthrough
+- **v2.3.8** (actual): timestamps reales en logs, filtro de logs funcional
+- **v2.3.7**: timestamps distintos en docker logs
+- **v2.3.6**: reactividad upload, separación Eventos/Servicios, filtro logs
+- **v2.3.5**: upload on drag, pipeline logs en ring buffer
+- **v2.3.4**: presets con pipeline completo, logs de servicios docker
 
-## API Reference
+[CHANGELOG completo →](CHANGELOG.md)
 
-### Health & System
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/health` | System health (backend, frontend, pipeline, GPU, disk, Docker, version mismatch) |
-| GET | `/api/gpu` | GPU availability check |
-| GET | `/api/gpu/info` | GPU VRAM usage, temperature, and runtime |
-| GET | `/api/gpu/vram-calculator` | VRAM estimate with `?models=` query param |
-
-### Models
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/api/models` | List available preset configurations |
-| GET | `/api/models/list` | Locally installed models with sizes and categories |
-| GET | `/api/models/catalog` | UVR model catalog (98 models with real file sizes and download URLs) |
-| GET | `/api/models/{name}/config` | Get per-model inference configuration |
-| POST | `/api/models/{name}/config` | Save per-model inference configuration |
-| POST | `/api/models/download` | Download model from HuggingFace (`{"source": "huggingface", "repo": "..."}`) |
-| GET | `/api/models/download/status` | Check download progress |
-| DELETE | `/api/models/{name}` | Delete a model file |
-
-### Separation Pipeline
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/separate` | Enqueue audio separation job |
-| GET | `/api/queue/status` | Job queue status (waiting → processing → done/error) |
-| GET | `/api/results` | List completed separation results grouped by song |
-| GET | `/api/inputs` | List uploaded input files |
-
-### File Management
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/upload` | Upload audio file (multipart form) or model file (`?type=model`) |
-| GET | `/api/files/{song}/{file}` | Download/serve a separated stem file |
-| DELETE | `/api/files/{song}` | Delete a song and all its stems |
-| DELETE | `/api/delete` | Delete a specific stem (`?file=song/stem.wav`) |
-| DELETE | `/api/inputs/{name}` | Delete an input file |
-
-### Backend Control
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/api/backend/start` | Start inference container |
-| POST | `/api/backend/stop` | Stop inference container |
-| POST | `/api/backend/restart` | Restart inference container |
-
-### Separation Request Body
-
-```json
-{
-  "preset": "turbo",
-  "input": "/input/song.mp3",
-  "pitch": 2,
-  "vocal_model": "BS_Roformer_Viperx",
-  "stem_model": "htdemucs_ft",
-  "viperx": true,
-  "viperx_keep": "both",
-  "demucs": true,
-  "demucs_keep": ["drums", "bass", "other"],
-  "output": "/output/song"
-}
-```
-
-### Separation Response
-
-```json
-{
-  "status": "queued",
-  "song": "song"
-}
-```
-
-### Queue Status Response
-
-```json
-{
-  "jobs": [
-    {
-      "song": "song",
-      "status": "processing",
-      "progress": 50,
-      "index": 1,
-      "files": null
-    }
-  ]
-}
-```
-
-## Project Structure
+## 📁 Estructura del proyecto
 
 ```
 onda/
-├── backend/                    # Go API server
-│   ├── cmd/onda/               # Entry point
-│   └── internal/
-│       ├── api/                # HTTP handlers
-│       │   ├── server.go       # Routes, queue, health, upload, separation
-│       │   ├── models.go       # Model listing, download, catalog
-│       │   └── gpu_info.go     # GPU monitoring (PyTorch + pynvml)
-│       └── cli/                # Pipeline flags, presets, model resolution
-├── frontend/                   # Svelte 5 UI
-│   ├── index.html              # Entry HTML
-│   ├── dist/                   # Built assets (gitignored)
+├── backend/           # Go backend (API REST + worker)
+│   └── internal/api/
+├── frontend/          # Svelte 5 frontend
 │   └── src/
-│       ├── App.svelte          # Main application shell
-│       └── lib/
-│           ├── api.ts          # TypeScript API client (all endpoints)
-│           ├── PipelinePanel.svelte    # Pipeline editor + queue display
-│           ├── ModelManager.svelte     # Per-model config sliders
-│           ├── ModelDownloader.svelte  # UVR catalog browser & downloader
-│           └── VramCalculator.svelte   # VRAM estimator UI
-├── onda-gui/                   # GUI container build
-│   ├── Dockerfile              # Multi-stage: Go builder + nginx
-│   ├── nginx.conf              # nginx reverse proxy config
-│   └── entrypoint.sh           # Container startup script
-├── lib_v5/                     # Roformer inference scripts (Python)
-│   ├── bs_roformer.py          # BS Roformer model architecture
-│   ├── mel_band_roformer.py    # MelBand Roformer
-│   └── attend.py               # Attention modules
-├── demucs/                     # Demucs Python implementation
-├── pipeline.sh                 # Pipeline orchestrator (bash, 436 lines)
-├── uvr_models.json             # UVR model catalog (98 entries with URLs & sizes)
-├── docker-compose.yml          # Service orchestration (onda + onda-gui)
-├── Dockerfile                  # Inference container (onda: Python + CUDA)
-├── VERSION                     # Version marker (v2.1.1)
-├── CHANGELOG.md                # Full changelog
-└── README.md                   # This file
+├── inference/         # Python inference (Demucs, ViperX)
+├── onda-gui/          # Dockerfile + entrypoint + nginx.conf
+├── Dockerfile         # Contenedor de inferencia (onda)
+├── docker-compose.yml # Orquestación
+├── pipeline.sh        # Script de pipeline invocado por docker exec
+├── VERSION            # Versión centralizada
+└── CHANGELOG.md
 ```
 
-## Presets
+## 📄 Licencia
 
-| Preset | Vocal Model | Stem Model | Pitch | VRAM |
-|--------|-------------|------------|-------|------|
-| Turbo | MelBand KJ | Demucs htdemucs_ft | Yes | ~8 GB |
-| Balance | PolarFormer | Demucs htdemucs_ft | Yes | ~12 GB |
-| Master | PolarFormer | Demucs + dedicated Bass | Yes | ~12 GB |
-| Ultimate | 4 dedicated passes | Drums/Bass/Other/Vocals | Yes | ~12 GB |
-
-## Configuration
-
-Configuration is managed via a `.env` file at the project root:
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `MODEL_DIR` | `./models` | Path to model files (mounted as `/models` in both containers) |
-| `HOST_UID` | `1000` | User ID for file ownership in the inference container |
-| `HOST_GID` | `1000` | Group ID for file ownership |
-| `ONDA_PORT` | `3000` | External port for the web UI |
-
-## Performance
-
-Benchmarks on NVIDIA RTX 5060 Ti 16 GB:
-
-| Model | Speed | VRAM | Notes |
-|-------|-------|------|-------|
-| ViperX (BS Roformer) | ~0.5× realtime | ~616 MB | Highest quality vocal extraction |
-| Demucs htdemucs_ft | ~60× realtime | ~2.8 GB | 4-stem split (drums, bass, other, vocals) |
-| MDX-Net Kim Vocal 2 | ~5× realtime | ~64 MB | Fastest, lightweight |
-| MelBand Roformer | ~0.4× realtime | ~900 MB | Alternative vocal model |
-
-## License
-
-MIT — see repository for details.
+MIT
