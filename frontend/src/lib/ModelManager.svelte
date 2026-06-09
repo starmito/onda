@@ -11,6 +11,8 @@
   // ---- State ----
   let models = $state<LocalModel[]>([]);
   let selectedModel = $state('');
+  let previousModel = $state('');
+  let configLoaded = $state(false);
   let segmentSize = $state(256);
   let overlap = $state(0.25);
   let chunkSize = $state(0);
@@ -125,8 +127,18 @@
       vramCalcResult = null;
       vramCalcLoading = false;
       vramCalcError = false;
+      configLoaded = false;
       return;
     }
+
+    // Reset configLoaded when model changes
+    if (model !== previousModel) {
+      configLoaded = false;
+      previousModel = model;
+    }
+
+    // Track configLoaded reactively — don't call API until config is loaded
+    if (!configLoaded) return;
 
     // SNAPSHOT: read ALL reactive values synchronously so $effect tracks them
     const cs = chunkSize;
@@ -180,6 +192,7 @@
       shifts = cfg.shifts ?? 1;
       segment = cfg.segment ?? 0;
       jobs = cfg.jobs ?? 0;
+      configLoaded = true;
     } catch {
       // Use current values as defaults
     }
