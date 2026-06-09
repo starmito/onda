@@ -412,6 +412,10 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 			if j.TotalSteps < j.CurrentStep {
 				j.TotalSteps = j.CurrentStep
 			}
+		} else if j.Status == "done" {
+			j.Progress = 100
+			j.StepName = "Completado"
+			j.CurrentStep = j.TotalSteps
 		}
 		jobList = append(jobList, j)
 	}
