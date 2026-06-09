@@ -152,7 +152,7 @@ func (f *PipelineFlags) Validate() error {
 
 	// Validate that vocal-model is not empty after resolution
 	if f.VocalModel == "" {
-		return fmt.Errorf("vocal model could not be resolved; specify --vocal-model")
+		return fmt.Errorf("vocal model could not be resolved; specify --vocal-model or use a valid preset")
 	}
 
 	return nil
@@ -166,8 +166,9 @@ func Help() string {
 	b.WriteString("  onda pipeline [flags]\n\n")
 	b.WriteString("Run the audio separation pipeline.\n\n")
 	b.WriteString("Flags (modern):\n")
-	b.WriteString("  --vocal-model string     Vocal separation model\n")
-	b.WriteString("  --vocal-overlap int      Vocal overlap size\n")
+	b.WriteString("  --preset string          Preset to use: turbo, balance, master, ultimate (default \"balance\")\n")
+	b.WriteString("  --vocal-model string     Vocal separation model (overrides preset)\n")
+	b.WriteString("  --vocal-overlap int      Vocal overlap size (overrides preset)\n")
 	b.WriteString("  --vocal-keep string      What to keep: both, vocals, instrumental (default \"both\")\n")
 	b.WriteString("  --stem-model string      Stem separation model (e.g. htdemucs_ft)\n")
 	b.WriteString("  --stem-keep string       Stems to keep: drums,bass,other,vocals or all\n")
@@ -183,7 +184,12 @@ func Help() string {
 	b.WriteString("  --demucs                 Use Demucs for stem separation (alias for --stem-model htdemucs_ft)\n")
 	b.WriteString("  --viperx-overlap int     ViperX overlap (alias for --vocal-overlap)\n")
 	b.WriteString("  --demucs-model string    Demucs model (alias for --stem-model)\n")
-	b.WriteString("  --rubberband             Enable Rubberband pitch shift (alias for --pitch 0)\n")
+	b.WriteString("  --rubberband             Enable Rubberband pitch shift (alias for --pitch 0)\n\n")
+	b.WriteString("Presets:\n")
+	b.WriteString("  turbo      Rápido, ~8GB VRAM — melband_kj + htdemucs_ft, overlap=2\n")
+	b.WriteString("  balance    Recomendado, ~12GB VRAM — polarformer + htdemucs_ft, overlap=4\n")
+	b.WriteString("  master     Máxima calidad vocal, ~12GB VRAM — polarformer, overlap=8, bass dedicated\n")
+	b.WriteString("  ultimate   Mejor por stem, 4 pases dedicados, ~12GB VRAM — polarformer, all stem models\n")
 
 	return b.String()
 }
