@@ -91,6 +91,9 @@ JSONEOF
 }
 trap 'report_progress "error" "${CURRENT_STEP:-unknown}" 0' ERR
 
+# Clear stale pipeline status from previous run and signal that a new pipeline has started
+report_progress "running" "starting" 0
+
 # ── Background elapsed/eta updater ─────────────
 # Runs in a subshell loop, updating elapsed and eta every second
 # while a long-running docker exec is in progress.
@@ -254,6 +257,7 @@ if $VIPERX; then
     TMP_VIP="${OUTPUT}/_viperx"
     mkdir -p "${TMP_VIP}"  # must exist before progress file write
     CURRENT_STEP="viperx"
+    report_progress "running" "viperx" 0
     # Pre-flight: verify model path exists
     if [ ! -d "${VIPERX_MODEL}" ]; then
         echo "❌ ViperX model not found: ${VIPERX_MODEL}" >&2
@@ -341,10 +345,44 @@ if $DEMUCS; then
     [ "${DEMUCS_SEGMENT}" -gt 0 ] && DEMUCS_ARGS+=(--segment "${DEMUCS_SEGMENT}")
     [ "${JOBS}" -gt 0 ] && DEMUCS_ARGS+=(-j "${JOBS}")
 
-    # Run demucs directly; progress is tracked via pipeline_status.json step boundaries.
-    # Removed the fragile tqdm regex that broke on different Demucs output formats.
+    # Calculate expected number of stems for progress tracking
+    if [ "${DEMUCS_KEEP}" = "all" ]; then
+        DEMUCS_EXPECTED=4
+    else
+        DEMUCS_EXPECTED=$(echo "${DEMUCS_KEEP}" | tr ',' '\n' | wc -l)
+    fi
+
     report_progress "running" "demucs" $DEMUCS_START
-    run_with_elapsed demucs "${DEMUCS_ARGS[@]}" "${DEMUCS_INPUT}"
+
+    # Launch elapsed updater and demucs in background; track stem count as progress
+    update_elapsed_loop &
+    ELAPSED_PID=$!
+    demucs "${DEMUCS_ARGS[@]}" "${DEMUCS_INPUT}" &
+    DEMUCS_PID=$!
+
+    # Poll for stems appearing in output directory
+    while kill -0 $DEMUCS_PID 2>/dev/null; do
+        if [ -d "${TMP_DEM}" ]; then
+            found=$(find "${TMP_DEM}" -type f -name "*.wav" 2>/dev/null | wc -l)
+            if [ "$found" -gt 0 ] && [ "$DEMUCS_EXPECTED" -gt 0 ]; then
+                step_pct=$(( found * 100 / DEMUCS_EXPECTED ))
+                [ "$step_pct" -gt 100 ] && step_pct=100
+                global_pct=$(( DEMUCS_START + (step_pct * (DEMUCS_END - DEMUCS_START) / 100) ))
+                report_progress "running" "demucs" $global_pct
+            fi
+        fi
+        sleep 2
+    done
+    wait $DEMUCS_PID
+    DEMUCS_RC=$?
+    kill $ELAPSED_PID 2>/dev/null || true
+    wait $ELAPSED_PID 2>/dev/null || true
+
+    if [ $DEMUCS_RC -ne 0 ]; then
+        echo "❌ Demucs failed with exit code $DEMUCS_RC" >&2
+        exit $DEMUCS_RC
+    fi
+
     report_progress "running" "demucs" $DEMUCS_END
     echo "   ✅ HTDemucs_ft done"
 
