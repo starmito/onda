@@ -232,6 +232,12 @@ func isViperXOrRoformer(modelName string) bool {
 	return false
 }
 
+// isDemucsModel returns true for Demucs-family models whose VRAM scales
+// with the number of shift-averaging passes.
+func isDemucsModel(modelName string) bool {
+	return strings.HasPrefix(modelName, "htdemucs_")
+}
+
 // handleVRAMCalculator serves GET /api/gpu/vram-calculator with VRAM estimates
 // for the requested models and available GPU memory.
 func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
@@ -250,6 +256,15 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 	if chunkSizeParam != "" {
 		if cs, err := strconv.Atoi(chunkSizeParam); err == nil && cs > 0 {
 			chunkSize = cs
+		}
+	}
+
+	// Parse shifts query parameter (affects VRAM for Demucs models).
+	shifts := 0
+	shiftsParam := r.URL.Query().Get("shifts")
+	if shiftsParam != "" {
+		if s, err := strconv.Atoi(shiftsParam); err == nil && s > 1 {
+			shifts = s
 		}
 	}
 
@@ -296,6 +311,11 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 		if chunkSize > 0 && isViperXOrRoformer(modelName) {
 			multiplier := 1.0 + float64(chunkSize)/float64(defaultChunkSize)*chunkVRAMFactor
 			vramMB = int(float64(vramMB) * multiplier)
+		}
+
+		// Apply shifts factor for Demucs models: N passes ≈ N× VRAM.
+		if shifts > 1 && isDemucsModel(modelName) {
+			vramMB *= shifts
 		}
 
 		models = append(models, VRAMModelEntry{
