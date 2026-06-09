@@ -379,31 +379,16 @@
 </script>
 
 <div class="editor-card">
-  <h2 class="editor-title">🎛 Editor de Presets</h2>
+  <h2 class="editor-title">🎛 Gestor de Presets</h2>
 
-  <!-- Presets: Load -->
+  <!-- ════════════════════════════════ -->
+  <!-- CATEGORÍA 1: Crear Presets     -->
+  <!-- ════════════════════════════════ -->
+  <h3 class="category-title">📝 Crear Presets</h3>
+
+  <!-- Preset Name Input (NO load dropdown here — moved to category 2) -->
   <div class="section">
-    <span class="label">Presets</span>
-    {#if presetsLoading}
-      <div class="loading-hint">Cargando presets...</div>
-    {:else if presetsError}
-      <div class="error-hint">Error al cargar presets</div>
-    {/if}
-    {#if savedPresets.length > 0}
-      <div class="preset-row">
-        <select
-          class="select"
-          value={selectedPreset}
-          onchange={handleLoadPreset}
-          disabled={disabled}
-        >
-          <option value="">-- Mis presets --</option>
-          {#each savedPresets as p}
-            <option value={p.name}>{p.name}</option>
-          {/each}
-        </select>
-      </div>
-    {/if}
+    <span class="label">Nuevo Preset</span>
     <div class="preset-row">
       <input
         type="text"
@@ -604,6 +589,38 @@
     {/if}
   </div>
 
+  <!-- ════════════════════════════════ -->
+  <!-- CATEGORÍA 2: Editor de Presets  -->
+  <!-- ════════════════════════════════ -->
+  <h3 class="category-title">✏️ Editor de Presets</h3>
+
+  <!-- Load Preset Dropdown (moved here from category 1) -->
+  <div class="section">
+    <span class="label">Mis presets</span>
+    {#if presetsLoading}
+      <div class="loading-hint">Cargando presets...</div>
+    {:else if presetsError}
+      <div class="error-hint">Error al cargar presets</div>
+    {/if}
+    {#if savedPresets.length > 0}
+      <div class="preset-row">
+        <select
+          class="select"
+          value={selectedPreset}
+          onchange={handleLoadPreset}
+          disabled={disabled}
+        >
+          <option value="">-- Mis presets --</option>
+          {#each savedPresets as p}
+            <option value={p.name}>{p.name}</option>
+          {/each}
+        </select>
+      </div>
+    {:else if !presetsLoading && !presetsError}
+      <p class="hint">No hay presets guardados.</p>
+    {/if}
+  </div>
+
   <!-- Set Default Preset Button -->
   <div class="section default-section">
     <button class="btn-default-large" onclick={handleSetDefault} disabled={disabled || !selectedPreset}>
@@ -613,6 +630,9 @@
       <div class="save-banner">✅ Establecido como predeterminado</div>
     {/if}
   </div>
+
+  <!-- Generous separator to avoid accidental delete clicks -->
+  <div class="delete-separator"></div>
 
   <!-- Delete Presets Section -->
   <div class="section delete-preset-section">
@@ -663,6 +683,21 @@
     color: #00d4ff;
     text-transform: uppercase;
     letter-spacing: 0.5px;
+  }
+
+  .category-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #00d4ff;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin: 20px 0 12px 0;
+    padding-bottom: 8px;
+    border-bottom: 1px solid #2a2a4a;
+  }
+
+  .delete-separator {
+    margin: 28px 0 4px 0;
   }
 
   .section {
