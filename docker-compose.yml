@@ -63,4 +63,5 @@ services:
       - ${MODEL_DIR:-./models}:/models
       - ./input:/input
       - ./output:/output
+      - ./config:/config
       - /var/run/docker.sock:/var/run/docker.sock
