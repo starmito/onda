@@ -108,8 +108,8 @@ func TestCopyFile(t *testing.T) {
 	dstPath := filepath.Join(dstDir, "destination.txt")
 
 	// Copy
-	if err := copyFile(srcPath, dstPath); err != nil {
-		t.Fatalf("copyFile failed: %v", err)
+	if err := CopyFile(srcPath, dstPath); err != nil {
+		t.Fatalf("CopyFile failed: %v", err)
 	}
 
 	// Verify content
@@ -137,8 +137,8 @@ func TestCopyFileOverwrite(t *testing.T) {
 	}
 
 	// Overwrite
-	if err := copyFile(srcPath, dstPath); err != nil {
-		t.Fatalf("copyFile failed: %v", err)
+	if err := CopyFile(srcPath, dstPath); err != nil {
+		t.Fatalf("CopyFile failed: %v", err)
 	}
 
 	dstContent, err := os.ReadFile(dstPath)
@@ -152,7 +152,7 @@ func TestCopyFileOverwrite(t *testing.T) {
 
 func TestCopyFileSourceNotExists(t *testing.T) {
 	dstDir := t.TempDir()
-	err := copyFile("/nonexistent/file.wav", filepath.Join(dstDir, "out.wav"))
+	err := CopyFile("/nonexistent/file.wav", filepath.Join(dstDir, "out.wav"))
 	if err == nil {
 		t.Fatal("expected error for nonexistent source, got nil")
 	}

@@ -34,13 +34,6 @@ export interface BackendActionResponse {
   detail: string;
 }
 
-export interface ModelsResponse {
-  [key: string]: {
-    name: string;
-    description: string;
-  };
-}
-
 export interface SeparateResponse {
   status: string;
   song: string;
@@ -113,14 +106,6 @@ export async function uploadAudio(file: File): Promise<UploadResponse> {
   }
 }
 
-export async function uploadMultiple(files: File[]): Promise<UploadResponse[]> {
-  const results: UploadResponse[] = [];
-  for (const file of files) {
-    results.push(await uploadAudio(file));
-  }
-  return results;
-}
-
 export async function getHealth(): Promise<HealthResponse> {
   try {
     const res = await fetch(`${API_BASE}/api/health`);
@@ -133,21 +118,6 @@ export async function getHealth(): Promise<HealthResponse> {
       throw err;
     }
     throw new Error(`Unexpected error during health check: ${String(err)}`);
-  }
-}
-
-export async function getModels(): Promise<ModelsResponse> {
-  try {
-    const res = await fetch(`${API_BASE}/api/models`);
-    if (!res.ok) {
-      throw new Error(`Failed to fetch models (status ${res.status}): ${res.statusText}`);
-    }
-    return (await res.json()) as ModelsResponse;
-  } catch (err) {
-    if (err instanceof Error) {
-      throw err;
-    }
-    throw new Error(`Unexpected error fetching models: ${String(err)}`);
   }
 }
 
@@ -223,20 +193,6 @@ export async function deleteStem(song: string, name: string): Promise<void> {
   }
 }
 
-// ---- VramCalculator ---- 
-export interface VramEstimateResponse {
-  total_vram_mb: number;
-  available_vram_mb: number;
-}
-
-export async function getVramEstimate(models: string): Promise<VramEstimateResponse> {
-  const res = await fetch(`${API_BASE}/api/gpu/vram-calculator?models=${encodeURIComponent(models)}`);
-  if (!res.ok) {
-    throw new Error(`VRAM estimate failed with status ${res.status}: ${res.statusText}`);
-  }
-  return (await res.json()) as VramEstimateResponse;
-}
-
 // ---- ModelLoader ---- 
 export interface LocalModel {
   name: string;
@@ -295,28 +251,6 @@ export async function uploadModel(file: File): Promise<UploadResponse> {
     throw new Error(`Model upload failed with status ${res.status}: ${res.statusText}`);
   }
   return (await res.json()) as UploadResponse;
-}
-
-// ---- Model list (per-model info) ----
-export interface ModelInfo {
-  name: string;
-  category: string;
-  description?: string;
-}
-
-export async function getModelList(): Promise<ModelInfo[]> {
-  try {
-    const res = await fetch(`${API_BASE}/api/models/list`);
-    if (!res.ok) {
-      throw new Error(`Failed to fetch model list (status ${res.status}): ${res.statusText}`);
-    }
-    return (await res.json()) as ModelInfo[];
-  } catch (err) {
-    if (err instanceof Error) {
-      throw err;
-    }
-    throw new Error(`Unexpected error fetching model list: ${String(err)}`);
-  }
 }
 
 // ---- GPU monitor ----
@@ -527,20 +461,6 @@ export async function getHfCatalog(): Promise<HfCatalogResponse> {
     throw new Error(`HF catalog fetch failed with status ${res.status}: ${res.statusText}`);
   }
   return (await res.json()) as HfCatalogResponse;
-}
-
-export interface DownloadModelStatusResponse {
-  status: string;
-  progress: number;
-  message?: string;
-}
-
-export async function getDownloadStatus(repo: string): Promise<DownloadModelStatusResponse> {
-  const res = await fetch(`${API_BASE}/api/models/download/status?repo=${encodeURIComponent(repo)}`);
-  if (!res.ok) {
-    throw new Error(`Download status failed with status ${res.status}: ${res.statusText}`);
-  }
-  return (await res.json()) as DownloadModelStatusResponse;
 }
 
 export interface DeleteModelResponse {

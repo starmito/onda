@@ -141,7 +141,7 @@ func (s *Server) handlePitchShift(w http.ResponseWriter, r *http.Request) {
 
 		if isDrums {
 			// Copy drums as-is
-			if err := copyFileLocal(inputPath, outputPath); err != nil {
+			if err := audio.CopyFile(inputPath, outputPath); err != nil {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusInternalServerError)
 				json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to copy drums: %v", err)})
