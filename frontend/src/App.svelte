@@ -9,7 +9,7 @@
   import ModelDownloader from './lib/ModelDownloader.svelte';
   import type { ResultStem } from './lib/types';
   import { detectStemType } from './lib/types';
-  import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getPresets } from './lib/api';
+  import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getPresets, getDefaultPreset } from './lib/api';
   import type { QueueJob } from './lib/api';
 
 
@@ -286,6 +286,11 @@
         }
       }));
       savedPresets = list;
+      getDefaultPreset().then(data => {
+        if (data?.name && savedPresets.some(p => p.name === data.name)) {
+          selectedPresetName = data.name;
+        }
+      });
     }).catch(() => {});
   });
 
@@ -311,6 +316,11 @@
         }
       }));
       savedPresets = list;
+      getDefaultPreset().then(data => {
+        if (data?.name && savedPresets.some(p => p.name === data.name)) {
+          selectedPresetName = data.name;
+        }
+      });
     }).catch(() => {});
   }
 
