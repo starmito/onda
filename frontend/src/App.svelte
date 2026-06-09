@@ -51,7 +51,6 @@
 
   // ---- Health / Version from backend ----
   let healthVersion = $state('');
-  let gpuLabel = $state('');
 
   // Toast
   let toastMessage = $state('');
@@ -177,13 +176,6 @@
     getHealth()
       .then((h) => {
         if (h?.version) healthVersion = h.version;
-        // Extract GPU name from health.gpu.detail (format: "NVIDIA GeForce RTX 5060 Ti, 0 MiB, 16311 MiB")
-        if (h?.gpu?.ok && h?.gpu?.detail) {
-          const gpuName = h.gpu.detail.split(',')[0]?.trim() || h.gpu.detail;
-          gpuLabel = 'GPU: ' + gpuName;
-        } else {
-          gpuLabel = 'CPU';
-        }
       })
       .catch(() => {}); // silent fail
 
@@ -569,9 +561,6 @@
   <header>
     <h1>🎵 Onda</h1>
     <span class="version">{healthVersion || 'v2.2.0'}</span>
-    {#if gpuLabel}
-      <span class="gpu-label">{gpuLabel}</span>
-    {/if}
     <button
       class="btn-gear"
       onclick={() => (showDownloader = !showDownloader)}

@@ -54,6 +54,7 @@ type JobState struct {
 	CurrentStep int         `json:"current_step"`
 	TotalSteps  int         `json:"total_steps"`
 	StepName    string      `json:"step_name"`
+	Device      string      `json:"device,omitempty"`
 }
 
 // Server wraps the HTTP server with routes, middleware, and a sequential job queue.
@@ -384,6 +385,7 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 		Status   string  `json:"status"`
 		Step     string  `json:"step"`
 		Progress float64 `json:"progress"`
+		Device   string  `json:"device"`
 	}
 	var pipelineStatus PipelineStatusJSON
 	projectRoot := findProjectRoot()
@@ -405,6 +407,7 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 				j.CurrentStep = 1
 			}
 			j.Progress = int(pipelineStatus.Progress * 100)
+			j.Device = pipelineStatus.Device
 			// Ensure total_steps is at least current_step
 			if j.TotalSteps < j.CurrentStep {
 				j.TotalSteps = j.CurrentStep
