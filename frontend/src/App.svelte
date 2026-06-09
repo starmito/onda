@@ -783,31 +783,34 @@
     <ModelManager onclose={() => (showModelPanel = false)} initialModel={undefined} />
   {/if}
 
-  <!-- PresetEditor modal -->
+  <!-- PresetEditor fullscreen -->
   {#if showPresetEditor}
-    <div class="modal-overlay" onclick={() => { showPresetEditor = false; refreshPresets(); }}>
-      <div class="modal-panel preset-editor-panel" onclick={(e) => e.stopPropagation()}>
-        <div class="modal-header">
-          <h2>🎛 Editor de Presets</h2>
-          <button class="btn-close" onclick={() => { showPresetEditor = false; refreshPresets(); }}>✕</button>
-        </div>
-        <div class="modal-body">
-          <PipelineEditor
-            disabled={separating}
-            hasFiles={queueFiles.length > 0}
-            onstart={handlePipelineStart}
-          />
-        </div>
+    <div class="fullscreen">
+      <div class="fullscreen-header">
+        <button class="btn-close" onclick={() => { showPresetEditor = false; refreshPresets(); }}>✕</button>
+        <h2>🎛 Editor de Presets</h2>
+        <div><!-- spacer --></div>
+      </div>
+      <div class="fullscreen-body">
+        <PipelineEditor
+          disabled={separating}
+          hasFiles={queueFiles.length > 0}
+          onstart={handlePipelineStart}
+        />
       </div>
     </div>
   {/if}
 
-  <!-- Logs panel -->
+  <!-- Logs fullscreen -->
   {#if showLogs}
-    <div class="modal-overlay" onclick={() => showLogs = false}>
-      <div class="modal-panel logs-panel" onclick={(e) => e.stopPropagation()}>
+    <div class="fullscreen">
+      <div class="fullscreen-header">
+        <button class="btn-close" onclick={() => showLogs = false}>✕</button>
+        <h2>📋 Registros</h2>
+        <div></div>
+      </div>
+      <div class="fullscreen-body">
         <div class="logs-header">
-          <h2>📋 Registros</h2>
           <div class="log-tabs">
             <button class="log-tab" class:active={logTab === 'events'} onclick={() => logTab = 'events'}>Eventos</button>
             <button class="log-tab" class:active={logTab === 'services'} onclick={() => { logTab = 'services'; loadServiceLogs(); }}>Servicios</button>
@@ -825,7 +828,6 @@
             </select>
           {/if}
           <button class="btn-refresh" onclick={() => logTab === 'events' ? loadLogs() : loadServiceLogs()} title="Refrescar">🔄</button>
-          <button class="btn-icon" onclick={() => showLogs = false}>✕</button>
         </div>
         <div class="logs-list">
           {#if logTab === 'events'}
@@ -1249,14 +1251,8 @@
   }
 
   @keyframes fadeIn {
-    from {
-      opacity: 0;
-      transform: translateY(8px);
-    }
-    to {
-      opacity: 1;
-      transform: translateY(0);
-    }
+    from { opacity: 0; }
+    to { opacity: 1; }
   }
 
   /* Responsive */
@@ -1327,16 +1323,6 @@
   }
 
   /* Logs Panel */
-  .logs-panel {
-    background: #1e1e2e;
-    border-radius: 12px;
-    width: 90vw;
-    max-width: 900px;
-    max-height: 80vh;
-    display: flex;
-    flex-direction: column;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-  }
   .logs-header {
     display: flex;
     justify-content: space-between;
@@ -1434,28 +1420,32 @@
     padding: 12px 20px;
     border-top: 1px solid #333;
   }
+/* Fullscreen panels (ModelManager, PresetEditor, Logs) */
+.fullscreen {
+  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
+  background: #0a0a14; z-index: 900;
+  display: flex; flex-direction: column;
+  animation: fadeIn 0.2s ease;
+}
+.fullscreen-header {
+  display: flex; align-items: center; gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  border-bottom: 1px solid #2a2a4a;
+  background: #1a1a2e;
+}
+.fullscreen-header h2 {
+  margin: 0; font-size: 1.1rem; color: #e0e0e0;
+  flex: 1; text-align: center;
+}
+.fullscreen-body {
+  flex: 1; overflow-y: auto; padding: 1.25rem;
+}
+
 .logs-overlay {
   position: fixed; top: 0; left: 0; right: 0; bottom: 0;
   background: rgba(0,0,0,0.6); z-index: 10000;
   display: flex; align-items: center; justify-content: center;
 }
-.modal-overlay {
-  position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.6); z-index: 10000;
-  display: flex; align-items: center; justify-content: center;
-}
-.modal-panel {
-  background: #1a1a2e; border-radius: 12px;
-  width: 90vw; max-width: 900px; max-height: 90vh;
-  display: flex; flex-direction: column;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-}
-.modal-header {
-  display: flex; justify-content: space-between; align-items: center;
-  padding: 16px 20px; border-bottom: 1px solid #333;
-}
-.modal-header h2 { margin: 0; color: #eee; font-size: 18px; }
-.modal-body { flex: 1; overflow-y: auto; padding: 20px; }
 .btn-close {
   background: transparent; border: 1px solid #555; color: #aaa;
   font-size: 18px; width: 32px; height: 32px; border-radius: 6px;
