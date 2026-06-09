@@ -465,7 +465,7 @@ func buildPipelineArgs(req SeparateRequest) (song string, args []string) {
 		args = append(args, "--rubberband", "--pitch", fmt.Sprintf("%d", req.Pitch))
 	}
 
-	preset := cli.Presets[req.Preset]
+	preset := getAllPresets()[req.Preset]
 	if req.VocalModel != "" {
 		modelDir := resolveModelDir(req.VocalModel)
 		if modelDir != "" {
@@ -610,7 +610,7 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Validate preset
-	_, ok := cli.Presets[req.Preset]
+	_, ok := getAllPresets()[req.Preset]
 	if !ok {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
