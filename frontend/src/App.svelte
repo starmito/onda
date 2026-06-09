@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onDestroy } from 'svelte';
+  import { onDestroy, onMount } from 'svelte';
   import ResultsPanel from './lib/ResultsPanel.svelte';
   import PipelineEditor from './lib/PipelineEditor.svelte';
 
@@ -74,7 +74,7 @@
 
 
   // Load model list + persisted data on mount
-  $effect(() => {
+  onMount(() => {
     // ── Load version from health endpoint ──
     getHealth()
       .then((h) => { if (h?.version) healthVersion = h.version; })

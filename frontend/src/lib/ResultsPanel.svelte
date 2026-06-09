@@ -799,7 +799,7 @@
     }
   }
 
-  let pitchLoadVersion = $state(0);
+  let pitchLoadVersion = 0;
 
   // ---- $effect to load pitch subgroups when songGroups changes ----
 
@@ -810,6 +810,7 @@
       // Usar then() en vez de await para paralelismo controlado
       getPitchSubgroups(song, abortController.signal).then(subs => {
         if (currentVersion !== pitchLoadVersion) return; // stale response
+            subs = subs.filter(s => s.files != null);  // skip damaged subgroups
         const mapped = subs.map(s => ({
           pitch: s.pitch,
           stems: s.files.map(f => ({

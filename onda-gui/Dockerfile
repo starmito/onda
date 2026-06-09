@@ -48,4 +48,9 @@ COPY hf_models.json /app/hf_models.json
 # Directorios de montaje (docker-compose monta volumes aquí)
 RUN mkdir -p /input /output
 
+# Nginx temp dirs for non-root (1000)
+RUN mkdir -p /var/log/nginx /var/cache/nginx /var/run && \
+    chown -R 1000:1000 /var/log/nginx /var/cache/nginx /var/cache/nginx && \
+    chmod 755 /var/log/nginx /var/cache/nginx
+
 ENTRYPOINT ["/entrypoint.sh"]
