@@ -80,11 +80,14 @@ func loadModelCatalog() {
 }
 
 // lookupVRAMMB returns the VRAM estimate in MB for a model name.
-// It checks the hardcoded vramEstimates map first, then the UVR catalog.
+// It checks the hardcoded vramEstimates map by substring matching, then the UVR catalog.
 // Falls back to defaultVRAMMB if nothing is found.
 func lookupVRAMMB(modelName string) int {
-	if vram, ok := vramEstimates[modelName]; ok {
-		return vram
+	lower := strings.ToLower(modelName)
+	for key, vram := range vramEstimates {
+		if strings.Contains(lower, strings.ToLower(key)) {
+			return vram
+		}
 	}
 	loadModelCatalog()
 	// Try exact name match in catalog.
@@ -224,10 +227,14 @@ func (s *Server) handleGPUInfo(w http.ResponseWriter, r *http.Request) {
 
 // isViperXOrRoformer returns true for ViperX and Roformer models that
 // are sensitive to chunk_size in their VRAM calculation.
+// Uses substring matching to recognize full model names like "BS_Roformer_Viperx".
 func isViperXOrRoformer(modelName string) bool {
-	switch modelName {
-	case "melband_kj", "melband_roformer", "polarformer", "viperx", "viperx_other":
-		return true
+	lower := strings.ToLower(modelName)
+	patterns := []string{"viperx", "melband", "polarformer", "roformer"}
+	for _, p := range patterns {
+		if strings.Contains(lower, p) {
+			return true
+		}
 	}
 	return false
 }
@@ -235,7 +242,8 @@ func isViperXOrRoformer(modelName string) bool {
 // isDemucsModel returns true for Demucs-family models whose VRAM scales
 // with the number of shift-averaging passes.
 func isDemucsModel(modelName string) bool {
-	return strings.HasPrefix(modelName, "htdemucs_")
+	lower := strings.ToLower(modelName)
+	return strings.Contains(lower, "htdemucs") || strings.Contains(lower, "demucs")
 }
 
 // handleVRAMCalculator serves GET /api/gpu/vram-calculator with VRAM estimates
