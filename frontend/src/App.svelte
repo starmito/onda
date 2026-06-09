@@ -2,13 +2,14 @@
   import { onDestroy, onMount } from 'svelte';
   import ResultsPanel from './lib/ResultsPanel.svelte';
   import PipelineEditor from './lib/PipelineEditor.svelte';
+  import PresetsPanel from './lib/PresetsPanel.svelte';
 
   import StatusBar from './lib/StatusBar.svelte';
   import ModelManager from './lib/ModelManager.svelte';
   import ModelDownloader from './lib/ModelDownloader.svelte';
   import type { ResultStem } from './lib/types';
   import { detectStemType } from './lib/types';
-  import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth } from './lib/api';
+  import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getPresets } from './lib/api';
   import type { QueueJob } from './lib/api';
 
 
@@ -43,6 +44,8 @@
   let currentProgress = $state(0);
   let pipelineEta = $state('');
   let inferenceDevice = $state('');
+  let savedPresets = $state<{name: string, config: any}[]>([]);
+  let selectedPresetName = $state('');
 
   // ---- Queue state ----
   let queueJobs = $state<QueueJob[]>([]);
@@ -267,6 +270,23 @@
       .catch((err) => {
         console.error('Failed to restore queue status:', err);
       });
+
+    // ── Load presets ──
+    getPresets().then(data => {
+      const list = Object.entries(data).map(([name, p]: [string, any]) => ({
+        name,
+        config: {
+          preset: name,
+          viperx: p.viperxEnabled ?? true,
+          viperxModel: p.vocalModel || 'BS_Roformer_Viperx',
+          viperxStems: p.viperxStems || ['vocals', 'instrumental'],
+          demucs: p.demucsEnabled ?? true,
+          demucsModel: p.stemModel || 'htdemucs_ft',
+          demucsStems: p.demucsStems || ['drums', 'bass', 'other'],
+        }
+      }));
+      savedPresets = list;
+    }).catch(() => {});
   });
 
   // Cleanup timers on unmount
@@ -681,36 +701,31 @@
     </section>
   {/if}
 
-
-
-
-  <!-- Progress -->
-  {#if pipelineStatus !== 'idle'}
-    <section class="progress-section">
-      <div class="progress-card">
-        <div class="progress-header">
-          <span class="progress-status">{pipelineStatus}</span>
-          {#if pipelineStep}
-            <span class="progress-step">{pipelineStep}</span>
-          {/if}
-        </div>
-        <div class="progress-bar-wrap">
-          <div class="progress-bar-fill" style="width: {currentProgress * 100}%"></div>
-        </div>
-        <div class="progress-meta">
-          <span class="progress-pct">{Math.round(currentProgress * 100)}%</span>
-          {#if pipelineSong}
-            <span class="progress-song">{pipelineSong}</span>
-          {/if}
-          {#if pipelineEta}
-            <span class="progress-eta">⏱ {pipelineEta}</span>
-          {/if}
-          {#if inferenceDevice}
-            <span class="progress-device">{inferenceDevice === 'cuda' || inferenceDevice === 'gpu' ? 'Ejecutando en GPU' : 'Ejecutando en CPU'}</span>
-          {/if}
-        </div>
-      </div>
-    </section>
+  {#if queueFiles.length > 0}
+    <PresetsPanel
+      presets={savedPresets}
+      selectedPreset={selectedPresetName}
+      onSelectPreset={(name) => selectedPresetName = name}
+      hasFiles={queueFiles.some(qf => qf.checked)}
+      disabled={separating}
+      onExecute={() => {
+        const selected = savedPresets.find(p => p.name === selectedPresetName);
+        const config = selected?.config || {
+          viperx: true, viperxModel: 'BS_Roformer_Viperx',
+          viperxStems: ['vocals', 'instrumental'],
+          demucs: true, demucsModel: 'htdemucs_ft',
+          demucsStems: ['drums', 'bass', 'other'],
+        };
+        config.preset = selectedPresetName || undefined;
+        handlePipelineStart(config);
+      }}
+      progress={currentProgress}
+      status={pipelineStatus}
+      step={pipelineStep}
+      song={pipelineSong}
+      eta={pipelineEta}
+      device={inferenceDevice}
+    />
   {/if}
 
   <!-- ResultsPanel -->
