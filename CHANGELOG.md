@@ -1,5 +1,13 @@
 # Changelog
 
+## v2.3.6 (2026-06-09)
+
+### Fixed
+- Upload de archivos se quedaba en "uploading" hasta refrescar — reactividad Svelte 5 corregida
+- Timestamps de logs de pipeline idénticos — ahora cada línea tiene nano decreciente
+- Eventos mostraba líneas detalladas de pipeline — ahora solo resúmenes
+- Servicios no tenía filtro — ahora dropdown: Últimos 50/100/500/Todos
+
 ## v2.3.5 (2026-06-09)
 
 ### Fixed
