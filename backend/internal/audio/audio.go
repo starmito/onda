@@ -24,8 +24,8 @@ func IsAudioFile(path string) bool {
 	return false
 }
 
-// copyFile copia un archivo de src a dst sobrescribiendo el destino si existe
-func copyFile(src, dst string) error {
+// CopyFile copia un archivo de src a dst sobrescribiendo el destino si existe
+func CopyFile(src, dst string) error {
 	in, err := os.Open(src)
 	if err != nil {
 		return fmt.Errorf("cannot open source file: %w", err)

@@ -14,7 +14,7 @@ import (
 func RubberbandPitch(semitones int, input, output string) error {
 	if semitones == 0 {
 		// Si pitch=0, copiar el archivo en vez de procesar
-		return copyFile(input, output)
+		return CopyFile(input, output)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
