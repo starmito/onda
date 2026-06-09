@@ -13,14 +13,6 @@ import (
 
 const dockerContainer = "onda"
 
-// HealthResponse es la respuesta del endpoint /api/health.
-type HealthResponse struct {
-	Status    string `json:"status"`
-	Container string `json:"container"`
-	GPU       bool   `json:"gpu"`
-	GPUInfo   string `json:"gpu_info,omitempty"`
-	Version   string `json:"version"`
-}
 
 // GPUPresenceResponse es la respuesta del endpoint /api/gpu.
 type GPUPresenceResponse struct {
