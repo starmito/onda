@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Headless RoFormer inference — supports MelBand & BS RoFormer.
 Usage: python3 inference_universal.py [model_dir] [input_audio] [output_dir]"""
-import sys, os, yaml, warnings
+import sys, os, json, time, yaml, warnings
 import torch, torch.nn as nn
 import numpy as np
 import librosa, soundfile as sf
@@ -23,7 +23,31 @@ def _write_progress(progress_file, chunk, total):
     except Exception:
         pass  # Non-critical; don't crash the pipeline over a progress write failure
 
-def separate(model_dir, input_path, output_dir="output", progress_file=None, num_overlap=None):
+def _write_pipeline_status(status_file, step, progress, chunk, total, device='cuda'):
+    """Write progress to pipeline_status.json for the web UI.
+    Reads existing data to preserve fields (song, model names, etc.)
+    set by pipeline.sh on startup, then updates progress fields."""
+    try:
+        if os.path.exists(status_file):
+            with open(status_file) as f:
+                data = json.load(f)
+        else:
+            data = {}
+        data.update({
+            'status': 'running',
+            'step': step,
+            'progress': progress,
+            'chunk': chunk,
+            'total_chunks': total,
+            'device': device,
+        })
+        with open(status_file, 'w') as f:
+            json.dump(data, f)
+            f.flush()
+    except Exception:
+        pass  # Non-critical; don't crash the pipeline over a status write failure
+
+def separate(model_dir, input_path, output_dir="output", progress_file=None, num_overlap=None, pipeline_status=None):
     ckpts = sorted([f for f in os.listdir(model_dir) if f.endswith('.ckpt')])
     yamls = sorted([f for f in os.listdir(model_dir) if f.endswith('.yaml')])
     if not ckpts or not yamls:
@@ -139,11 +163,15 @@ def separate(model_dir, input_path, output_dir="output", progress_file=None, num
                         counter[s, :, start:end] += win[:common]
                     chunk_idx += 1
                 
-                # Write progress on EVERY chunk (not every 10) for real-time tracking
+                # Write progress on EVERY batch (not every chunk) for real-time tracking
                 if chunk_idx % 10 == 0:
                     print(f"  {chunk_idx}/{total} chunks...")
                 if progress_file:
                     _write_progress(progress_file, chunk_idx, total)
+                if pipeline_status:
+                    _write_pipeline_status(pipeline_status, 'viperx',
+                                           chunk_idx / total if total > 0 else 0.0,
+                                           chunk_idx, total, str(device))
                 batch_data, batch_starts = [], []
     
     result = result / (counter + 1e-8)
@@ -175,9 +203,10 @@ def separate(model_dir, input_path, output_dir="output", progress_file=None, num
     return True
 
 if __name__ == '__main__':
-    # Parse args: model_dir input_path output_dir [overlap] [dim_t] [--batch-size N] [--progress-file FILE]
+    # Parse args: model_dir input_path output_dir [overlap] [dim_t] [--batch-size N] [--progress-file FILE] [--pipeline-status FILE]
     args = sys.argv[1:]
     progress_file = None
+    pipeline_status = None
     cli_batch_size = None
     cli_dim_t = None
     
@@ -187,6 +216,9 @@ if __name__ == '__main__':
     while i < len(args):
         if args[i] == '--progress-file' and i+1 < len(args):
             progress_file = args[i+1]
+            i += 2
+        elif args[i] == '--pipeline-status' and i+1 < len(args):
+            pipeline_status = args[i+1]
             i += 2
         elif args[i] == '--batch-size' and i+1 < len(args):
             cli_batch_size = int(args[i+1])
@@ -210,4 +242,4 @@ if __name__ == '__main__':
     num_overlap = int(args[3]) if len(args) > 3 else None
     
     sys.exit(0 if separate(model_dir, input_path, output_dir, progress_file, 
-                          num_overlap=num_overlap) else 1)
+                          num_overlap=num_overlap, pipeline_status=pipeline_status) else 1)

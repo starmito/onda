@@ -271,29 +271,11 @@ if $VIPERX; then
     # The script expects: model_dir input output [num_overlap]
     # Uses python3 for reliable float->int conversion (awk locale-dependent)
     VIPERX_OVERLAP_INT=$(python3 -c "o=${OVERLAP}; print(int(o) if o >= 1 else int(1/o))")
-    # Launch inference with progress file for real-time progress tracking
-    # Must use a bind-mounted path so both host and container can access the same file
-    VIPERX_PROGRESS_FILE="${TMP_VIP}/progress.json"
-    rm -f "$VIPERX_PROGRESS_FILE"
-    python3 /app/inference_universal.py \
-        --progress-file "$VIPERX_PROGRESS_FILE" \
-        "${VIPERX_MODEL}" "${INPUT}" "${TMP_VIP}" ${VIPERX_OVERLAP_INT} &
-    VIPERX_PID=$!
-
-    # Background loop: read progress file every second, map chunk/total to step range
-    while kill -0 $VIPERX_PID 2>/dev/null; do
-        if [ -f "$VIPERX_PROGRESS_FILE" ]; then
-            chunk=$(python3 -c "import json; print(json.load(open("$VIPERX_PROGRESS_FILE")).get("chunk",0))" 2>/dev/null || echo 0)
-            total=$(python3 -c "import json; print(json.load(open("$VIPERX_PROGRESS_FILE")).get("total_chunks",0))" 2>/dev/null || echo 0)
-            if [ -n "$chunk" ] && [ -n "$total" ] && [ "$total" -gt 0 ]; then
-                step_pct=$(( chunk * 100 / total ))
-                global_pct=$(( VIPERX_START + (step_pct * (VIPERX_END - VIPERX_START) / 100) ))
-                report_progress "running" "viperx" $global_pct
-            fi
-        fi
-        sleep 0.2
-    done
-    wait $VIPERX_PID
+    # Launch inference — Python writes pipeline_status.json directly on each chunk.
+    # run_with_elapsed starts the background elapsed/eta updater loop.
+    run_with_elapsed python3 /app/inference_universal.py \
+        --pipeline-status "$STATUS_FILE" \
+        "${VIPERX_MODEL}" "${INPUT}" "${TMP_VIP}" ${VIPERX_OVERLAP_INT}
     echo "   ✅ Viperx done"
 
     # Find instrumental (for demucs)
