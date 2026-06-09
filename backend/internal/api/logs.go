@@ -11,7 +11,8 @@ const maxLogEntries = 200
 
 type LogEntry struct {
 	Nano    int64  `json:"nano"`
-	Level   string `json:"level"` // "error", "info", "success"
+	Level   string `json:"level"`
+	Service string `json:"service"`
 	Message string `json:"message"`
 }
 
@@ -22,12 +23,13 @@ var (
 
 // Log añade una entrada al ring buffer.
 // Si se superan maxLogEntries, elimina la más antigua.
-func Log(level, message string) {
+func Log(service, level, message string) {
 	logBufferMu.Lock()
 	defer logBufferMu.Unlock()
 	entry := LogEntry{
 		Nano:    time.Now().UnixNano(),
 		Level:   level,
+		Service: service,
 		Message: message,
 	}
 	logBuffer = append(logBuffer, entry)
