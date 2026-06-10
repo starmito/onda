@@ -144,7 +144,7 @@
     display: flex;
     align-items: center;
     gap: 0.3rem;
-    color: #888;
+    color: var(--text-secondary);
   }
 
   .dot {
@@ -163,7 +163,7 @@
 
   .ind-label {
     font-weight: 600;
-    color: #c0c0d0;
+    color: var(--text-primary);
   }
   .indicator.green .ind-label {
     color: #81c784;
@@ -173,12 +173,12 @@
   }
 
   .ind-version {
-    color: #606080;
+    color: var(--text-muted);
     font-size: 0.7rem;
   }
 
   .ind-detail {
-    color: #606080;
+    color: var(--text-muted);
     font-size: 0.7rem;
   }
 
@@ -216,11 +216,11 @@
     bottom: 100%;
     right: 0;
     margin-bottom: 6px;
-    background: #1a1a2e;
+    background: var(--bg-surface);
     border: 1px solid #ff9800;
     border-radius: 4px;
     padding: 0.5rem 0.75rem;
-    color: #c0c0d0;
+    color: var(--text-primary);
     font-weight: 400;
     font-size: 0.7rem;
     white-space: nowrap;
@@ -246,10 +246,10 @@
 
   .btn {
     padding: 0.2rem 0.6rem;
-    border: 1px solid #2a2a4a;
+    border: 1px solid var(--border);
     border-radius: 4px;
-    background: #1a1a2e;
-    color: #c0c0d0;
+    background: var(--bg-surface);
+    color: var(--text-primary);
     font-size: 0.65rem;
     font-weight: 600;
     cursor: pointer;

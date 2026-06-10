@@ -58,7 +58,7 @@
 
 	.subtitle {
 		font-size: 1rem;
-		color: #999999;
+		color: var(--text-secondary);
 		margin: 0;
 	}
 </style>

@@ -30,22 +30,24 @@
   });
 
   function applyAccent(color: string) {
-    const root = document.documentElement;
-    root.style.setProperty('--accent', color);
-    root.style.setProperty('--accent-light', color + 'cc');
-    root.style.setProperty('--accent-dark', darken(color, 20));
-    root.style.setProperty('--accent-glow', color + '4d');
-    root.style.setProperty('--accent-subtle', color + '14');
-    root.style.setProperty('--accent-bg', color + '22');
-    root.style.setProperty('--accent-border', color + '33');
+    const body = document.body;
+    body.style.setProperty('--accent', color);
+    // Calculate lighter version (accent-light)
+    body.style.setProperty('--accent-light', adjustColor(color, 40));
+    body.style.setProperty('--accent-dark', adjustColor(color, -30));
+    body.style.setProperty('--accent-glow', color + '4d');
+    body.style.setProperty('--accent-subtle', color + '14');
+    body.style.setProperty('--accent-bg', color + '22');
+    body.style.setProperty('--accent-border', color + '33');
     localStorage.setItem('onda-accent', color);
   }
 
-  function darken(hex: string, amount: number): string {
+  function adjustColor(hex: string, amount: number): string {
+    // Simple lighten/darken by adjusting RGB
     const num = parseInt(hex.replace('#', ''), 16);
-    const r = Math.max((num >> 16) - amount, 0);
-    const g = Math.max(((num >> 8) & 0xff) - amount, 0);
-    const b = Math.max((num & 0xff) - amount, 0);
+    const r = Math.min(255, Math.max(0, (num >> 16) + amount));
+    const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff) + amount));
+    const b = Math.min(255, Math.max(0, (num & 0xff) + amount));
     return `rgb(${r}, ${g}, ${b})`;
   }
 

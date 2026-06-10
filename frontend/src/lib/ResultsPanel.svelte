@@ -1227,11 +1227,11 @@
     margin: 0;
     font-size: 1.25rem;
     font-weight: 600;
-    color: #e0e0e0;
+    color: var(--text-primary);
   }
 
   .song-group {
-    background: #1a1a2e;
+    background: var(--bg-surface);
     border-radius: 8px;
     padding: 0.75rem 1rem;
     animation: fadeIn 0.3s ease;
@@ -1242,7 +1242,7 @@
     align-items: center;
     gap: 0.5rem;
     padding-bottom: 0.5rem;
-    border-bottom: 1px solid #2a2a3e;
+    border-bottom: 1px solid var(--border);
     margin-bottom: 0.5rem;
     flex-wrap: wrap;
   }
@@ -1294,7 +1294,7 @@
   }
   .pause-btn {
     background: #ff9800;
-    color: #0a0a14;
+    color: var(--text-primary);
   }
   .pause-btn:not(:disabled):hover {
     background: #e68900;
@@ -1323,7 +1323,7 @@
     width: 100%;
     height: 4px;
     border-radius: 2px;
-    background: #2a2a3e;
+    background: var(--bg-hover);
     outline: none;
     cursor: pointer;
   }
@@ -1344,7 +1344,7 @@
 
   .time-display {
     font-size: 0.7rem;
-    color: #888;
+    color: var(--text-secondary);
     font-variant-numeric: tabular-nums;
     text-align: right;
     white-space: nowrap;
@@ -1360,9 +1360,9 @@
   .song-btn {
     padding: 0.3rem 0.6rem;
     border-radius: 5px;
-    border: 1px solid #444;
-    background: #2a2a3e;
-    color: #ccc;
+    border: 1px solid var(--border-light);
+    background: var(--bg-hover);
+    color: var(--text-secondary);
     font-size: 0.75rem;
     cursor: pointer;
     transition: background 0.2s, border-color 0.2s;
@@ -1370,7 +1370,7 @@
   }
   .song-btn:hover {
     background: #333355;
-    border-color: #666;
+    border-color: var(--text-muted);
   }
   .export-btn:hover { color: var(--accent); border-color: var(--accent); }
   .delete-btn:hover { color: #f44336; border-color: #f44336; }
@@ -1416,7 +1416,7 @@
   .stem-name {
     flex: 1;
     font-size: 0.85rem;
-    color: #e0e0e0;
+    color: var(--text-primary);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -1436,9 +1436,9 @@
     min-width: 24px;
     min-height: 24px;
     border-radius: 4px;
-    border: 1px solid #444;
-    background: #2a2a3e;
-    color: #888;
+    border: 1px solid var(--border-light);
+    background: var(--bg-hover);
+    color: var(--text-secondary);
     font-size: 0.7rem;
     font-weight: 700;
     cursor: pointer;
@@ -1451,8 +1451,8 @@
   }
   .stem-btn:hover {
     background: #333355;
-    border-color: #666;
-    color: #ccc;
+    border-color: var(--text-muted);
+    color: var(--text-secondary);
   }
   .stem-btn.active {
     background: var(--accent);
@@ -1497,7 +1497,7 @@
     width: 60px;
     height: 4px;
     border-radius: 2px;
-    background: #2a2a3e;
+    background: var(--bg-hover);
     outline: none;
     cursor: pointer;
   }
@@ -1514,7 +1514,7 @@
 
   .vol-label {
     font-size: 0.7rem;
-    color: #888;
+    color: var(--text-secondary);
     width: 24px;
     text-align: right;
     font-variant-numeric: tabular-nums;
@@ -1570,12 +1570,12 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.5rem 0;
-    border-top: 1px solid #2a2a3e;
+    border-top: 1px solid var(--border);
     margin-top: 0.5rem;
   }
   .pitch-label {
     font-size: 0.8rem;
-    color: #c0c0d0;
+    color: var(--text-primary);
     white-space: nowrap;
     flex-shrink: 0;
   }
@@ -1590,7 +1590,7 @@
     background: #b388ff;
     border: none;
     border-radius: 6px;
-    color: #0a0a14;
+    color: var(--text-primary);
     font-size: 0.75rem;
     font-weight: 600;
     cursor: pointer;

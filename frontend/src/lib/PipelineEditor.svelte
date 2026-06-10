@@ -652,8 +652,8 @@
 <style>
   .editor-card {
     width: 100%;
-    background: #1a1a2e;
-    border: 1px solid #2a2a4a;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
     border-radius: 12px;
     padding: 1.25rem;
     display: flex;
@@ -678,7 +678,7 @@
     letter-spacing: 0.5px;
     margin: 20px 0 12px 0;
     padding-bottom: 8px;
-    border-bottom: 1px solid #2a2a4a;
+    border-bottom: 1px solid var(--border);
   }
 
   .delete-separator {
@@ -700,10 +700,10 @@
   }
 
   .select {
-    background: #0a0a14;
-    border: 1px solid #2a2a4a;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
     border-radius: 6px;
-    color: #e0e0e0;
+    color: var(--text-primary);
     padding: 0.5rem 0.75rem;
     font-size: 0.9rem;
     outline: none;
@@ -713,14 +713,14 @@
     border-color: var(--accent);
   }
   .select optgroup {
-    background: #0a0a14;
+    background: var(--bg-primary);
     color: #a0a0c0;
     font-weight: 600;
     font-style: normal;
   }
   .select option {
-    background: #1a1a2e;
-    color: #e0e0e0;
+    background: var(--bg-surface);
+    color: var(--text-primary);
     padding: 0.3rem;
   }
 
@@ -730,7 +730,7 @@
     gap: 0.5rem;
     cursor: pointer;
     font-size: 0.95rem;
-    color: #e0e0e0;
+    color: var(--text-primary);
   }
   .step-row input[type="checkbox"] {
     accent-color: #6c5ce7;
@@ -757,13 +757,13 @@
     display: flex;
     align-items: center;
     gap: 0.25rem;
-    background: #0a0a14;
-    border: 1px solid #2a2a4a;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
     border-radius: 20px;
     padding: 0.3rem 0.6rem;
     font-size: 0.8rem;
     cursor: pointer;
-    color: #c0c0d0;
+    color: var(--text-primary);
   }
   .chip input[type="checkbox"] {
     accent-color: #6c5ce7;
@@ -781,10 +781,10 @@
   .graph-section {
     width: 100%;
     overflow-x: auto;
-    background: #0a0a14;
+    background: var(--bg-primary);
     border-radius: 8px;
     padding: 0.5rem;
-    border: 1px solid #2a2a4a;
+    border: 1px solid var(--border);
   }
   .pipeline-graph {
     display: block;
@@ -798,7 +798,7 @@
   .hint {
     margin: 0;
     font-size: 0.8rem;
-    color: #888;
+    color: var(--text-secondary);
     text-align: center;
   }
 
@@ -808,9 +808,9 @@
     padding: 0.6rem 1.5rem;
     font-size: 0.9rem;
     font-weight: 600;
-    color: #666;
-    background: #111128;
-    border: 1px dashed #2a2a4a;
+    color: var(--text-muted);
+    background: var(--bg-hover);
+    border: 1px dashed var(--border);
     border-radius: 8px;
   }
 
@@ -834,7 +834,7 @@
   }
   .btn-primary {
     background: linear-gradient(135deg, var(--accent), var(--accent-dark));
-    color: #0a0a14;
+    color: var(--text-primary);
   }
   .btn-primary:hover:not(:disabled) {
     background: linear-gradient(135deg, #8a7af0, #6c5ce7);
@@ -847,10 +847,10 @@
   }
   .input {
     flex: 1;
-    background: #0a0a14;
-    border: 1px solid #2a2a4a;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
     border-radius: 6px;
-    color: #e0e0e0;
+    color: var(--text-primary);
     padding: 0.5rem 0.75rem;
     font-size: 0.9rem;
     outline: none;
@@ -861,7 +861,7 @@
   }
   .loading-hint {
     font-size: 0.8rem;
-    color: #888;
+    color: var(--text-secondary);
     padding: 0.25rem 0;
   }
   .error-hint {
@@ -909,13 +909,13 @@
   .btn-default-large:hover { opacity: 0.9; }
   .btn-default-large:disabled { opacity: 0.3; cursor: not-allowed; }
   .save-banner { background: #2e7d32; color: white; padding: 10px 20px; border-radius: 8px; font-size: 14px; font-weight: 500; }
-  .delete-preset-section { margin-top: 20px; border-top: 1px solid #333; padding-top: 16px; }
+  .delete-preset-section { margin-top: 20px; border-top: 1px solid var(--border); padding-top: 16px; }
   .btn-delete-large { width: 100%; margin-top: 10px; padding: 12px; background: transparent; border: 2px solid #dc3545; color: #dc3545; border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer; transition: all 0.2s; }
   .btn-delete-large:hover { background: #dc3545; color: white; }
   .btn-delete-large:disabled { opacity: 0.3; cursor: not-allowed; }
   .delete-confirm { margin-top: 12px; padding: 12px; background: rgba(220,53,69,0.1); border: 1px solid #dc3545; border-radius: 8px; text-align: center; }
-  .delete-confirm p { color: #eee; margin: 0 0 10px 0; font-size: 14px; }
+  .delete-confirm p { color: var(--text-primary); margin: 0 0 10px 0; font-size: 14px; }
   .delete-confirm-actions { display: flex; gap: 10px; justify-content: center; }
-  .btn-cancel { padding: 8px 20px; background: #444; color: #eee; border: none; border-radius: 6px; cursor: pointer; }
+  .btn-cancel { padding: 8px 20px; background: #444; color: var(--text-primary); border: none; border-radius: 6px; cursor: pointer; }
   .btn-confirm-delete { padding: 8px 20px; background: #dc3545; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
 </style>

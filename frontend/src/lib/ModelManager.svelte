@@ -511,7 +511,7 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: #0a0a14;
+    background: var(--bg-primary);
     z-index: 900;
     display: flex;
     flex-direction: column;
@@ -523,21 +523,21 @@
     align-items: center;
     gap: 1rem;
     padding: 0.75rem 1.25rem;
-    border-bottom: 1px solid #2a2a4a;
-    background: #1a1a2e;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-surface);
   }
 
   .fullscreen-header h2 {
     margin: 0;
     font-size: 1.1rem;
-    color: #e0e0e0;
+    color: var(--text-primary);
     flex: 1;
     text-align: center;
   }
 
   .btn-back {
     background: none;
-    border: 1px solid #2a2a4a;
+    border: 1px solid var(--border);
     border-radius: 6px;
     color: var(--accent-light);
     font-size: 0.85rem;
@@ -549,7 +549,7 @@
     border-color: var(--accent);
   }
   .btn-close {
-    background: transparent; border: 1px solid #555; color: #aaa;
+    background: transparent; border: 1px solid var(--border); color: var(--text-secondary);
     font-size: 18px; width: 32px; height: 32px; border-radius: 6px;
     cursor: pointer; display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
@@ -572,7 +572,7 @@
   }
 
   .loading-text {
-    color: #888;
+    color: var(--text-secondary);
     text-align: center;
     padding-top: 2rem;
   }
@@ -585,7 +585,7 @@
 
   .field label {
     font-size: 0.85rem;
-    color: #c0c0d0;
+    color: var(--text-primary);
   }
 
   .field label strong {
@@ -602,28 +602,28 @@
     display: flex;
     justify-content: space-between;
     font-size: 0.7rem;
-    color: #666;
+    color: var(--text-muted);
   }
 
   .slider-min,
   .slider-max {
-    color: #555;
+    color: var(--text-muted);
     font-size: 0.65rem;
   }
 
   .param-desc {
     font-size: 0.75rem;
-    color: #888;
+    color: var(--text-secondary);
     margin-top: 2px;
     margin-bottom: 4px;
   }
 
   .field select {
     padding: 0.4rem 0.6rem;
-    background: #0e0e1a;
-    border: 1px solid #2a2a4a;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
     border-radius: 6px;
-    color: #e0e0e0;
+    color: var(--text-primary);
     font-size: 0.85rem;
     outline: none;
     cursor: pointer;
@@ -654,7 +654,7 @@
 
   .hint {
     font-size: 0.75rem;
-    color: #606080;
+    color: var(--text-muted);
     margin-top: 0.25rem;
   }
 
@@ -663,7 +663,7 @@
     background: linear-gradient(135deg, var(--accent), var(--accent-light));
     border: none;
     border-radius: 8px;
-    color: #0a0a14;
+    color: var(--text-primary);
     font-weight: 700;
     font-size: 0.9rem;
     cursor: pointer;
@@ -679,7 +679,7 @@
 
   /* Demucs section */
   .demucs-section {
-    border: 1px solid #2a2a4a;
+    border: 1px solid var(--border);
     border-radius: 8px;
     padding: 0.75rem;
     display: flex;
@@ -720,7 +720,7 @@
     justify-content: space-between;
     align-items: center;
     font-size: 0.8rem;
-    color: #c0c0d0;
+    color: var(--text-primary);
     margin-bottom: 0.3rem;
   }
 
@@ -758,12 +758,12 @@
 
   .vram-text {
     font-size: 0.7rem;
-    color: #888;
+    color: var(--text-secondary);
     margin-top: 0.25rem;
   }
 
   .vram-text.muted {
-    color: #555;
+    color: var(--text-muted);
     font-style: italic;
   }
 </style>

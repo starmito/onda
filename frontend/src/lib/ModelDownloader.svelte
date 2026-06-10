@@ -577,7 +577,7 @@
     left: 0;
     right: 0;
     bottom: 0;
-    background: #0a0a14;
+    background: var(--bg-primary);
     z-index: 900;
     display: flex;
     flex-direction: column;
@@ -589,21 +589,21 @@
     align-items: center;
     gap: 1rem;
     padding: 0.75rem 1.25rem;
-    border-bottom: 1px solid #2a2a4a;
-    background: #1a1a2e;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-surface);
   }
 
   .fullscreen-header h2 {
     margin: 0;
     font-size: 1.1rem;
-    color: #e0e0e0;
+    color: var(--text-primary);
     flex: 1;
     text-align: center;
   }
 
   .btn-back {
     background: none;
-    border: 1px solid #2a2a4a;
+    border: 1px solid var(--border);
     border-radius: 6px;
     color: var(--accent-light);
     font-size: 0.85rem;
@@ -615,7 +615,7 @@
     border-color: var(--accent);
   }
   .btn-close {
-    background: transparent; border: 1px solid #555; color: #aaa;
+    background: transparent; border: 1px solid var(--border); color: var(--text-secondary);
     font-size: 18px; width: 32px; height: 32px; border-radius: 6px;
     cursor: pointer; display: flex; align-items: center; justify-content: center;
     flex-shrink: 0;
@@ -651,14 +651,14 @@
     background: none;
     border: none;
     border-bottom: 2px solid transparent;
-    color: #666;
+    color: var(--text-muted);
     font-size: 0.78rem;
     font-weight: 600;
     cursor: pointer;
     transition: color 0.15s, border-color 0.15s;
   }
   .tab-btn:hover {
-    color: #888;
+    color: var(--text-secondary);
   }
   .tab-btn.active {
     color: var(--accent);
@@ -674,10 +674,10 @@
     width: 100%;
     box-sizing: border-box;
     padding: 0.45rem 0.75rem;
-    background: #0e0e1a;
-    border: 1px solid #2a2a4a;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
     border-radius: 6px;
-    color: #e0e0e0;
+    color: var(--text-primary);
     font-size: 0.82rem;
     outline: none;
   }
@@ -685,13 +685,13 @@
     border-color: var(--accent);
   }
   .search-input::placeholder {
-    color: #555;
+    color: var(--text-muted);
   }
 
   /* Empty state */
   .empty-state {
     text-align: center;
-    color: #666;
+    color: var(--text-muted);
     padding: 2rem 0;
     font-size: 0.85rem;
   }
@@ -720,7 +720,7 @@
     text-transform: uppercase;
     letter-spacing: 0.5px;
     padding-bottom: 0.2rem;
-    border-bottom: 1px solid #2a2a4a;
+    border-bottom: 1px solid var(--border);
   }
 
   .model-row {
@@ -728,7 +728,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 0.5rem 0.6rem;
-    background: #0e0e1a;
+    background: var(--bg-primary);
     border: 1px solid #1a1a3a;
     border-radius: 6px;
     gap: 0.5rem;
@@ -745,7 +745,7 @@
   .model-name {
     font-size: 0.8rem;
     font-weight: 600;
-    color: #e0e0e0;
+    color: var(--text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -761,7 +761,7 @@
 
   .model-size {
     font-size: 0.7rem;
-    color: #606080;
+    color: var(--text-muted);
     font-weight: 500;
   }
 
@@ -791,7 +791,7 @@
     background: linear-gradient(135deg, var(--accent), var(--accent-dark));
     border: none;
     border-radius: 5px;
-    color: #0a0a14;
+    color: var(--text-primary);
     font-weight: 700;
     font-size: 0.7rem;
     cursor: pointer;
@@ -815,7 +815,7 @@
   .dropzone {
     width: 100%;
     box-sizing: border-box;
-    border: 2px dashed #2a2a4a;
+    border: 2px dashed var(--border);
     border-radius: 10px;
     padding: 2rem 1rem;
     display: flex;
@@ -824,11 +824,11 @@
     gap: 0.5rem;
     cursor: pointer;
     transition: border-color 0.2s, background 0.2s;
-    background: #0e0e1a;
+    background: var(--bg-primary);
   }
   .dropzone:hover {
     border-color: var(--accent);
-    background: #111128;
+    background: var(--bg-hover);
   }
   .dropzone.uploading {
     opacity: 0.6;
@@ -840,12 +840,12 @@
   .dropzone-text {
     font-size: 0.85rem;
     font-weight: 600;
-    color: #c0c0d0;
+    color: var(--text-primary);
     text-align: center;
   }
   .dropzone-hint {
     font-size: 0.7rem;
-    color: #606080;
+    color: var(--text-muted);
   }
 
   /* Installed list */
@@ -860,7 +860,7 @@
     align-items: center;
     justify-content: space-between;
     padding: 0.5rem 0.6rem;
-    background: #0e0e1a;
+    background: var(--bg-primary);
     border: 1px solid #1a1a3a;
     border-radius: 6px;
     gap: 0.5rem;
@@ -877,7 +877,7 @@
   .installed-name {
     font-size: 0.8rem;
     font-weight: 600;
-    color: #e0e0e0;
+    color: var(--text-primary);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -890,7 +890,7 @@
 
   .installed-size {
     font-size: 0.68rem;
-    color: #606080;
+    color: var(--text-muted);
   }
 
   .btn-delete {
@@ -933,17 +933,17 @@
 
   .source-btn {
     padding: 0.4rem 1rem;
-    background: #1a1a2e;
-    border: 1px solid #2a2a4a;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
     border-radius: 20px;
-    color: #888;
+    color: var(--text-secondary);
     font-size: 0.8rem;
     cursor: pointer;
     transition: all 0.15s;
   }
   .source-btn:hover {
-    border-color: #555;
-    color: #c0c0d0;
+    border-color: var(--text-muted);
+    color: var(--text-primary);
   }
   .source-btn.active {
     background: var(--accent-bg);
