@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import ResultsPanel from './ResultsPanel.svelte';
   import type { ResultStem } from './types';
-  import { uploadAudio } from './api';
+  import { uploadPitchAudio } from './api';
   import { IconUpload } from './icons';
 
   let { results = [] as ResultStem[], onResultsChange = () => {} } = $props();
@@ -25,7 +25,7 @@
     pitchFiles = [...pitchFiles, pf];
 
     // Upload to regular endpoint — could be changed to input_rubberband later
-    uploadAudio(f).then(() => {
+    uploadPitchAudio(f).then(() => {
       pitchFiles = pitchFiles.map(p => p.id === id ? { ...p, status: 'ready' } : p);
     }).catch((err) => {
       pitchFiles = pitchFiles.map(p => p.id === id ? { ...p, status: 'error', errorMsg: err.message } : p);

@@ -103,6 +103,7 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("DELETE /api/pitch/{song}/{pitch}/{file}", s.handleDeletePitchStem)
 	s.mux.HandleFunc("GET /api/pitch/files/{song}/{pitch}/{file}", s.handlePitchFileServe)
 	s.mux.HandleFunc("POST /api/upload", s.handleUpload)
+	s.mux.HandleFunc("POST /api/upload/pitch", s.handleUploadPitch)
 	s.mux.HandleFunc("GET /api/files/{song}/{file}", s.handleFileServe)
 	s.mux.HandleFunc("POST /api/backend/start", s.handleBackendStart)
 	s.mux.HandleFunc("POST /api/backend/stop", s.handleBackendStop)
@@ -955,6 +956,64 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	// The path inside the container is /input/filename
 	containerPath := "/input/" + safeName
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]string{"path": containerPath})
+}
+
+// handleUploadPitch accepts a multipart file upload and saves it to input_rubberband/.
+func (s *Server) handleUploadPitch(w http.ResponseWriter, r *http.Request) {
+	projectRoot := findProjectRoot()
+	inputDir := filepath.Join(projectRoot, "input_rubberband")
+	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
+		os.MkdirAll(inputDir, 0755)
+	}
+
+	var diskStat syscall.Statfs_t
+	if err := syscall.Statfs(inputDir, &diskStat); err == nil {
+		freeBytes := diskStat.Bavail * uint64(diskStat.Bsize)
+		if freeBytes < 500<<20 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInsufficientStorage)
+			json.NewEncoder(w).Encode(map[string]string{"error": "disk space too low for upload"})
+			return
+		}
+	}
+
+	r.ParseMultipartForm(500 << 20)
+	file, header, err := r.FormFile("file")
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "no file provided"})
+		Log("backend", "error", "Pitch upload failed: "+err.Error())
+		return
+	}
+	defer file.Close()
+
+	safeName := filepath.Base(header.Filename)
+	destPath := filepath.Join(inputDir, safeName)
+	dst, err := os.Create(destPath)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to save file"})
+		Log("backend", "error", "Pitch upload failed: "+err.Error())
+		return
+	}
+	defer dst.Close()
+
+	if _, err := io.Copy(dst, file); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to write file"})
+		Log("backend", "error", "Pitch upload failed: "+err.Error())
+		return
+	}
+
+	Log("backend", "success", "Pitch upload: "+safeName)
+
+	containerPath := "/input_rubberband/" + safeName
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"path": containerPath})

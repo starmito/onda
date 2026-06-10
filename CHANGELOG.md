@@ -1,5 +1,18 @@
 # Changelog
 
+## v2.6.3 — Bugfixes: error handling, endpoint input_rubberband, preset sync (2026-06-10)
+
+### Added
+- **Endpoint `POST /api/upload/pitch`**: guarda archivos en `input_rubberband/` independiente
+- **`uploadPitchAudio()`** en api.ts para el frontend
+- **Volumen `input_rubberband`** en docker-compose (persistente)
+- **Prop `onError`** en PipelineView para errores visibles (toast)
+
+### Fixed
+- **PipelineView**: si el preset no existe en el servidor, muestra error en vez de fallar silenciosamente
+- **Personalizado**: cambiar preset en el desplegable ahora actualiza `selectedPresetName` correctamente (prop `onPresetChange`)
+- **PitchPage**: ahora sube a `input_rubberband/` en vez de a la cola general
+
 ## v2.6.2-alpha — Refactor de pestañas: 4 presets directos, Personalizado, PitchPage (2026-06-10)
 
 ### Added
