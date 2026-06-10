@@ -68,6 +68,13 @@
 
   // Canvas refs for waveform drawing
   let waveformCanvases = $state<Record<string, HTMLCanvasElement>>({});
+  
+  // Read accent color from CSS for canvas fills
+  function accent(): string {
+    if (typeof document === 'undefined') return '#6c5ce7';
+    const c = getComputedStyle(document.body).getPropertyValue('--accent').trim();
+    return c || '#6c5ce7';
+  }
 
   // Pitch shift state
   let pitchSliderValue = $state<Record<string, number>>({});
@@ -874,7 +881,7 @@
           max = Math.max(max, Math.abs(channel[j]));
         }
         const barH = Math.max(1, max * h);
-        ctx.fillStyle = '#6c5ce7';
+        ctx.fillStyle = accent();
         ctx.fillRect(i, (h - barH) / 2, 1, barH);
       }
     } catch {
@@ -884,7 +891,7 @@
         hash = ((hash << 5) - hash) + key.charCodeAt(i);
         hash |= 0;
       }
-      ctx.fillStyle = '#6c5ce7';
+      ctx.fillStyle = accent();
       const barCount = 40;
       const barWidth = w / barCount;
       for (let i = 0; i < barCount; i++) {
@@ -936,7 +943,7 @@
           max = Math.max(max, Math.abs(channel[j]));
         }
         const barH = Math.max(1, max * h);
-        ctx.fillStyle = '#6c5ce7';
+        ctx.fillStyle = accent();
         ctx.fillRect(i, (h - barH) / 2, 1, barH);
       }
       // Don't close shared audio context
@@ -946,7 +953,7 @@
         hash = ((hash << 5) - hash) + url.charCodeAt(i);
         hash |= 0;
       }
-      ctx.fillStyle = '#6c5ce7';
+      ctx.fillStyle = accent();
       const barCount = 40;
       const barWidth = w / barCount;
       for (let i = 0; i < barCount; i++) {
@@ -1587,7 +1594,7 @@
   }
   .pitch-apply-btn {
     padding: 0.3rem 0.8rem;
-    background: #b388ff;
+    background: var(--accent);
     border: none;
     border-radius: 6px;
     color: var(--text-primary);
@@ -1600,7 +1607,7 @@
   .pitch-apply-btn:disabled { opacity: 0.4; cursor: not-allowed; }
   .pitched-group {
     margin-left: 1.5rem;
-    border-left: 2px solid #b388ff44;
+    border-left: 2px solid var(--accent-border);
     padding-left: 0.75rem;
     margin-top: 0.75rem;
     padding-bottom: 0.5rem;
@@ -1614,7 +1621,7 @@
   .pitched-title {
     margin: 0;
     font-size: 0.85rem;
-    color: #b388ff;
+    color: var(--accent-light);
     font-weight: 600;
   }
   .pitched-delete-btn {

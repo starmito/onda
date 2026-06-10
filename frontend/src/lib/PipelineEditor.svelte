@@ -217,7 +217,12 @@
   });
 
   function nodeColor(active: boolean): string {
-    return active ? '#6c5ce7' : '#3a3a5a';
+    // Read accent from CSS variable for dynamic theming
+    if (active && typeof document !== 'undefined') {
+      const accent = getComputedStyle(document.body).getPropertyValue('--accent').trim();
+      return accent || '#6c5ce7';
+    }
+    return '#555';
   }
   function stemColor(active: boolean): string {
     return active ? '#4caf50' : '#3a3a5a';
@@ -572,7 +577,7 @@
       <defs>
         <marker id="arrowhead" markerWidth="10" markerHeight="7"
           refX="9" refY="3.5" orient="auto">
-          <polygon points="0 0, 10 3.5, 0 7" fill="#6c5ce7" />
+          <polygon points="0 0, 10 3.5, 0 7" fill="var(--accent)" />
         </marker>
       </defs>
     </svg>
@@ -837,7 +842,7 @@
     color: var(--text-primary);
   }
   .btn-primary:hover:not(:disabled) {
-    background: linear-gradient(135deg, #8a7af0, #6c5ce7);
+    background: linear-gradient(135deg, var(--accent-light), var(--accent));
   }
 
   .preset-row {

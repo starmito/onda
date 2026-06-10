@@ -690,7 +690,7 @@
   .demucs-title {
     margin: 0;
     font-size: 0.85rem;
-    color: #b388ff;
+    color: var(--accent-light);
     font-weight: 600;
   }
 

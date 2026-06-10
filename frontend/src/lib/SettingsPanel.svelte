@@ -294,8 +294,8 @@
 
   .settings-tab.active {
     background: var(--accent-bg);
-    border-color: #6c5ce7;
-    color: #c8bfff;
+    border-color: var(--accent);
+    color: var(--accent-light);
   }
 
   /* ── Body ── */
@@ -380,8 +380,8 @@
 
   .log-tab.active {
     background: var(--accent-bg);
-    border-color: #6c5ce7;
-    color: #c8bfff;
+    border-color: var(--accent);
+    color: var(--accent-light);
   }
 
   .log-filter {
