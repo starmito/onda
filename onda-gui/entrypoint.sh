@@ -2,7 +2,7 @@
 set -e
 
 # ── Create persistent config directories ──
-mkdir -p /config/model_configs
+mkdir -p /config/model_configs 2>/dev/null || true
 
 # ── Start Go backend ──
 echo "→ Starting Go backend on :3001..."
