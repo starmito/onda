@@ -105,8 +105,9 @@
 		height: 100%;
 		background: linear-gradient(
 			to right,
-			rgba(108, 92, 231, 0.12) 0%,
-			var(--bg-primary) 50%
+			rgba(108, 92, 231, 0.3) 0%,
+			rgba(108, 92, 231, 0.1) 25%,
+			var(--bg-primary) 70%
 		);
 		overflow-x: hidden;
 		overflow-y: auto;
@@ -176,7 +177,7 @@
 
 	.nav-item.active {
 		background: rgba(108, 92, 231, 0.12);
-		border-bottom-color: #6c5ce7;
+		border-bottom-color: var(--accent);
 		color: var(--text-primary);
 	}
 

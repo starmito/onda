@@ -39,6 +39,7 @@
     body.style.setProperty('--accent-subtle', color + '14');
     body.style.setProperty('--accent-bg', color + '22');
     body.style.setProperty('--accent-border', color + '33');
+    body.style.accentColor = color;
     localStorage.setItem('onda-accent', color);
   }
 

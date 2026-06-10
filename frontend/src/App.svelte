@@ -7,7 +7,6 @@
   import HelpPage from './lib/HelpPage.svelte';
   import ResultsPanel from './lib/ResultsPanel.svelte';
   import PresetsPanel from './lib/PresetsPanel.svelte';
-  import StatusBar from './lib/StatusBar.svelte';
   import type { ResultStem } from './lib/types';
   import { detectStemType } from './lib/types';
   import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getPresets, getDefaultPreset } from './lib/api';
@@ -116,6 +115,32 @@
 
   // Load model list + persisted data on mount
   onMount(() => {
+    // ── Load persisted accent color and theme ──
+    const savedAccent = localStorage.getItem('onda-accent');
+    if (savedAccent) {
+      const body = document.body;
+      body.style.setProperty('--accent', savedAccent);
+      // Calculate lighter/darker variants
+      const num = parseInt(savedAccent.replace('#', ''), 16);
+      const r = Math.min(255, Math.max(0, (num >> 16)));
+      const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff)));
+      const b = Math.min(255, Math.max(0, (num & 0xff)));
+      const lightR = Math.min(255, r + 40);
+      const lightG = Math.min(255, g + 40);
+      const lightB = Math.min(255, b + 40);
+      body.style.setProperty('--accent-light', `rgb(${lightR}, ${lightG}, ${lightB})`);
+      body.style.setProperty('--accent-dark', `rgb(${Math.max(0, r - 30)}, ${Math.max(0, g - 30)}, ${Math.max(0, b - 30)})`);
+      body.style.setProperty('--accent-glow', savedAccent + '4d');
+      body.style.setProperty('--accent-subtle', savedAccent + '14');
+      body.style.setProperty('--accent-bg', savedAccent + '22');
+      body.style.setProperty('--accent-border', savedAccent + '33');
+      body.style.accentColor = savedAccent;
+    }
+    const savedTheme = localStorage.getItem('onda-theme');
+    if (savedTheme === 'light') {
+      document.body.classList.add('light-theme');
+    }
+
     // ── Load version from health endpoint ──
     getHealth()
       .then((h) => {
@@ -667,8 +692,6 @@
     </div>
   </div>
 
-  <StatusBar />
-
   <!-- Toast -->
   {#if toastMessage}
     <div class="toast {toastType}">{toastMessage}</div>
@@ -866,7 +889,7 @@
   }
   .queue-columns-header input[type="checkbox"] {
     flex-shrink: 0; width: 16px; height: 16px;
-    cursor: pointer; accent-color: #6c5ce7;
+    cursor: pointer; accent-color: var(--accent);
   }
   .col-title { flex: 1; }
   .col-progress { width: 180px; text-align: center; }
@@ -883,7 +906,7 @@
     font-size: 0.85rem;
   }
   .queue-row input[type="checkbox"] {
-    accent-color: #6c5ce7;
+    accent-color: var(--accent);
     flex-shrink: 0;
   }
   .queue-name {

@@ -1582,7 +1582,7 @@
   .pitch-slider {
     flex: 1;
     max-width: 150px;
-    accent-color: #b388ff;
+    accent-color: var(--accent-light);
     cursor: pointer;
   }
   .pitch-apply-btn {

@@ -347,7 +347,7 @@
     width: 16px;
     height: 16px;
     cursor: pointer;
-    accent-color: #6c5ce7;
+    accent-color: var(--accent);
   }
   .col-title { flex: 1; }
   .col-progress { width: 180px; text-align: center; }
@@ -364,7 +364,7 @@
     font-size: 0.85rem;
   }
   .queue-row input[type="checkbox"] {
-    accent-color: #6c5ce7;
+    accent-color: var(--accent);
     flex-shrink: 0;
   }
   .queue-name {

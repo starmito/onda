@@ -733,7 +733,7 @@
     color: var(--text-primary);
   }
   .step-row input[type="checkbox"] {
-    accent-color: #6c5ce7;
+    accent-color: var(--accent);
     width: 16px;
     height: 16px;
   }
@@ -766,7 +766,7 @@
     color: var(--text-primary);
   }
   .chip input[type="checkbox"] {
-    accent-color: #6c5ce7;
+    accent-color: var(--accent);
     width: 14px;
     height: 14px;
   }

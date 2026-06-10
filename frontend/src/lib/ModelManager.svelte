@@ -594,7 +594,7 @@
 
   .field input[type='range'] {
     width: 100%;
-    accent-color: #6c5ce7;
+    accent-color: var(--accent);
     height: 6px;
   }
 
