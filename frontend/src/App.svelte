@@ -11,7 +11,7 @@
   import { detectStemType } from './lib/types';
   import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getPresets, getDefaultPreset } from './lib/api';
   import type { QueueJob } from './lib/api';
-  import { IconOnda } from './lib/icons';
+  import { IconOnda, IconStar, IconMusic, IconInstruments, IconVoiceRemove, IconSeparate } from './lib/icons';
 
 
   interface QueueFile {
@@ -233,14 +233,29 @@
         }
         // ── Build sidebar presets after default preset is loaded ──
         const defaultName = data?.name;
-        sidebarPresets = list.map((p: any) => ({
+        function getPresetIcon(presetName: string, isDefault: boolean): string {
+          if (isDefault) return IconStar;
+          const lower = presetName.toLowerCase();
+          if (lower.includes('instrument')) return IconInstruments;
+          if (lower.includes('voz') || lower.includes('voice')) return IconVoiceRemove;
+          if (lower.includes('completo') || lower.includes('full')) return IconSeparate;
+          if (lower.includes('elimin')) return IconVoiceRemove;
+          return IconMusic;
+        }
+        const presets = list.map((p: any) => ({
           id: p.name.toLowerCase().replace(/\s+/g, '-'),
           name: p.name,
-          icon: p.name === defaultName ? '⭐' : '🎵'
+          icon: getPresetIcon(p.name, p.name === defaultName)
         }));
+        // Sort: default preset first
+        sidebarPresets = presets.sort((a, b) => {
+          if (a.icon === IconStar) return -1;
+          if (b.icon === IconStar) return 1;
+          return 0;
+        });
         // Set activeTab to default preset
         if (!activeTab || activeTab === 'separador-voces-total') {
-          const first = sidebarPresets.find(p => p.icon === '⭐') || sidebarPresets[0];
+          const first = sidebarPresets.find(p => p.icon === IconStar) || sidebarPresets[0];
           if (first) activeTab = first.id;
         }
 
@@ -273,6 +288,18 @@
         if (data?.name && savedPresets.some(p => p.name === data.name)) {
           selectedPresetName = data.name;
         }
+        const defaultName = data?.name;
+        const presets = list.map((p: any) => ({
+          id: p.name.toLowerCase().replace(/\s+/g, '-'),
+          name: p.name,
+          icon: getPresetIcon(p.name, p.name === defaultName)
+        }));
+        // Sort: default preset first
+        sidebarPresets = presets.sort((a, b) => {
+          if (a.icon === IconStar) return -1;
+          if (b.icon === IconStar) return 1;
+          return 0;
+        });
       });
     }).catch(() => {});
   }
