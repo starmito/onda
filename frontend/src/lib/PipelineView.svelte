@@ -147,7 +147,6 @@
       if (hidePresetSelector && presetName) {
         const hardcodedConfig = getHardcodedPreset(presetName);
         if (hardcodedConfig) {
-          hardcodedConfig.preset = presetName;
           onStart(hardcodedConfig);
           return;
         }

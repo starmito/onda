@@ -59,7 +59,7 @@
   async function handleStart() {
     starting = true;
     try {
-      await fetch(`${API_BASE}/api/start`, { method: 'POST' });
+      await fetch(`${API_BASE}/api/backend/start`, { method: 'POST' });
     } catch {}
     setTimeout(() => { starting = false; window.location.reload(); }, 1500);
   }
@@ -67,7 +67,7 @@
   async function handleStop() {
     stopping = true;
     try {
-      await fetch(`${API_BASE}/api/stop`, { method: 'POST' });
+      await fetch(`${API_BASE}/api/backend/stop`, { method: 'POST' });
     } catch {}
     setTimeout(() => { stopping = false; window.location.reload(); }, 1500);
   }
@@ -75,7 +75,7 @@
   async function handleRestart() {
     restarting = true;
     try {
-      await fetch(`${API_BASE}/api/restart`, { method: 'POST' });
+      await fetch(`${API_BASE}/api/backend/restart`, { method: 'POST' });
       setTimeout(() => window.location.reload(), 2000);
     } catch {
       restarting = false;
