@@ -20,17 +20,16 @@
     { name: 'Runtime', version: '', status: 'loading', icon: IconSettings },
   ]);
 
+  let restarting = $state(false);
+
   onMount(() => {
     fetch(`${API_BASE}/api/health`)
       .then(r => r.json())
       .then(d => {
         version = d.version || '';
-        // Extract GPU name from detail string
         const gpuDetail = d.gpu?.detail || '';
         const gpuName = gpuDetail.split(',')[0] || '—';
-        // Extract disk free space from detail
         const diskDetail = d.disk?.detail || '?';
-        // Determine runtime
         const runtime = d.gpu?.ok ? 'CUDA (NVIDIA)' : 'CPU';
         
         services = services.map(s => {
@@ -54,6 +53,16 @@
         services = services.map(s => ({ ...s, status: 'error' }));
       });
   });
+
+  async function handleRestart() {
+    restarting = true;
+    try {
+      await fetch(`${API_BASE}/api/restart`, { method: 'POST' });
+      setTimeout(() => window.location.reload(), 2000);
+    } catch {
+      restarting = false;
+    }
+  }
 </script>
 
 <div class="help-page">
@@ -77,6 +86,17 @@
         </span>
       </div>
     {/each}
+  </div>
+
+  <!-- Control buttons -->
+  <div class="controls">
+    <h2 class="section-title">Control del servicio</h2>
+    <div class="control-buttons">
+      <button class="ctrl-btn ctrl-restart" onclick={handleRestart} disabled={restarting}>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23,4 23,10 17,10"/><polyline points="1,20 1,14 7,14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        Reiniciar
+      </button>
+    </div>
   </div>
 </div>
 
@@ -120,7 +140,7 @@
     font-weight: 500;
   }
 
-  .services {
+  .services, .controls {
     width: 100%;
     display: flex;
     flex-direction: column;
@@ -179,18 +199,42 @@
     flex-shrink: 0;
   }
 
-  .status-ok {
-    background: rgba(76, 175, 80, 0.15);
-    color: #4caf50;
+  .status-ok { background: rgba(76, 175, 80, 0.15); color: #4caf50; }
+  .status-error { background: rgba(244, 67, 54, 0.15); color: #f44336; }
+  .status-loading { background: rgba(255, 152, 0, 0.15); color: #ff9800; }
+
+  /* Control buttons */
+  .control-buttons {
+    display: flex;
+    gap: 10px;
   }
 
-  .status-error {
-    background: rgba(244, 67, 54, 0.15);
-    color: #f44336;
+  .ctrl-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 20px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.15s ease;
   }
 
-  .status-loading {
-    background: rgba(255, 152, 0, 0.15);
-    color: #ff9800;
+  .ctrl-btn:hover:not(:disabled) {
+    background: var(--bg-hover);
+    border-color: var(--accent);
+  }
+
+  .ctrl-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .ctrl-btn :global(svg) {
+    stroke: var(--accent);
   }
 </style>
