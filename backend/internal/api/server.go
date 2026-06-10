@@ -907,6 +907,8 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
 		os.MkdirAll(inputDir, 0755)
 	}
+	// Fix permissions so container user (1000:1000) can write
+	os.Chmod(inputDir, 0777)
 
 	// Check disk space before parsing the form (500MB max)
 	var diskStat syscall.Statfs_t
@@ -969,6 +971,8 @@ func (s *Server) handleUploadPitch(w http.ResponseWriter, r *http.Request) {
 	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
 		os.MkdirAll(inputDir, 0755)
 	}
+	// Fix permissions so container user (1000:1000) can write
+	os.Chmod(inputDir, 0777)
 
 	var diskStat syscall.Statfs_t
 	if err := syscall.Statfs(inputDir, &diskStat); err == nil {

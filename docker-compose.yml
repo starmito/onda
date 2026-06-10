@@ -3,8 +3,6 @@
 #
 # Configuración vía .env (crear desde .env.example):
 #   MODEL_DIR    — ruta a los modelos (default: ./models)
-#   HOST_UID     — UID del usuario host (default: 1000)
-#   HOST_GID     — GID del usuario host (default: 1000)
 #   ONDA_PORT    — puerto de la UI (default: 3000)
 
 services:
@@ -18,9 +16,6 @@ services:
       dockerfile: Dockerfile
     container_name: onda
     runtime: nvidia
-    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
-    group_add:
-      - "983"  # docker group
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
       - NUMBA_CACHE_DIR=/tmp/numba_cache
@@ -47,9 +42,6 @@ services:
   #  onda-gui — Frontend Svelte + Backend Go + Nginx
   # ═══════════════════════════════════════════════════════════════
   onda-gui:
-    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
-    group_add:
-      - "983"  # docker group
     build:
       context: .
       dockerfile: ./onda-gui/Dockerfile
@@ -63,7 +55,7 @@ services:
     volumes:
       - ${MODEL_DIR:-./models}:/models
       - ./input:/input
-      - ./input_rubberband:/input_rubberband
       - ./output:/output
+      - ./input_rubberband:/input_rubberband
       - ./config:/config
       - /var/run/docker.sock:/var/run/docker.sock
