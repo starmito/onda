@@ -791,7 +791,7 @@ func readModelConfigFromYaml(name string) ModelConfigResponse {
 	script := fmt.Sprintf(`
 import json, yaml
 with open('%s') as f:
-    data = yaml.safe_load(f)
+    data = yaml.load(f, Loader=yaml.FullLoader)
 inf = data.get('inference', {})
 dim_t = inf.get('dim_t', 801)
 num_overlap = inf.get('num_overlap', 4)
@@ -868,7 +868,7 @@ func writeModelConfigToYaml(name string, cfg ModelConfigResponse) error {
 	script := fmt.Sprintf(`
 import json, yaml
 with open('%s') as f:
-    data = yaml.safe_load(f)
+    data = yaml.load(f, Loader=yaml.FullLoader)
 if 'inference' not in data:
     data['inference'] = {}
 data['inference']['dim_t'] = %d
