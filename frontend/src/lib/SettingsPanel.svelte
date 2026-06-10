@@ -259,7 +259,7 @@
     flex-direction: column;
     flex: 1;
     min-height: 0;
-    background: #17171e;
+    background: var(--bg-primary);
   }
 
   /* ── Sub-tabs ── */
@@ -268,15 +268,15 @@
     justify-content: center;
     gap: 4px;
     padding: 10px 12px;
-    border-bottom: 1px solid #2a2a3e;
-    background: #17171e;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-primary);
     flex-shrink: 0;
   }
 
   .settings-tab {
     background: transparent;
     border: 1px solid transparent;
-    color: #888;
+    color: var(--text-secondary);
     padding: 6px 16px;
     border-radius: 6px;
     cursor: pointer;
@@ -287,8 +287,8 @@
   }
 
   .settings-tab:hover {
-    color: #ccc;
-    border-color: #444;
+    color: var(--text-secondary);
+    border-color: var(--border-light);
     background: rgba(108, 92, 231, 0.08);
   }
 
@@ -358,7 +358,7 @@
     align-items: center;
     gap: 8px;
     padding: 10px 20px;
-    border-bottom: 1px solid #2a2a3e;
+    border-bottom: 1px solid var(--border);
     flex-shrink: 0;
   }
 
@@ -369,8 +369,8 @@
 
   .log-tab {
     background: transparent;
-    border: 1px solid #444;
-    color: #aaa;
+    border: 1px solid var(--border-light);
+    color: var(--text-secondary);
     padding: 4px 12px;
     border-radius: 4px;
     cursor: pointer;
@@ -386,8 +386,8 @@
 
   .log-filter {
     background: #1e1e30;
-    border: 1px solid #444;
-    color: #ccc;
+    border: 1px solid var(--border-light);
+    color: var(--text-secondary);
     padding: 4px 8px;
     border-radius: 4px;
     font-size: 12px;
@@ -396,8 +396,8 @@
 
   .btn-refresh {
     background: transparent;
-    border: 1px solid #444;
-    color: #aaa;
+    border: 1px solid var(--border-light);
+    color: var(--text-secondary);
     padding: 4px 10px;
     border-radius: 4px;
     cursor: pointer;
@@ -417,7 +417,7 @@
   }
 
   .logs-empty {
-    color: #888;
+    color: var(--text-secondary);
     text-align: center;
     padding: 40px;
     font-size: 14px;
@@ -436,7 +436,7 @@
   }
 
   .log-row:hover {
-    background: rgba(255, 255, 255, 0.05);
+    background: rgba(128, 128, 128, 0.1);
   }
 
   .log-row.log-error {
@@ -452,7 +452,7 @@
   }
 
   .log-time {
-    color: #888;
+    color: var(--text-secondary);
     white-space: nowrap;
     min-width: 140px;
     font-family: monospace;
@@ -473,15 +473,15 @@
   }
 
   .log-msg {
-    color: #ddd;
+    color: var(--text-primary);
     word-break: break-word;
     flex: 1;
   }
 
   .btn-icon {
     background: transparent;
-    border: 1px solid #555;
-    color: #aaa;
+    border: 1px solid var(--border);
+    color: var(--text-secondary);
     padding: 6px 14px;
     border-radius: 6px;
     cursor: pointer;
@@ -530,12 +530,12 @@
     justify-content: space-between;
     align-items: center;
     padding: 16px 20px;
-    border-bottom: 1px solid #333;
+    border-bottom: 1px solid var(--border);
   }
 
   .log-detail-panel .logs-header h2 {
     margin: 0;
-    color: #eee;
+    color: var(--text-primary);
     font-size: 18px;
   }
 
@@ -543,9 +543,9 @@
     display: flex;
     gap: 16px;
     padding: 12px 20px;
-    border-bottom: 1px solid #333;
+    border-bottom: 1px solid var(--border);
     font-size: 13px;
-    color: #aaa;
+    color: var(--text-secondary);
   }
 
   .log-detail-level {
@@ -561,11 +561,11 @@
   }
 
   .log-detail-service {
-    color: #ccc;
+    color: var(--text-secondary);
   }
 
   .log-detail-time {
-    color: #888;
+    color: var(--text-secondary);
     margin-left: auto;
   }
 
@@ -578,7 +578,7 @@
     word-break: break-word;
     font-family: 'Courier New', monospace;
     font-size: 13px;
-    color: #ddd;
+    color: var(--text-primary);
     line-height: 1.5;
   }
 
@@ -586,6 +586,6 @@
     display: flex;
     justify-content: flex-end;
     padding: 12px 20px;
-    border-top: 1px solid #333;
+    border-top: 1px solid var(--border);
   }
 </style>

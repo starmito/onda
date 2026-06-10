@@ -755,7 +755,7 @@
 
   .version {
     font-size: 0.8rem;
-    color: #555;
+    color: var(--text-muted);
     font-weight: 500;
     letter-spacing: 0.5px;
   }
@@ -773,9 +773,9 @@
   .btn-gear {
     margin-left: auto;
     background: none;
-    border: 1px solid #2a2a4a;
+    border: 1px solid var(--border);
     border-radius: 6px;
-    color: #888;
+    color: var(--text-secondary);
     font-size: 1.1rem;
     padding: 0.25rem 0.5rem;
     cursor: pointer;
@@ -794,7 +794,7 @@
   .dropzone {
     width: 100%;
     box-sizing: border-box;
-    border: 2px dashed #2a2a4a;
+    border: 2px dashed var(--border);
     border-radius: 12px;
     padding: 2rem 1rem;
     display: flex;
@@ -803,11 +803,11 @@
     gap: 0.5rem;
     cursor: pointer;
     transition: border-color 0.2s, background 0.2s;
-    background: #0e0e1a;
+    background: var(--bg-primary);
   }
   .dropzone:hover {
     border-color: var(--accent);
-    background: #111128;
+    background: var(--bg-hover);
   }
   .dropzone-icon {
     font-size: 2rem;
@@ -815,11 +815,11 @@
   .dropzone-text {
     font-size: 0.95rem;
     font-weight: 600;
-    color: #c0c0d0;
+    color: var(--text-primary);
   }
   .dropzone-hint {
     font-size: 0.75rem;
-    color: #606080;
+    color: var(--text-muted);
   }
 
   /* FileQueue */
@@ -835,7 +835,7 @@
   .queue-title {
     font-size: 0.9rem;
     font-weight: 600;
-    color: #c0c0d0;
+    color: var(--text-primary);
   }
   .btn-clear {
     padding: 0.3rem 0.8rem;
@@ -858,11 +858,11 @@
   .queue-columns-header {
     display: flex; align-items: center; gap: 8px;
     padding: 6px 12px;
-    background: rgba(255,255,255,0.03);
-    border-bottom: 1px solid #2a2a4a;
+    background: rgba(128,128,128,0.08);
+    border-bottom: 1px solid var(--border);
     font-size: 11px; font-weight: 600;
     text-transform: uppercase; letter-spacing: 0.5px;
-    color: #888;
+    color: var(--text-secondary);
   }
   .queue-columns-header input[type="checkbox"] {
     flex-shrink: 0; width: 16px; height: 16px;
@@ -877,8 +877,8 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.5rem 0.75rem;
-    background: #1a1a2e;
-    border: 1px solid #2a2a4a;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
     border-radius: 8px;
     font-size: 0.85rem;
   }
@@ -892,7 +892,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
-    color: #e0e0e0;
+    color: var(--text-primary);
   }
   .queue-step {
     font-size: 0.7rem;
@@ -904,7 +904,7 @@
   .queue-progress-bar-wrap {
     width: 60px;
     height: 5px;
-    background: #0a0a14;
+    background: var(--bg-primary);
     border-radius: 3px;
     overflow: hidden;
     flex-shrink: 0;
@@ -917,7 +917,7 @@
   }
   .queue-progress-pct {
     font-size: 0.7rem;
-    color: #888;
+    color: var(--text-secondary);
     font-weight: 600;
     flex-shrink: 0;
     min-width: 2.5rem;
@@ -931,7 +931,7 @@
     text-transform: uppercase;
     flex-shrink: 0;
     background: #2a2a4a;
-    color: #888;
+    color: var(--text-secondary);
   }
   .badge-green { background: #1b3a1b; color: #81c784; }
   .badge-red { background: #3a1b1b; color: #e57373; }
@@ -940,7 +940,7 @@
   .btn-remove {
     background: none;
     border: none;
-    color: #666;
+    color: var(--text-muted);
     font-size: 0.8rem;
     cursor: pointer;
     padding: 0.1rem 0.3rem;
@@ -969,8 +969,8 @@
   /* Progress card */
   .progress-card {
     width: 100%;
-    background: #1a1a2e;
-    border: 1px solid #2a2a4a;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
     border-radius: 12px;
     padding: 1rem;
     display: flex;
@@ -991,12 +991,12 @@
   }
   .progress-step {
     font-size: 0.8rem;
-    color: #c0c0d0;
+    color: var(--text-primary);
   }
   .progress-bar-wrap {
     width: 100%;
     height: 8px;
-    background: #0a0a14;
+    background: var(--bg-primary);
     border-radius: 4px;
     overflow: hidden;
   }
@@ -1010,7 +1010,7 @@
     display: flex;
     gap: 1rem;
     font-size: 0.75rem;
-    color: #888;
+    color: var(--text-secondary);
   }
   .progress-pct {
     font-weight: 700;
@@ -1134,15 +1134,15 @@
     justify-content: space-between;
     align-items: center;
     padding: 16px 20px;
-    border-bottom: 1px solid #333;
+    border-bottom: 1px solid var(--border);
   }
-  .logs-header h2 { margin: 0; color: #eee; font-size: 18px; }
+  .logs-header h2 { margin: 0; color: var(--text-primary); font-size: 18px; }
   .logs-list {
     flex: 1;
     overflow-y: auto;
     padding: 8px;
   }
-  .logs-empty { color: #888; text-align: center; padding: 40px; }
+  .logs-empty { color: var(--text-secondary); text-align: center; padding: 40px; }
   .log-row {
     display: flex;
     gap: 10px;
@@ -1153,13 +1153,13 @@
     border-left: 3px solid transparent;
     margin-bottom: 2px;
   }
-  .log-row:hover { background: rgba(255,255,255,0.05); }
+  .log-row:hover { background: rgba(128,128,128,0.1); }
   .log-row.log-error { border-left-color: #dc3545; }
   .log-row.log-success { border-left-color: #28a745; }
   .log-row.log-info { border-left-color: #6c757d; }
-  .log-time { color: #888; white-space: nowrap; min-width: 140px; font-family: monospace; font-size: 11px; }
+  .log-time { color: var(--text-secondary); white-space: nowrap; min-width: 140px; font-family: monospace; font-size: 11px; }
   .log-level { flex-shrink: 0; width: 20px; text-align: center; }
-  .log-msg { color: #ddd; word-break: break-word; flex: 1; }
+  .log-msg { color: var(--text-primary); word-break: break-word; flex: 1; }
 
   .log-tabs {
     display: flex;
@@ -1168,8 +1168,8 @@
   }
   .log-tab {
     background: transparent;
-    border: 1px solid #444;
-    color: #aaa;
+    border: 1px solid var(--border-light);
+    color: var(--text-secondary);
     padding: 4px 12px;
     border-radius: 4px;
     cursor: pointer;
@@ -1178,7 +1178,7 @@
   .log-tab.active {
     background: #333;
     color: #fff;
-    border-color: #666;
+    border-color: var(--text-muted);
   }
   .log-service {
     font-size: 11px;
@@ -1201,9 +1201,9 @@
     display: flex;
     gap: 16px;
     padding: 12px 20px;
-    border-bottom: 1px solid #333;
+    border-bottom: 1px solid var(--border);
     font-size: 13px;
-    color: #aaa;
+    color: var(--text-secondary);
   }
   .log-detail-level { font-weight: bold; }
   .log-error { color: #dc3545; }
@@ -1217,30 +1217,30 @@
     word-break: break-word;
     font-family: 'Courier New', monospace;
     font-size: 13px;
-    color: #ddd;
+    color: var(--text-primary);
     line-height: 1.5;
   }
   .log-detail-actions {
     display: flex;
     justify-content: flex-end;
     padding: 12px 20px;
-    border-top: 1px solid #333;
+    border-top: 1px solid var(--border);
   }
 /* Fullscreen panels (ModelManager, PresetEditor, Logs) */
 .fullscreen {
   position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-  background: #0a0a14; z-index: 900;
+  background: var(--bg-primary); z-index: 900;
   display: flex; flex-direction: column;
   animation: fadeIn 0.2s ease;
 }
 .fullscreen-header {
   display: flex; align-items: center; gap: 1rem;
   padding: 0.75rem 1.25rem;
-  border-bottom: 1px solid #2a2a4a;
-  background: #1a1a2e;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
 }
 .fullscreen-header h2 {
-  margin: 0; font-size: 1.1rem; color: #e0e0e0;
+  margin: 0; font-size: 1.1rem; color: var(--text-primary);
   flex: 1; text-align: center;
 }
 .fullscreen-body {
@@ -1253,7 +1253,7 @@
   display: flex; align-items: center; justify-content: center;
 }
 .btn-close {
-  background: transparent; border: 1px solid #555; color: #aaa;
+  background: transparent; border: 1px solid var(--border); color: var(--text-secondary);
   font-size: 18px; width: 32px; height: 32px; border-radius: 6px;
   cursor: pointer; display: flex; align-items: center; justify-content: center;
   flex-shrink: 0;

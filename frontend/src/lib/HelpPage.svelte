@@ -17,6 +17,7 @@
     { name: 'Pipeline', version: '', status: 'loading', icon: IconLogs },
     { name: 'GPU', version: '', status: 'loading', icon: IconModel },
     { name: 'Disco', version: '', status: 'loading', icon: IconHelp },
+    { name: 'Runtime', version: '', status: 'loading', icon: IconSettings },
   ]);
 
   onMount(() => {
@@ -24,12 +25,27 @@
       .then(r => r.json())
       .then(d => {
         version = d.version || '';
+        // Extract GPU name from detail string
+        const gpuDetail = d.gpu?.detail || '';
+        const gpuName = gpuDetail.split(',')[0] || '—';
+        // Extract disk free space from detail
+        const diskDetail = d.disk?.detail || '?';
+        // Determine runtime
+        const runtime = d.gpu?.ok ? 'CUDA (NVIDIA)' : 'CPU';
+        
         services = services.map(s => {
-          if (s.name === 'Backend') return { ...s, version: d.backend?.version || '', status: 'ok' };
-          if (s.name === 'Frontend') return { ...s, version: d.frontend?.version || '', status: 'ok' };
-          if (s.name === 'Pipeline') return { ...s, version: d.pipeline?.status || 'idle', status: d.pipeline?.status === 'error' ? 'error' : 'ok' };
-          if (s.name === 'GPU') return { ...s, version: d.gpu?.name || '', status: d.gpu?.ok ? 'ok' : 'error' };
-          if (s.name === 'Disco') return { ...s, version: `${d.disk?.free_gb || '?'}GB libres`, status: 'ok' };
+          if (s.name === 'Backend') 
+            return { ...s, version: d.backend?.version || '', status: d.backend?.ok ? 'ok' : 'error' };
+          if (s.name === 'Frontend') 
+            return { ...s, version: d.frontend?.version || '', status: d.frontend?.ok ? 'ok' : 'error' };
+          if (s.name === 'Pipeline') 
+            return { ...s, version: d.pipeline?.version || '', status: d.pipeline?.ok ? 'ok' : 'error' };
+          if (s.name === 'GPU') 
+            return { ...s, version: gpuName, status: d.gpu?.ok ? 'ok' : 'error' };
+          if (s.name === 'Disco') 
+            return { ...s, version: diskDetail, status: d.disk?.ok ? 'ok' : 'error' };
+          if (s.name === 'Runtime') 
+            return { ...s, version: runtime, status: 'ok' };
           return s;
         });
       })

@@ -106,7 +106,7 @@
 		background: linear-gradient(
 			to right,
 			rgba(108, 92, 231, 0.12) 0%,
-			#1e1e2a 40%
+			var(--bg-primary) 50%
 		);
 		overflow-x: hidden;
 		overflow-y: auto;
@@ -119,7 +119,7 @@
 		background: linear-gradient(
 			to right,
 			rgba(108, 92, 231, 0.12) 0%,
-			#1e1e2a 100%
+			var(--bg-primary) 100%
 		);
 	}
 
@@ -130,11 +130,11 @@
 		align-items: center;
 		gap: 4px;
 		width: 100%;
-		padding: 16px 4px 12px;
+		padding: 18px 4px 14px;
 		background: none;
 		border: none;
-		color: #888;
-		font-size: 22px;
+		color: var(--text-secondary);
+		font-size: 24px;
 		cursor: pointer;
 		transition: background 0.15s;
 		font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
@@ -143,7 +143,7 @@
 	}
 
 	.toggle-btn:hover {
-		background: #2a2a3e;
+		background: var(--bg-hover);
 	}
 
 	/* ---------- Items de navegación ---------- */
@@ -158,7 +158,7 @@
 		border: none;
 		border-left: none;
 		border-bottom: 2px solid transparent;
-		color: #888;
+		color: var(--text-secondary);
 		font-size: 11px;
 		cursor: pointer;
 		transition: background 0.15s, color 0.15s, border-color 0.15s;
@@ -177,7 +177,12 @@
 	.nav-item.active {
 		background: rgba(108, 92, 231, 0.12);
 		border-bottom-color: #6c5ce7;
-		color: #e0e0e0;
+		color: var(--text-primary);
+	}
+
+	.top-item {
+		padding: 16px 4px 12px;
+		gap: 6px;
 	}
 
 	/* ---------- SVG icon sizing ---------- */
@@ -187,10 +192,10 @@
 		display: block;
 	}
 
-	/* Top items get larger icons */
+	/* Top items get MUCH larger icons */
 	.top-item .icon-only :global(svg) {
-		width: 26px;
-		height: 26px;
+		width: 36px;
+		height: 36px;
 	}
 
 	/* Bottom items stay smaller */
@@ -210,14 +215,13 @@
 
 	/* Top items: larger text, 2-line wrapping */
 	.top-item .label-text {
-		font-size: 11px;
-		line-height: 1.3;
-		max-width: 80px;
+		font-size: 12px;
+		line-height: 1.2;
+		max-width: 100px;
 		word-break: break-word;
-		display: -webkit-box;
-		-webkit-line-clamp: 2;
-		-webkit-box-orient: vertical;
 		overflow: hidden;
+		text-align: center;
+		display: block;
 	}
 
 	/* Bottom items: smaller text, single line */
@@ -265,7 +269,7 @@
 	/* ---------- Separador ---------- */
 	.separator {
 		height: 1px;
-		background: #2a2a3e;
+		background: var(--bg-hover);
 		margin: 4px 16px;
 		flex-shrink: 0;
 	}
@@ -273,6 +277,7 @@
 	/* ---------- Spacer ---------- */
 	.spacer {
 		flex: 1;
+		min-height: 20px;
 	}
 
 	/* ---------- Selector de idioma ---------- */
@@ -282,8 +287,8 @@
 		align-items: center;
 		gap: 4px;
 		width: 100%;
-		padding: 8px 4px 4px;
-		color: #555;
+		padding: 8px 4px 16px;
+		color: var(--text-muted);
 		font-size: 10px;
 		cursor: default;
 	}

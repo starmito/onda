@@ -251,7 +251,7 @@
     margin: 0;
     font-size: 1.2rem;
     font-weight: 700;
-    color: #e0e0e0;
+    color: var(--text-primary);
     text-align: center;
     padding: 0.5rem 1rem;
     border-bottom: 2px solid transparent;
@@ -268,7 +268,7 @@
   .dropzone {
     width: 100%;
     box-sizing: border-box;
-    border: 2px dashed #2a2a4a;
+    border: 2px dashed var(--border);
     border-radius: 12px;
     padding: 2rem 1rem;
     display: flex;
@@ -277,11 +277,11 @@
     gap: 0.5rem;
     cursor: pointer;
     transition: border-color 0.2s, background 0.2s;
-    background: #0e0e1a;
+    background: var(--bg-primary);
   }
   .dropzone:hover {
     border-color: var(--accent);
-    background: #111128;
+    background: var(--bg-hover);
   }
   .dropzone-icon {
     font-size: 2rem;
@@ -289,11 +289,11 @@
   .dropzone-text {
     font-size: 0.95rem;
     font-weight: 600;
-    color: #c0c0d0;
+    color: var(--text-primary);
   }
   .dropzone-hint {
     font-size: 0.75rem;
-    color: #606080;
+    color: var(--text-muted);
   }
 
   /* FileQueue */
@@ -309,7 +309,7 @@
   .queue-title {
     font-size: 0.9rem;
     font-weight: 600;
-    color: #c0c0d0;
+    color: var(--text-primary);
   }
   .btn-clear {
     padding: 0.3rem 0.8rem;
@@ -334,13 +334,13 @@
     align-items: center;
     gap: 8px;
     padding: 6px 12px;
-    background: rgba(255,255,255,0.03);
-    border-bottom: 1px solid #2a2a4a;
+    background: rgba(128,128,128,0.08);
+    border-bottom: 1px solid var(--border);
     font-size: 11px;
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.5px;
-    color: #888;
+    color: var(--text-secondary);
   }
   .queue-columns-header input[type="checkbox"] {
     flex-shrink: 0;
@@ -358,8 +358,8 @@
     align-items: center;
     gap: 0.5rem;
     padding: 0.5rem 0.75rem;
-    background: #1a1a2e;
-    border: 1px solid #2a2a4a;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
     border-radius: 8px;
     font-size: 0.85rem;
   }
@@ -373,7 +373,7 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     min-width: 0;
-    color: #e0e0e0;
+    color: var(--text-primary);
   }
   .badge {
     padding: 0.15rem 0.5rem;
@@ -383,7 +383,7 @@
     text-transform: uppercase;
     flex-shrink: 0;
     background: #2a2a4a;
-    color: #888;
+    color: var(--text-secondary);
   }
   .badge-green { background: #1b3a1b; color: #81c784; }
   .badge-red { background: #3a1b1b; color: #e57373; }
@@ -392,7 +392,7 @@
   .btn-remove {
     background: none;
     border: none;
-    color: #666;
+    color: var(--text-muted);
     font-size: 0.8rem;
     cursor: pointer;
     padding: 0.1rem 0.3rem;
