@@ -522,7 +522,7 @@
       <rect x={viperxNode.x} y={viperxNode.y} width={NODE_W} height={NODE_H}
         rx="6" fill="#0a0a14" stroke={nodeColor(viperxNode.active)} stroke-width="2" />
       <text x={viperxNode.x + NODE_W / 2} y={viperxNode.y + NODE_H / 2 + 5}
-        text-anchor="middle" fill={viperxNode.active ? '#6c5ce7' : '#555'} font-size="12">{viperxNode.label}</text>
+        text-anchor="middle" fill={nodeColor(viperxNode.active)} font-size="12">{viperxNode.label}</text>
       <text x={viperxNode.x + NODE_W / 2} y={viperxNode.y + NODE_H / 2 + 18}
         text-anchor="middle" class="graph-model-name">{viperxModel}</text>
 
@@ -555,7 +555,7 @@
       <rect x={demucsNode.x} y={demucsNode.y} width={NODE_W} height={NODE_H}
         rx="6" fill="#0a0a14" stroke={nodeColor(demucsNode.active)} stroke-width="2" />
       <text x={demucsNode.x + NODE_W / 2} y={demucsNode.y + NODE_H / 2 + 5}
-        text-anchor="middle" fill={demucsNode.active ? '#6c5ce7' : '#555'} font-size="12">{demucsNode.label}</text>
+        text-anchor="middle" fill={nodeColor(demucsNode.active)} font-size="12">{demucsNode.label}</text>
       <text x={demucsNode.x + NODE_W / 2} y={demucsNode.y + NODE_H / 2 + 18}
         text-anchor="middle" class="graph-model-name">{demucsModel}</text>
 

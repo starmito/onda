@@ -1297,7 +1297,7 @@
     color: #fff;
   }
   .play-btn:not(:disabled):hover {
-    background: #7c6ae8;
+    background: var(--accent-light);
   }
   .pause-btn {
     background: #ff9800;

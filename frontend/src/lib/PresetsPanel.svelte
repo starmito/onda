@@ -58,7 +58,7 @@
   .preset-select-large { width: 100%; padding: 14px 16px; background: var(--bg-primary); border: 1px solid var(--border); border-radius: 8px; color: var(--text-primary); font-size: 16px; cursor: pointer; margin-bottom: 12px; }
   .preset-select-large:focus { outline: none; border-color: var(--accent); }
   .btn-execute-large { width: 100%; padding: 14px; background: var(--accent); color: #fff; border: none; border-radius: 8px; font-size: 17px; font-weight: bold; cursor: pointer; margin-bottom: 12px; transition: background 0.2s; }
-  .btn-execute-large:hover { background: #7c6ae8; }
+  .btn-execute-large:hover { background: var(--accent-light); }
   .btn-execute-large:disabled { opacity: 0.3; cursor: not-allowed; }
   .progress-card { background: var(--bg-primary); border-radius: 8px; padding: 14px; }
   .progress-header { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
