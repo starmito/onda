@@ -164,7 +164,6 @@
 		font-size: 11px;
 		cursor: pointer;
 		transition: background 0.15s, color 0.15s, border-color 0.15s;
-		white-space: nowrap;
 		text-align: center;
 		box-sizing: border-box;
 		font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
