@@ -25,7 +25,7 @@ services:
       - HOME=/tmp
       - TORCHINDUCTOR_CACHE_DIR=/tmp/torch_inductor_cache
     volumes:
-      - ${MODEL_DIR:-./models}:/models:ro
+      - ${MODEL_DIR:-./models}:/models:rw
       - ./input:/input
       - ./output:/output
       - ./input_rubberband:/input_rubberband

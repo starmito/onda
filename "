@@ -1,4 +1,0 @@
-  File "/tmp/audit_webui.py", line 8
-    print(f'App mount: {"PASS" if "<div id=\\app\" in html else "FAIL"})
-                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-SyntaxError: expected 'else' after 'if' expression
