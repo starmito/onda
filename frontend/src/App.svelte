@@ -1321,7 +1321,7 @@
     padding: 0.75rem 1.5rem;
     flex-shrink: 0;
     border-bottom: 2px solid transparent;
-    border-image: linear-gradient(90deg, var(--accent-glow), rgba(108, 92, 231, 0.05)) 1;
+    border-image: linear-gradient(90deg, var(--accent-glow), var(--accent-subtle)) 1;
   }
   .content {
     flex: 1;

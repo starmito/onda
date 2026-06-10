@@ -254,7 +254,7 @@
     text-align: center;
     padding: 0.5rem 1rem;
     border-bottom: 2px solid transparent;
-    border-image: linear-gradient(90deg, var(--accent-glow), rgba(108, 92, 231, 0.05)) 1;
+    border-image: linear-gradient(90deg, var(--accent-glow), var(--accent-subtle)) 1;
     width: 100%;
     max-width: 500px;
   }

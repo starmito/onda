@@ -716,7 +716,7 @@
     margin: 0;
     font-size: 0.75rem;
     font-weight: 700;
-    color: #b388ff;
+    color: var(--accent-light);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     padding-bottom: 0.2rem;
@@ -885,7 +885,7 @@
 
   .installed-cat {
     font-size: 0.68rem;
-    color: #b388ff;
+    color: var(--accent-light);
   }
 
   .installed-size {
