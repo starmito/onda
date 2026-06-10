@@ -112,6 +112,7 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("DELETE /api/delete", s.handleDeleteFile)
 	s.mux.HandleFunc("DELETE /api/models/{name}", s.handleDeleteModel)
 	s.mux.HandleFunc("DELETE /api/inputs/{name}", s.handleDeleteInput)
+	s.mux.HandleFunc("DELETE /api/uploads/pitch/{name}", s.handleDeletePitchUpload)
 	// Frontend is served by Vite dev server separately; no static handler needed.
 
 	go s.worker()
@@ -1353,6 +1354,44 @@ func (s *Server) handleDeleteInput(w http.ResponseWriter, r *http.Request) {
 	}
 
 	Log("backend", "info", "Deleted input: "+name)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]interface{}{"deleted": true, "file": name})
+}
+
+// handleDeletePitchUpload deletes a file from input_rubberband/.
+// DELETE /api/uploads/pitch/{name}
+func (s *Server) handleDeletePitchUpload(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	name = filepath.Clean(name)
+
+	projectRoot := findProjectRoot()
+	filePath := filepath.Join(projectRoot, "input_rubberband", name)
+
+	// Verify inside input_rubberband/
+	inputPrefix := filepath.Join(projectRoot, "input_rubberband")
+	absPath, err := filepath.Abs(filePath)
+	if err != nil || !strings.HasPrefix(absPath, inputPrefix) {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+
+	if _, err := os.Stat(absPath); os.IsNotExist(err) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "pitch upload not found"})
+		return
+	}
+
+	if err := os.Remove(absPath); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	Log("backend", "info", "Deleted pitch upload: "+name)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
