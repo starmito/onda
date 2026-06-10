@@ -1,12 +1,12 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
+  import Sidebar from './lib/Sidebar.svelte';
+  import PipelineView from './lib/PipelineView.svelte';
+  import SettingsPanel from './lib/SettingsPanel.svelte';
+  import PlaceholderPage from './lib/PlaceholderPage.svelte';
   import ResultsPanel from './lib/ResultsPanel.svelte';
-  import PipelineEditor from './lib/PipelineEditor.svelte';
   import PresetsPanel from './lib/PresetsPanel.svelte';
-
   import StatusBar from './lib/StatusBar.svelte';
-  import ModelManager from './lib/ModelManager.svelte';
-  import ModelDownloader from './lib/ModelDownloader.svelte';
   import type { ResultStem } from './lib/types';
   import { detectStemType } from './lib/types';
   import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getPresets, getDefaultPreset } from './lib/api';
@@ -64,6 +64,12 @@
   // Persistent error banner
   let errorBanner = $state<{ message: string } | null>(null);
 
+  // ---- New layout state ----
+  let activeTab = $state('separador-voces-total');
+  let sidebarCollapsed = $state(false);
+  let settingsSubTab = $state('models');
+  let sidebarPresets = $state<{id: string, name: string, icon: string}[]>([]);
+
   function copyToClipboard(text: string) {
     // navigator.clipboard requires HTTPS or localhost — fallback for HTTP
     if (navigator.clipboard && window.isSecureContext) {
@@ -102,75 +108,6 @@
       }, 3000);
     }
   }
-
-  // Logs panel state
-  const API_BASE = '';
-  let showLogs = $state(false);
-  let logs = $state<Array<{nano: number, level: string, service: string, message: string}>>([]);
-  let logDetail = $state<{nano: number, level: string, service: string, message: string} | null>(null);
-  let logTab = $state<'events' | 'services'>('events');
-  let serviceLogs = $state<Array<{nano: number, level: string, service: string, message: string}>>([]);
-  let serviceLogsLoading = $state(false);
-  let serviceLogLimit = $state(50);
-  let displayed = $derived(serviceLogLimit > 0 ? serviceLogs.slice(0, serviceLogLimit) : serviceLogs);
-  let logsPollTimer: ReturnType<typeof setInterval> | null = null;
-
-  async function loadServiceLogs() {
-    serviceLogsLoading = true;
-    try {
-      // Merge ring buffer events + docker logs
-      const [eventsRes, svcRes] = await Promise.all([
-        fetch(`${API_BASE}/api/logs`),
-        fetch(`${API_BASE}/api/logs/services`)
-      ]);
-      const events = await eventsRes.json();
-      const svcLogs = await svcRes.json();
-      // Merge and sort by nano (newest first)
-      serviceLogs = [...events, ...svcLogs].sort((a, b) => b.nano - a.nano);
-    } catch {
-      serviceLogs = [];
-    }
-    serviceLogsLoading = false;
-  }
-
-  async function loadLogs() {
-    try {
-      const res = await fetch(`${API_BASE}/api/logs`);
-      const allLogs = await res.json();
-      // Events tab: exclude detailed pipeline info lines
-      logs = allLogs.filter((e: any) => !(e.service === 'pipeline' && e.level === 'info'));
-    } catch (e) {
-      logs = [];
-    }
-  }
-
-  function stopLogsPolling() {
-    if (logsPollTimer) { clearInterval(logsPollTimer); logsPollTimer = null; }
-  }
-
-  function startLogsPolling() {
-    stopLogsPolling();
-    if (!showLogs) return;
-    if (logTab === 'events') {
-      loadLogs(); // immediate load
-      logsPollTimer = setInterval(loadLogs, 3000);
-    } else if (logTab === 'services') {
-      loadServiceLogs(); // manual refresh only (no auto-refresh)
-    }
-  }
-
-  // Auto-refresh: start/stop polling based on panel state and active tab
-  $effect(() => {
-    // Track showLogs and logTab — re-run effect when either changes
-    showLogs; logTab;
-    startLogsPolling();
-    return stopLogsPolling;
-  });
-
-  let showModelPanel = $state(false);
-  let showDownloader = $state(false);
-  let showPresetEditor = $state(false);
-
 
   // Load model list + persisted data on mount
   onMount(() => {
@@ -290,6 +227,18 @@
         if (data?.name && savedPresets.some(p => p.name === data.name)) {
           selectedPresetName = data.name;
         }
+        // ── Build sidebar presets after default preset is loaded ──
+        const defaultName = data?.name;
+        sidebarPresets = list.map((p: any) => ({
+          id: p.name.toLowerCase().replace(/\s+/g, '-'),
+          name: p.name,
+          icon: p.name === defaultName ? '⭐' : '🎵'
+        }));
+        // Set activeTab to default preset
+        if (!activeTab || activeTab === 'separador-voces-total') {
+          const first = sidebarPresets.find(p => p.icon === '⭐') || sidebarPresets[0];
+          if (first) activeTab = first.id;
+        }
       });
     }).catch(() => {});
   });
@@ -297,7 +246,6 @@
   // Cleanup timers on unmount
   onDestroy(() => {
     if (queuePollingTimer) clearInterval(queuePollingTimer);
-    stopLogsPolling();
   });
 
   // ---- Presets refresh (called when editor closes) ----
@@ -636,135 +584,53 @@
 </script>
 
 <main>
-  <header>
-    <h1>🎵 Onda</h1>
-    <span class="version">{healthVersion || 'v2.2.0'}</span>
-    <button
-      class="btn-gear"
-      onclick={() => (showDownloader = !showDownloader)}
-      title="Descargar modelos"
-    >📥</button>
-    <button
-      class="btn-gear"
-      onclick={() => (showModelPanel = !showModelPanel)}
-      title="Gestor de modelos"
-    >⚙️</button>
-    <button
-      class="btn-gear"
-      onclick={() => (showPresetEditor = !showPresetEditor)}
-      title="Editor de Presets"
-    >🎛</button>
-    <button
-      class="btn-gear"
-      onclick={() => { showLogs = !showLogs; if (showLogs) loadLogs(); }}
-      title="Registros del sistema"
-    >📋</button>
-  </header>
+  <div class="app-layout">
+    <Sidebar
+      activeTab={activeTab}
+      presetTabs={sidebarPresets}
+      collapsed={sidebarCollapsed}
+      ontoggle={() => sidebarCollapsed = !sidebarCollapsed}
+      ontabchange={(tab) => activeTab = tab}
+    />
 
-  <!-- DropZone -->
-  <section class="dropzone-section">
-    <div
-      class="dropzone"
-      ondragover={handleDropZoneDragOver}
-      ondrop={handleDropZoneDrop}
-      onclick={handleDropZoneClick}
-      role="button"
-      tabindex="0"
-    >
-      <span class="dropzone-icon">📂</span>
-      <span class="dropzone-text">Arrastra archivos aquí o haz clic</span>
-      <span class="dropzone-hint">WAV, MP3, FLAC, OGG, M4A</span>
+    <div class="main-area">
+      <header class="app-header">
+        <h1>🎵 Onda</h1>
+        <span class="version">{healthVersion || ''}</span>
+      </header>
+
+      <div class="content">
+        {#if activeTab === 'settings'}
+          <SettingsPanel subtab={settingsSubTab} onsubtabchange={(t) => settingsSubTab = t} />
+        {:else if ['pitch', 'bpm', 'daw', 'help'].includes(activeTab)}
+          <PlaceholderPage tabId={activeTab} />
+        {:else if activeTab === 'results'}
+          <!-- ResultsPanel -->
+          <section class="results">
+            <ResultsPanel files={results} onstemdeleted={handleStemDeleted} ongroupdeleted={handleGroupDeleted} />
+          </section>
+        {:else}
+          <!-- PipelineView con el preset -->
+          <PipelineView
+            presetName={activeTab}
+            {queueFiles}
+            {savedPresets}
+            {separating}
+            {pipelineStatus}
+            {currentProgress}
+            {pipelineStep}
+            {pipelineSong}
+            {pipelineEta}
+            {inferenceDevice}
+            onQueueChange={(files) => queueFiles = files}
+            onStart={handlePipelineStart}
+            onRemoveFile={handleRemoveQueueFile}
+          />
+        {/if}
+      </div>
     </div>
-    <input
-      id="dropzone-input"
-      type="file"
-      hidden
-      accept="audio/*"
-      multiple
-      onchange={handleDropZoneInput}
-    />
-  </section>
+  </div>
 
-  <!-- FileQueue -->
-  {#if queueFiles.length > 0}
-    <section class="queue-section">
-      <div class="queue-header">
-        <span class="queue-title">📋 Cola ({queueFiles.length})</span>
-        <button class="btn-clear" onclick={handleClearQueue}>Limpiar</button>
-      </div>
-      <div class="queue-columns-header">
-        <input
-          type="checkbox"
-          checked={queueFiles.length > 0 && queueFiles.every(qf => qf.checked)}
-          onchange={handleToggleAll}
-          title="Seleccionar / Deseleccionar todas"
-        />
-        <span class="col-title">Título</span>
-        <span class="col-progress">Progreso</span>
-        <span class="col-status">Estado</span>
-        <span class="col-action"></span>
-      </div>
-      <div class="queue-list">
-        {#each queueFiles as qf (qf.id)}
-          {@const job = getJobForQueueFile(qf)}
-          <div class="queue-row">
-            <input
-              type="checkbox"
-              checked={qf.checked}
-              onchange={() => handleToggleQueueFile(qf.id)}
-              disabled={qf.status === 'done'}
-            />
-            <span class="queue-name" title={qf.file.name}>{qf.file.name}</span>
-            {#if job?.status === 'processing'}
-              <span class="queue-step">Paso {job.current_step || 1}/{job.total_steps || 2}</span>
-              <div class="queue-progress-bar-wrap">
-                <div class="queue-progress-bar-fill" style="width: {job.progress || 0}%"></div>
-              </div>
-              <span class="queue-progress-pct">{job.progress || 0}%</span>
-            {/if}
-            <span class={statusBadgeClass(qf.status)}>{qf.status}</span>
-            <button class="btn-remove" onclick={() => handleRemoveQueueFile(qf.id)}>✕</button>
-          </div>
-        {/each}
-      </div>
-    </section>
-  {/if}
-
-  {#if queueFiles.length > 0}
-    <PresetsPanel
-      presets={savedPresets}
-      selectedPreset={selectedPresetName}
-      onSelectPreset={(name) => selectedPresetName = name}
-      hasFiles={queueFiles.some(qf => qf.checked)}
-      disabled={separating}
-      onExecute={() => {
-        const selected = savedPresets.find(p => p.name === selectedPresetName);
-        const config = selected?.config || {
-          viperx: true, viperxModel: 'BS_Roformer_Viperx',
-          viperxStems: ['vocals', 'instrumental'],
-          demucs: true, demucsModel: 'htdemucs_ft',
-          demucsStems: ['drums', 'bass', 'other'],
-        };
-        config.preset = selectedPresetName || undefined;
-        handlePipelineStart(config);
-      }}
-      progress={currentProgress}
-      status={pipelineStatus}
-      step={pipelineStep}
-      song={pipelineSong}
-      eta={pipelineEta}
-      device={inferenceDevice}
-    />
-  {/if}
-
-  <!-- ResultsPanel -->
-  {#if results.length > 0}
-    <section class="results">
-      <ResultsPanel files={results} onstemdeleted={handleStemDeleted} ongroupdeleted={handleGroupDeleted} />
-    </section>
-  {/if}
-
-  <!-- StatusBar -->
   <StatusBar />
 
   <!-- Toast -->
@@ -772,7 +638,7 @@
     <div class="toast {toastType}">{toastMessage}</div>
   {/if}
 
-  <!-- Error Banner (persistent) -->
+  <!-- Error Banner -->
   {#if errorBanner}
     <div class="error-banner">
       <span class="error-banner-text">{errorBanner.message}</span>
@@ -782,127 +648,6 @@
       </div>
     </div>
   {/if}
-
-  <!-- ModelDownloader panel -->
-  {#if showDownloader}
-    <ModelDownloader onclose={() => (showDownloader = false)} />
-  {/if}
-
-  <!-- ModelManager panel -->
-  {#if showModelPanel}
-    <ModelManager onclose={() => (showModelPanel = false)} initialModel={undefined} />
-  {/if}
-
-  <!-- PresetEditor fullscreen -->
-  {#if showPresetEditor}
-    <div class="fullscreen">
-      <div class="fullscreen-header">
-        <button class="btn-close" onclick={() => { showPresetEditor = false; refreshPresets(); }}>✕</button>
-        <h2>🎛 Editor de Presets</h2>
-        <div><!-- spacer --></div>
-      </div>
-      <div class="fullscreen-body">
-        <PipelineEditor
-          disabled={separating}
-          hasFiles={queueFiles.length > 0}
-          onstart={handlePipelineStart}
-        />
-      </div>
-    </div>
-  {/if}
-
-  <!-- Logs fullscreen -->
-  {#if showLogs}
-    <div class="fullscreen">
-      <div class="fullscreen-header">
-        <button class="btn-close" onclick={() => showLogs = false}>✕</button>
-        <h2>📋 Registros</h2>
-        <div></div>
-      </div>
-      <div class="fullscreen-body">
-        <div class="logs-header">
-          <div class="log-tabs">
-            <button class="log-tab" class:active={logTab === 'events'} onclick={() => logTab = 'events'}>Eventos</button>
-            <button class="log-tab" class:active={logTab === 'services'} onclick={() => { logTab = 'services'; loadServiceLogs(); }}>Servicios</button>
-          </div>
-          {#if logTab === 'services'}
-            <select 
-                value={serviceLogLimit}
-                onchange={(e) => serviceLogLimit = parseInt((e.target as HTMLSelectElement).value)}
-                class="log-filter"
-            >
-              <option value={50}>Últimos 50</option>
-              <option value={100}>Últimos 100</option>
-              <option value={500}>Últimos 500</option>
-              <option value={0}>Todos</option>
-            </select>
-          {/if}
-          <button class="btn-refresh" onclick={() => logTab === 'events' ? loadLogs() : loadServiceLogs()} title="Refrescar">🔄</button>
-        </div>
-        <div class="logs-list">
-          {#if logTab === 'events'}
-            {#if logs.length === 0}
-              <p class="logs-empty">No hay registros todavía.</p>
-            {:else}
-              {#each logs as log}
-                <div
-                  class="log-row log-{log.level}"
-                  onclick={() => logDetail = log}
-                >
-                  <span class="log-time">{new Date(log.nano / 1e6).toLocaleString()}</span>
-                  <span class="log-service" style="color: {log.service === 'pipeline' ? '#ff9800' : log.service === 'inference' ? '#9c27b0' : '#6c757d'}">{log.service}</span>
-                  <span class="log-level">{log.level === 'error' ? '🔴' : log.level === 'success' ? '🟢' : '⚪'}</span>
-                  <span class="log-msg">{log.message.slice(0, 80)}{log.message.length > 80 ? '...' : ''}</span>
-                </div>
-              {/each}
-            {/if}
-          {:else}
-            {#if serviceLogsLoading}
-              <p class="logs-empty">Cargando logs de servicios...</p>
-            {:else if serviceLogs.length === 0}
-              <p class="logs-empty">No se pudieron cargar los logs de servicios.</p>
-            {:else}
-              {#each displayed as log}
-                <div
-                  class="log-row log-{log.level}"
-                  onclick={() => logDetail = log}
-                >
-                  <span class="log-time">{new Date(log.nano / 1e6).toLocaleString()}</span>
-                  <span class="log-service" style="color: {log.service === 'pipeline' ? '#ff9800' : log.service === 'backend' ? '#2196f3' : log.service === 'onda' ? '#9c27b0' : '#6c757d'}">{log.service}</span>
-                  <span class="log-level">{log.level === 'error' ? '🔴' : log.level === 'success' ? '🟢' : '⚪'}</span>
-                  <span class="log-msg">{log.message.slice(0, 100)}{log.message.length > 100 ? '...' : ''}</span>
-                </div>
-              {/each}
-            {/if}
-          {/if}
-        </div>
-      </div>
-    </div>
-  {/if}
-
-  {#if logDetail}
-    <div class="logs-overlay" onclick={() => logDetail = null}>
-      <div class="log-detail-panel" onclick={(e) => e.stopPropagation()}>
-        <div class="logs-header">
-          <h2>Detalle del evento</h2>
-          <button class="btn-icon" onclick={() => logDetail = null}>✕</button>
-        </div>
-        <div class="log-detail-meta">
-          <span class="log-detail-level" class:log-error={logDetail.level === 'error'} class:log-success={logDetail.level === 'success'}>
-            {logDetail.level === 'error' ? '🔴 Error' : logDetail.level === 'success' ? '🟢 Éxito' : '⚪ Info'}
-          </span>
-          <span class="log-detail-service">Servicio: {logDetail.service}</span>
-          <span class="log-detail-time">{new Date(logDetail.nano / 1e6).toLocaleString()}</span>
-        </div>
-        <pre class="log-detail-msg">{logDetail.message}</pre>
-        <div class="log-detail-actions">
-          <button class="btn-icon" onclick={() => copyToClipboard(logDetail!.message)}>📋 Copiar</button>
-        </div>
-      </div>
-    </div>
-  {/if}
-
-
 </main>
 
 <style>
@@ -1463,4 +1208,32 @@
   flex-shrink: 0;
 }
 .btn-close:hover { background: rgba(255,255,255,0.1); color: #fff; }
+
+  /* ===== New layout styles ===== */
+  .app-layout {
+    display: flex;
+    min-height: calc(100vh - 41px); /* StatusBar height */
+  }
+  .main-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    margin-left: 0;
+    transition: margin-left 0.2s ease;
+  }
+  .app-header {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.75rem 1.5rem;
+    background: #1a1a26;
+    border-bottom: 1px solid #333348;
+  }
+  .app-header h1 { margin: 0; font-size: 1.2rem; color: #e0e0e0; }
+  .content {
+    flex: 1;
+    padding: 1.5rem;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+  }
 </style>
