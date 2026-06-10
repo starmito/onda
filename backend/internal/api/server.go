@@ -534,55 +534,44 @@ func buildPipelineArgs(req SeparateRequest) (song string, args []string) {
 		args = append(args, "--rubberband", "--pitch", fmt.Sprintf("%d", req.Pitch))
 	}
 
-	preset := getAllPresets()[req.Preset]
-	if req.VocalModel != "" {
-		modelDir := resolveModelDir(req.VocalModel)
+	// Resolve model paths (pipeline.sh reads inference params from model's YAML)
+	vocalModel := req.VocalModel
+	if vocalModel == "" {
+		vocalModel = req.ViperxModel
+	}
+	if vocalModel != "" {
+		modelDir := resolveModelDir(vocalModel)
 		if modelDir != "" {
 			args = append(args, "--viperx-model", modelDir)
 		}
 	}
 	stemModel := req.StemModel
 	if stemModel == "" {
+		stemModel = req.DemucsModel
+	}
+	if stemModel == "" {
+		preset := getAllPresets()[req.Preset]
 		stemModel = preset.StemModel
 	}
 	if stemModel != "" {
 		args = append(args, "--demucs-model", stemModel)
 	}
 
-	// ViperX config
-	if req.VocalModel != "" {
-		viperxCfg, err := loadModelConfig(req.VocalModel)
-		if err == nil {
-			args = append(args, "--segment-size", fmt.Sprintf("%d", viperxCfg.SegmentSize))
-			args = append(args, "--overlap", fmt.Sprintf("%.2f", viperxCfg.Overlap))
-			if viperxCfg.ChunkSize > 0 {
-				args = append(args, "--chunk-size", fmt.Sprintf("%d", viperxCfg.ChunkSize))
-			}
-			if viperxCfg.BatchSize > 0 {
-				args = append(args, "--batch-size", fmt.Sprintf("%d", viperxCfg.BatchSize))
-			}
-			if viperxCfg.Device != "" && viperxCfg.Device != "cuda" {
-				args = append(args, "--device", viperxCfg.Device)
-			}
+	// Demucs-specific flags (no YAML config — use CLI args)
+	if stemModel != "" && (strings.HasPrefix(stemModel, "htdemucs") || strings.Contains(stemModel, "htdemucs")) {
+		if req.Shifts > 1 {
+			args = append(args, "--shifts", fmt.Sprintf("%d", req.Shifts))
+		}
+		if req.DemucsSegment > 0 {
+			args = append(args, "--demucs-segment", fmt.Sprintf("%d", req.DemucsSegment))
+		}
+		if req.Jobs > 0 {
+			args = append(args, "--jobs", fmt.Sprintf("%d", req.Jobs))
 		}
 	}
-	// Demucs config
-	if stemModel != "" {
-		demucsCfg, err := loadModelConfig(stemModel)
-		if err == nil {
-			if demucsCfg.Shifts > 1 {
-				args = append(args, "--shifts", fmt.Sprintf("%d", demucsCfg.Shifts))
-			}
-			if demucsCfg.Segment > 0 {
-				args = append(args, "--demucs-segment", fmt.Sprintf("%d", demucsCfg.Segment))
-			}
-			if demucsCfg.Jobs > 0 {
-				args = append(args, "--jobs", fmt.Sprintf("%d", demucsCfg.Jobs))
-			}
-			if demucsCfg.Device != "" && demucsCfg.Device != "cuda" {
-				args = append(args, "--device", demucsCfg.Device)
-			}
-		}
+	// Device override (defaults to cuda in pipeline.sh)
+	if req.Device != "" && req.Device != "cuda" {
+		args = append(args, "--device", req.Device)
 	}
 
 	args = append(args, "--output", containerOutput)
@@ -635,26 +624,34 @@ type SeparateRequest struct {
 	Input      string `json:"input"`
 	Output     string `json:"output,omitempty"`
 	VocalModel string `json:"vocal_model,omitempty"`
-	StemModel  string `json:"stem_model,omitempty"`
+	ViperxModel string `json:"viperx_model,omitempty"` // alias for VocalModel
+	StemModel   string `json:"stem_model,omitempty"`
+	DemucsModel string `json:"demucs_model,omitempty"` // alias for StemModel
 	Pitch      int    `json:"pitch,omitempty"`
 
 	Viperx     bool     `json:"viperx"`
 	ViperxKeep string   `json:"viperx_keep,omitempty"`
 	Demucs     bool     `json:"demucs"`
 	DemucsKeep []string `json:"demucs_keep,omitempty"`
+
+	// Demucs-specific overrides (optional, only used when model is htdemucs*)
+	Shifts        int `json:"shifts,omitempty"`
+	DemucsSegment int `json:"demucs_segment,omitempty"`
+	Jobs          int `json:"jobs,omitempty"`
+	// Device override (defaults to cuda)
+	Device string `json:"device,omitempty"`
 }
 
-// ModelConfig holds inference parameter configuration saved by the frontend.
-type ModelConfig struct {
+// ModelConfigResponse is what the config API returns (read from model YAML or defaults).
+type ModelConfigResponse struct {
 	SegmentSize int     `json:"segment_size"`
 	Overlap     float64 `json:"overlap"`
 	ChunkSize   int     `json:"chunk_size"`
 	BatchSize   int     `json:"batch_size"`
 	Device      string  `json:"device"`
-	// Demucs PyTorch-specific parameters (only used when model is htdemucs_ft)
-	Shifts  int `json:"shifts"`  // number of shift-averaging passes (default 1, paper uses 10)
-	Segment int `json:"segment"` // demucs segment duration in seconds (0 = auto)
-	Jobs    int `json:"jobs"`    // number of parallel workers (0 = auto)
+	Shifts      int     `json:"shifts"`
+	Segment     int     `json:"segment"`
+	Jobs        int     `json:"jobs"`
 }
 
 // handleSeparate validates and enqueues a separation job to the sequential queue.
@@ -756,65 +753,143 @@ func resolveModelDir(name string) string {
 }
 
 // modelConfigDefaults returns default inference parameters.
-func modelConfigDefaults() ModelConfig {
-	return ModelConfig{
-		SegmentSize: 256,
-		Overlap:     0.25,
-		ChunkSize:   0,
-		BatchSize:   0,
-		Device:      "cuda",
-		Shifts:      1,
-		Segment:     0,
-		Jobs:        0,
+// findModelYaml returns the path to the model's YAML config file, or empty string.
+func findModelYaml(modelName string) string {
+	modelDir := resolveModelDir(modelName)
+	if modelDir == "" {
+		return ""
 	}
-}
-
-// sanitizeModelName replaces path separators and other unsafe chars for use in filenames.
-func sanitizeModelName(name string) string {
-	r := strings.NewReplacer(
-		"/", "_",
-		"\\", "_",
-		"..", "_",
-		" ", "_",
-	)
-	return r.Replace(name)
-}
-
-// modelConfigDir returns the path to the per-model config directory (ensures it exists).
-func modelConfigDir() string {
-	dir := "/config/model_configs"
-	os.MkdirAll(dir, 0755)
-	return dir
-}
-
-// modelConfigPath builds the JSON file path for a given model name.
-func modelConfigPath(name string) string {
-	safe := sanitizeModelName(name)
-	return filepath.Join(modelConfigDir(), safe+".json")
-}
-
-// loadModelConfig reads per-model config, returning defaults if the file doesn't exist.
-func loadModelConfig(name string) (ModelConfig, error) {
-	if name == "" {
-		return modelConfigDefaults(), nil
+	matches, err := filepath.Glob(filepath.Join(modelDir, "*.yaml"))
+	if err != nil || len(matches) == 0 {
+		matches, err = filepath.Glob(filepath.Join(modelDir, "*.yml"))
+		if err != nil || len(matches) == 0 {
+			return ""
+		}
 	}
-	path := modelConfigPath(name)
-	data, err := os.ReadFile(path)
+	return matches[0]
+}
+
+// readModelConfigFromYaml reads inference parameters from a model's YAML file using Python.
+// Returns a ModelConfigResponse with defaults if reading fails.
+func readModelConfigFromYaml(name string) ModelConfigResponse {
+	yamlPath := findModelYaml(name)
+	if yamlPath == "" {
+		// Demucs or unknown model — return defaults
+		return ModelConfigResponse{
+			SegmentSize: 256,
+			Overlap:     0.25,
+			ChunkSize:   0,
+			BatchSize:   0,
+			Device:      "cuda",
+			Shifts:      1,
+			Segment:     0,
+			Jobs:        0,
+		}
+	}
+
+	// Use Python to parse YAML and extract inference section
+	script := fmt.Sprintf(`
+import json, yaml
+with open('%s') as f:
+    data = yaml.safe_load(f)
+inf = data.get('inference', {})
+dim_t = inf.get('dim_t', 801)
+num_overlap = inf.get('num_overlap', 4)
+batch_size = inf.get('batch_size', 1)
+# Convert dim_t → "segment_size" (approximate: segment = (dim_t - 33) / 3)
+seg_size = max(1, (dim_t - 33) // 3)
+overlap_val = 1.0 / num_overlap if num_overlap > 0 else 0.25
+print(json.dumps({
+    'segment_size': seg_size,
+    'overlap': round(overlap_val, 4),
+    'chunk_size': 0,
+    'batch_size': batch_size,
+    'device': 'cuda',
+    'shifts': 1,
+    'segment': 0,
+    'jobs': 0,
+}))
+`, yamlPath)
+
+	cmd := exec.Command("python3", "-c", script)
+	out, err := cmd.Output()
 	if err != nil {
-		return modelConfigDefaults(), nil
+		log.Printf("WARN: failed to read model YAML %s: %v", yamlPath, err)
+		return ModelConfigResponse{
+			SegmentSize: 256,
+			Overlap:     0.25,
+			ChunkSize:   0,
+			BatchSize:   0,
+			Device:      "cuda",
+			Shifts:      1,
+			Segment:     0,
+			Jobs:        0,
+		}
 	}
-	var cfg ModelConfig
-	if err := json.Unmarshal(data, &cfg); err != nil {
-		log.Printf("WARN: failed to parse model config %s: %v, using defaults", path, err)
-		return modelConfigDefaults(), nil
+
+	var cfg ModelConfigResponse
+	if err := json.Unmarshal(out, &cfg); err != nil {
+		log.Printf("WARN: failed to parse model config from YAML: %v", err)
+		return ModelConfigResponse{
+			SegmentSize: 256,
+			Overlap:     0.25,
+			ChunkSize:   0,
+			BatchSize:   0,
+			Device:      "cuda",
+			Shifts:      1,
+			Segment:     0,
+			Jobs:        0,
+		}
 	}
-	return cfg, nil
+	return cfg
 }
 
+// writeModelConfigToYaml writes inference parameters to a model's YAML file using Python.
+func writeModelConfigToYaml(name string, cfg ModelConfigResponse) error {
+	yamlPath := findModelYaml(name)
+	if yamlPath == "" {
+		return fmt.Errorf("model YAML not found for %s", name)
+	}
+
+	// Convert segment_size → dim_t, overlap → num_overlap
+	dimT := cfg.SegmentSize*3 + 33
+	numOverlap := 0
+	if cfg.Overlap > 0 {
+		numOverlap = int(1.0 / cfg.Overlap)
+	}
+	if numOverlap < 1 {
+		numOverlap = 4
+	}
+	batchSize := cfg.BatchSize
+	if batchSize < 1 {
+		batchSize = 1
+	}
+
+	script := fmt.Sprintf(`
+import json, yaml
+with open('%s') as f:
+    data = yaml.safe_load(f)
+if 'inference' not in data:
+    data['inference'] = {}
+data['inference']['dim_t'] = %d
+data['inference']['num_overlap'] = %d
+data['inference']['batch_size'] = %d
+with open('%s', 'w') as f:
+    yaml.dump(data, f, default_flow_style=False)
+print('ok')
+`, yamlPath, dimT, numOverlap, batchSize, yamlPath)
+
+	cmd := exec.Command("python3", "-c", script)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to write YAML: %v — %s", err, string(out))
+	}
+	return nil
+}
 
 // handleModelsConfig saves or retrieves per-model inference configuration.
-// GET  /api/models/{name}/config  — returns the config for a model (defaults if none saved)
-// POST /api/models/{name}/config  — saves the config for a model
+// GET  /api/models/{name}/config  — reads inference params from the model's YAML
+// POST /api/models/{name}/config  — writes inference params to the model's YAML
 func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -826,13 +901,13 @@ func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == http.MethodGet {
-		cfg, _ := loadModelConfig(name)
+		cfg := readModelConfigFromYaml(name)
 		json.NewEncoder(w).Encode(cfg)
 		return
 	}
 
 	if r.Method == http.MethodPost {
-		var cfg ModelConfig
+		var cfg ModelConfigResponse
 		if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON"})
@@ -850,46 +925,25 @@ func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": "overlap must be >= 0 and < 1"})
 			return
 		}
-		if cfg.Device != "cpu" && cfg.Device != "cuda" {
+		if cfg.Device != "" && cfg.Device != "cpu" && cfg.Device != "cuda" {
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": "device must be 'cpu' or 'cuda'"})
 			return
 		}
-		if cfg.Shifts < 0 || cfg.Shifts > 20 {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "shifts must be between 0 and 20"})
-			return
-		}
-		if cfg.Segment < 0 || cfg.Segment > 60 {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "demucs segment must be between 0 and 60"})
-			return
-		}
-		if cfg.Jobs < 0 || cfg.Jobs > 8 {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "jobs must be between 0 and 8"})
+
+		if err := writeModelConfigToYaml(name, cfg); err != nil {
+			log.Printf("ERROR: failed to save model config for %s: %v", name, err)
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
 
-		path := modelConfigPath(name)
-		data, err := json.Marshal(cfg)
-		if err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": "failed to serialize config"})
-			return
-		}
-		if err := os.WriteFile(path, data, 0644); err != nil {
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": "failed to write config file"})
-			return
-		}
-
-		Log("backend", "success", "Config saved: "+name)
+		Log("backend", "success", "Config saved to YAML: "+name)
 
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{
 			"ok":     "true",
-			"detail": fmt.Sprintf("config saved for model %s", name),
+			"detail": fmt.Sprintf("config saved to YAML for model %s", name),
 		})
 		return
 	}

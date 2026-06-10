@@ -34,6 +34,8 @@
     demucsKeep?: string[];
     demucsModel?: string;
     demucsStems?: string[];
+    vocalModel?: string;   // model name for ViperX (resolved from YAML path)
+    stemModel?: string;    // model name for Demucs
   }
 
   // ---- State ----
@@ -434,6 +436,8 @@
             demucs_keep: config.demucsKeep,
             demucs_model: config.demucsModel,
             demucs_stems: config.demucsStems,
+            vocal_model: config.vocalModel,
+            stem_model: config.stemModel,
           });
         } catch (err: any) {
           qf.status = 'error';
