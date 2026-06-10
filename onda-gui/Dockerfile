@@ -18,7 +18,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build -o /onda-backend ./cmd/onda/
 FROM nginx:alpine
 ARG ONDA_VERSION=v2.6.4
 
-RUN apk add --no-cache bash docker-cli
+RUN apk add --no-cache bash docker-cli su-exec
 
 # nginx + entrypoint
 COPY onda-gui/nginx.conf /etc/nginx/nginx.conf
@@ -45,7 +45,7 @@ COPY uvr_models.json /app/uvr_models.json
 COPY hf_models.json /app/hf_models.json
 
 # Directorios de montaje
-RUN mkdir -p /input /output
+RUN mkdir -p /input /output /input_rubberband
 
 # Nginx temp dirs for non-root (1000)
 RUN mkdir -p /var/log/nginx /var/cache/nginx /var/run && \
