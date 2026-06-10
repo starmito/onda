@@ -7,8 +7,8 @@ if [ "$(id -u)" = "0" ]; then
     mkdir -p /input /output /input_rubberband /config/model_configs
     chown -R 1000:1000 /input /output /input_rubberband /config /var/log/nginx /var/cache/nginx 2>/dev/null || true
 
-    # Drop to user 1000 and re-exec this same script
-    exec su-exec 1000:1000 /entrypoint.sh
+    # Drop to user 1000 (keep root group for /dev/stderr access) and re-exec this script
+    exec su-exec 1000:0 /entrypoint.sh
 fi
 
 # ── Running as user 1000 — start services ──
