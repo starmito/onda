@@ -70,6 +70,9 @@
   let sidebarCollapsed = $state(false);
   let settingsSubTab = $state('models');
   let sidebarPresets = $state<{id: string, name: string, icon: string}[]>([]);
+  let activeTabName = $derived(
+    sidebarPresets.find(p => p.id === activeTab)?.name || activeTab
+  );
 
   function copyToClipboard(text: string) {
     // navigator.clipboard requires HTTPS or localhost — fallback for HTTP
@@ -241,9 +244,6 @@
           if (first) activeTab = first.id;
         }
 
-        let activeTabName = $derived(
-          sidebarPresets.find(p => p.id === activeTab)?.name || activeTab
-        );
       });
     }).catch(() => {});
   });
