@@ -31,9 +31,7 @@ RUN chmod +x /usr/bin/onda-backend
 COPY --from=frontend-builder /src/dist/ /usr/share/nginx/html/
 RUN echo "${ONDA_VERSION}" > /usr/share/nginx/html/VERSION
 
-# ── Pipeline + project root ──
-COPY pipeline.sh /pipeline.sh
-RUN chmod +x /pipeline.sh
+# ── VERSION + project root ──
 COPY VERSION /VERSION
 ENV ONDA_ROOT=/
 
