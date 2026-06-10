@@ -3,6 +3,7 @@
   import ModelManager from './ModelManager.svelte';
   import ModelDownloader from './ModelDownloader.svelte';
   import PipelineEditor from './PipelineEditor.svelte';
+  import { IconModel, IconDownload, IconPresets, IconLogs, IconClose, IconRefresh } from './icons';
 
   interface Props {
     subtab?: string;
@@ -124,22 +125,22 @@
       class="settings-tab"
       class:active={subtab === 'models'}
       onclick={() => handleSubtabChange('models')}
-    >⚙️ Modelos</button>
+    >{@html IconModel} <span>Modelos</span></button>
     <button
       class="settings-tab"
       class:active={subtab === 'download'}
       onclick={() => handleSubtabChange('download')}
-    >📥 Descargar</button>
+    >{@html IconDownload} <span>Descargar</span></button>
     <button
       class="settings-tab"
       class:active={subtab === 'presets'}
       onclick={() => handleSubtabChange('presets')}
-    >🎛 Presets</button>
+    >{@html IconPresets} <span>Presets</span></button>
     <button
       class="settings-tab"
       class:active={subtab === 'logs'}
       onclick={() => handleSubtabChange('logs')}
-    >📋 Registros</button>
+    >{@html IconLogs} <span>Registros</span></button>
   </div>
 
   <!-- Body content -->
@@ -175,7 +176,7 @@
               <option value={0}>Todos</option>
             </select>
           {/if}
-          <button class="btn-refresh" onclick={() => logTab === 'events' ? loadLogs() : loadServiceLogs()} title="Refrescar">🔄</button>
+          <button class="btn-refresh" onclick={() => logTab === 'events' ? loadLogs() : loadServiceLogs()} title="Refrescar">{@html IconRefresh}</button>
         </div>
         <div class="logs-list">
           {#if logTab === 'events'}
@@ -225,7 +226,7 @@
     <div class="log-detail-panel" onclick={(e) => e.stopPropagation()}>
       <div class="logs-header">
         <h2>Detalle del evento</h2>
-        <button class="btn-icon" onclick={() => logDetail = null}>✕</button>
+        <button class="btn-icon" onclick={() => logDetail = null}>{@html IconClose}</button>
       </div>
       <div class="log-detail-meta">
         <span class="log-detail-level" class:log-error={logDetail.level === 'error'} class:log-success={logDetail.level === 'success'}>

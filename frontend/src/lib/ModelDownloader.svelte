@@ -605,14 +605,14 @@
     background: none;
     border: 1px solid #2a2a4a;
     border-radius: 6px;
-    color: #00d4ff;
+    color: var(--accent-light);
     font-size: 0.85rem;
     padding: 0.3rem 0.8rem;
     cursor: pointer;
     transition: border-color 0.15s;
   }
   .btn-back:hover {
-    border-color: #00d4ff;
+    border-color: var(--accent);
   }
   .btn-close {
     background: transparent; border: 1px solid #555; color: #aaa;
@@ -661,8 +661,8 @@
     color: #888;
   }
   .tab-btn.active {
-    color: #00d4ff;
-    border-bottom-color: #00d4ff;
+    color: var(--accent);
+    border-bottom-color: var(--accent);
   }
 
   /* Search */
@@ -682,7 +682,7 @@
     outline: none;
   }
   .search-input:focus {
-    border-color: #00d4ff;
+    border-color: var(--accent);
   }
   .search-input::placeholder {
     color: #555;
@@ -788,7 +788,7 @@
 
   .btn-download {
     padding: 0.3rem 0.7rem;
-    background: linear-gradient(135deg, #00d4ff, #0095cc);
+    background: linear-gradient(135deg, var(--accent), var(--accent-dark));
     border: none;
     border-radius: 5px;
     color: #0a0a14;
@@ -827,7 +827,7 @@
     background: #0e0e1a;
   }
   .dropzone:hover {
-    border-color: #00d4ff;
+    border-color: var(--accent);
     background: #111128;
   }
   .dropzone.uploading {
@@ -946,9 +946,9 @@
     color: #c0c0d0;
   }
   .source-btn.active {
-    background: #00d4ff22;
-    border-color: #00d4ff;
-    color: #00d4ff;
+    background: var(--accent-bg);
+    border-color: var(--accent);
+    color: var(--accent);
   }
 
   .source-badge {

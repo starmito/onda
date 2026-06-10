@@ -539,14 +539,14 @@
     background: none;
     border: 1px solid #2a2a4a;
     border-radius: 6px;
-    color: #00d4ff;
+    color: var(--accent-light);
     font-size: 0.85rem;
     padding: 0.3rem 0.8rem;
     cursor: pointer;
     transition: border-color 0.15s;
   }
   .btn-back:hover {
-    border-color: #00d4ff;
+    border-color: var(--accent);
   }
   .btn-close {
     background: transparent; border: 1px solid #555; color: #aaa;
@@ -589,12 +589,12 @@
   }
 
   .field label strong {
-    color: #00d4ff;
+    color: var(--accent-light);
   }
 
   .field input[type='range'] {
     width: 100%;
-    accent-color: #00d4ff;
+    accent-color: #6c5ce7;
     height: 6px;
   }
 
@@ -630,7 +630,7 @@
     width: 100%;
   }
   .field select:focus {
-    border-color: #00d4ff;
+    border-color: var(--accent);
   }
 
   .sliders {
@@ -660,7 +660,7 @@
 
   .btn-apply {
     padding: 0.6rem 1rem;
-    background: linear-gradient(135deg, #00d4ff, #b388ff);
+    background: linear-gradient(135deg, var(--accent), var(--accent-light));
     border: none;
     border-radius: 8px;
     color: #0a0a14;

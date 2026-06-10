@@ -1,21 +1,23 @@
 <script>
+	import { IconTone, IconBPM, IconDAW, IconHelp } from './icons';
+
 	/**
 	 * @type {{ tabId: 'pitch' | 'bpm' | 'daw' | 'help' }}
 	 */
 	let { tabId } = $props();
 
 	const content = {
-		pitch: { icon: '🎛', title: 'Cambiar Tono' },
-		bpm: { icon: '📊', title: 'Detectar velocidad' },
-		daw: { icon: '🎼', title: 'DAW' },
-		help: { icon: '❓', title: 'Ayuda' }
+		pitch: { icon: IconTone, title: 'Cambiar Tono' },
+		bpm: { icon: IconBPM, title: 'Detectar velocidad' },
+		daw: { icon: IconDAW, title: 'DAW' },
+		help: { icon: IconHelp, title: 'Ayuda' }
 	};
 
 	const current = $derived(content[tabId] ?? content.help);
 </script>
 
 <div class="placeholder">
-	<span class="icon">{current.icon}</span>
+	<span class="icon">{@html current.icon}</span>
 	<h2 class="title">{current.title}</h2>
 	<p class="subtitle">Próximamente…</p>
 </div>
@@ -37,6 +39,14 @@
 	.icon {
 		font-size: 4rem;
 		line-height: 1.2;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.icon :global(svg) {
+		width: 64px;
+		height: 64px;
 	}
 
 	.title {
