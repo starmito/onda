@@ -612,8 +612,8 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Sanitize the name for safety
-	safeName := sanitizeModelName(name)
+	// Sanitize the name for safety: replace path separators
+	safeName := strings.NewReplacer("/", "_", "\\", "_", "..", "_", " ", "_").Replace(name)
 
 	// Find the model file on disk
 	var foundPath string
@@ -678,18 +678,6 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 		deletedFiles = true
 	}
 
-	// Delete the config JSON if it exists
-	configPath := modelConfigPath(safeName)
-	var configWarning string
-	if _, err := os.Stat(configPath); err == nil {
-		if err := os.Remove(configPath); err != nil {
-			log.Printf("[models] failed to delete config %s: %v", configPath, err)
-			configWarning = fmt.Sprintf("model deleted but config cleanup failed: %v", err)
-		} else {
-			log.Printf("[models] deleted config: %s", configPath)
-		}
-	}
-
 	if !deletedFiles {
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("model %q not found on disk", name)})
@@ -699,9 +687,6 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	resp := map[string]interface{}{
 		"ok":     true,
 		"detail": fmt.Sprintf("model %q deleted", name),
-	}
-	if configWarning != "" {
-		resp["warning"] = configWarning
 	}
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(resp)

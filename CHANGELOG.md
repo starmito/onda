@@ -1,5 +1,20 @@
 # Changelog
 
+## v2.7.1 — YAML config en Go puro, sin Python en onda-gui (2026-06-10)
+
+### Changed
+- **onda-gui/Dockerfile**: eliminado `COPY pipeline.sh` innecesario — el backend ejecuta pipeline.sh vía `docker exec onda bash /pipeline.sh`, no localmente
+- **Go backend**: lectura/escritura de YAML con `gopkg.in/yaml.v3` en Go puro, elimina dependencia de Python en onda-gui
+- **Dockerfile**: `go mod tidy` incluido en build para dependencias Go limpias
+
+### Fixed
+- **Parámetros de inferencia**: ahora se escriben como `!!int` en YAML (no strings), usando `strconv.Itoa` para `yaml.v3`
+- **`!!python/tuple`**: el código Go ignora estos valores YAML específicos de Python sin errores
+
+### Removed
+- **Python + py3-yaml** de onda-gui Dockerfile — ya no se necesita, Go maneja YAML directamente
+- **`COPY pipeline.sh /pipeline.sh`** de onda-gui — código muerto, pipeline.sh solo necesario en contenedor `onda`
+
 ## v2.6.4 — PitchPage: uploaded files with full player (2026-06-10)
 
 ### Added
