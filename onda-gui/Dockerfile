@@ -9,16 +9,14 @@ RUN npm run build
 # ── Stage 1: Compilar backend Go ──
 FROM golang:1.26-alpine AS builder
 WORKDIR /src
-COPY backend/go.mod ./
-RUN go mod download 2>/dev/null || true
 COPY backend/ ./
-RUN CGO_ENABLED=0 GOOS=linux go build -o /onda-backend ./cmd/onda/
+RUN go mod tidy && CGO_ENABLED=0 GOOS=linux go build -o /onda-backend ./cmd/onda/
 
 # ── Stage 2: Imagen final ──
 FROM nginx:alpine
-ARG ONDA_VERSION=v2.7.0-alpha
+ARG ONDA_VERSION=v2.7.1-alpha
 
-RUN apk add --no-cache bash docker-cli su-exec python3 py3-yaml
+RUN apk add --no-cache bash docker-cli su-exec
 
 # nginx + entrypoint
 COPY onda-gui/nginx.conf /etc/nginx/nginx.conf

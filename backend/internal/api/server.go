@@ -11,10 +11,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // FileEntry describes a generated stem file.
@@ -752,7 +755,6 @@ func resolveModelDir(name string) string {
 	return ""
 }
 
-// modelConfigDefaults returns default inference parameters.
 // findModelYaml returns the path to the model's YAML config file, or empty string.
 func findModelYaml(modelName string) string {
 	modelDir := resolveModelDir(modelName)
@@ -769,82 +771,94 @@ func findModelYaml(modelName string) string {
 	return matches[0]
 }
 
-// readModelConfigFromYaml reads inference parameters from a model's YAML file using Python.
-// Returns a ModelConfigResponse with defaults if reading fails.
-func readModelConfigFromYaml(name string) ModelConfigResponse {
-	yamlPath := findModelYaml(name)
-	if yamlPath == "" {
-		// Demucs or unknown model — return defaults
-		return ModelConfigResponse{
-			SegmentSize: 256,
-			Overlap:     0.25,
-			ChunkSize:   0,
-			BatchSize:   0,
-			Device:      "cuda",
-			Shifts:      1,
-			Segment:     0,
-			Jobs:        0,
+// findYamlChildNode finds a child node by key in a mapping node.
+func findYamlChildNode(parent *yaml.Node, key string) *yaml.Node {
+	if parent.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i < len(parent.Content)-1; i += 2 {
+		if parent.Content[i].Value == key {
+			return parent.Content[i+1]
 		}
 	}
-
-	// Use Python to parse YAML and extract inference section
-	script := fmt.Sprintf(`
-import json, yaml
-with open('%s') as f:
-    data = yaml.load(f, Loader=yaml.FullLoader)
-inf = data.get('inference', {})
-dim_t = inf.get('dim_t', 801)
-num_overlap = inf.get('num_overlap', 4)
-batch_size = inf.get('batch_size', 1)
-# Convert dim_t → "segment_size" (approximate: segment = (dim_t - 33) / 3)
-seg_size = max(1, (dim_t - 33) // 3)
-overlap_val = 1.0 / num_overlap if num_overlap > 0 else 0.25
-print(json.dumps({
-    'segment_size': seg_size,
-    'overlap': round(overlap_val, 4),
-    'chunk_size': 0,
-    'batch_size': batch_size,
-    'device': 'cuda',
-    'shifts': 1,
-    'segment': 0,
-    'jobs': 0,
-}))
-`, yamlPath)
-
-	cmd := exec.Command("python3", "-c", script)
-	out, err := cmd.Output()
-	if err != nil {
-		log.Printf("WARN: failed to read model YAML %s: %v", yamlPath, err)
-		return ModelConfigResponse{
-			SegmentSize: 256,
-			Overlap:     0.25,
-			ChunkSize:   0,
-			BatchSize:   0,
-			Device:      "cuda",
-			Shifts:      1,
-			Segment:     0,
-			Jobs:        0,
-		}
-	}
-
-	var cfg ModelConfigResponse
-	if err := json.Unmarshal(out, &cfg); err != nil {
-		log.Printf("WARN: failed to parse model config from YAML: %v", err)
-		return ModelConfigResponse{
-			SegmentSize: 256,
-			Overlap:     0.25,
-			ChunkSize:   0,
-			BatchSize:   0,
-			Device:      "cuda",
-			Shifts:      1,
-			Segment:     0,
-			Jobs:        0,
-		}
-	}
-	return cfg
+	return nil
 }
 
-// writeModelConfigToYaml writes inference parameters to a model's YAML file using Python.
+// readModelConfigFromYaml reads inference parameters from a model's YAML file using Go yaml.Node.
+// Returns defaults if reading fails or model has no YAML.
+func readModelConfigFromYaml(name string) ModelConfigResponse {
+	defaults := ModelConfigResponse{
+		SegmentSize: 256, Overlap: 0.25, ChunkSize: 0, BatchSize: 0,
+		Device: "cuda", Shifts: 1, Segment: 0, Jobs: 0,
+	}
+
+	yamlPath := findModelYaml(name)
+	if yamlPath == "" {
+		return defaults
+	}
+
+	data, err := os.ReadFile(yamlPath)
+	if err != nil {
+		return defaults
+	}
+
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		log.Printf("WARN: failed to parse YAML %s: %v", yamlPath, err)
+		return defaults
+	}
+
+	// doc.Content[0] is the root mapping
+	if len(doc.Content) == 0 {
+		return defaults
+	}
+	infNode := findYamlChildNode(doc.Content[0], "inference")
+	if infNode == nil || infNode.Kind != yaml.MappingNode {
+		return defaults
+	}
+
+	dimT := 801
+	numOverlap := 4
+	batchSize := 1
+
+	if n := findYamlChildNode(infNode, "dim_t"); n != nil {
+		if v, err := strconv.Atoi(n.Value); err == nil {
+			dimT = v
+		}
+	}
+	if n := findYamlChildNode(infNode, "num_overlap"); n != nil {
+		if v, err := strconv.Atoi(n.Value); err == nil {
+			numOverlap = v
+		}
+	}
+	if n := findYamlChildNode(infNode, "batch_size"); n != nil {
+		if v, err := strconv.Atoi(n.Value); err == nil {
+			batchSize = v
+		}
+	}
+
+	segSize := (dimT - 33) / 3
+	if segSize < 1 {
+		segSize = 1
+	}
+	overlap := 0.25
+	if numOverlap > 0 {
+		overlap = 1.0 / float64(numOverlap)
+	}
+
+	return ModelConfigResponse{
+		SegmentSize: segSize,
+		Overlap:     overlap,
+		ChunkSize:   0,
+		BatchSize:   batchSize,
+		Device:      "cuda",
+		Shifts:      1,
+		Segment:     0,
+		Jobs:        0,
+	}
+}
+
+// writeModelConfigToYaml writes inference parameters to a model's YAML file using Go yaml.Node.
 func writeModelConfigToYaml(name string, cfg ModelConfigResponse) error {
 	yamlPath := findModelYaml(name)
 	if yamlPath == "" {
@@ -865,26 +879,78 @@ func writeModelConfigToYaml(name string, cfg ModelConfigResponse) error {
 		batchSize = 1
 	}
 
-	script := fmt.Sprintf(`
-import json, yaml
-with open('%s') as f:
-    data = yaml.load(f, Loader=yaml.FullLoader)
-if 'inference' not in data:
-    data['inference'] = {}
-data['inference']['dim_t'] = %d
-data['inference']['num_overlap'] = %d
-data['inference']['batch_size'] = %d
-with open('%s', 'w') as f:
-    yaml.dump(data, f, default_flow_style=False)
-print('ok')
-`, yamlPath, dimT, numOverlap, batchSize, yamlPath)
-
-	cmd := exec.Command("python3", "-c", script)
-	out, err := cmd.CombinedOutput()
+	data, err := os.ReadFile(yamlPath)
 	if err != nil {
-		return fmt.Errorf("failed to write YAML: %v — %s", err, string(out))
+		return fmt.Errorf("failed to read YAML: %w", err)
+	}
+
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return fmt.Errorf("failed to parse YAML: %w", err)
+	}
+
+	if len(doc.Content) == 0 {
+		return fmt.Errorf("empty YAML document")
+	}
+
+	root := doc.Content[0]
+	infNode := findYamlChildNode(root, "inference")
+	if infNode == nil || infNode.Kind != yaml.MappingNode {
+		// Create inference section if it doesn't exist
+		infNode = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		root.Content = append(root.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: "inference"},
+			infNode,
+		)
+	}
+
+	// Set or update scalar children
+	setYamlChildInt(infNode, "dim_t", dimT)
+	setYamlChildInt(infNode, "num_overlap", numOverlap)
+	setYamlChildInt(infNode, "batch_size", batchSize)
+
+	out, err := yaml.Marshal(&doc)
+	if err != nil {
+		return fmt.Errorf("failed to marshal YAML: %w", err)
+	}
+
+	if err := os.WriteFile(yamlPath, out, 0644); err != nil {
+		return fmt.Errorf("failed to write YAML: %w", err)
 	}
 	return nil
+}
+
+// setYamlChildInt sets or adds an integer scalar child in a mapping node.
+func setYamlChildInt(node *yaml.Node, key string, value int) {
+	for i := 0; i < len(node.Content)-1; i += 2 {
+		if node.Content[i].Value == key {
+			node.Content[i+1].Value = strconv.Itoa(value)
+			node.Content[i+1].Tag = "!!int"
+			node.Content[i+1].Style = 0
+			return
+		}
+	}
+	// Not found, append
+	node.Content = append(node.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Value: key, Tag: "!!str"},
+		&yaml.Node{Kind: yaml.ScalarNode, Value: strconv.Itoa(value), Tag: "!!int"},
+	)
+}
+
+// setYamlChild sets or adds a scalar child in a mapping node.
+func setYamlChild(node *yaml.Node, key, value string) {
+	for i := 0; i < len(node.Content)-1; i += 2 {
+		if node.Content[i].Value == key {
+			node.Content[i+1].Value = value
+			node.Content[i+1].Tag = "!!str"
+			return
+		}
+	}
+	// Not found, append
+	node.Content = append(node.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Value: key, Tag: "!!str"},
+		&yaml.Node{Kind: yaml.ScalarNode, Value: value, Tag: "!!str", Style: yaml.DoubleQuotedStyle},
+	)
 }
 
 // handleModelsConfig saves or retrieves per-model inference configuration.
