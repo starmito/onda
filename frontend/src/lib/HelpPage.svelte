@@ -20,6 +20,8 @@
     { name: 'Runtime', version: '', status: 'loading', icon: IconSettings },
   ]);
 
+  let starting = $state(false);
+  let stopping = $state(false);
   let restarting = $state(false);
 
   onMount(() => {
@@ -53,6 +55,22 @@
         services = services.map(s => ({ ...s, status: 'error' }));
       });
   });
+
+  async function handleStart() {
+    starting = true;
+    try {
+      await fetch(`${API_BASE}/api/start`, { method: 'POST' });
+    } catch {}
+    setTimeout(() => { starting = false; window.location.reload(); }, 1500);
+  }
+
+  async function handleStop() {
+    stopping = true;
+    try {
+      await fetch(`${API_BASE}/api/stop`, { method: 'POST' });
+    } catch {}
+    setTimeout(() => { stopping = false; window.location.reload(); }, 1500);
+  }
 
   async function handleRestart() {
     restarting = true;
@@ -92,6 +110,14 @@
   <div class="controls">
     <h2 class="section-title">Control del servicio</h2>
     <div class="control-buttons">
+      <button class="ctrl-btn ctrl-start" onclick={handleStart}>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="5,3 19,12 5,21"/></svg>
+        Iniciar
+      </button>
+      <button class="ctrl-btn ctrl-stop" onclick={handleStop}>
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+        Detener
+      </button>
       <button class="ctrl-btn ctrl-restart" onclick={handleRestart} disabled={restarting}>
         <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23,4 23,10 17,10"/><polyline points="1,20 1,14 7,14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
         Reiniciar
@@ -228,6 +254,18 @@
     background: var(--bg-hover);
     border-color: var(--accent);
   }
+
+  .ctrl-start:hover:not(:disabled) {
+    background: rgba(76, 175, 80, 0.15);
+    border-color: #4caf50;
+  }
+  .ctrl-start :global(svg) { stroke: #4caf50; }
+
+  .ctrl-stop:hover:not(:disabled) {
+    background: rgba(244, 67, 54, 0.15);
+    border-color: #f44336;
+  }
+  .ctrl-stop :global(svg) { stroke: #f44336; }
 
   .ctrl-btn:disabled {
     opacity: 0.5;
