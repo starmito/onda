@@ -47,6 +47,8 @@ services:
       dockerfile: ./onda-gui/Dockerfile
     image: onda-gui:latest
     container_name: onda-gui
+    group_add:
+      - "983"  # docker group
     ports:
       - "${ONDA_PORT:-3000}:3000"
     depends_on:
