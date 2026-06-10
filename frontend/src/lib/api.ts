@@ -81,6 +81,10 @@ export function downloadUrl(song: string, file: string): string {
   return `${API_BASE}/api/files/${encodeURIComponent(song)}/${encodeURIComponent(file)}`;
 }
 
+export function pitchInputDownloadUrl(filename: string): string {
+  return `${API_BASE}/input_rubberband/${encodeURIComponent(filename)}`;
+}
+
 export function pitchDownloadUrl(song: string, pitch: number, file: string): string {
   const pitchStr = pitch > 0 ? '+' + pitch : String(pitch);
   return `${API_BASE}/api/pitch/files/${encodeURIComponent(song)}/${encodeURIComponent(pitchStr)}/${encodeURIComponent(file)}`;
@@ -401,6 +405,15 @@ export async function deleteInput(name: string): Promise<void> {
   });
   if (!res.ok) {
     throw new Error(`Delete input failed with status ${res.status}: ${res.statusText}`);
+  }
+}
+
+export async function deletePitchUpload(name: string): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/uploads/pitch/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    throw new Error(`Delete pitch upload failed with status ${res.status}: ${res.statusText}`);
   }
 }
 
