@@ -126,6 +126,9 @@
 		font-size: 22px;
 		cursor: pointer;
 		transition: background 0.15s;
+		font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+		font-weight: 600;
+		letter-spacing: 0.03em;
 	}
 
 	.toggle-btn:hover {
@@ -151,6 +154,9 @@
 		white-space: nowrap;
 		text-align: center;
 		box-sizing: border-box;
+		font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+		font-weight: 500;
+		letter-spacing: 0.02em;
 	}
 
 	.nav-item:hover {
@@ -186,6 +192,9 @@
 		text-overflow: ellipsis;
 		max-width: 100%;
 		white-space: nowrap;
+		font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+		font-weight: 500;
+		letter-spacing: 0.02em;
 	}
 
 	/* Cuando colapsado: ocultar texto */
