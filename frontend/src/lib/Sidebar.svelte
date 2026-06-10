@@ -1,4 +1,6 @@
 <script>
+	import { IconMenu, IconStar, IconMusic, IconTone, IconBPM, IconDAW, IconHelp, IconSettings } from './icons';
+
 	/**
 	 * Sidebar.svelte — Sidebar vertical colapsable al estilo vocalremover.org
 	 *
@@ -19,14 +21,14 @@
 
 	/** Items estáticos: [id, label, icon] */
 	const staticItems = [
-		{ id: 'pitch',    label: 'Cambiar Tono',        icon: '🎛' },
-		{ id: 'bpm',      label: 'Detectar velocidad',  icon: '📊' },
-		{ id: 'daw',      label: 'DAW',                  icon: '🎼' },
+		{ id: 'pitch',    label: 'Cambiar Tono',        icon: IconTone },
+		{ id: 'bpm',      label: 'Detectar velocidad',  icon: IconBPM },
+		{ id: 'daw',      label: 'DAW',                  icon: IconDAW },
 	];
 
 	const bottomItems = [
-		{ id: 'help',     label: 'Ayuda',               icon: '❓' },
-		{ id: 'settings', label: 'Ajustes',             icon: '⚙️' },
+		{ id: 'help',     label: 'Ayuda',               icon: IconHelp },
+		{ id: 'settings', label: 'Ajustes',             icon: IconSettings },
 	];
 
 	function handleClick(tabId) {
@@ -37,7 +39,7 @@
 <aside class="sidebar" class:collapsed>
 	<!-- Botón toggle arriba del todo -->
 	<button class="toggle-btn" onclick={ontoggle} aria-label={collapsed ? 'Expandir sidebar' : 'Colapsar sidebar'}>
-		<span class="icon-only">≡</span>
+		<span class="icon-only">{@html IconMenu}</span>
 		<span class="label-text">Menú</span>
 	</button>
 
@@ -48,7 +50,7 @@
 			class:active={activeTab === tab.id}
 			onclick={() => handleClick(tab.id)}
 		>
-			<span class="icon-only">{tab.icon}</span>
+			<span class="icon-only">{@html tab.icon}</span>
 			<span class="label-text">{tab.name}</span>
 		</button>
 	{/each}
@@ -63,7 +65,7 @@
 			class:active={activeTab === item.id}
 			onclick={() => handleClick(item.id)}
 		>
-			<span class="icon-only">{item.icon}</span>
+			<span class="icon-only">{@html item.icon}</span>
 			<span class="label-text">{item.label}</span>
 		</button>
 	{/each}
@@ -81,7 +83,7 @@
 			class:active={activeTab === item.id}
 			onclick={() => handleClick(item.id)}
 		>
-			<span class="icon-only">{item.icon}</span>
+			<span class="icon-only">{@html item.icon}</span>
 			<span class="label-text">{item.label}</span>
 		</button>
 	{/each}
@@ -107,23 +109,23 @@
 	}
 
 	.sidebar.collapsed {
-		width: 64px;
+		width: 58px;
 	}
 
 	/* ---------- Botón toggle ---------- */
 	.toggle-btn {
 		display: flex;
+		flex-direction: column;
 		align-items: center;
-		gap: 10px;
+		gap: 4px;
 		width: 100%;
-		padding: 14px 16px;
+		padding: 16px 4px 12px;
 		background: none;
 		border: none;
-		color: #ccc;
-		font-size: 20px;
+		color: #888;
+		font-size: 22px;
 		cursor: pointer;
 		transition: background 0.15s;
-		white-space: nowrap;
 	}
 
 	.toggle-btn:hover {
@@ -133,52 +135,66 @@
 	/* ---------- Items de navegación ---------- */
 	.nav-item {
 		display: flex;
+		flex-direction: column;
 		align-items: center;
-		gap: 10px;
+		gap: 4px;
 		width: 100%;
-		padding: 10px 16px;
+		padding: 12px 4px;
 		background: none;
 		border: none;
-		border-left: 3px solid transparent;
-		color: #ccc;
-		font-size: 14px;
+		border-left: none;
+		border-bottom: 2px solid transparent;
+		color: #888;
+		font-size: 11px;
 		cursor: pointer;
-		transition: background 0.15s, border-color 0.15s;
+		transition: background 0.15s, color 0.15s, border-color 0.15s;
 		white-space: nowrap;
-		text-align: left;
+		text-align: center;
+		box-sizing: border-box;
 	}
 
 	.nav-item:hover {
-		background: #2a2a3e;
+		background: rgba(108, 92, 231, 0.08);
 	}
 
 	.nav-item.active {
-		background: #3a3a5e;
-		border-left-color: #6c5ce7;
-		color: #fff;
+		background: rgba(108, 92, 231, 0.12);
+		border-bottom-color: #6c5ce7;
+		color: #e0e0e0;
+	}
+
+	/* ---------- SVG icon sizing ---------- */
+	.icon-only :global(svg) {
+		width: 22px;
+		height: 22px;
+		display: block;
 	}
 
 	/* ---------- Icono y texto ---------- */
 	.icon-only {
-		font-size: 18px;
-		min-width: 22px;
-		text-align: center;
-		flex-shrink: 0;
+		font-size: 20px;
+		line-height: 1;
+		display: flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.label-text {
+		font-size: 10px;
+		line-height: 1.2;
 		overflow: hidden;
 		text-overflow: ellipsis;
-		opacity: 1;
-		transition: opacity 0.15s;
+		max-width: 100%;
+		white-space: nowrap;
 	}
 
 	/* Cuando colapsado: ocultar texto */
 	.collapsed .label-text {
-		opacity: 0;
-		width: 0;
-		margin: 0;
-		pointer-events: none;
+		display: none;
+	}
+
+	.collapsed .nav-item {
+		padding: 10px 0;
 	}
 
 	.collapsed .toggle-btn {
@@ -186,7 +202,7 @@
 		padding: 14px 0;
 	}
 
-	.collapsed .nav-item {
+	.collapsed .lang-selector {
 		justify-content: center;
 		padding: 10px 0;
 	}
@@ -194,8 +210,8 @@
 	/* ---------- Separador ---------- */
 	.separator {
 		height: 1px;
-		background: #2e2e3e;
-		margin: 6px 12px;
+		background: #2a2a3e;
+		margin: 4px 16px;
 		flex-shrink: 0;
 	}
 
@@ -207,18 +223,13 @@
 	/* ---------- Selector de idioma ---------- */
 	.lang-selector {
 		display: flex;
+		flex-direction: column;
 		align-items: center;
-		gap: 10px;
+		gap: 4px;
 		width: 100%;
-		padding: 10px 16px;
-		color: #888;
-		font-size: 14px;
+		padding: 10px 4px;
+		color: #555;
+		font-size: 10px;
 		cursor: default;
-		white-space: nowrap;
-	}
-
-	.collapsed .lang-selector {
-		justify-content: center;
-		padding: 10px 0;
 	}
 </style>

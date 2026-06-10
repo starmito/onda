@@ -11,6 +11,7 @@
   import { detectStemType } from './lib/types';
   import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getPresets, getDefaultPreset } from './lib/api';
   import type { QueueJob } from './lib/api';
+  import { IconOnda } from './lib/icons';
 
 
   interface QueueFile {
@@ -239,6 +240,10 @@
           const first = sidebarPresets.find(p => p.icon === '⭐') || sidebarPresets[0];
           if (first) activeTab = first.id;
         }
+
+        let activeTabName = $derived(
+          sidebarPresets.find(p => p.id === activeTab)?.name || activeTab
+        );
       });
     }).catch(() => {});
   });
@@ -595,7 +600,7 @@
 
     <div class="main-area">
       <header class="app-header">
-        <h1>🎵 Onda</h1>
+        <h1>{@html IconOnda} Onda</h1>
         <span class="version">{healthVersion || ''}</span>
       </header>
 
@@ -613,6 +618,7 @@
           <!-- PipelineView con el preset -->
           <PipelineView
             presetName={activeTab}
+            displayName={activeTabName}
             {queueFiles}
             {savedPresets}
             {separating}
@@ -643,7 +649,7 @@
     <div class="error-banner">
       <span class="error-banner-text">{errorBanner.message}</span>
       <div class="error-banner-actions">
-        <button class="btn-icon" title="Copiar error" onclick={() => copyToClipboard(errorBanner!.message)}>📋</button>
+        <button class="btn-icon" title="Copiar error" onclick={() => copyToClipboard(errorBanner!.message)}>Copiar</button>
         <button class="btn-icon" title="Cerrar" onclick={() => errorBanner = null}>✕</button>
       </div>
     </div>
@@ -659,39 +665,29 @@
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
       Oxygen-Sans, Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
     min-height: 100vh;
+    --accent: #6c5ce7;
+    --accent-light: #a29bfe;
+    --accent-dark: #5a4bd6;
+    --accent-glow: rgba(108, 92, 231, 0.3);
+    --accent-subtle: rgba(108, 92, 231, 0.08);
+    --accent-bg: rgba(108, 92, 231, 0.12);
+    --accent-border: rgba(108, 92, 231, 0.2);
   }
 
   main {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    max-width: 800px;
-    margin: 0 auto;
-    padding: 2rem 1.5rem 4rem;
-    gap: 1.5rem;
-    padding-bottom: 60px; /* space for StatusBar */
-  }
-
-  header {
-    display: flex;
-    align-items: baseline;
-    gap: 0.75rem;
-    padding: 0.75rem 0 0.5rem;
     width: 100%;
-    border-bottom: 2px solid transparent;
-    border-image: linear-gradient(
-        90deg,
-        rgba(0, 212, 255, 0.3),
-        rgba(0, 212, 255, 0.05)
-      )
-      1;
+    height: 100vh;
+    padding: 0;
+    gap: 0;
   }
 
-  header h1 {
+  .app-header h1 {
     margin: 0;
-    font-size: 1.75rem;
+    font-size: 1.2rem;
     font-weight: 700;
-    background: linear-gradient(135deg, #00d4ff, #b388ff);
+    background: linear-gradient(135deg, var(--accent), var(--accent-light));
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
@@ -706,12 +702,12 @@
 
   .gpu-label {
     font-size: 0.75rem;
-    color: #00d4ff;
+    color: var(--accent);
     font-weight: 600;
     padding: 0.15rem 0.5rem;
-    border: 1px solid #00d4ff33;
+    border: 1px solid var(--accent-border);
     border-radius: 4px;
-    background: #00d4ff0a;
+    background: var(--accent-subtle);
   }
 
   .btn-gear {
@@ -726,8 +722,8 @@
     transition: color 0.15s, border-color 0.15s;
   }
   .btn-gear:hover {
-    color: #00d4ff;
-    border-color: #00d4ff;
+    color: var(--accent);
+    border-color: var(--accent);
   }
 
   /* DropZone */
@@ -750,7 +746,7 @@
     background: #0e0e1a;
   }
   .dropzone:hover {
-    border-color: #00d4ff;
+    border-color: var(--accent);
     background: #111128;
   }
   .dropzone-icon {
@@ -810,7 +806,7 @@
   }
   .queue-columns-header input[type="checkbox"] {
     flex-shrink: 0; width: 16px; height: 16px;
-    cursor: pointer; accent-color: #00d4ff;
+    cursor: pointer; accent-color: #6c5ce7;
   }
   .col-title { flex: 1; }
   .col-progress { width: 180px; text-align: center; }
@@ -827,7 +823,7 @@
     font-size: 0.85rem;
   }
   .queue-row input[type="checkbox"] {
-    accent-color: #00d4ff;
+    accent-color: #6c5ce7;
     flex-shrink: 0;
   }
   .queue-name {
@@ -840,7 +836,7 @@
   }
   .queue-step {
     font-size: 0.7rem;
-    color: #00d4ff;
+    color: var(--accent-light);
     font-weight: 600;
     flex-shrink: 0;
     white-space: nowrap;
@@ -855,7 +851,7 @@
   }
   .queue-progress-bar-fill {
     height: 100%;
-    background: linear-gradient(90deg, #00d4ff, #b388ff);
+    background: linear-gradient(90deg, var(--accent), var(--accent-light));
     border-radius: 3px;
     transition: width 0.3s ease;
   }
@@ -929,7 +925,7 @@
   }
   .progress-status {
     font-weight: 700;
-    color: #00d4ff;
+    color: var(--accent-light);
     text-transform: uppercase;
     font-size: 0.8rem;
   }
@@ -946,7 +942,7 @@
   }
   .progress-bar-fill {
     height: 100%;
-    background: linear-gradient(90deg, #00d4ff, #b388ff);
+    background: linear-gradient(90deg, var(--accent), var(--accent-light));
     border-radius: 4px;
     transition: width 0.3s ease;
   }
@@ -958,7 +954,7 @@
   }
   .progress-pct {
     font-weight: 700;
-    color: #00d4ff;
+    color: var(--accent-light);
   }
   .progress-eta {
     color: #ffb74d;
@@ -1012,11 +1008,6 @@
 
   /* Responsive */
   @media (max-width: 600px) {
-    main {
-      padding: 1rem 1rem 3rem;
-      gap: 1rem;
-    }
-
     header h1 {
       font-size: 1.5rem;
     }
@@ -1212,23 +1203,26 @@
   /* ===== New layout styles ===== */
   .app-layout {
     display: flex;
-    min-height: calc(100vh - 41px); /* StatusBar height */
+    flex: 1;
+    min-height: 0;
+    width: 100%;
   }
   .main-area {
     flex: 1;
     display: flex;
     flex-direction: column;
     min-width: 0;
-    margin-left: 0;
-    transition: margin-left 0.2s ease;
+    overflow: hidden;
   }
   .app-header {
-    display: flex; align-items: center; gap: 0.75rem;
+    display: flex;
+    align-items: baseline;
+    gap: 0.75rem;
     padding: 0.75rem 1.5rem;
-    background: #1a1a26;
-    border-bottom: 1px solid #333348;
+    flex-shrink: 0;
+    border-bottom: 2px solid transparent;
+    border-image: linear-gradient(90deg, var(--accent-glow), rgba(108, 92, 231, 0.05)) 1;
   }
-  .app-header h1 { margin: 0; font-size: 1.2rem; color: #e0e0e0; }
   .content {
     flex: 1;
     padding: 1.5rem;

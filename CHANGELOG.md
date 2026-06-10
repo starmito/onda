@@ -1,5 +1,14 @@
 # Changelog
 
+## v2.6.1-alpha — Pulido UI: colores púrpura, iconos SVG, sidebar vertical, layout fluido (2026-06-10)
+
+### Fixed
+- **Títulos de preset**: Ahora muestran el nombre original (ej. "Separador Voces Total") en vez del ID con guiones ("separador-voces-total")
+- **Paleta de colores**: Reemplazado acento azul (#00d4ff) por púrpura (#6c5ce7) en toda la interfaz — checkboxes, botones, gradientes, bordes, barras de progreso
+- **Iconos SVG**: Reemplazados emojis por iconos SVG line-art al estilo vocalremover.org (18 iconos: menú, estrella, música, tono, tempo, DAW, ayuda, ajustes, subida, modelo, descarga, presets, logs, onda, cerrar, refrescar)
+- **Sidebar vertical**: Items cambian a layout vertical (icono arriba, texto debajo) con borde activo inferior púrpura
+- **Layout fluido**: Interfaz ocupa todo el viewport y escala con la ventana. Eliminado `max-width: 800px` — contenido principal limitado a 900px para legibilidad
+
 ## v2.6.0-alpha — Rediseño UI con sidebar vertical al estilo vocalremover.org
 
 ## v2.5.1 (2026-06-09)

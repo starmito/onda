@@ -217,7 +217,7 @@
   });
 
   function nodeColor(active: boolean): string {
-    return active ? '#00d4ff' : '#3a3a5a';
+    return active ? '#6c5ce7' : '#3a3a5a';
   }
   function stemColor(active: boolean): string {
     return active ? '#4caf50' : '#3a3a5a';
@@ -517,7 +517,7 @@
       <rect x={viperxNode.x} y={viperxNode.y} width={NODE_W} height={NODE_H}
         rx="6" fill="#0a0a14" stroke={nodeColor(viperxNode.active)} stroke-width="2" />
       <text x={viperxNode.x + NODE_W / 2} y={viperxNode.y + NODE_H / 2 + 5}
-        text-anchor="middle" fill={viperxNode.active ? '#00d4ff' : '#555'} font-size="12">{viperxNode.label}</text>
+        text-anchor="middle" fill={viperxNode.active ? '#6c5ce7' : '#555'} font-size="12">{viperxNode.label}</text>
       <text x={viperxNode.x + NODE_W / 2} y={viperxNode.y + NODE_H / 2 + 18}
         text-anchor="middle" class="graph-model-name">{viperxModel}</text>
 
@@ -550,7 +550,7 @@
       <rect x={demucsNode.x} y={demucsNode.y} width={NODE_W} height={NODE_H}
         rx="6" fill="#0a0a14" stroke={nodeColor(demucsNode.active)} stroke-width="2" />
       <text x={demucsNode.x + NODE_W / 2} y={demucsNode.y + NODE_H / 2 + 5}
-        text-anchor="middle" fill={demucsNode.active ? '#00d4ff' : '#555'} font-size="12">{demucsNode.label}</text>
+        text-anchor="middle" fill={demucsNode.active ? '#6c5ce7' : '#555'} font-size="12">{demucsNode.label}</text>
       <text x={demucsNode.x + NODE_W / 2} y={demucsNode.y + NODE_H / 2 + 18}
         text-anchor="middle" class="graph-model-name">{demucsModel}</text>
 
@@ -572,7 +572,7 @@
       <defs>
         <marker id="arrowhead" markerWidth="10" markerHeight="7"
           refX="9" refY="3.5" orient="auto">
-          <polygon points="0 0, 10 3.5, 0 7" fill="#00d4ff" />
+          <polygon points="0 0, 10 3.5, 0 7" fill="#6c5ce7" />
         </marker>
       </defs>
     </svg>
@@ -665,7 +665,7 @@
     margin: 0;
     font-size: 1rem;
     font-weight: 700;
-    color: #00d4ff;
+    color: var(--accent-light);
     text-transform: uppercase;
     letter-spacing: 0.5px;
   }
@@ -673,7 +673,7 @@
   .category-title {
     font-size: 1rem;
     font-weight: 600;
-    color: #00d4ff;
+    color: var(--accent-light);
     text-transform: uppercase;
     letter-spacing: 0.5px;
     margin: 20px 0 12px 0;
@@ -710,7 +710,7 @@
     transition: border-color 0.15s;
   }
   .select:focus {
-    border-color: #00d4ff;
+    border-color: var(--accent);
   }
   .select optgroup {
     background: #0a0a14;
@@ -733,7 +733,7 @@
     color: #e0e0e0;
   }
   .step-row input[type="checkbox"] {
-    accent-color: #00d4ff;
+    accent-color: #6c5ce7;
     width: 16px;
     height: 16px;
   }
@@ -766,14 +766,14 @@
     color: #c0c0d0;
   }
   .chip input[type="checkbox"] {
-    accent-color: #00d4ff;
+    accent-color: #6c5ce7;
     width: 14px;
     height: 14px;
   }
 
   .tooltip-icon {
     font-size: 0.75rem;
-    color: #00d4ff;
+    color: var(--accent-light);
     cursor: help;
     margin-left: 0.15rem;
   }
@@ -833,11 +833,11 @@
     cursor: not-allowed;
   }
   .btn-primary {
-    background: linear-gradient(135deg, #00d4ff, #0088cc);
+    background: linear-gradient(135deg, var(--accent), var(--accent-dark));
     color: #0a0a14;
   }
   .btn-primary:hover:not(:disabled) {
-    background: linear-gradient(135deg, #33ddff, #0099dd);
+    background: linear-gradient(135deg, #8a7af0, #6c5ce7);
   }
 
   .preset-row {
@@ -857,7 +857,7 @@
     transition: border-color 0.15s;
   }
   .input:focus {
-    border-color: #00d4ff;
+    border-color: var(--accent);
   }
   .loading-hint {
     font-size: 0.8rem;

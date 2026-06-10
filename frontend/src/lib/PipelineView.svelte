@@ -1,6 +1,7 @@
 <script lang="ts">
   import PresetsPanel from './PresetsPanel.svelte';
   import { uploadAudio, deleteInput } from './api';
+  import { IconUpload } from './icons';
 
   interface QueueFile {
     file: File;
@@ -14,6 +15,7 @@
 
   let {
     presetName = '',
+    displayName = '',
     queueFiles = [] as QueueFile[],
     savedPresets = [] as {name: string, config: any}[],
     separating = false,
@@ -149,7 +151,7 @@
 </script>
 
 <section class="pipeline-view">
-  <h2 class="pipeline-title">{presetName || 'Pipeline'}</h2>
+  <h2 class="pipeline-title">{displayName || presetName || 'Pipeline'}</h2>
 
   <!-- DropZone -->
   <section class="dropzone-section">
@@ -161,7 +163,7 @@
       role="button"
       tabindex="0"
     >
-      <span class="dropzone-icon">📂</span>
+      <span class="dropzone-icon">{@html IconUpload}</span>
       <span class="dropzone-text">Arrastra archivos aquí o haz clic</span>
       <span class="dropzone-hint">WAV, MP3, FLAC, OGG, M4A</span>
     </div>
@@ -179,7 +181,7 @@
   {#if queueFiles.length > 0}
     <section class="queue-section">
       <div class="queue-header">
-        <span class="queue-title">📋 Cola ({queueFiles.length})</span>
+        <span class="queue-title">Cola ({queueFiles.length})</span>
         <button class="btn-clear" onclick={handleClearQueue}>Limpiar</button>
       </div>
       <div class="queue-columns-header">
@@ -234,10 +236,15 @@
 <style>
   .pipeline-view {
     width: 100%;
+    max-width: 900px;
+    margin: 0 auto;
+    flex: 1;
     display: flex;
     flex-direction: column;
     align-items: center;
     gap: 1.5rem;
+    box-sizing: border-box;
+    padding: 0 1rem;
   }
 
   .pipeline-title {
@@ -248,7 +255,7 @@
     text-align: center;
     padding: 0.5rem 1rem;
     border-bottom: 2px solid transparent;
-    border-image: linear-gradient(90deg, rgba(0, 212, 255, 0.3), rgba(0, 212, 255, 0.05)) 1;
+    border-image: linear-gradient(90deg, var(--accent-glow), rgba(108, 92, 231, 0.05)) 1;
     width: 100%;
     max-width: 500px;
   }
@@ -273,7 +280,7 @@
     background: #0e0e1a;
   }
   .dropzone:hover {
-    border-color: #00d4ff;
+    border-color: var(--accent);
     background: #111128;
   }
   .dropzone-icon {
@@ -340,7 +347,7 @@
     width: 16px;
     height: 16px;
     cursor: pointer;
-    accent-color: #00d4ff;
+    accent-color: #6c5ce7;
   }
   .col-title { flex: 1; }
   .col-progress { width: 180px; text-align: center; }
@@ -357,7 +364,7 @@
     font-size: 0.85rem;
   }
   .queue-row input[type="checkbox"] {
-    accent-color: #00d4ff;
+    accent-color: #6c5ce7;
     flex-shrink: 0;
   }
   .queue-name {

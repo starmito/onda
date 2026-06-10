@@ -874,7 +874,7 @@
           max = Math.max(max, Math.abs(channel[j]));
         }
         const barH = Math.max(1, max * h);
-        ctx.fillStyle = '#00d4ff';
+        ctx.fillStyle = '#6c5ce7';
         ctx.fillRect(i, (h - barH) / 2, 1, barH);
       }
     } catch {
@@ -884,7 +884,7 @@
         hash = ((hash << 5) - hash) + key.charCodeAt(i);
         hash |= 0;
       }
-      ctx.fillStyle = '#00d4ff';
+      ctx.fillStyle = '#6c5ce7';
       const barCount = 40;
       const barWidth = w / barCount;
       for (let i = 0; i < barCount; i++) {
@@ -936,7 +936,7 @@
           max = Math.max(max, Math.abs(channel[j]));
         }
         const barH = Math.max(1, max * h);
-        ctx.fillStyle = '#00d4ff';
+        ctx.fillStyle = '#6c5ce7';
         ctx.fillRect(i, (h - barH) / 2, 1, barH);
       }
       // Don't close shared audio context
@@ -946,7 +946,7 @@
         hash = ((hash << 5) - hash) + url.charCodeAt(i);
         hash |= 0;
       }
-      ctx.fillStyle = '#00d4ff';
+      ctx.fillStyle = '#6c5ce7';
       const barCount = 40;
       const barWidth = w / barCount;
       for (let i = 0; i < barCount; i++) {
@@ -1251,7 +1251,7 @@
     margin: 0;
     font-size: 1rem;
     font-weight: 600;
-    color: #00d4ff;
+    color: var(--accent-light);
     word-break: break-word;
     flex-shrink: 0;
   }
@@ -1286,11 +1286,11 @@
   }
 
   .play-btn {
-    background: #00d4ff;
-    color: #0a0a14;
+    background: var(--accent);
+    color: #fff;
   }
   .play-btn:not(:disabled):hover {
-    background: #00b8e0;
+    background: #7c6ae8;
   }
   .pause-btn {
     background: #ff9800;
@@ -1333,7 +1333,7 @@
     width: 12px;
     height: 12px;
     border-radius: 50%;
-    background: #00d4ff;
+    background: var(--accent);
     cursor: pointer;
     border: 2px solid #0a0a14;
   }
@@ -1372,7 +1372,7 @@
     background: #333355;
     border-color: #666;
   }
-  .export-btn:hover { color: #00d4ff; border-color: #00d4ff; }
+  .export-btn:hover { color: var(--accent); border-color: var(--accent); }
   .delete-btn:hover { color: #f44336; border-color: #f44336; }
 
   /* ---- Stem rows ---- */
@@ -1455,9 +1455,9 @@
     color: #ccc;
   }
   .stem-btn.active {
-    background: #00d4ff;
-    color: #0a0a14;
-    border-color: #00d4ff;
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
   }
   .mute-btn.active {
     background: #f44336;
@@ -1468,12 +1468,12 @@
     border-color: #ff9800;
   }
   .dl-btn {
-    color: #00d4ff;
+    color: var(--accent-light);
     font-size: 0.8rem;
   }
   .dl-btn:hover {
-    color: #00d4ff;
-    border-color: #00d4ff;
+    color: var(--accent);
+    border-color: var(--accent);
   }
   .delete-stem-btn {
     color: #f44336;
@@ -1507,7 +1507,7 @@
     width: 12px;
     height: 12px;
     border-radius: 50%;
-    background: #00d4ff;
+    background: var(--accent);
     cursor: pointer;
     border: 2px solid #0a0a14;
   }
