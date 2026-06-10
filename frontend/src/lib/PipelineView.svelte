@@ -26,6 +26,8 @@
     pipelineEta = '',
     inferenceDevice = '',
     hidePresetSelector = false,
+    onPresetChange = (name: string) => {},
+    onError = (msg: string) => {},
     onQueueChange = (files: QueueFile[]) => {},
     onStart = (config: any) => {},
     onRemoveFile = (id: string) => {},
@@ -140,12 +142,11 @@
   // ---- Execute handler ----
   function handleExecute() {
     const selected = savedPresets.find(p => p.name === presetName);
-    const config = selected?.config || {
-      viperx: true, viperxModel: 'BS_Roformer_Viperx',
-      viperxStems: ['vocals', 'instrumental'],
-      demucs: true, demucsModel: 'htdemucs_ft',
-      demucsStems: ['drums', 'bass', 'other'],
-    };
+    if (!selected) {
+      onError(`Preset "${presetName}" no encontrado en el servidor`);
+      return;
+    }
+    const config = selected.config;
     config.preset = presetName || undefined;
     onStart(config);
   }
@@ -248,7 +249,7 @@
       <PresetsPanel
         presets={savedPresets}
         selectedPreset={presetName}
-        onSelectPreset={() => {}}
+        onSelectPreset={(name) => onPresetChange(name)}
         hasFiles={queueFiles.some(qf => qf.checked)}
         disabled={separating}
         onExecute={handleExecute}

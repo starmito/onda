@@ -106,6 +106,26 @@ export async function uploadAudio(file: File): Promise<UploadResponse> {
   }
 }
 
+export async function uploadPitchAudio(file: File): Promise<UploadResponse> {
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const res = await fetch(`${API_BASE}/api/upload/pitch`, {
+      method: 'POST',
+      body: formData,
+    });
+    if (!res.ok) {
+      throw new Error(`Pitch upload failed with status ${res.status}: ${res.statusText}`);
+    }
+    return (await res.json()) as UploadResponse;
+  } catch (err) {
+    if (err instanceof Error) {
+      throw err;
+    }
+    throw new Error(`Unexpected error during pitch upload: ${String(err)}`);
+  }
+}
+
 export async function getHealth(): Promise<HealthResponse> {
   try {
     const res = await fetch(`${API_BASE}/api/health`);

@@ -33,6 +33,7 @@ services:
       - ${MODEL_DIR:-./models}:/models:ro
       - ./input:/input
       - ./output:/output
+      - ./input_rubberband:/input_rubberband
     working_dir: /app
     entrypoint: ["sh", "-c", "mkdir -p /tmp/numba_cache /tmp/torch_cache /tmp/xdg_cache /tmp/hf_cache /tmp/torch_inductor_cache && exec tail -f /dev/null"]
     healthcheck:
@@ -62,6 +63,7 @@ services:
     volumes:
       - ${MODEL_DIR:-./models}:/models
       - ./input:/input
+      - ./input_rubberband:/input_rubberband
       - ./output:/output
       - ./config:/config
       - /var/run/docker.sock:/var/run/docker.sock

@@ -668,6 +668,7 @@
             {pipelineEta}
             {inferenceDevice}
             hidePresetSelector={true}
+            onError={(msg) => showToast(msg, 'error')}
             onQueueChange={(files) => queueFiles = files}
             onStart={handlePipelineStart}
             onRemoveFile={handleRemoveQueueFile}
@@ -687,6 +688,8 @@
             {pipelineEta}
             {inferenceDevice}
             hidePresetSelector={false}
+            onPresetChange={(name) => selectedPresetName = name}
+            onError={(msg) => showToast(msg, 'error')}
             onQueueChange={(files) => queueFiles = files}
             onStart={handlePipelineStart}
             onRemoveFile={handleRemoveQueueFile}
