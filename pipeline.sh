@@ -218,9 +218,9 @@ VIPERX_BATCH_SIZE=""
 if $VIPERX && [ -d "${VIPERX_MODEL}" ]; then
     VIPERX_YAML=$(ls "${VIPERX_MODEL}"/*.yaml 2>/dev/null | head -1)
     if [ -n "$VIPERX_YAML" ]; then
-        VIPERX_DIM_T=$(python3 -c "import yaml; print(yaml.safe_load(open('$VIPERX_YAML'))['inference']['dim_t'])" 2>/dev/null || echo "")
-        VIPERX_NUM_OVERLAP=$(python3 -c "import yaml; print(yaml.safe_load(open('$VIPERX_YAML'))['inference']['num_overlap'])" 2>/dev/null || echo "")
-        VIPERX_BATCH_SIZE=$(python3 -c "import yaml; print(yaml.safe_load(open('$VIPERX_YAML'))['inference']['batch_size'])" 2>/dev/null || echo "")
+        VIPERX_DIM_T=$(python3 -c "import yaml; print(yaml.load(open('$VIPERX_YAML'), Loader=yaml.FullLoader)['inference']['dim_t'])" 2>/dev/null || echo "")
+        VIPERX_NUM_OVERLAP=$(python3 -c "import yaml; print(yaml.load(open('$VIPERX_YAML'), Loader=yaml.FullLoader)['inference']['num_overlap'])" 2>/dev/null || echo "")
+        VIPERX_BATCH_SIZE=$(python3 -c "import yaml; print(yaml.load(open('$VIPERX_YAML'), Loader=yaml.FullLoader)['inference']['batch_size'])" 2>/dev/null || echo "")
         echo "   ℹ️  Model YAML: dim_t=${VIPERX_DIM_T}, overlap=${VIPERX_NUM_OVERLAP}, batch=${VIPERX_BATCH_SIZE}"
     fi
 fi
