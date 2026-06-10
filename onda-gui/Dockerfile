@@ -14,7 +14,6 @@ RUN go mod tidy && CGO_ENABLED=0 GOOS=linux go build -o /onda-backend ./cmd/onda
 
 # ── Stage 2: Imagen final ──
 FROM nginx:alpine
-ARG ONDA_VERSION=v2.7.1
 
 RUN apk add --no-cache bash docker-cli su-exec
 
@@ -29,10 +28,10 @@ RUN chmod +x /usr/bin/onda-backend
 
 # Frontend Svelte (from frontend-builder stage)
 COPY --from=frontend-builder /src/dist/ /usr/share/nginx/html/
-RUN echo "${ONDA_VERSION}" > /usr/share/nginx/html/VERSION
 
-# ── VERSION + project root ──
+# ── VERSION file (single source of truth) ──
 COPY VERSION /VERSION
+COPY VERSION /usr/share/nginx/html/VERSION
 ENV ONDA_ROOT=/
 
 # UVR model catalog
