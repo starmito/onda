@@ -141,6 +141,20 @@
       document.body.classList.add('light-theme');
     }
 
+    // ── Load persisted font size ──
+    const savedFontSize = localStorage.getItem('onda-font-size');
+    if (savedFontSize) {
+      const root = document.documentElement;
+      const sizes = { small: '12px', medium: '14px', large: '16px' };
+      root.style.fontSize = sizes[savedFontSize as keyof typeof sizes] || '14px';
+    }
+
+    // ── Load persisted UI scale ──
+    const savedScale = localStorage.getItem('onda-scale');
+    if (savedScale) {
+      document.body.style.zoom = `${savedScale}%`;
+    }
+
     // ── Load version from health endpoint ──
     getHealth()
       .then((h) => {
