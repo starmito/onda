@@ -143,12 +143,37 @@
   function handleExecute() {
     const selected = savedPresets.find(p => p.name === presetName);
     if (!selected) {
+      // Built-in preset mode: use hardcoded default configs
+      if (hidePresetSelector && presetName) {
+        const hardcodedConfig = getHardcodedPreset(presetName);
+        if (hardcodedConfig) {
+          hardcodedConfig.preset = presetName;
+          onStart(hardcodedConfig);
+          return;
+        }
+      }
       onError(`Preset "${presetName}" no encontrado en el servidor`);
       return;
     }
     const config = selected.config;
     config.preset = presetName || undefined;
     onStart(config);
+  }
+
+  /** Hardcoded configs for built-in presets (fallback when backend has no saved presets) */
+  function getHardcodedPreset(name: string): Record<string, any> | null {
+    switch (name) {
+      case 'Separador Voces Total':
+        return { viperx: true, viperxKeep: 'both' };
+      case 'Eliminador de Voz':
+        return { viperx: true, viperxKeep: 'instrumental' };
+      case 'Separador Completo':
+        return { demucs: true, demucsKeep: ['drums', 'bass', 'other', 'vocals'] };
+      case 'Separador solo instrumentos':
+        return { demucs: true, demucsKeep: ['drums', 'bass', 'other'] };
+      default:
+        return null;
+    }
   }
 </script>
 
