@@ -1,5 +1,7 @@
 # Changelog
 
+## v2.6.0-alpha — Rediseño UI con sidebar vertical al estilo vocalremover.org
+
 ## v2.5.1 (2026-06-09)
 
 ### Added
