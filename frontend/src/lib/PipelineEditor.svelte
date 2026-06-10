@@ -253,6 +253,14 @@
 
   let deleteConfirmVisible = $state(false);
 
+  /** Presets que no se pueden eliminar (built-in) */
+  const lockedPresetNames = new Set([
+    'Separador Voces Total',
+    'Eliminador de Voz',
+    'Separador Completo',
+    'Separador solo instrumentos',
+  ]);
+
   // Load presets from backend API
   $effect(() => {
     getPresets()
@@ -639,17 +647,21 @@
 
   <!-- Delete Preset Button -->
   <div class="section delete-preset-section">
-    <button class="btn-delete-large" onclick={handleDeletePresetConfirm} disabled={disabled || !selectedPreset}>
-      🗑 Eliminar Preset
-    </button>
-    {#if deleteConfirmVisible}
-      <div class="delete-confirm">
-        <p>¿Eliminar "{selectedPreset}"? Esta acción no se puede deshacer.</p>
-        <div class="delete-confirm-actions">
-          <button class="btn-cancel" onclick={() => deleteConfirmVisible = false}>Cancelar</button>
-          <button class="btn-confirm-delete" onclick={handleDeletePreset}>Sí, eliminar</button>
+    {#if selectedPreset && lockedPresetNames.has(selectedPreset)}
+      <div class="locked-preset-notice">🔒 Preset predefinido — no se puede eliminar, pero puedes editar sus modelos desde la sección "Editar Presets"</div>
+    {:else}
+      <button class="btn-delete-large" onclick={handleDeletePresetConfirm} disabled={disabled || !selectedPreset}>
+        🗑 Eliminar Preset
+      </button>
+      {#if deleteConfirmVisible}
+        <div class="delete-confirm">
+          <p>¿Eliminar "{selectedPreset}"? Esta acción no se puede deshacer.</p>
+          <div class="delete-confirm-actions">
+            <button class="btn-cancel" onclick={() => deleteConfirmVisible = false}>Cancelar</button>
+            <button class="btn-confirm-delete" onclick={handleDeletePreset}>Sí, eliminar</button>
+          </div>
         </div>
-      </div>
+      {/if}
     {/if}
   </div>
 </div>
@@ -922,5 +934,15 @@
   .delete-confirm p { color: var(--text-primary); margin: 0 0 10px 0; font-size: 14px; }
   .delete-confirm-actions { display: flex; gap: 10px; justify-content: center; }
   .btn-cancel { padding: 8px 20px; background: #444; color: var(--text-primary); border: none; border-radius: 6px; cursor: pointer; }
+
+  .locked-preset-notice {
+    background: var(--accent-bg);
+    border: 1px solid var(--accent-border);
+    border-radius: 8px;
+    padding: 12px 16px;
+    font-size: 0.85rem;
+    color: var(--accent-light);
+    text-align: center;
+  }
   .btn-confirm-delete { padding: 8px 20px; background: #dc3545; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
 </style>

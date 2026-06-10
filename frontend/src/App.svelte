@@ -2,6 +2,7 @@
   import { onDestroy, onMount } from 'svelte';
   import Sidebar from './lib/Sidebar.svelte';
   import PipelineView from './lib/PipelineView.svelte';
+  import PitchPage from './lib/PitchPage.svelte';
   import SettingsPanel from './lib/SettingsPanel.svelte';
   import PlaceholderPage from './lib/PlaceholderPage.svelte';
   import HelpPage from './lib/HelpPage.svelte';
@@ -11,7 +12,7 @@
   import { detectStemType } from './lib/types';
   import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getPresets, getDefaultPreset } from './lib/api';
   import type { QueueJob } from './lib/api';
-  import { IconOnda, IconStar, IconMusic, IconInstruments, IconVoiceRemove, IconSeparate } from './lib/icons';
+  import { IconOnda } from './lib/icons';
 
 
   interface QueueFile {
@@ -66,13 +67,18 @@
   let errorBanner = $state<{ message: string } | null>(null);
 
   // ---- New layout state ----
-  let activeTab = $state('separador-voces-total');
+  let activeTab = $state('Separador Voces Total');
   let sidebarCollapsed = $state(false);
   let settingsSubTab = $state('models');
-  let sidebarPresets = $state<{id: string, name: string, icon: string}[]>([]);
-  let activeTabName = $derived(
-    sidebarPresets.find(p => p.id === activeTab)?.name || activeTab
-  );
+  let activeTabName = $derived(activeTab);
+
+  /** IDs de las 4 pestañas de preset directo (sin selector) */
+  const builtinPresetIds = new Set([
+    'Separador Voces Total',
+    'Eliminador de Voz',
+    'Separador Completo',
+    'Separador solo instrumentos',
+  ]);
 
   function copyToClipboard(text: string) {
     // navigator.clipboard requires HTTPS or localhost — fallback for HTTP
@@ -271,34 +277,6 @@
         if (data?.name && savedPresets.some(p => p.name === data.name)) {
           selectedPresetName = data.name;
         }
-        // ── Build sidebar presets after default preset is loaded ──
-        const defaultName = data?.name;
-        function getPresetIcon(presetName: string, isDefault: boolean): string {
-          if (isDefault) return IconStar;
-          const lower = presetName.toLowerCase();
-          if (lower.includes('instrument')) return IconInstruments;
-          if (lower.includes('voz') || lower.includes('voice')) return IconVoiceRemove;
-          if (lower.includes('completo') || lower.includes('full')) return IconSeparate;
-          if (lower.includes('elimin')) return IconVoiceRemove;
-          return IconMusic;
-        }
-        const presets = list.map((p: any) => ({
-          id: p.name.toLowerCase().replace(/\s+/g, '-'),
-          name: p.name,
-          icon: getPresetIcon(p.name, p.name === defaultName)
-        }));
-        // Sort: default preset first
-        sidebarPresets = presets.sort((a, b) => {
-          if (a.icon === IconStar) return -1;
-          if (b.icon === IconStar) return 1;
-          return 0;
-        });
-        // Set activeTab to default preset
-        if (!activeTab || activeTab === 'separador-voces-total') {
-          const first = sidebarPresets.find(p => p.icon === IconStar) || sidebarPresets[0];
-          if (first) activeTab = first.id;
-        }
-
       });
     }).catch(() => {});
   });
@@ -324,23 +302,6 @@
         }
       }));
       savedPresets = list;
-      getDefaultPreset().then(data => {
-        if (data?.name && savedPresets.some(p => p.name === data.name)) {
-          selectedPresetName = data.name;
-        }
-        const defaultName = data?.name;
-        const presets = list.map((p: any) => ({
-          id: p.name.toLowerCase().replace(/\s+/g, '-'),
-          name: p.name,
-          icon: getPresetIcon(p.name, p.name === defaultName)
-        }));
-        // Sort: default preset first
-        sidebarPresets = presets.sort((a, b) => {
-          if (a.icon === IconStar) return -1;
-          if (b.icon === IconStar) return 1;
-          return 0;
-        });
-      });
     }).catch(() => {});
   }
 
@@ -676,7 +637,6 @@
   <div class="app-layout">
     <Sidebar
       activeTab={activeTab}
-      presetTabs={sidebarPresets}
       collapsed={sidebarCollapsed}
       ontoggle={() => sidebarCollapsed = !sidebarCollapsed}
       ontabchange={(tab) => activeTab = tab}
@@ -693,7 +653,47 @@
           <SettingsPanel subtab={settingsSubTab} onsubtabchange={(t) => settingsSubTab = t} />
         {:else if activeTab === 'help'}
           <HelpPage />
-        {:else if ['pitch', 'bpm', 'daw'].includes(activeTab)}
+        {:else if builtinPresetIds.has(activeTab)}
+          <!-- Built-in preset: dropzone + queue + execute direct + results -->
+          <PipelineView
+            presetName={activeTab}
+            displayName={activeTab}
+            {queueFiles}
+            {savedPresets}
+            {separating}
+            {pipelineStatus}
+            {currentProgress}
+            {pipelineStep}
+            {pipelineSong}
+            {pipelineEta}
+            {inferenceDevice}
+            hidePresetSelector={true}
+            onQueueChange={(files) => queueFiles = files}
+            onStart={handlePipelineStart}
+            onRemoveFile={handleRemoveQueueFile}
+          />
+        {:else if activeTab === 'personalizado'}
+          <!-- Personalizado: with preset selector -->
+          <PipelineView
+            presetName={selectedPresetName}
+            displayName={selectedPresetName || 'Personalizado'}
+            {queueFiles}
+            {savedPresets}
+            {separating}
+            {pipelineStatus}
+            {currentProgress}
+            {pipelineStep}
+            {pipelineSong}
+            {pipelineEta}
+            {inferenceDevice}
+            hidePresetSelector={false}
+            onQueueChange={(files) => queueFiles = files}
+            onStart={handlePipelineStart}
+            onRemoveFile={handleRemoveQueueFile}
+          />
+        {:else if activeTab === 'pitch'}
+          <PitchPage results={results} onResultsChange={() => {}} />
+        {:else if ['bpm', 'daw'].includes(activeTab)}
           <PlaceholderPage tabId={activeTab} />
         {:else if activeTab === 'results'}
           <!-- ResultsPanel -->

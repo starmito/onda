@@ -25,6 +25,7 @@
     pipelineSong = '',
     pipelineEta = '',
     inferenceDevice = '',
+    hidePresetSelector = false,
     onQueueChange = (files: QueueFile[]) => {},
     onStart = (config: any) => {},
     onRemoveFile = (id: string) => {},
@@ -216,20 +217,49 @@
 
   <!-- PresetsPanel (locked to presetName, no preset selector) -->
   {#if queueFiles.length > 0}
-    <PresetsPanel
-      presets={savedPresets}
-      selectedPreset={presetName}
-      onSelectPreset={() => {}}
-      hasFiles={queueFiles.some(qf => qf.checked)}
-      disabled={separating}
-      onExecute={handleExecute}
-      progress={currentProgress}
-      status={pipelineStatus}
-      step={pipelineStep}
-      song={pipelineSong}
-      eta={pipelineEta}
-      device={inferenceDevice}
-    />
+    {#if hidePresetSelector}
+      <!-- Built-in preset: no selector, direct execute button -->
+      <section class="direct-execute-section">
+        <button class="btn-execute-direct" onclick={handleExecute} disabled={separating || queueFiles.filter(q => q.checked).length === 0}>
+          ▶ Ejecutar {displayName || presetName}
+        </button>
+
+        {#if separating}
+          <div class="progress-card">
+            <div class="progress-header">
+              <span class="progress-status">{pipelineStatus}</span>
+              {#if pipelineStep}<span class="progress-step">{pipelineStep}</span>{/if}
+            </div>
+            <div class="progress-bar-wrap">
+              <div class="progress-bar-fill" style="width: {currentProgress * 100}%"></div>
+            </div>
+            <div class="progress-meta">
+              <span class="progress-pct">{Math.round(currentProgress * 100)}%</span>
+              {#if pipelineSong}<span class="progress-song">{pipelineSong}</span>{/if}
+              {#if pipelineEta}<span class="progress-eta">⏱ {pipelineEta}</span>{/if}
+              {#if inferenceDevice}
+                <span class="progress-device">{inferenceDevice === 'cuda' || inferenceDevice === 'gpu' ? 'GPU' : 'CPU'}</span>
+              {/if}
+            </div>
+          </div>
+        {/if}
+      </section>
+    {:else}
+      <PresetsPanel
+        presets={savedPresets}
+        selectedPreset={presetName}
+        onSelectPreset={() => {}}
+        hasFiles={queueFiles.some(qf => qf.checked)}
+        disabled={separating}
+        onExecute={handleExecute}
+        progress={currentProgress}
+        status={pipelineStatus}
+        step={pipelineStep}
+        song={pipelineSong}
+        eta={pipelineEta}
+        device={inferenceDevice}
+      />
+    {/if}
   {/if}
 </section>
 
@@ -408,5 +438,97 @@
   @keyframes fadeIn {
     from { opacity: 0; }
     to { opacity: 1; }
+  }
+
+  /* Direct execute section (hidePresetSelector mode) */
+  .direct-execute-section {
+    width: 100%;
+    box-sizing: border-box;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    margin: 12px 0;
+  }
+
+  .btn-execute-direct {
+    width: 100%;
+    padding: 14px;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    font-size: 17px;
+    font-weight: bold;
+    cursor: pointer;
+    margin-bottom: 12px;
+    transition: background 0.2s;
+  }
+  .btn-execute-direct:hover {
+    background: var(--accent-light);
+  }
+  .btn-execute-direct:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+  }
+
+  .progress-card {
+    background: var(--bg-primary);
+    border-radius: 8px;
+    padding: 14px;
+  }
+  .progress-header {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-bottom: 8px;
+  }
+  .progress-status {
+    font-weight: bold;
+    color: var(--accent-light);
+    text-transform: uppercase;
+    font-size: 13px;
+  }
+  .progress-step {
+    color: var(--text-secondary);
+    font-size: 13px;
+  }
+  .progress-bar-wrap {
+    height: 8px;
+    background: var(--bg-surface);
+    border-radius: 4px;
+    margin-bottom: 8px;
+    overflow: hidden;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), #4caf50);
+    border-radius: 4px;
+    transition: width 0.3s ease;
+  }
+  .progress-meta {
+    display: flex;
+    gap: 16px;
+    flex-wrap: wrap;
+    align-items: center;
+    font-size: 12px;
+  }
+  .progress-pct {
+    font-weight: bold;
+    color: #4caf50;
+    font-size: 16px;
+  }
+  .progress-song {
+    color: var(--text-secondary);
+  }
+  .progress-eta {
+    color: #ff9800;
+  }
+  .progress-device {
+    color: var(--text-secondary);
+    font-size: 11px;
+    background: rgba(128,128,128,0.1);
+    padding: 2px 8px;
+    border-radius: 4px;
   }
 </style>

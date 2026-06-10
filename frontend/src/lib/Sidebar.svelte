@@ -1,34 +1,41 @@
 <script>
-	import { IconMenu, IconStar, IconMusic, IconTone, IconBPM, IconDAW, IconHelp, IconSettings } from './icons';
+	import { IconMenu, IconStar, IconVoiceRemove, IconSeparate, IconInstruments, IconUser, IconTone, IconBPM, IconDAW, IconHelp, IconSettings } from './icons';
 
 	/**
 	 * Sidebar.svelte — Sidebar vertical colapsable al estilo vocalremover.org
 	 *
 	 * Props (Svelte 5 $props):
-	 *   activeTab  : string                  — id del tab activo
-	 *   presetTabs : {id, name, icon}[]      — presets del usuario
-	 *   collapsed  : boolean                 — colapsado/expandido
-	 *   ontoggle   : () => void              — colapsar/expandir
-	 *   ontabchange: (tabId: string) => void — cambiar tab activo
+	 *   activeTab  : string     — id del tab activo
+	 *   collapsed  : boolean    — colapsado/expandido
+	 *   ontoggle   : () => void — colapsar/expandir
+	 *   ontabchange: (string) => void — cambiar tab activo
 	 */
 	let {
 		activeTab = '',
-		presetTabs = [],
 		collapsed = false,
 		ontoggle = () => {},
 		ontabchange = (tabId) => {},
 	} = $props();
 
-	/** Items estáticos: [id, label, icon] */
+	/** 4 presets predefinidos + Personalizado */
+	const presetItems = [
+		{ id: 'Separador Voces Total', name: 'Separador Voces Total', icon: IconStar },
+		{ id: 'Eliminador de Voz',      name: 'Eliminador de Voz', icon: IconVoiceRemove },
+		{ id: 'Separador Completo',     name: 'Separador Completo', icon: IconSeparate },
+		{ id: 'Separador solo instrumentos', name: 'Solo Instrumentos', icon: IconInstruments },
+	];
+
+	const customItem = { id: 'personalizado', name: 'Personalizado', icon: IconUser };
+
 	const staticItems = [
-		{ id: 'pitch',    label: 'Cambiar Tono',        icon: IconTone },
-		{ id: 'bpm',      label: 'Detectar velocidad',  icon: IconBPM },
-		{ id: 'daw',      label: 'DAW',                  icon: IconDAW },
+		{ id: 'pitch',    name: 'Cambiar Tono',        icon: IconTone },
+		{ id: 'bpm',      name: 'Detectar velocidad',  icon: IconBPM },
+		{ id: 'daw',      name: 'DAW',                  icon: IconDAW },
 	];
 
 	const bottomItems = [
-		{ id: 'help',     label: 'Ayuda',               icon: IconHelp },
-		{ id: 'settings', label: 'Ajustes',             icon: IconSettings },
+		{ id: 'help',     name: 'Ayuda',               icon: IconHelp },
+		{ id: 'settings', name: 'Ajustes',             icon: IconSettings },
 	];
 
 	function handleClick(tabId) {
@@ -45,22 +52,32 @@
 		<span class="label-text">Menú</span>
 	</button>
 
-	<!-- Presets dinámicos -->
-	{#each presetTabs as tab (tab.id)}
+	<!-- 4 Presets predefinidos -->
+	{#each presetItems as item (item.id)}
 		<button
 			class="nav-item top-item"
-			class:active={activeTab === tab.id}
-			onclick={() => handleClick(tab.id)}
+			class:active={activeTab === item.id}
+			onclick={() => handleClick(item.id)}
 		>
-			<span class="icon-only">{@html tab.icon}</span>
-			<span class="label-text">{tab.name}</span>
+			<span class="icon-only">{@html item.icon}</span>
+			<span class="label-text">{item.name}</span>
 		</button>
 	{/each}
+
+	<!-- Personalizado -->
+	<button
+		class="nav-item top-item"
+		class:active={activeTab === customItem.id}
+		onclick={() => handleClick(customItem.id)}
+	>
+		<span class="icon-only">{@html customItem.icon}</span>
+		<span class="label-text">{customItem.name}</span>
+	</button>
 
 	<!-- Separador -->
 	<div class="separator" role="separator"></div>
 
-	<!-- Items estáticos (middle group) -->
+	<!-- Items estáticos (pitch, bpm, daw) -->
 	{#each staticItems as item (item.id)}
 		<button
 			class="nav-item top-item"
@@ -68,7 +85,7 @@
 			onclick={() => handleClick(item.id)}
 		>
 			<span class="icon-only">{@html item.icon}</span>
-			<span class="label-text">{item.label}</span>
+			<span class="label-text">{item.name}</span>
 		</button>
 	{/each}
 
@@ -86,7 +103,7 @@
 			onclick={() => handleClick(item.id)}
 		>
 			<span class="icon-only">{@html item.icon}</span>
-			<span class="label-text">{item.label}</span>
+			<span class="label-text">{item.name}</span>
 		</button>
 	{/each}
 
@@ -223,6 +240,7 @@
 		overflow: hidden;
 		text-align: center;
 		display: block;
+		white-space: normal;
 	}
 
 	/* Bottom items: smaller text, single line */
