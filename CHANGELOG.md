@@ -1,6 +1,26 @@
 # Changelog
 
-## v2.6.3 — Bugfixes: error handling, endpoint input_rubberband, preset sync (2026-06-10)
+## v2.6.4 — PitchPage: uploaded files with full player (2026-06-10)
+
+### Added
+- **Nginx location `/input_rubberband/`**: serves uploaded pitch audio files with CORS and proper MIME types
+- **`pitchInputDownloadUrl()`** in api.ts: URL builder for pitch upload serving
+- **`deletePitchUpload()`** in api.ts: client-side function for deleting uploaded pitch files
+- **`DELETE /api/uploads/pitch/{name}`** endpoint in Go backend: deletes files from `input_rubberband/` with path traversal protection
+- **Full per-file player in PitchPage.svelte**: each uploaded audio file now shows an independent player with:
+  - Waveform visualization (real audio data on first play, deterministic fallback)
+  - Play / Pause / Stop transport controls
+  - Seek slider with time display (current / duration)
+  - Volume slider with percentage label
+  - Download button (⬇)
+  - Delete button (🗑) with confirmation and server-side cleanup
+  - Upload status (uploading/ready/error) with toast notifications
+
+### Fixed
+- **Entrypoint.sh**: `mkdir -p /config/model_configs` now fails gracefully when /config is root-owned
+
+### Changed
+- **VERSION** aligned to `v2.6.4` (consistent `v` prefix across backend, frontend, pipeline)
 
 ### Added
 - **Endpoint `POST /api/upload/pitch`**: guarda archivos en `input_rubberband/` independiente
