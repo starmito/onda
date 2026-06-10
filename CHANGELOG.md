@@ -1,5 +1,23 @@
 # Changelog
 
+## v2.6.2-alpha — Refactor de pestañas: 4 presets directos, Personalizado, PitchPage (2026-06-10)
+
+### Added
+- **Nueva pestaña "Personalizado"** en el sidebar — con selector de presets para elegir qué preset ejecutar
+- **PitchPage.svelte** — nueva página para Cambiar Tono con resultados existentes arriba y dropzone independiente abajo
+- **IconUser** en icons.ts
+
+### Changed
+- **Sidebar reorganizado**: 4 presets hardcodeados (Separador Voces Total ⭐, Eliminador de Voz 🎤, Separador Completo 〰️, Solo Instrumentos 🎸) + Personalizado 👤
+- Cada preset se ejecuta directamente al pulsar ▶ Ejecutar, sin selector de presets
+- Sidebar ya no carga presets dinámicamente de la API
+- **PipelineView**: nueva prop `hidePresetSelector` — cuando true, oculta el selector de presets y muestra botón ejecutar directo con barra de progreso
+
+### Fixed
+- **PipelineEditor**: los 4 presets predefinidos están bloqueados para eliminación (muestran 🔒)
+- **Persistencia**: font-size y scale ahora se cargan al iniciar la app (no solo al entrar a Ajustes → Interfaz)
+- **Sidebar texto**: nombres ahora envuelven a 2 líneas correctamente (white-space: normal)
+
 ## v2.6.1-alpha — Pulido UI: colores púrpura, iconos SVG, sidebar vertical, layout fluido (2026-06-10)
 
 ### Fixed
