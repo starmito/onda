@@ -415,7 +415,7 @@
         return;
       }
 
-      const preset = config.preset || (config.viperxModel ? 'custom' : 'balance');
+      const preset = config.preset || (config.viperxModel ? 'custom' : '');
 
       // Enqueue each uploaded file via separateAudio
       for (const { qf, path } of uploaded) {
