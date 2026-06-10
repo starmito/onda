@@ -163,13 +163,13 @@
   function getHardcodedPreset(name: string): Record<string, any> | null {
     switch (name) {
       case 'Separador Voces Total':
-        return { viperx: true, viperxKeep: 'both' };
+        return { viperx: true, viperxKeep: 'both', vocalModel: 'model_bs_roformer_ep_317_sdr_12.9755' };
       case 'Eliminador de Voz':
-        return { viperx: true, viperxKeep: 'instrumental' };
+        return { viperx: true, viperxKeep: 'instrumental', vocalModel: 'model_bs_roformer_ep_317_sdr_12.9755' };
       case 'Separador Completo':
-        return { demucs: true, demucsKeep: ['drums', 'bass', 'other', 'vocals'] };
+        return { demucs: true, demucsKeep: ['drums', 'bass', 'other', 'vocals'], stemModel: 'htdemucs_ft' };
       case 'Separador solo instrumentos':
-        return { demucs: true, demucsKeep: ['drums', 'bass', 'other'] };
+        return { demucs: true, demucsKeep: ['drums', 'bass', 'other'], stemModel: 'htdemucs_ft' };
       default:
         return null;
     }

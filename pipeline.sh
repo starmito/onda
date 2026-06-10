@@ -86,7 +86,7 @@ report_progress() {
     fi
     progress_float=$(awk "BEGIN {printf \"%.2f\", $progress/100}")
     cat > "$STATUS_FILE" << JSONEOF
-{"status":"$status","step":"$step","progress":$progress_float,"song":"${SONG:-}","elapsed":$elapsed,"eta":$eta,"vocal_model":"${VIPERX_MODEL_DISPLAY:-}","stem_model":"${DEMUCS_MODEL_DISPLAY:-}","segment_size":${SEGMENT_SIZE:-0},"overlap":${OVERLAP:-0},"chunk_size":${CHUNK_SIZE:-0},"batch_size":${BATCH_SIZE:-0},"device":"${DEVICE:-cpu}","shifts":${SHIFTS:-1},"demucs_segment":${DEMUCS_SEGMENT:-0},"jobs":${JOBS:-0}}
+{"status":"$status","step":"$step","progress":$progress_float,"song":"${SONG:-}","elapsed":$elapsed,"eta":$eta,"vocal_model":"${VIPERX_MODEL_DISPLAY:-}","stem_model":"${DEMUCS_MODEL_DISPLAY:-}","segment_size":${VIPERX_DIM_T:-0},"overlap":${VIPERX_NUM_OVERLAP:-0},"chunk_size":0,"batch_size":${VIPERX_BATCH_SIZE:-0},"device":"${DEVICE:-cpu}","shifts":${SHIFTS:-1},"demucs_segment":${DEMUCS_SEGMENT:-0},"jobs":${JOBS:-0}}
 JSONEOF
 }
 trap 'report_progress "error" "${CURRENT_STEP:-unknown}" 0' ERR
@@ -153,10 +153,6 @@ DEMUCS_MODEL="htdemucs_ft"
 RUBBERBAND=false
 PITCH=0
 OUTPUT=""
-SEGMENT_SIZE=256
-OVERLAP=0.25
-CHUNK_SIZE=0
-BATCH_SIZE=0
 DEVICE="cuda"
 SHIFTS=1
 DEMUCS_SEGMENT=0
@@ -174,10 +170,6 @@ while [[ $# -gt 0 ]]; do
         --rubberband)   RUBBERBAND=true; shift ;;
         --pitch)        PITCH="$2"; shift 2 ;;
         --output)       OUTPUT="$2"; shift 2 ;;
-        --segment-size) SEGMENT_SIZE="$2"; shift 2 ;;
-        --overlap)      OVERLAP="$2"; shift 2 ;;
-        --chunk-size)   CHUNK_SIZE="$2"; shift 2 ;;
-        --batch-size)   BATCH_SIZE="$2"; shift 2 ;;
         --device)       DEVICE="$2"; shift 2 ;;
         --shifts)       SHIFTS="$2"; shift 2 ;;
         --demucs-segment) DEMUCS_SEGMENT="$2"; shift 2 ;;
@@ -217,6 +209,20 @@ fi
 if [ ! -f "$INPUT" ]; then
     echo "❌ File not found: $INPUT"
     exit 1
+fi
+
+# ── Read model YAML for default inference parameters ──
+VIPERX_DIM_T=""
+VIPERX_NUM_OVERLAP=""
+VIPERX_BATCH_SIZE=""
+if $VIPERX && [ -d "${VIPERX_MODEL}" ]; then
+    VIPERX_YAML=$(ls "${VIPERX_MODEL}"/*.yaml 2>/dev/null | head -1)
+    if [ -n "$VIPERX_YAML" ]; then
+        VIPERX_DIM_T=$(python3 -c "import yaml; print(yaml.safe_load(open('$VIPERX_YAML'))['inference']['dim_t'])" 2>/dev/null || echo "")
+        VIPERX_NUM_OVERLAP=$(python3 -c "import yaml; print(yaml.safe_load(open('$VIPERX_YAML'))['inference']['num_overlap'])" 2>/dev/null || echo "")
+        VIPERX_BATCH_SIZE=$(python3 -c "import yaml; print(yaml.safe_load(open('$VIPERX_YAML'))['inference']['batch_size'])" 2>/dev/null || echo "")
+        echo "   ℹ️  Model YAML: dim_t=${VIPERX_DIM_T}, overlap=${VIPERX_NUM_OVERLAP}, batch=${VIPERX_BATCH_SIZE}"
+    fi
 fi
 
 # ── Smart defaults: ViperX ya separa vocals, Demucs no necesita repetir ──
@@ -267,15 +273,12 @@ if $VIPERX; then
         echo "❌ inference_universal.py not found" >&2
         exit 2
     fi
-    # Convert overlap ratio (e.g. 0.25) to integer count (e.g. 4) for inference_universal.py
-    # The script expects: model_dir input output [num_overlap]
-    # Uses python3 for reliable float->int conversion (awk locale-dependent)
-    VIPERX_OVERLAP_INT=$(python3 -c "o=${OVERLAP}; print(int(o) if o >= 1 else int(1/o))")
     # Launch inference — Python writes pipeline_status.json directly on each chunk.
+    # inference_universal.py reads dim_t, num_overlap, batch_size from the model's YAML.
     # run_with_elapsed starts the background elapsed/eta updater loop.
     run_with_elapsed python3 /app/inference_universal.py \
         --pipeline-status "$STATUS_FILE" \
-        "${VIPERX_MODEL}" "${INPUT}" "${TMP_VIP}" ${VIPERX_OVERLAP_INT}
+        "${VIPERX_MODEL}" "${INPUT}" "${TMP_VIP}"
     echo "   ✅ Viperx done"
 
     # Find instrumental (for demucs)
