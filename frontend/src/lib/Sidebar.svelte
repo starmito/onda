@@ -1,5 +1,5 @@
 <script>
-	import { IconMenu, IconStar, IconMusic, IconTone, IconBPM, IconDAW, IconHelp, IconSettings, IconFlagES, IconFlagEN } from './icons';
+	import { IconMenu, IconStar, IconMusic, IconTone, IconBPM, IconDAW, IconHelp, IconSettings } from './icons';
 
 	/**
 	 * Sidebar.svelte — Sidebar vertical colapsable al estilo vocalremover.org
@@ -92,7 +92,7 @@
 
 	<!-- Selector de idioma -->
 	<div class="lang-selector">
-		<span class="icon-only">{@html lang === 'es' ? IconFlagES : IconFlagEN}</span>
+		<span class="icon-only">🇪🇸</span>
 		<span class="label-text">{lang === 'es' ? 'ES' : 'EN'}</span>
 	</div>
 </aside>
@@ -105,9 +105,9 @@
 		height: 100%;
 		background: linear-gradient(
 			to right,
-			rgba(108, 92, 231, 0.3) 0%,
-			rgba(108, 92, 231, 0.1) 25%,
-			var(--bg-primary) 70%
+			var(--accent) 0%,
+			var(--accent-bg) 20%,
+			var(--bg-primary) 60%
 		);
 		overflow-x: hidden;
 		overflow-y: auto;
@@ -117,11 +117,12 @@
 
 	.sidebar.collapsed {
 		width: 58px;
-		background: linear-gradient(
-			to right,
-			rgba(108, 92, 231, 0.12) 0%,
-			var(--bg-primary) 100%
-		);
+				background: linear-gradient(
+					to right,
+					var(--accent) 0%,
+					var(--accent-bg) 30%,
+					var(--bg-primary) 100%
+				);
 	}
 
 	/* ---------- Botón toggle ---------- */

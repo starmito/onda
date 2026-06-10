@@ -1,6 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
 
+  const sizes = [
+    { label: 'Pequeño', value: 'small' },
+    { label: 'Mediano', value: 'medium' },
+    { label: 'Grande', value: 'large' },
+  ];
+  let fontSize = $state('medium');
+  let scale = $state(100);
+
   const accentColors = [
     { name: 'Púrpura', value: '#6c5ce7' },
     { name: 'Azul', value: '#2196f3' },
@@ -21,11 +29,22 @@
     if (savedAccent) {
       selectedAccent = savedAccent;
       applyAccent(savedAccent);
+      document.body.style.accentColor = savedAccent;
     }
     const savedTheme = localStorage.getItem('onda-theme');
     if (savedTheme === 'light') {
       isLight = true;
       applyTheme(true);
+    }
+    const savedFontSize = localStorage.getItem('onda-font-size');
+    if (savedFontSize) {
+      fontSize = savedFontSize;
+      applyFontSize(savedFontSize);
+    }
+    const savedScale = localStorage.getItem('onda-scale');
+    if (savedScale) {
+      scale = parseInt(savedScale);
+      applyScale(scale);
     }
   });
 
@@ -70,6 +89,28 @@
     isLight = !isLight;
     applyTheme(isLight);
   }
+
+  function applyFontSize(size: string) {
+    const root = document.documentElement;
+    const sizes = { small: '12px', medium: '14px', large: '16px' };
+    root.style.fontSize = sizes[size as keyof typeof sizes] || '14px';
+    localStorage.setItem('onda-font-size', size);
+  }
+
+  function handleFontSize(size: string) {
+    fontSize = size;
+    applyFontSize(size);
+  }
+
+  function applyScale(value: number) {
+    document.body.style.zoom = `${value}%`;
+    localStorage.setItem('onda-scale', String(value));
+  }
+
+  function handleScale(value: number) {
+    scale = value;
+    applyScale(value);
+  }
 </script>
 
 <div class="interface-settings">
@@ -110,6 +151,29 @@
         <span class="toggle-knob"></span>
       </button>
       <span class="theme-label">☀️ Claro</span>
+    </div>
+  </div>
+
+  <!-- Font size -->
+  <div class="setting-group">
+    <h3 class="group-title">Tamaño del texto</h3>
+    <p class="group-desc">Ajusta el tamaño de la fuente en la interfaz</p>
+    <div class="size-options">
+      {#each sizes as s}
+        <button class="size-btn" class:active={fontSize === s.value} onclick={() => handleFontSize(s.value)}>
+          {s.label}
+        </button>
+      {/each}
+    </div>
+  </div>
+
+  <!-- UI Scale -->
+  <div class="setting-group">
+    <h3 class="group-title">Escala de la interfaz</h3>
+    <p class="group-desc">Ajusta el tamaño general de la interfaz ({scale}%)</p>
+    <input type="range" min="75" max="150" step="25" value={scale} oninput={(e) => handleScale(parseInt((e.target as HTMLInputElement).value))} class="scale-slider" />
+    <div class="scale-labels">
+      <span>75%</span><span>100%</span><span>125%</span><span>150%</span>
     </div>
   </div>
 </div>
@@ -221,5 +285,63 @@
 
   .toggle-switch.active .toggle-knob {
     left: 24px;
+  }
+
+  /* Font size selector */
+  .size-options {
+    display: flex;
+    gap: 8px;
+  }
+
+  .size-btn {
+    padding: 8px 18px;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-surface);
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .size-btn:hover {
+    border-color: var(--accent);
+    color: var(--text-primary);
+  }
+
+  .size-btn.active {
+    background: var(--accent-bg);
+    border-color: var(--accent);
+    color: var(--text-primary);
+  }
+
+  /* UI Scale slider */
+  .scale-slider {
+    width: 100%;
+    height: 6px;
+    -webkit-appearance: none;
+    appearance: none;
+    background: var(--border);
+    border-radius: 3px;
+    outline: none;
+    cursor: pointer;
+  }
+
+  .scale-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--accent);
+    border: 2px solid var(--bg-primary);
+    cursor: pointer;
+  }
+
+  .scale-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.75rem;
+    color: var(--text-muted);
   }
 </style>
