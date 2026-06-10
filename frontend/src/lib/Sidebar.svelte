@@ -1,5 +1,5 @@
 <script>
-	import { IconMenu, IconStar, IconMusic, IconTone, IconBPM, IconDAW, IconHelp, IconSettings } from './icons';
+	import { IconMenu, IconStar, IconMusic, IconTone, IconBPM, IconDAW, IconHelp, IconSettings, IconFlagES, IconFlagEN } from './icons';
 
 	/**
 	 * Sidebar.svelte — Sidebar vertical colapsable al estilo vocalremover.org
@@ -34,6 +34,8 @@
 	function handleClick(tabId) {
 		ontabchange(tabId);
 	}
+
+	let lang = $state('es');
 </script>
 
 <aside class="sidebar" class:collapsed>
@@ -46,7 +48,7 @@
 	<!-- Presets dinámicos -->
 	{#each presetTabs as tab (tab.id)}
 		<button
-			class="nav-item"
+			class="nav-item top-item"
 			class:active={activeTab === tab.id}
 			onclick={() => handleClick(tab.id)}
 		>
@@ -61,7 +63,7 @@
 	<!-- Items estáticos (middle group) -->
 	{#each staticItems as item (item.id)}
 		<button
-			class="nav-item"
+			class="nav-item top-item"
 			class:active={activeTab === item.id}
 			onclick={() => handleClick(item.id)}
 		>
@@ -79,7 +81,7 @@
 	<!-- Items del fondo -->
 	{#each bottomItems as item (item.id)}
 		<button
-			class="nav-item"
+			class="nav-item bottom-item"
 			class:active={activeTab === item.id}
 			onclick={() => handleClick(item.id)}
 		>
@@ -88,10 +90,10 @@
 		</button>
 	{/each}
 
-	<!-- Selector de idioma (placeholder) -->
+	<!-- Selector de idioma -->
 	<div class="lang-selector">
-		<span class="icon-only">🌐</span>
-		<span class="label-text">ES</span>
+		<span class="icon-only">{@html lang === 'es' ? IconFlagES : IconFlagEN}</span>
+		<span class="label-text">{lang === 'es' ? 'ES' : 'EN'}</span>
 	</div>
 </aside>
 
@@ -101,15 +103,24 @@
 		flex-direction: column;
 		width: 200px;
 		height: 100%;
-		background: #1e1e2a;
+		background: linear-gradient(
+			to right,
+			rgba(108, 92, 231, 0.12) 0%,
+			#1e1e2a 40%
+		);
 		overflow-x: hidden;
 		overflow-y: auto;
-		transition: width 0.2s ease;
+		transition: width 0.2s ease, background 0.2s ease;
 		flex-shrink: 0;
 	}
 
 	.sidebar.collapsed {
 		width: 58px;
+		background: linear-gradient(
+			to right,
+			rgba(108, 92, 231, 0.12) 0%,
+			#1e1e2a 100%
+		);
 	}
 
 	/* ---------- Botón toggle ---------- */
@@ -176,6 +187,18 @@
 		display: block;
 	}
 
+	/* Top items get larger icons */
+	.top-item .icon-only :global(svg) {
+		width: 26px;
+		height: 26px;
+	}
+
+	/* Bottom items stay smaller */
+	.bottom-item .icon-only :global(svg) {
+		width: 20px;
+		height: 20px;
+	}
+
 	/* ---------- Icono y texto ---------- */
 	.icon-only {
 		font-size: 20px;
@@ -185,6 +208,29 @@
 		justify-content: center;
 	}
 
+	/* Top items: larger text, 2-line wrapping */
+	.top-item .label-text {
+		font-size: 11px;
+		line-height: 1.3;
+		max-width: 80px;
+		word-break: break-word;
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+	}
+
+	/* Bottom items: smaller text, single line */
+	.bottom-item .label-text {
+		font-size: 9px;
+		line-height: 1.2;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		max-width: 100%;
+	}
+
+	/* Default label text (for toggle, language) */
 	.label-text {
 		font-size: 10px;
 		line-height: 1.2;
@@ -236,7 +282,7 @@
 		align-items: center;
 		gap: 4px;
 		width: 100%;
-		padding: 10px 4px;
+		padding: 8px 4px 4px;
 		color: #555;
 		font-size: 10px;
 		cursor: default;
