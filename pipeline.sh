@@ -275,10 +275,12 @@ if $VIPERX; then
     fi
     # Launch inference — Python writes pipeline_status.json directly on each chunk.
     # inference_universal.py reads dim_t, num_overlap, batch_size from the model's YAML.
+    # Pass num_overlap as positional arg for backward compatibility.
+    VIPERX_OVERLAP_INT="${VIPERX_NUM_OVERLAP:-4}"
     # run_with_elapsed starts the background elapsed/eta updater loop.
     run_with_elapsed python3 /app/inference_universal.py \
         --pipeline-status "$STATUS_FILE" \
-        "${VIPERX_MODEL}" "${INPUT}" "${TMP_VIP}"
+        "${VIPERX_MODEL}" "${INPUT}" "${TMP_VIP}" ${VIPERX_OVERLAP_INT}
     echo "   ✅ Viperx done"
 
     # Find instrumental (for demucs)
