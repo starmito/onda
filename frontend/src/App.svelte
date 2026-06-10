@@ -4,6 +4,7 @@
   import PipelineView from './lib/PipelineView.svelte';
   import SettingsPanel from './lib/SettingsPanel.svelte';
   import PlaceholderPage from './lib/PlaceholderPage.svelte';
+  import HelpPage from './lib/HelpPage.svelte';
   import ResultsPanel from './lib/ResultsPanel.svelte';
   import PresetsPanel from './lib/PresetsPanel.svelte';
   import StatusBar from './lib/StatusBar.svelte';
@@ -634,7 +635,9 @@
       <div class="content">
         {#if activeTab === 'settings'}
           <SettingsPanel subtab={settingsSubTab} onsubtabchange={(t) => settingsSubTab = t} />
-        {:else if ['pitch', 'bpm', 'daw', 'help'].includes(activeTab)}
+        {:else if activeTab === 'help'}
+          <HelpPage />
+        {:else if ['pitch', 'bpm', 'daw'].includes(activeTab)}
           <PlaceholderPage tabId={activeTab} />
         {:else if activeTab === 'results'}
           <!-- ResultsPanel -->
@@ -687,11 +690,13 @@
   :global(body) {
     margin: 0;
     padding: 0;
-    background: #0a0a14;
-    color: #e0e0e0;
+    background: var(--bg-primary);
+    color: var(--text-primary);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
       Oxygen-Sans, Ubuntu, Cantarell, 'Helvetica Neue', sans-serif;
     min-height: 100vh;
+
+    /* ---- Accent colors (can be changed dynamically) ---- */
     --accent: #6c5ce7;
     --accent-light: #a29bfe;
     --accent-dark: #5a4bd6;
@@ -699,6 +704,34 @@
     --accent-subtle: rgba(108, 92, 231, 0.08);
     --accent-bg: rgba(108, 92, 231, 0.12);
     --accent-border: rgba(108, 92, 231, 0.2);
+
+    /* ---- Full theme palette (dark theme by default) ---- */
+    --bg-primary: #0a0a14;
+    --bg-sidebar: #1e1e2a;
+    --bg-card: #252535;
+    --bg-surface: #1a1a2e;
+    --bg-hover: #2a2a3e;
+    --bg-active: #3a3a5e;
+    --text-primary: #e0e0e0;
+    --text-secondary: #888;
+    --text-muted: #555;
+    --border: #2a2a4a;
+    --border-light: #444;
+  }
+
+  /* ---- Light theme ---- */
+  :global(body.light-theme) {
+    --bg-primary: #f0f0f4;
+    --bg-sidebar: #ffffff;
+    --bg-card: #e8e8ee;
+    --bg-surface: #fafafa;
+    --bg-hover: #e0e0e0;
+    --bg-active: #d0d0dd;
+    --text-primary: #222222;
+    --text-secondary: #666666;
+    --text-muted: #999999;
+    --border: #d0d0d0;
+    --border-light: #bbbbbb;
   }
 
   main {

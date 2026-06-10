@@ -3,7 +3,8 @@
   import ModelManager from './ModelManager.svelte';
   import ModelDownloader from './ModelDownloader.svelte';
   import PipelineEditor from './PipelineEditor.svelte';
-  import { IconModel, IconDownload, IconPresets, IconLogs, IconClose, IconRefresh } from './icons';
+  import InterfaceSettings from './InterfaceSettings.svelte';
+  import { IconModel, IconDownload, IconPresets, IconLogs, IconClose, IconRefresh, IconSettings } from './icons';
 
   interface Props {
     subtab?: string;
@@ -141,6 +142,11 @@
       class:active={subtab === 'logs'}
       onclick={() => handleSubtabChange('logs')}
     >{@html IconLogs} <span>Registros</span></button>
+    <button
+      class="settings-tab"
+      class:active={subtab === 'interface'}
+      onclick={() => handleSubtabChange('interface')}
+    >{@html IconSettings} <span>Interfaz</span></button>
   </div>
 
   <!-- Body content -->
@@ -215,6 +221,10 @@
             {/if}
           {/if}
         </div>
+      </div>
+    {:else if subtab === 'interface'}
+      <div class="subtab-content">
+        <InterfaceSettings />
       </div>
     {/if}
   </div>
