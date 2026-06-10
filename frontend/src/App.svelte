@@ -478,6 +478,7 @@
 
   function startQueuePolling() {
     if (queuePollingTimer) clearInterval(queuePollingTimer);
+    pollStartTime = Date.now();
 
     queuePollingTimer = setInterval(async () => {
       try {
@@ -554,14 +555,30 @@
           queuePollingTimer = null;
           separating = false;
           pipelineStatus = queueJobs.some((j) => j.status === 'error') ? 'error' : 'done';
-          pipelineStep = 'Completado';
-          currentProgress = 1;
+          pipelineStep = queueJobs.some((j) => j.status === 'error') ? 'Error' : 'Completado';
+          currentProgress = queueJobs.some((j) => j.status === 'error') ? 0 : 1;
+        }
+
+        // Timeout: if queue is empty but we expected jobs, show error after 10s
+        if (queueJobs.length === 0 && activeSongNames.size > 0 && queuePollingTimer) {
+          const elapsed = Date.now() - pollStartTime;
+          if (elapsed > 10000) {
+            clearInterval(queuePollingTimer);
+            queuePollingTimer = null;
+            separating = false;
+            pipelineStatus = 'error';
+            pipelineStep = 'Error al encolar';
+            currentProgress = 0;
+            showToast('Error: Los trabajos no se encolaron correctamente', 'error');
+          }
         }
       } catch (e) {
         // Silently keep polling on transient network errors
       }
     }, 500);
   }
+
+  let pollStartTime = 0;
 
   // ---- ResultsPanel delete callbacks ---- 
   function handleStemDeleted(_song: string, _name: string, path: string) {

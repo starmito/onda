@@ -173,11 +173,11 @@
 	}
 
 	.nav-item:hover {
-		background: rgba(108, 92, 231, 0.08);
-	}
+			background: var(--accent-subtle);
+		}
 
-	.nav-item.active {
-		background: rgba(108, 92, 231, 0.12);
+		.nav-item.active {
+			background: var(--accent-bg);
 		border-bottom-color: var(--accent);
 		color: var(--text-primary);
 	}

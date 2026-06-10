@@ -289,11 +289,11 @@
   .settings-tab:hover {
     color: var(--text-secondary);
     border-color: var(--border-light);
-    background: rgba(108, 92, 231, 0.08);
+    background: var(--accent-subtle);
   }
 
   .settings-tab.active {
-    background: rgba(108, 92, 231, 0.18);
+    background: var(--accent-bg);
     border-color: #6c5ce7;
     color: #c8bfff;
   }
@@ -379,7 +379,7 @@
   }
 
   .log-tab.active {
-    background: rgba(108, 92, 231, 0.18);
+    background: var(--accent-bg);
     border-color: #6c5ce7;
     color: #c8bfff;
   }
