@@ -463,7 +463,7 @@ func (s *Server) handleQueueClear(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"status": "cleared"})
 }
 
-// handleQueueCancel cancels the currently running job without clearing the queue.
+// handleQueueCancel cancels the currently running job and removes it from the queue.
 // POST /api/queue/cancel
 func (s *Server) handleQueueCancel(w http.ResponseWriter, r *http.Request) {
 	s.jobsMu.Lock()
@@ -475,6 +475,9 @@ func (s *Server) handleQueueCancel(w http.ResponseWriter, r *http.Request) {
 		s.currentCancel = nil
 		s.currentCmd = nil
 	}
+
+	// Remove all jobs — cancel means "stop everything and start fresh"
+	s.jobs = make(map[string]*JobState)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
