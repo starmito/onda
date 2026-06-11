@@ -1,5 +1,11 @@
 # Changelog
 
+## v2.7.4 — Cancel real (mata proceso en contenedor) + status correcto (2026-06-11)
+
+### Fixed
+- **Cancel ahora para el proceso real**: se ejecuta `pkill -f pipeline.sh` y `pkill -f python` dentro del contenedor `onda`, no solo el cliente docker local
+- **Status de archivos tras cancelar**: ahora muestra 'waiting' (listo para re-ejecutar) en vez de 'uploading'
+
 ## v2.7.3 — Resultados navegables + progreso individual + PitchPage con outputs (2026-06-11)
 
 ### Added
