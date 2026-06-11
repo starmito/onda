@@ -11,6 +11,9 @@
     progress?: number;
     path?: string;
     errorMsg?: string;
+    current_step?: number;
+    total_steps?: number;
+    step_name?: string;
   }
 
   let {
@@ -32,6 +35,7 @@
     onStart = (config: any) => {},
     onCancel = () => {},
     onRemoveFile = (id: string) => {},
+    onViewResult = () => {},
   } = $props();
 
   // ---- Drag & Drop state ----
@@ -225,16 +229,34 @@
       </div>
       <div class="queue-list">
         {#each queueFiles as qf (qf.id)}
-          <div class="queue-row">
+          <div class="queue-row" class:done-row={qf.status === 'done'} role="button" tabindex={qf.status === 'done' ? 0 : -1} onclick={() => { if (qf.status === 'done') onViewResult(); }} onkeydown={(e) => { if (e.key === 'Enter' && qf.status === 'done') onViewResult(); }}>
             <input
               type="checkbox"
               checked={qf.checked}
-              onchange={() => handleToggleQueueFile(qf.id)}
+              onchange={(e) => { e.stopPropagation(); handleToggleQueueFile(qf.id); }}
               disabled={qf.status === 'done'}
             />
             <span class="queue-name" title={qf.file.name}>{qf.file.name}</span>
+            <span class="queue-progress">
+              {#if qf.status === 'processing' && qf.current_step != null && qf.total_steps != null}
+                <span class="step-label">Paso {qf.current_step}/{qf.total_steps}{#if qf.step_name}: {qf.step_name}{/if}</span>
+                <div class="mini-progress-bar">
+                  <div class="mini-progress-fill" style="width: {qf.progress ?? 0}%"></div>
+                </div>
+              {:else if qf.status === 'done'}
+                <span class="step-label done">Completado ✓</span>
+                <div class="mini-progress-bar">
+                  <div class="mini-progress-fill done" style="width:100%"></div>
+                </div>
+              {:else if qf.status === 'error'}
+                <span class="step-label error">Error</span>
+                <div class="mini-progress-bar">
+                  <div class="mini-progress-fill error" style="width:100%"></div>
+                </div>
+              {/if}
+            </span>
             <span class={statusBadgeClass(qf.status)}>{qf.status}</span>
-            <button class="btn-remove" onclick={() => handleRemoveQueueFile(qf.id)}>✕</button>
+            <button class="btn-remove" onclick={(e) => { e.stopPropagation(); handleRemoveQueueFile(qf.id); }}>✕</button>
           </div>
         {/each}
       </div>
@@ -576,5 +598,50 @@
   }
   .btn-stop:hover {
     background: #5a2a2a;
+  }
+
+  /* Mini progress bar inside queue rows */
+  .queue-progress {
+    width: 180px;
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    align-items: center;
+  }
+  .step-label {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+    text-align: center;
+  }
+  .step-label.done { color: #81c784; }
+  .step-label.error { color: #e57373; }
+  .mini-progress-bar {
+    width: 100%;
+    max-width: 120px;
+    height: 4px;
+    background: var(--bg-hover);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .mini-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), #4caf50);
+    border-radius: 2px;
+    transition: width 0.3s ease;
+  }
+  .mini-progress-fill.done { background: #4caf50; }
+  .mini-progress-fill.error { background: #e57373; }
+  .done-row {
+    cursor: pointer;
+    border-color: var(--accent-border);
+    transition: background 0.2s, border-color 0.2s;
+  }
+  .done-row:hover {
+    background: var(--accent-subtle);
+    border-color: var(--accent);
   }
 </style>

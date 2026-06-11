@@ -1,5 +1,15 @@
 # Changelog
 
+## v2.7.3 — Resultados navegables + progreso individual + PitchPage con outputs (2026-06-11)
+
+### Added
+- **Resultados navegables**: al hacer clic en un archivo completado de la cola, navega automáticamente a la pestaña Resultados
+- **Progreso individual por pista**: cada fila de la cola muestra "Paso X/Y: StepName" con su propia barra de progreso y porcentaje
+- **PitchPage: grupos de salida**: sección superior que lista los stems de output/ (excepto drums) con control de pitch shift por grupo
+
+### Changed
+- **PitchPage**: ahora también acepta `results` y `onResultsChange` props para mostrar y procesar stems existentes
+
 ## v2.7.2 — Clear queue on execute + Stop button (2026-06-11)
 
 ### Added

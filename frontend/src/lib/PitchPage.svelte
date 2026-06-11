@@ -1,6 +1,8 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { uploadPitchAudio, pitchInputDownloadUrl, deletePitchUpload } from './api';
+  import { uploadPitchAudio, pitchInputDownloadUrl, deletePitchUpload, pitchStems, downloadUrl } from './api';
+  import type { ResultStem } from './types';
+  import { detectStemType } from './types';
   import { IconUpload } from './icons';
 
   // Each uploaded file becomes a standalone player
@@ -30,6 +32,46 @@
   let dragCounter = $state(0);
   let toast = $state<{ message: string; type: 'success' | 'error' } | null>(null);
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // ---- Props ----
+  let {
+    results = [] as ResultStem[],
+    onResultsChange = () => {},
+  } = $props();
+
+  // ---- Output groups (from results prop) ----
+  let outputSongs = $derived<string[]>([...new Set(results.map(r => r.song))]);
+
+  function stemsForSong(song: string) {
+    return results.filter(r => r.song === song && r.stemType !== 'drums' && r.stemType !== 'bass');
+  }
+
+  // ---- Pitch shift per song group ----
+  let pitchValues = $state<Record<string, number>>({});
+  let pitchShifting = $state<Record<string, boolean>>({});
+
+  function getPitchValue(song: string): number {
+    return pitchValues[song] ?? 0;
+  }
+
+  async function handlePitchShift(song: string) {
+    const pitch = getPitchValue(song);
+    if (pitch === 0) return;
+    pitchShifting = { ...pitchShifting, [song]: true };
+    try {
+      await pitchStems(song, pitch);
+      // Reload results by calling parent callback
+      onResultsChange();
+    } catch (err: any) {
+      showToast(`Error al cambiar tono: ${err.message || 'unknown'}`, 'error');
+    } finally {
+      pitchShifting = { ...pitchShifting, [song]: false };
+    }
+  }
+
+  function outputDownloadUrl(stem: ResultStem): string {
+    return downloadUrl(stem.song, stem.name);
+  }
 
   function showToast(message: string, type: 'success' | 'error') {
     toast = { message, type };
@@ -331,6 +373,55 @@
 </script>
 
 <div class="pitch-page">
+  <!-- Output groups (from separator results) -->
+  {#if results.length > 0}
+    <section class="output-groups-section">
+      <h3 class="section-title">Grupos de salida</h3>
+      <p class="section-desc">Archivos generados por el separador — cambio de tono disponible</p>
+      <div class="output-groups-list">
+        {#each outputSongs as song}
+          {@const stems = stemsForSong(song)}
+          {#if stems.length > 0}
+            <div class="output-group-card">
+              <div class="output-group-header">
+                <span class="output-song-name">📁 {song}</span>
+                <span class="output-stem-count">{stems.length} pistas</span>
+              </div>
+              <div class="output-stems">
+                {#each stems as stem}
+                  <div class="output-stem-row">
+                    <span class="stem-name" title={stem.name}>{stem.stemType || stem.name}</span>
+                    <a class="stem-download" href={outputDownloadUrl(stem)} download title="Descargar">⬇</a>
+                  </div>
+                {/each}
+              </div>
+              <div class="pitch-control-row">
+                <label class="pitch-label">Tono:</label>
+                <input
+                  type="range"
+                  min="-12"
+                  max="12"
+                  step="0.5"
+                  value={getPitchValue(song)}
+                  oninput={(e) => { pitchValues = { ...pitchValues, [song]: parseFloat((e.target as HTMLInputElement).value) }; }}
+                  class="pitch-slider"
+                />
+                <span class="pitch-value">{getPitchValue(song) > 0 ? '+' : ''}{getPitchValue(song)}</span>
+                <button
+                  class="pitch-btn"
+                  onclick={() => handlePitchShift(song)}
+                  disabled={pitchShifting[song] || getPitchValue(song) === 0}
+                >
+                  {pitchShifting[song] ? '⏳' : '🎵 Cambiar tono'}
+                </button>
+              </div>
+            </div>
+          {/if}
+        {/each}
+      </div>
+    </section>
+  {/if}
+
   <!-- Dropzone -->
   <section class="pitch-dropzone-section">
     <h3 class="section-title">Subir audio para cambio de tono</h3>
@@ -701,6 +792,140 @@
     min-width: 2em;
     text-align: right;
     font-variant-numeric: tabular-nums;
+  }
+
+  /* ---- Output groups ---- */
+
+  .output-groups-section {
+    width: 100%;
+  }
+  .output-groups-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+  .output-group-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 0.75rem 1rem;
+  }
+  .output-group-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 0.5rem;
+  }
+  .output-song-name {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--accent-light);
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .output-stem-count {
+    font-size: 0.7rem;
+    color: var(--text-muted);
+    flex-shrink: 0;
+  }
+  .output-stems {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin-bottom: 0.5rem;
+  }
+  .output-stem-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.2rem 0;
+    font-size: 0.8rem;
+  }
+  .stem-name {
+    flex: 1;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .stem-download {
+    text-decoration: none;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    padding: 0.1rem 0.3rem;
+    border-radius: 4px;
+    transition: color 0.15s;
+  }
+  .stem-download:hover {
+    color: var(--accent);
+  }
+  .pitch-control-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding-top: 0.4rem;
+    border-top: 1px solid var(--border);
+    flex-wrap: wrap;
+  }
+  .pitch-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    flex-shrink: 0;
+  }
+  .pitch-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    flex: 1;
+    min-width: 80px;
+    max-width: 150px;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--bg-hover);
+    outline: none;
+    cursor: pointer;
+  }
+  .pitch-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    border: 2px solid #0a0a14;
+  }
+  .pitch-value {
+    font-size: 0.8rem;
+    font-weight: 700;
+    color: var(--accent-light);
+    min-width: 2.5em;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .pitch-btn {
+    padding: 0.3rem 0.7rem;
+    border-radius: 6px;
+    border: 1px solid var(--accent-border);
+    background: var(--accent-subtle);
+    color: var(--accent-light);
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+    white-space: nowrap;
+  }
+  .pitch-btn:hover:not(:disabled) {
+    background: var(--accent-bg);
+    border-color: var(--accent);
+  }
+  .pitch-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
   }
 
   /* ---- Toast ---- */

@@ -23,6 +23,9 @@
     progress?: number;
     path?: string;
     errorMsg?: string;
+    current_step?: number;
+    total_steps?: number;
+    step_name?: string;
   }
   interface PipelineConfigType {
     preset?: string;
@@ -539,14 +542,17 @@
           }
         }
 
-        // Update queue file statuses to match job states
+        // Update queue file statuses to match job states (including per-track progress)
         for (const job of queueJobs) {
           const qf = queueFiles.find(
             (q) => q.path && q.path.includes(job.song.replace(/\.[^.]+$/, '')),
           );
-          if (qf && (job.status === 'done' || job.status === 'error')) {
+          if (qf) {
             qf.status = job.status;
-            qf.progress = job.status === 'done' ? 1 : 0;
+            qf.progress = job.status === 'done' ? 100 : (job.progress ?? 0);
+            qf.current_step = job.current_step;
+            qf.total_steps = job.total_steps;
+            qf.step_name = job.step_name;
           }
         }
 
@@ -583,6 +589,27 @@
   }
 
   let pollStartTime = 0;
+
+  // ---- Refresh results from backend (e.g., after pitch shift) ----
+  async function handleRefreshResults() {
+    try {
+      const groups = await getResults();
+      const allStems: ResultStem[] = [];
+      for (const g of groups) {
+        for (const f of g.files) {
+          allStems.push({
+            name: f.name,
+            path: f.path,
+            song: g.song,
+            stemType: detectStemType(f.name),
+          });
+        }
+      }
+      results = allStems;
+    } catch {
+      // silently ignore
+    }
+  }
 
   // ---- ResultsPanel delete callbacks ---- 
   function handleStemDeleted(_song: string, _name: string, path: string) {
@@ -702,6 +729,7 @@
             onStart={handlePipelineStart}
             onCancel={handleCancel}
             onRemoveFile={handleRemoveQueueFile}
+            onViewResult={() => activeTab = 'results'}
           />
         {:else if activeTab === 'personalizado'}
           <!-- Personalizado: with preset selector -->
@@ -724,9 +752,10 @@
             onStart={handlePipelineStart}
             onCancel={handleCancel}
             onRemoveFile={handleRemoveQueueFile}
+            onViewResult={() => activeTab = 'results'}
           />
         {:else if activeTab === 'pitch'}
-          <PitchPage results={results} onResultsChange={() => {}} />
+          <PitchPage results={results} onResultsChange={handleRefreshResults} />
         {:else if ['bpm', 'daw'].includes(activeTab)}
           <PlaceholderPage tabId={activeTab} />
         {:else if activeTab === 'results'}
@@ -752,6 +781,7 @@
             onStart={handlePipelineStart}
             onCancel={handleCancel}
             onRemoveFile={handleRemoveQueueFile}
+            onViewResult={() => activeTab = 'results'}
           />
         {/if}
       </div>
