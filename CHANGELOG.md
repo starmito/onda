@@ -1,5 +1,16 @@
 # Changelog
 
+## v2.7.2 — Clear queue on execute + Stop button (2026-06-11)
+
+### Added
+- **Backend: `DELETE /api/queue`**: limpia toda la cola de trabajos y cancela el proceso en ejecución
+- **Backend: `POST /api/queue/cancel`**: cancela solo el trabajo actual sin limpiar la cola
+- **Frontend: Clear automático**: al hacer clic en cualquier botón "Ejecutar", se limpia la cola primero
+- **Frontend: Botón "⏹ Detener"**: aparece junto a cada botón de ejecutar cuando hay un proceso activo
+
+### Fixed
+- **Error 409 "song already queued"**: ya no se queda atascado al reintentar un trabajo fallido
+
 ## v2.7.1 — YAML config en Go puro, sin Python en onda-gui (2026-06-10)
 
 ### Changed
