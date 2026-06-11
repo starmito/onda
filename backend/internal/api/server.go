@@ -500,10 +500,20 @@ func capitalizeStep(step string) string {
 func (s *Server) worker() {
 	for job := range s.jobQueue {
 		s.jobsMu.Lock()
-		if state, ok := s.jobs[job.Song]; ok {
-			state.Status = "processing"
+		state, ok := s.jobs[job.Song]
+		if !ok {
+			// Job was cleared/cancelled — skip this channel item entirely
+			s.jobsMu.Unlock()
+			continue
 		}
+		state.Status = "processing"
 		s.jobsMu.Unlock()
+
+		// Reset pipeline_status.json so stale progress from a cancelled job doesn't bleed in
+		if projectRoot := findProjectRoot(); projectRoot != "" {
+			statusPath := filepath.Join(projectRoot, "output", "pipeline_status.json")
+			os.WriteFile(statusPath, []byte(`{}`), 0644)
+		}
 
 		ctx, cancel := context.WithCancel(context.Background())
 		dockerArgs := append([]string{"exec", "onda", "bash", "/pipeline.sh"}, job.Args...)
