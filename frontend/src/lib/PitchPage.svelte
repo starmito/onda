@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { uploadPitchAudio, pitchInputDownloadUrl, deletePitchUpload, pitchStems, downloadUrl } from './api';
+  import { uploadPitchAudio, pitchInputDownloadUrl, deletePitchUpload, pitchStems, downloadUrl, deleteStem as deleteStemApi } from './api';
   import type { ResultStem } from './types';
   import { detectStemType } from './types';
   import { IconUpload } from './icons';
@@ -28,7 +28,33 @@
     volume: number;
   }
 
+  // Each output stem becomes a standalone player (same AudioContext pattern)
+  interface OutputPlayer {
+    id: string;
+    song: string;
+    name: string;
+    path: string;
+    status: 'loading' | 'ready' | 'error';
+    errorMsg?: string;
+    // Audio state
+    audioCtx: AudioContext | null;
+    playing: boolean;
+    paused: boolean;
+    currentTime: number;
+    duration: number;
+    seekValue: number;
+    sourceNode: AudioBufferSourceNode | null;
+    gainNode: GainNode | null;
+    buffer: AudioBuffer | null;
+    startTime: number;
+    pauseOffset: number;
+    animFrame: number | null;
+    loaded: boolean;
+    volume: number;
+  }
+
   let pitchPlayers = $state<PitchPlayer[]>([]);
+  let outputPlayers = $state<OutputPlayer[]>([]);
   let dragCounter = $state(0);
   let toast = $state<{ message: string; type: 'success' | 'error' } | null>(null);
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -287,6 +313,211 @@
     if (p.gainNode) p.gainNode.gain.value = p.volume / 100;
   }
 
+  // ---- Output Players (individual stem players for output groups) ----
+
+  function getOutputPlayerId(stem: ResultStem): string {
+    return `${stem.song}||${stem.name}`;
+  }
+
+  function newOutputPlayer(stem: ResultStem): OutputPlayer {
+    return {
+      id: getOutputPlayerId(stem),
+      song: stem.song,
+      name: stem.name,
+      path: stem.path,
+      status: 'loading',
+      audioCtx: null, playing: false, paused: false,
+      currentTime: 0, duration: 0, seekValue: 0,
+      sourceNode: null, gainNode: null, buffer: null,
+      startTime: 0, pauseOffset: 0, animFrame: null,
+      loaded: false, volume: 100,
+    };
+  }
+
+  function ensureOutputPlayer(stem: ResultStem): OutputPlayer {
+    const id = getOutputPlayerId(stem);
+    let p = outputPlayers.find(op => op.id === id);
+    if (!p) {
+      p = newOutputPlayer(stem);
+      outputPlayers = [...outputPlayers, p];
+    }
+    return p;
+  }
+
+  function getOutputPlayerById(id: string): OutputPlayer | undefined {
+    return outputPlayers.find(op => op.id === id);
+  }
+
+  function getCtxOutput(p: OutputPlayer): AudioContext {
+    if (!p.audioCtx) p.audioCtx = new AudioContext();
+    return p.audioCtx;
+  }
+
+  async function loadBufferOutput(p: OutputPlayer) {
+    if (p.loaded && p.buffer) return;
+    const ctx = getCtxOutput(p);
+    const url = downloadUrl(p.song, p.name);
+    const resp = await fetch(url);
+    const arrayBuf = await resp.arrayBuffer();
+    const audioBuf = await ctx.decodeAudioData(arrayBuf);
+    p.buffer = audioBuf;
+    p.duration = audioBuf.duration;
+    p.loaded = true;
+    p.status = 'ready';
+  }
+
+  function stopSourceOutput(p: OutputPlayer) {
+    if (p.sourceNode) {
+      try { p.sourceNode.stop(); } catch { /* already stopped */ }
+      p.sourceNode.disconnect();
+      p.sourceNode = null;
+    }
+    if (p.gainNode) {
+      p.gainNode.disconnect();
+      p.gainNode = null;
+    }
+    if (p.animFrame) {
+      cancelAnimationFrame(p.animFrame);
+      p.animFrame = null;
+    }
+  }
+
+  function cleanupOutputPlayer(p: OutputPlayer) {
+    stopSourceOutput(p);
+    p.audioCtx?.close();
+    p.audioCtx = null;
+  }
+
+  function startTimerOutput(p: OutputPlayer) {
+    function tick() {
+      const pl = getOutputPlayerById(p.id);
+      if (!pl || !pl.playing || pl.paused) return;
+      pl.currentTime = pl.audioCtx!.currentTime - pl.startTime;
+      pl.seekValue = pl.currentTime;
+      if (pl.currentTime >= pl.duration) {
+        stopPlayerOutput(p.id);
+        return;
+      }
+      pl.animFrame = requestAnimationFrame(tick);
+    }
+    p.animFrame = requestAnimationFrame(tick);
+  }
+
+  async function togglePlayOutput(id: string) {
+    const p = getOutputPlayerById(id);
+    if (!p) return;
+    if (p.playing && !p.paused) { pausePlayerOutput(id); return; }
+    if (p.paused) { resumePlayerOutput(id); return; }
+    // Start fresh
+    const ctx = getCtxOutput(p);
+    if (ctx.state === 'suspended') await ctx.resume();
+    await loadBufferOutput(p);
+    stopSourceOutput(p);
+    const now = ctx.currentTime;
+    p.startTime = now;
+    const gain = ctx.createGain();
+    gain.gain.value = p.volume / 100;
+    gain.connect(ctx.destination);
+    const src = ctx.createBufferSource();
+    src.buffer = p.buffer;
+    src.connect(gain);
+    src.start(0);
+    p.sourceNode = src;
+    p.gainNode = gain;
+    p.playing = true;
+    p.paused = false;
+    startTimerOutput(p);
+  }
+
+  function pausePlayerOutput(id: string) {
+    const p = getOutputPlayerById(id);
+    if (!p || !p.playing || p.paused) return;
+    p.pauseOffset = p.audioCtx!.currentTime - p.startTime;
+    p.audioCtx!.suspend();
+    p.paused = true;
+  }
+
+  function resumePlayerOutput(id: string) {
+    const p = getOutputPlayerById(id);
+    if (!p || !p.playing || !p.paused) return;
+    p.audioCtx!.resume();
+    p.paused = false;
+    startTimerOutput(p);
+  }
+
+  function stopPlayerOutput(id: string) {
+    const p = getOutputPlayerById(id);
+    if (!p) return;
+    stopSourceOutput(p);
+    p.audioCtx?.suspend();
+    p.playing = false;
+    p.paused = false;
+    p.currentTime = 0;
+    p.seekValue = 0;
+    p.pauseOffset = 0;
+  }
+
+  function handleSeekInputOutput(e: Event, id: string) {
+    const p = getOutputPlayerById(id);
+    if (!p) return;
+    p.seekValue = parseFloat((e.target as HTMLInputElement).value);
+  }
+
+  async function handleSeekChangeOutput(e: Event, id: string) {
+    const p = getOutputPlayerById(id);
+    if (!p || !p.buffer) return;
+    const seekTo = parseFloat((e.target as HTMLInputElement).value);
+    const wasPlaying = p.playing && !p.paused;
+    stopSourceOutput(p);
+    const ctx = getCtxOutput(p);
+    if (ctx.state === 'suspended') await ctx.resume();
+    await loadBufferOutput(p);
+    const now = ctx.currentTime;
+    p.startTime = now - seekTo;
+    p.pauseOffset = seekTo;
+    p.currentTime = seekTo;
+    p.seekValue = seekTo;
+    if (!wasPlaying) return;
+    const gain = ctx.createGain();
+    gain.gain.value = p.volume / 100;
+    gain.connect(ctx.destination);
+    const src = ctx.createBufferSource();
+    src.buffer = p.buffer;
+    src.connect(gain);
+    src.start(0, seekTo);
+    p.sourceNode = src;
+    p.gainNode = gain;
+    p.playing = true;
+    p.paused = false;
+    startTimerOutput(p);
+  }
+
+  function handleVolumeOutput(e: Event, id: string) {
+    const p = getOutputPlayerById(id);
+    if (!p) return;
+    p.volume = parseInt((e.target as HTMLInputElement).value);
+    if (p.gainNode) p.gainNode.gain.value = p.volume / 100;
+  }
+
+  async function handleDeleteOutput(stem: ResultStem) {
+    if (!confirm(`Eliminar "${stem.name}" de "${stem.song}"?`)) return;
+    try {
+      await deleteStemApi(stem.song, stem.name);
+    } catch (err) {
+      console.error('Failed to delete stem from server:', err);
+    }
+    // Clean up player if exists
+    const id = getOutputPlayerId(stem);
+    const p = getOutputPlayerById(id);
+    if (p) {
+      cleanupOutputPlayer(p);
+      outputPlayers = outputPlayers.filter(op => op.id !== id);
+    }
+    // Update results by removing this stem
+    onResultsChange();
+    showToast(`"${stem.name}" eliminado`, 'success');
+  }
+
   // ---- Delete ----
 
   async function handleDelete(id: string) {
@@ -369,6 +600,7 @@
   onDestroy(() => {
     if (toastTimer) clearTimeout(toastTimer);
     for (const p of pitchPlayers) cleanupPlayer(p);
+    for (const p of outputPlayers) cleanupOutputPlayer(p);
   });
 </script>
 
@@ -389,9 +621,45 @@
               </div>
               <div class="output-stems">
                 {#each stems as stem}
-                  <div class="output-stem-row">
-                    <span class="stem-name" title={stem.name}>{stem.stemType || stem.name}</span>
-                    <a class="stem-download" href={outputDownloadUrl(stem)} download title="Descargar">⬇</a>
+                  {@const op = ensureOutputPlayer(stem)}
+                  <div class="output-stem-card" class:loading={op.status === 'loading'}>
+                    <div class="output-stem-header">
+                      <span class="stem-name" title={stem.name}>{stem.stemType || stem.name}</span>
+                      {#if op.status === 'loading'}
+                        <span class="upload-status">Cargando…</span>
+                      {:else if op.status === 'error'}
+                        <span class="upload-status error">Error</span>
+                      {/if}
+                    </div>
+                    <div class="output-stem-controls">
+                      <div class="playback-controls">
+                        <button class="ctrl-btn play-btn" onclick={() => togglePlayOutput(op.id)}
+                          disabled={op.playing && !op.paused} title={op.playing && !op.paused ? 'Reproduciendo' : 'Reproducir'}>▶</button>
+                        <button class="ctrl-btn pause-btn" onclick={() => pausePlayerOutput(op.id)}
+                          disabled={!op.playing || op.paused} title="Pausa">⏸</button>
+                        <button class="ctrl-btn stop-btn" onclick={() => stopPlayerOutput(op.id)}
+                          disabled={!op.playing && !op.paused} title="Parar">⏹</button>
+                      </div>
+                      <div class="seek-area">
+                        <input type="range" min="0" max={op.duration || 100} step="0.1"
+                          value={op.seekValue || 0}
+                          disabled={!op.loaded}
+                          oninput={(e) => handleSeekInputOutput(e, op.id)}
+                          onchange={(e) => handleSeekChangeOutput(e, op.id)}
+                          class="seek-slider" title="Buscar" />
+                        <span class="time-display">{fmtTime(op.currentTime)} / {fmtTime(op.duration)}</span>
+                      </div>
+                      <div class="vol-slider-wrap">
+                        <label class="vol-label-small">Vol:</label>
+                        <input type="range" min="0" max="100" value={op.volume}
+                          oninput={(e) => handleVolumeOutput(e, op.id)} class="vol-slider" title="Volumen" />
+                        <span class="vol-label">{op.volume}</span>
+                      </div>
+                      <div class="song-actions">
+                        <a class="song-btn export-btn" href={outputDownloadUrl(stem)} download={stem.name} title="Descargar">⬇</a>
+                        <button class="song-btn delete-btn" onclick={() => handleDeleteOutput(stem)} title="Eliminar">🗑</button>
+                      </div>
+                    </div>
                   </div>
                 {/each}
               </div>
@@ -835,15 +1103,27 @@
   .output-stems {
     display: flex;
     flex-direction: column;
-    gap: 0.25rem;
+    gap: 0.5rem;
     margin-bottom: 0.5rem;
   }
-  .output-stem-row {
+  .output-stem-card {
+    background: var(--bg-primary);
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    padding: 0.4rem 0.6rem;
+    transition: border-color 0.15s;
+  }
+  .output-stem-card:hover {
+    border-color: var(--border);
+  }
+  .output-stem-card.loading {
+    opacity: 0.7;
+  }
+  .output-stem-header {
     display: flex;
     align-items: center;
-    gap: 0.5rem;
-    padding: 0.2rem 0;
-    font-size: 0.8rem;
+    gap: 0.4rem;
+    margin-bottom: 0.3rem;
   }
   .stem-name {
     flex: 1;
@@ -851,6 +1131,14 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-size: 0.8rem;
+    font-weight: 600;
+  }
+  .output-stem-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
   }
   .stem-download {
     text-decoration: none;

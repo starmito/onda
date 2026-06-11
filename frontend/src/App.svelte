@@ -480,6 +480,8 @@
     queueJobs = [];
     processedDoneSongs = new Set();
     activeSongNames = new Set();
+    // Reset queue files so they can be re-processed cleanly
+    queueFiles = queueFiles.map(qf => ({ ...qf, status: 'uploading', progress: 0, errorMsg: undefined }));
     showToast('⏹ Proceso cancelado', 'success');
   }
 
