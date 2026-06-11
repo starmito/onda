@@ -1,789 +1,511 @@
-# Changelog
-
-## v2.7.4 — Cancel real (mata proceso en contenedor) + status correcto (2026-06-11)
+## v2.7.12 (2026-06-11)
 
 ### Fixed
-- **Cancel ahora para el proceso real**: se ejecuta `pkill -f pipeline.sh` y `pkill -f python` dentro del contenedor `onda`, no solo el cliente docker local
-- **Status de archivos tras cancelar**: ahora muestra 'waiting' (listo para re-ejecutar) en vez de 'uploading'
-
-## v2.7.3 — Resultados navegables + progreso individual + PitchPage con outputs (2026-06-11)
-
-### Added
-- **Resultados navegables**: al hacer clic en un archivo completado de la cola, navega automáticamente a la pestaña Resultados
-- **Progreso individual por pista**: cada fila de la cola muestra "Paso X/Y: StepName" con su propia barra de progreso y porcentaje
-- **PitchPage: grupos de salida**: sección superior que lista los stems de output/ (excepto drums) con control de pitch shift por grupo
+- Barras de peak meter ahora muestran RMS en vivo (no el valor pico topeado)
+- Línea blanca vertical (peak marker) sobre cada barra indicando el pico máximo
+- Etiquetas dB superiores siguen mostrando el valor pico acumulado
+- Ancho fijo de 100px en .stem-name para alineación vertical de todos los peak meters
 
 ### Changed
-- **PitchPage**: ahora también acepta `results` y `onResultsChange` props para mostrar y procesar stems existentes
-
-## v2.7.2 — Clear queue on execute + Stop button (2026-06-11)
-
-### Added
-- **Backend: `DELETE /api/queue`**: limpia toda la cola de trabajos y cancela el proceso en ejecución
-- **Backend: `POST /api/queue/cancel`**: cancela solo el trabajo actual sin limpiar la cola
-- **Frontend: Clear automático**: al hacer clic en cualquier botón "Ejecutar", se limpia la cola primero
-- **Frontend: Botón "⏹ Detener"**: aparece junto a cada botón de ejecutar cuando hay un proceso activo
-
-### Fixed
-- **Error 409 "song already queued"**: ya no se queda atascado al reintentar un trabajo fallido
-
-## v2.7.1 — YAML config en Go puro, sin Python en onda-gui (2026-06-10)
-
-### Changed
-- **onda-gui/Dockerfile**: eliminado `COPY pipeline.sh` innecesario — el backend ejecuta pipeline.sh vía `docker exec onda bash /pipeline.sh`, no localmente
-- **Go backend**: lectura/escritura de YAML con `gopkg.in/yaml.v3` en Go puro, elimina dependencia de Python en onda-gui
-- **Dockerfile**: `go mod tidy` incluido en build para dependencias Go limpias
-
-### Fixed
-- **Parámetros de inferencia**: ahora se escriben como `!!int` en YAML (no strings), usando `strconv.Itoa` para `yaml.v3`
-- **`!!python/tuple`**: el código Go ignora estos valores YAML específicos de Python sin errores
-
-### Removed
-- **Python + py3-yaml** de onda-gui Dockerfile — ya no se necesita, Go maneja YAML directamente
-- **`COPY pipeline.sh /pipeline.sh`** de onda-gui — código muerto, pipeline.sh solo necesario en contenedor `onda`
-
-## v2.6.4 — PitchPage: uploaded files with full player (2026-06-10)
-
-### Added
-- **Nginx location `/input_rubberband/`**: serves uploaded pitch audio files with CORS and proper MIME types
-- **`pitchInputDownloadUrl()`** in api.ts: URL builder for pitch upload serving
-- **`deletePitchUpload()`** in api.ts: client-side function for deleting uploaded pitch files
-- **`DELETE /api/uploads/pitch/{name}`** endpoint in Go backend: deletes files from `input_rubberband/` with path traversal protection
-- **Full per-file player in PitchPage.svelte**: each uploaded audio file now shows an independent player with:
-  - Waveform visualization (real audio data on first play, deterministic fallback)
-  - Play / Pause / Stop transport controls
-  - Seek slider with time display (current / duration)
-  - Volume slider with percentage label
-  - Download button (⬇)
-  - Delete button (🗑) with confirmation and server-side cleanup
-  - Upload status (uploading/ready/error) with toast notifications
-
-### Fixed
-- **Entrypoint.sh**: `mkdir -p /config/model_configs` now fails gracefully when /config is root-owned
-
-### Changed
-- **VERSION** aligned to `v2.6.4` (consistent `v` prefix across backend, frontend, pipeline)
-
-### Added
-- **Endpoint `POST /api/upload/pitch`**: guarda archivos en `input_rubberband/` independiente
-- **`uploadPitchAudio()`** en api.ts para el frontend
-- **Volumen `input_rubberband`** en docker-compose (persistente)
-- **Prop `onError`** en PipelineView para errores visibles (toast)
-
-### Fixed
-- **PipelineView**: si el preset no existe en el servidor, muestra error en vez de fallar silenciosamente
-- **Personalizado**: cambiar preset en el desplegable ahora actualiza `selectedPresetName` correctamente (prop `onPresetChange`)
-- **PitchPage**: ahora sube a `input_rubberband/` en vez de a la cola general
-
-## v2.6.2-alpha — Refactor de pestañas: 4 presets directos, Personalizado, PitchPage (2026-06-10)
-
-### Added
-- **Nueva pestaña "Personalizado"** en el sidebar — con selector de presets para elegir qué preset ejecutar
-- **PitchPage.svelte** — nueva página para Cambiar Tono con resultados existentes arriba y dropzone independiente abajo
-- **IconUser** en icons.ts
-
-### Changed
-- **Sidebar reorganizado**: 4 presets hardcodeados (Separador Voces Total ⭐, Eliminador de Voz 🎤, Separador Completo 〰️, Solo Instrumentos 🎸) + Personalizado 👤
-- Cada preset se ejecuta directamente al pulsar ▶ Ejecutar, sin selector de presets
-- Sidebar ya no carga presets dinámicamente de la API
-- **PipelineView**: nueva prop `hidePresetSelector` — cuando true, oculta el selector de presets y muestra botón ejecutar directo con barra de progreso
-
-### Fixed
-- **PipelineEditor**: los 4 presets predefinidos están bloqueados para eliminación (muestran 🔒)
-- **Persistencia**: font-size y scale ahora se cargan al iniciar la app (no solo al entrar a Ajustes → Interfaz)
-- **Sidebar texto**: nombres ahora envuelven a 2 líneas correctamente (white-space: normal)
-
-## v2.6.1-alpha — Pulido UI: colores púrpura, iconos SVG, sidebar vertical, layout fluido (2026-06-10)
-
-### Fixed
-- **Títulos de preset**: Ahora muestran el nombre original (ej. "Separador Voces Total") en vez del ID con guiones ("separador-voces-total")
-- **Paleta de colores**: Reemplazado acento azul (#00d4ff) por púrpura (#6c5ce7) en toda la interfaz — checkboxes, botones, gradientes, bordes, barras de progreso
-- **Iconos SVG**: Reemplazados emojis por iconos SVG line-art al estilo vocalremover.org (18 iconos: menú, estrella, música, tono, tempo, DAW, ayuda, ajustes, subida, modelo, descarga, presets, logs, onda, cerrar, refrescar)
-- **Sidebar vertical**: Items cambian a layout vertical (icono arriba, texto debajo) con borde activo inferior púrpura
-- **Layout fluido**: Interfaz ocupa todo el viewport y escala con la ventana. Eliminado `max-width: 800px` — contenido principal limitado a 900px para legibilidad
-
-## v2.6.0-alpha — Rediseño UI con sidebar vertical al estilo vocalremover.org
-
-## v2.5.1 (2026-06-09)
-
-### Added
-- **Default preset persistente**: endpoint `GET/POST /api/presets/default` que guarda el preset predeterminado en `/config/default_preset.json`. El frontend lo carga automáticamente al iniciar.
-- **Botón "Establecer como predeterminado"** en el Gestor de Presets, con confirmación visual verde.
-- **Reorganización del Gestor de Presets** en dos categorías: "Crear Presets" (configuración + guardar) y "Editor de Presets" (un solo selector para establecer predeterminado y eliminar).
-
-### Changed
-- **Selector de presets unificado**: un solo dropdown en "Editor de Presets" sirve para ambas acciones (predeterminado y eliminar). Eliminado el selector duplicado de la sección de eliminar.
-- Botón "Ejecutar" en PresetsPanel se deshabilita si no hay preset seleccionado.
-
-## v2.5.0-alpha (2026-06-09)
-
-### Added
-- **Botón 🎛 Gestor de Presets** en la UI principal que abre el editor en modal fullscreen.
-- **PresetsPanel**: nuevo componente con selector de preset, botón Ejecutar y barra de progreso integrada.
-- **Cabecera de cola**: fila de encabezado con checkbox maestro, columnas "Título", "Progreso" y "Estado".
-- **Banner de confirmación**: tras guardar un preset, banner verde "✅ Preset guardado correctamente" durante 5 segundos.
-- **Sección "🗑 Eliminar Presets"** con confirmación explícita antes de borrar.
-
-### Changed
-- **PipelineEditor renombrado** a "Gestor de Presets" con etiquetas descriptivas: "Modelo separador de Voces/Stems", "Separación de Voces/Stems".
-- **Botón Guardar Preset** grande y centrado (💾), con estilo verde prominente.
-- **Ventana de Logs**: convertida a modal fullscreen unificado (mismo patrón que ModelManager/ModelDownloader).
-- **✕ reemplaza "← Volver"** en ModelManager y ModelDownloader para consistencia visual.
-
-### Fixed
-- **Ventanas fullscreen unificadas**: PresetEditor y Logs usan `.fullscreen` (pantalla completa), mismo patrón que ModelManager. Eliminado `modal-overlay`/`modal-panel`.
-- **Barra de progreso en idle**: ya no muestra 100% falso — solo se activa con `status === 'running'`.
-- **PresetsPanel estrecho**: anchura ampliada para mejor legibilidad.
-- **Botón ✕ alineado**: header flex con ✕ a la izquierda y título centrado en todas las ventanas.
-- **Refresco de presets**: al cerrar el Editor, la lista de presets se recarga automáticamente.
-- **Tamaños de ventana inconsistentes**: todas las modales usan las mismas dimensiones y estilos.
-
-## v2.4.4 (2026-06-10)
-
-### Fixed
-- **Barra de progreso individual**: Python escribe `pipeline_status.json` directamente en cada chunk (~1% por actualización). Eliminado el frágil `report_progress` en bash.
-- **Barra de progreso total**: solo cuenta jobs del batch actual (ignora jobs históricos). Peso igual por paso: 1 canción × 2 pasos = 50% cada paso, 2 canciones × 1 paso = 50% cada una.
-- **Polling rápido**: frontend consulta `/api/queue/status` cada 500ms (eventos) y 200ms (pipeline_status.json).
-- **Pestaña Servicios**: sin auto-refresh (solo botón manual) para permitir revisar logs antiguos.
-- **`set -u` crash**: variables en heredocs de `report_progress` usan `${VAR:-default}` para evitar crash por unbound variable.
-- **Timestamps**: `LogWithNano()` con nano decreciente por línea para orden correcto en logs.
-- **Filtro "Todos"**: `<select>` usa `onchange` + `parseInt()` en vez de `bind:value` para evitar coerción string↔number.
-- **Versión frontend**: `ONDA_VERSION` se inyecta desde entorno; Dockerfile multi-stage sin valor fijo.
-- **pipeline_status.json**: se limpia al iniciar pipeline (ya no muestra estado "done" residual).
-- Reporte de progreso inicial en ViperX y Demucs (barra arranca en 0%, no vacío).
-- Progreso intermedio para Demucs (conteo de stems generados vs esperados).
-
-## v2.4.3-alpha (2026-06-10)
-
-### Fixed
-- VRAM: race condition corregida (loadConfig async causaba primera llamada con defaults)
-- Progreso: jobs "done" ahora muestran 100% en vez de 0%
-- Progreso: barra total calculada ponderando todos los jobs en cola
-
-## v2.4.2-alpha (2026-06-10)
-
-### Fixed
-- VRAM calculator: reactividad Svelte 5 corregida (sliders ahora disparan recálculo)
-- Device indicator: muestra "Ejecutando en GPU/CPU" durante inferencia activa
-- Eliminado banner GPU estático del header (no aportaba información)
-
-## v2.4.1-alpha (2026-06-09)
-
-### Fixed
-- VRAM calculator: reconoce nombres completos de modelo (BS_Roformer_Viperx, no solo "viperx")
-- VRAM calculator: incluye segment_size, overlap, batch_size en la fórmula
-- Progreso: barra de progreso lee valor real del queue status (ya no se queda en 0%)
-- Device indicator: muestra "Ejecutando en GPU/CPU" durante inferencia activa
-
-## v2.4.0-alpha (2026-06-09)
-
-### v2.4.0-alpha.2 (2026-06-09)
-
-- Fix: VRAM calculator UI ahora usa endpoint del backend (chunk_size y shifts afectan)
-- Feat: indicador GPU/CPU en la interfaz
-- Fix: progreso de inferencia usa set_progress_bar nativo de UVR (por chunk, no cada 10)
-- Feat: auto-refresh de logs (3s Eventos, 5s Servicios) + botón refrescar manual
-
-- Fix: VRAM calculator ahora incluye chunk_size en ViperX/Roformer
-- Fix: VRAM calculator ahora incluye shifts en modelos Demucs
-- Feat: progreso por paso en la cola (Paso 1/2 ViperX 65%)
-- Fix: timestamps de pipeline verificados (LogWithNano intacto)
-
-### v2.4.0-alpha.1 (2026-06-09)
-
-- Fix: presets API restaurada (regresión por limpieza agresiva en 4ab3cc1)
-
-### Fase 7 — Optimización y limpieza
-
-- Eliminadas ~880 líneas de código muerto (Go, Svelte, Python)
-- 3 duplicidades unificadas (copyFile, loaders catálogo, groupBySong)
-- 4 requirements.txt consolidados en 2 (NVIDIA + AMD)
-- 5 funciones API + 4 interfaces huérfanas eliminadas del frontend
-- Componente PipelinePanel.svelte (441 líneas) eliminado
-- Dependencia @tauri-apps/api no usada eliminada
-- Presets legacy + tests rotos eliminados
-- onda.sh reparado (referencias rotas a compose files)
-- validate.sh reparado (bug en chequeo git)
-- CSS huérfano eliminado
-
-## v2.3.8 (2026-06-09)
-
-### Fixed
-- Timestamps de docker logs mostraban hora actual — ahora se parsea el timestamp real de nginx
-- Filtro "Todos" en Servicios no funcionaba por coerción string↔number
-
-## v2.3.7 (2026-06-09)
-
-### Fixed
-- Timestamps de docker logs idénticos en pestaña Servicios — ahora cada línea tiene nano decreciente
-
-## v2.3.6 (2026-06-09)
-
-### Fixed
-- Upload de archivos se quedaba en "uploading" hasta refrescar — reactividad Svelte 5 corregida
-- Timestamps de logs de pipeline idénticos — ahora cada línea tiene nano decreciente
-- Eventos mostraba líneas detalladas de pipeline — ahora solo resúmenes
-- Servicios no tenía filtro — ahora dropdown: Últimos 50/100/500/Todos
-
-## v2.3.5 (2026-06-09)
-
-### Fixed
-- Archivos arrastrados se pierden al refrescar — ahora se suben al servidor inmediatamente al arrastrar
-- Logs de pipeline/inferencia no visibles — ahora cada línea de stdout/stderr de pipeline.sh se guarda en el ring buffer
-
-## v2.3.4 (2026-06-10)
-
-### Fixed
-- Presets guardan y restauran el estado COMPLETO del pipeline (pasos activos, stems, modelos)
-- Errores de pipeline muestran la salida real de stderr en los logs (antes solo "exit status 1")
-
-### Added
-- Campo `service` en logs (backend, pipeline, inference)
-- Panel de detalle al hacer click en un log (mensaje completo + metadata + botón copiar)
-- Pestaña "Servicios" con logs reales de docker (onda, onda-gui)
-- Colores por servicio en el visor de logs
-
-## v2.3.3 (2026-06-10)
-
-### Fixed
-- Model configs se pierden al redeploy — ahora persisten en /config/model_configs/
-- Presets de usuario no persisten — ahora guardados en /config/presets_user.json
-- Errores desaparecen muy rápido — ahora banner persistente con botón copiar
-
-### Added
-- Sistema de logs con ring buffer en memoria (GET /api/logs)
-- Panel de logs en la UI con colores y detalle expandible
-
-## v2.3.2 — Regresiones corregidas + bajos + UI 🧹
-
-### 🔴 Regresiones de v2.3.1 corregidas
-
-- **Rubberband paths rotos en contenedor**: `findProjectRoot()` devolvía `/` dentro del contenedor, causando que `strings.Replace` eliminara la barra inicial. Ahora se pasan paths absolutos del contenedor directamente.
-- **chmod 0755 impedía escritura uid 1000**: rubberband corre como uid 1000 en el contenedor `onda`. Restaurado `0777` en el directorio de salida del pitch.
-
-### 🟠 Medios corregidos
-
-- **Stale download status**: dos modelos con misma URL de dependencia se sobrescribían. Key compuesta `filename@URL`.
-- **pitchStr sin sanitizar** en `handlePitchFileServe`. Añadido `filepath.Clean()`.
-- **Check `_pitch` demasiado amplio**: bloqueaba archivos legítimos con `_pitch` en el nombre. Ahora verifica el directorio padre.
-
-### 🟢 Bajos backend corregidos
-
-- **copyFile sin Sync()** → añadido `out.Sync()` antes de `Close()`
-- **404 vs 200 vacío**: cuando un directorio no existe, devuelve 404 en vez de 200 con array vacío
-- **pip install silencioso**: ahora loggea errores de instalación
-- **Verificación de pip**: comprueba que pip existe antes de usarlo
-- **Upload sin check de disco**: verifica espacio libre antes de parsear 500MB en RAM
-- **Catálogo HF con sync.Once**: ahora se recarga en cada request
-
-### 🔵 UI frontend corregidos
-
-- **Progreso de cola no se actualizaba**: polling ahora actualiza pipelineStep, pipelineModel, pipelineEta
-- **AudioContext por waveform**: compartido un solo OfflineAudioContext para decodificar waveforms
-- **$inspect residual en producción**: eliminado
-- **onDestroy sin cancelación**: añadido AbortController para requests de pitch
-- **Errores red silenciados**: ahora muestra toast al fallar carga de subgrupos
-- **syncSubgroupGains ignoraba pausa**: ahora aplica cambios de volumen incluso si el player está pausado
-
-## v2.3.1 — Bugfix masivo: pitch shift, seguridad, player 🔧
-
-### 🐛 Bugs críticos corregidos
-
-- **Pitch shift no funcionaba**: `docker exec rubberband` recibía paths del host en vez de paths del contenedor (`/output/...`). Corregido convirtiendo paths automáticamente. Añadido timeout de 60s.
-- **PitchResponse devolvía paths absolutos del servidor**: el frontend recibía `/home/starmito/.../output/...` en vez de URLs HTTP. Nuevo endpoint `GET /api/pitch/files/{song}/{pitch}/{file}` para servir archivos de subgrupos.
-- **Reproductor de subgrupos no cargaba audio**: las URLs de descarga no coincidían con la estructura de directorios del servidor. Nuevo helper `pitchDownloadUrl()` en el frontend.
-- **Waveform y enlaces de descarga rotos**: usaban `stem.path` (ruta absoluta del servidor) como href. Corregido usando URLs HTTP.
-
-### 🟠 Bugs graves corregidos
-
-- **Inyección de código Python en descarga HF**: el parámetro `repo` se interpolaba directamente en un script Python sin sanitizar. Corregido escapando comillas simples.
-- **Path traversal en upload**: `header.Filename` iba directo a `filepath.Join` sin sanitizar. Corregido con `filepath.Base()`.
-- **handleDeleteFile**: permitía borrar archivos en subdirectorios arbitrarios de `output/`. Corregido rechazando paths que contengan `_pitch`.
-- **stopSubgroup()**: no reseteaba `duration`, `buffers`, `gainNodes`. El slider de seek mostraba tiempo incorrecto tras stop.
-- **toggleSubgroupSolo()**: no silenciaba los demás stems cuando se activaba Solo. Nueva función `syncSubgroupGains()`.
-- **handleSubgroupSeekChange()**: no reiniciaba el timer de reproducción tras hacer seek. Corregido cancelando y reiniciando `startSubgroupTimer()`.
-
-### 🟡 Bugs medios corregidos
-
-- **Chmod 0777** en directorios de pitch → 0755
-- **Race condition en presets**: `saveUserPresets()` fuera del write lock. Movido dentro.
-- **handleDeleteModel**: error de limpieza de config silencioso → incluye warning en respuesta
-- **Prefix check sin trailing separator**: `HasPrefix(absPath, outputPrefix)` podía dar falso positivo
-- **loadModelConfig**: errores de parseo silenciosos → ahora logea warning
-- **Colisión en tracker de descargas**: dos modelos con misma dependencia se sobrescribían. Key compuesta `filename@URL`.
-- **handleSeekInput**: no actualizaba `pauseOffset` → al pausar tras arrastrar slider, la reanudación iba a posición incorrecta
-- **$effect loadPitchSubgroups**: race conditions con respuestas fuera de orden. Añadido contador de versión.
-- **waveformDrawn**: memory leak (Set nunca se limpiaba). Limpiado en `onDestroy`.
-- **Último stem de subgrupo**: al borrarlo, el subgrupo quedaba vacío. Ahora se elimina automáticamente.
-- **buildConfig()**: no incluía `preset` → siempre usaba default. Corregido.
-- **demucsVocalsAutoDisabled**: no chequeaba `demucsEnabled` → se autodesactivaba innecesariamente.
-
-## v2.3.0 — Pitch shift + subgrupos + limpieza de pipeline 🎛️
-
-### 🎵 Nuevas funcionalidades
-
-- **Pitch shift post-procesamiento**: nuevo endpoint `POST /api/pitch`. Slider de tono debajo de cada grupo de stems en ResultsPanel con botón "🎵 Cambiar tono".
-- **Subgrupos con pitch**: al cambiar el tono, se genera un subgrupo anidado con reproducción independiente (▶⏸⏹ seek). Cada stem tiene Mute, Solo, Volumen, Descargar y Eliminar.
-- **Múltiples subgrupos**: se pueden tener varios subgrupos por canción (+2, -5, +12...) independientes entre sí.
-- **Persistencia**: los subgrupos se guardan en el servidor y sobreviven a recargas del navegador.
-- **Drums sin procesar**: los stems de drums se copian sin aplicar pitch shift.
-
-### 🗑️ Limpieza
-
-- **PipelinePanel eliminado**: la sección redundante con ViperX/Demucs/Pitch ya no se muestra. PipelineEditor es la única interfaz de configuración del pipeline.
-- **ConfigPanel eliminado**: el desplegable "Configuración avanzada" no estaba conectado al pipeline real.
-- **Selector de presets duplicado eliminado**: PipelinePanel ya no tenía su propio selector — todo se gestiona desde PipelineEditor.
-
-### 🐛 Bugs corregidos
-
-- **Rubberband en contenedor equivocado**: el backend ejecutaba `rubberband` como comando local en `onda-gui` donde no estaba instalado. Corregido ejecutando dentro del contenedor `onda` via `docker exec`.
-- **Permisos de escritura**: el directorio de salida del pitch se creaba como root pero rubberband corre como uid 1000. Corregido con `os.Chmod(outDir, 0777)`.
-- **Download URL de subgrupos**: usaba la API incorrecta (404). Corregido usando la ruta directa servida por nginx.
-- **Delete stem individual**: daba 405 por usar DELETE en estáticos de nginx. Nuevo endpoint `DELETE /api/pitch/{song}/{pitch}/{file}`.
-- **Waveform de subgrupos**: no se dibujaba por usar URL incorrecta. Nueva función `waveformFromUrl` con ruta directa.
-- **Path traversal en POST /api/pitch**: no tenía guard de seguridad a diferencia de GET y DELETE.
-
-### 🎨 UI
-
-- **Reproductores de stems responsive**: los botones ya no se salen del cuadro al hacer zoom en el navegador (flex-wrap, tamaños reducidos).
-- **SVG del editor corregido**: altura dinámica para que los 3 stems de Demucs se vean completos (ya no se corta el tercero).
-
-## v2.2.0 — Interfaces unificadas + pantalla completa 🖥️
-
-### 🎨 UI (08-jun-2026)
-
-- **ModelDownloader y ModelManager convertidos a pantalla completa** con botón "← Volver" en la cabecera (antes eran paneles laterales deslizantes).
-- **Catálogo HF integrado** en ModelDownloader — los modelos de Politrees/UVR_resources ahora aparecen en la misma pantalla que los modelos UVR.
-- **Filtros de fuente**: 3 botones tipo pill debajo del buscador — "Todas las fuentes", "UVR", "Hugging Face" — para mostrar solo los modelos de una fuente.
-- **Badge de fuente** en cada modelo: etiqueta "UVR" (verde) o "HF" (azul) al lado del botón de descargar.
-- **Descarga .yaml automática**: al descargar un checkpoint (.ckpt/.pth) de HF, también se descarga su archivo .yaml asociado.
-- **API extendida**: `downloadModel()` acepta `filename` opcional; nueva función `getHfCatalog()`.
-- **CatalogPanel eliminado**: toda la funcionalidad absorbida en ModelDownloader.
-
-### 🐛 Bugs corregidos (08-jun-2026)
-
-- **Versión centralizada**: ahora se lee del archivo `VERSION` en la raíz del proyecto. El backend usa `api.Version` (leído vía `init()`), el frontend lo obtiene del health endpoint. Ya no hay texto hardcodeado en `App.svelte`, `server.go` ni `main.go`.
-- **Build frontend en Docker**: el Dockerfile ahora es multi-stage con un `frontend-builder` que compila el Svelte dentro del Docker build. Ya no necesita rsync ni build manual.
-- **htdemucs_ft con 0MB corregido**: ahora muestra correctamente 2800 MB en la lista de modelos instalados (su VRAM real).
-- **Skill de despliegue actualizada**: documenta el workflow correcto con build multi-stage y versión centralizada.
-- **Presets persistentes en backend**: nueva API REST (`GET/POST/DELETE /api/presets`) con persistencia en archivo JSON. PipelineEditor guarda/carga presets desde el servidor. Se unifican presets built-in (turbo, balance, master, ultimate) con los del usuario.
-- **Selector de presets duplicado eliminado**: PipelinePanel ya no tiene su propio selector de presets — todo se gestiona desde PipelineEditor.
-- **ConfigPanel eliminado**: el desplegable "Configuración avanzada" no estaba conectado al pipeline real.
-- **Reproductores de stems responsive**: los botones ya no se salen del cuadro al hacer zoom en el navegador (flex-wrap, tamaños reducidos).
-- **SVG del editor corregido**: altura dinámica para que los 3 stems de Demucs se vean completos (ya no se corta el tercero).
-
-## v2.1.1 — Catálogo de modelos UVR funcional + fixes de UI ✅
-
-### 🐛 Catálogo de modelos — 4 bugs críticos arreglados (31-may-2026)
-
-El catálogo de descarga de modelos (ModelDownloader) no funcionaba por 4 bugs encadenados:
-
-- **Fix (crítico):** `each_key_duplicate` — 10 modelos del catálogo UVR tenían nombres/filenames duplicados. El `{#each}` de Svelte 5 craseaba el componente entero. Solución: eliminar la key del each + deduplicación inteligente.
-- **Fix (crítico):** `state_unsafe_mutation` — la función `groupedCatalog` mutaba `display_name` dentro de `$derived`. Svelte 5 prohíbe mutar `$state` en derivados. Solución: `flatMap` + spread operator para crear copias.
-- **Fix:** Catálogo mostraba "Cargando..." infinito — el `$effect` de Svelte 5 no disparaba reactividad con `catalog = data`. Solución: `catalog = [...data]` (spread assignment).
-- **Fix:** Botón "Descargar" siempre deshabilitado — backend envía `download_url`, frontend esperaba `huggingface_repo`. Solución: mapeo en `getModelCatalog()`.
-
-### 📏 Tamaños de archivo reales (31-may-2026)
-
-- **Fix:** Los 98 modelos del catálogo mostraban 0 MB. Script Python que obtiene tamaños vía HTTP HEAD (GitHub Releases, HuggingFace, Facebook CDN) + filesystem para modelos ya descargados.
-- **Fix:** Modelos built-in de Demucs (`htdemucs_ft`, `htdemucs`, `htdemucs_6s`, `hdemucs_mmi`) ahora muestran su tamaño VRAM real (1400–3200 MB).
-- **Fix:** URL rota de `deverb_bs_roformer` (typo en repo name + path incorrecto).
-
-### 🧹 Limpieza del catálogo (31-may-2026)
-
-- **Fix:** 31 sub-componentes UUID de Demucs (`.th` internos) ocultos del catálogo. Son archivos que Demucs descarga automáticamente.
-- **Fix:** Deduplicación por `display_name` — los archivos `.yaml` (0 MB) ya no aparecen junto a los `.ckpt` (X MB) del mismo modelo.
-- **Fix:** Versiones v2/v3 de Demucs renombradas: `demucs (v2)` vs `demucs (v3)` para evitar confusión.
-
-### 🎨 UI (31-may-2026)
-
-- **Fix:** Panel de ModelDownloader ampliado de 340px → 440px (+30%) para mejor visibilidad de nombres largos.
-- **Fix:** Icono favicon añadido (`public/icon.png`).
-
-### 🔧 Eliminación de modelos (31-may-2026)
-
-- **Fix:** El botón de papelera ahora borra el archivo físico real (antes solo lo quitaba de la lista en memoria).
-- **Fix:** Volumen `/models` cambiado de `:ro` a lectura-escritura para permitir borrar.
-
-### Commits (10 fixes)
-
-`c262734`, `ac6361a`, `615bab7`, `bcc5628`, `f62498f`, `edbebd7`, `b042382`, `005c43b`, `185d765`, `37e8645`
-
-### 🐛 Bug fixes en GPU info y frontend (1-jun-2026)
-
-- **Fix:** `vram_used_mb` desaparecía del JSON cuando valía 0 (GPU idle). Quitado `omitempty` del struct Go.
-- **Fix:** VRAM calculator (`/api/gpu/vram-calculator`) siempre devolvía 0. Ahora busca en catálogo UVR + fallback 2000 MB.
-- **Fix:** Header mostrando `v2.0.0-alpha` hardcodeado → `v2.1.1`.
-- **Fix:** `API_BASE` hardcodeada a `192.168.1.87` → URLs relativas (funciona desde cualquier IP).
-
-### 📦 Catálogo y descargas (1-jun-2026)
-
-- **Feat:** Filtrado de modelos `size_mb=0` (config files) del catálogo visible. De 98 → 72 modelos.
-- **Feat:** Descarga de dependencias: al bajar un modelo (.ckpt/.pth) se descargan automáticamente sus archivos .yaml asociados.
-- **Feat:** Añadido `hf_models.json` con 380 modelos del repo HuggingFace Politrees/UVR_resources organizados en 11 categorías.
-
-### 📦 Catálogo HF — Tamaños reales y normalización de nombres (8-jun-2026)
-
-- **Feat:** Tamaños reales de los 380 modelos HF obtenidos vía API de HuggingFace (300 checkpoints con tamaño, 80 YAML de configuración). Todos resueltos correctamente sin errores.
-- **Feat:** Normalización de nombres de modelos stem — 8 modelos `kuielab_*` ahora muestran su fuente (ej: `kuielab_a (bass stem)`).
-- **Fix:** `ModelManager.svelte` ahora muestra `display_name || name` en selectores y cabeceras.
-
----
-
-## v2.1.0-alpha — Fase 5: Modelos configurables + Editor visual de pipeline ✅
-
-### Fixes recuperados del 28-may + modelsBasePath (31-may-2026, sesión mañana)
-
-Los commits originales de estos fixes (46898d0-c8c52fd) se perdieron en un git reset. Reimplementados hoy.
-
-- **Fix (crítico):** `handleSeparate` ahora ejecuta pipeline.sh dentro del contenedor `onda` (`docker exec onda bash /pipeline.sh`) en vez de en `onda-gui`. Esto resuelve "demucs: command not found" y "inference_universal.py not found".
-- **Fix:** `Dockerfile` de onda copia `pipeline.sh` → `/pipeline.sh` en la imagen.
-- **Fix:** `resolveModelDir()` — traduce nombres de modelo a rutas de directorio en el contenedor (`model_bs_roformer...` → `/app/models/VR_Models/BS_Roformer_Viperx`). Resuelve "ViperX model not found".
-- **Fix:** Dual-config loading — `handleSeparate` carga configs de ViperX y Demucs por separado (antes solo cargaba una). Demucs ya no ignora `shifts`/`segment`/`jobs` guardados.
-- **Fix:** `PipelineStatus` +8 campos (`segment_size`, `overlap`, `chunk_size`, `batch_size`, `device`, `shifts`, `demucs_segment`, `jobs`) — el frontend ahora recibe los flags reales.
-- **Fix:** Error handler preserva flags — al fallar el pipeline, lee el JSON existente (escrito por pipeline.sh vía trap) y solo actualiza `status` + `error`.
-- **Fix:** `modelsBasePath` ahora es dinámico — detecta `/models` en Docker, usa `ONDA_MODEL_DIR`/`MODEL_DIR` si existen, fallback al path legacy. Resuelve que `listModels()` solo devolvía htdemucs_ft.
-- **Fix:** `isDemucs` scope en frontend — separado en `isDemucs` (solo htdemucs_ft) e `isDemucsFamily` (todos). Demucs ONNX ya no muestra sliders inaplicables.
-- **Fix:** VRAM base sin ajustes — `estimateVRAM()` devuelve valores raw (sin aplicar config guardada). El frontend aplica sliders → sin doble multiplicación.
-- **Commits:** effd554, 858557f, abc7257, 32580b8
-
-### StatusBar versionado + CORS fix + GPU check (31-may-2026)
-
-- **Fix:** CORS duplicado — nginx ya no añade `Access-Control-Allow-Origin` (solo el backend Go), resolviendo indicadores rojos en navegador
-- **Feat:** `StatusBar.svelte` reescrito: muestra Backend, Frontend, Pipeline (apps primero) + GPU, Disco, Docker (infra) con versiones
-- **Feat:** `version_mismatch` en `/api/health` — detecta y reporta divergencias entre backend, frontend y pipeline
-- **Fix:** `handleHealth` en server.go completo: frontend version (lee `/usr/share/nginx/html/VERSION`), pipeline version (lee `/VERSION`), version_mismatch con detalle de componente conflictivo
-- **Fix:** `checkGPU()` usa PyTorch en vez de `nvidia-smi` (el contenedor `onda` no lo tiene)
-- **Fix:** `main.go` — flag `--addr` con default `:3001` (antes hardcodeado `:3000`, rompía nginx)
-- **Fix:** versiones unificadas: `const version = "v2.1.0-alpha"` en server.go + `ONDA_VERSION=v2.1.0-alpha` en Dockerfile
-- **Fix:** `entrypoint.sh` arranca backend Go (`/usr/bin/onda-backend serve --addr :3001`) en vez de Python
-- **Fix:** Dockerfile multi-stage: `golang:1.26-alpine` (go.mod requiere >=1.26)
-- **Fix:** Despliegue con `docker compose -f docker-compose.yml -f docker-compose.nvidia.yml` para acceso GPU
-- **Refactor:** `docker-compose.yml` unificado — GPU integrada, un solo `docker compose up -d --build` levanta todo. Eliminados `docker-compose.nvidia.yml` y `.amd.yml`.
-- **Feat:** Health check en `onda` (verifica CUDA con PyTorch). `onda-gui` espera con `condition: service_healthy`.
-- **Chore:** Limpiado `.env` — eliminadas variables obsoletas (`GPU_TYPE`, `GPU_DOCKERFILE`). Solo queda `MODEL_DIR`.
-- **Build:** `frontend/dist/` gitignored — construir con `npm run build` antes de `docker compose build`
-- **Commits:** 6bc3c3e, af1d6c7, 39fdc39, ad78c1b, 99c9edd, 3bcfec0, 97a52e0
-
-### Infraestructura unificada — paths, usuarios, permisos (31-may-2026, sesión tarde)
-
-- **Fix:** Paths unificados — ambos contenedores (`onda`, `onda-gui`) mapean el mismo volumen `/models`. Sin paths divergentes ni mounts separados.
-- **Fix:** Usuario `1000:1000` en `onda` — el pipeline se ejecuta como usuario del host, sin `--user` forzado en `docker exec` (hereda el `user:` del compose).
-- **Fix:** `rm -rf` del output previo recuperado — seguro porque el pipeline corre como uid 1000 (mismo owner que los archivos).
-- **Fix:** `onda-gui` usa root (necesario para entrypoint nginx/gestión de usuarios).
-- **Fix:** `STATUS_FILE` unificado a `/output/pipeline_status.json` — antes `pipeline.sh` escribía en `/tmp/pipeline_status.json` pero `server.go` leía de `/output/pipeline_status.json` (mismatch de paths).
-- **Refactor:** Eliminados `docker-compose.nvidia.yml` y `docker-compose.amd.yml` — un solo compose con GPU integrada vía `deploy.resources.reservations.devices`.
-- **Refactor:** Sin `chmod 777`, sin `--user 0:0`, sin `docker cp` — todo resuelto mediante código y docker compose.
-- **Commits:** 1d5c7d5, f9492be, 3fb1c69, 118b830
-
-### Fixes VRAM — fórmula realista + NaN (31-may-2026, sesión tarde)
-
-- **Fix (crítico):** Fórmula de VRAM estimada en ModelManager — cambiada de cadena multiplicativa a modelo aditivo. Antes: `base × (seg/256) × (1+overlap) × batch × (chunk/1024)` → ViperX con valores máximos daba 76.8 GB (factor 24×). Ahora: `(base + activationMemory) × batch` donde `activationMemory = base × 0.25 × (seg/256) × (1+overlap)`. ViperX máx: 7.8 GB, MelBand máx: 10.3 GB. El chunk_size ya no escala la VRAM del modelo (nunca debió — solo afecta al throughput de audio).
-- **Fix:** NaN en barra de VRAM — cuando la GPU no estaba disponible, el backend Go omitía `vram_total_mb` del JSON (`omitempty` en struct tag). El frontend recibía `undefined`, las guardas `!== null` no protegían, y `undefined/undefined` → NaN → "NaN%". Solución: quitar `omitempty`, retornar HTTP 503 en vez de 200 cuando GPU no disponible, validar `gpu.ok` + `isFinite()` en frontend, y cambiar guardas a `== null`.
-- **Commits:** 313fa20, 53ce03a
-### GPU info via PyTorch + VRAM Demucs (31-may-2026, sesión tarde)
-
-- **Fix:** GPU info ahora usa PyTorch (`torch.cuda`) vía `docker exec onda python3`. El contenedor `onda` (python:slim) no tiene `nvidia-smi`, lo que causaba `ok:false` y ocultaba la barra de VRAM en el frontend. Ahora obtiene VRAM total/usada/libre, nombre, uso% y temperatura desde PyTorch + pynvml.
-- **Feat:** Fórmula VRAM para Demucs (htdemucs_ft) — considera `segment` (escala lineal vs default 7.8s) y `jobs` (escala sub-lineal: `1 + (n-1) × 0.3`). Shifts se ignora (procesamiento secuencial, no escala VRAM).
-- **Fix:** `estimateVRAM()` en backend — eliminados todos los hardcodes por modelo (ViperX=3200, MelBand=4200, Polarformer=4800, etc.). Mediciones reales en RTX 5060 Ti muestran que los pesos en fp16 cargan 1:1 en VRAM vs disco (ViperX 609 MB disco → 616 MB VRAM). Nueva lógica: sizeMB para .ckpt/.pth, sizeMB×2 para ONNX, 2800 MB para htdemucs_ft.
-- **Commits:** 9ea7793, f9a1149, f2b2d17
-
-### Cola secuencial + Resultados acumulados (31-may-2026, sesión noche)
-
-- **Feat:** Cola secuencial FIFO en backend — worker único consume del channel `jobQueue`. Cada `POST /api/separate` encola en vez de lanzar goroutine. Solo 1 pipeline ejecutándose a la vez → GPU sin saturar.
-- **Feat:** `GET /api/queue/status` — estado de toda la cola (waiting/processing/done/error), ordenado por prioridad.
-- **Feat:** Cola visible en frontend (PipelinePanel) — emojis de estado por canción, mensaje de error si falla.
-- **Feat:** Resultados acumulados (ResultsPanel) — stems de cada canción aparecen como grupos independientes, no se reemplazan. Controles de reproducción/borrado por grupo.
-- **Refactor:** Eliminado código obsoleto — `/api/status`, `/api/events` (SSE), `pipeline_status.json` único.
-- **Commits:** e896323, 18b3335
-+### Fixes cola — orden FIFO + persistencia (31-may-2026, sesión noche)
-+
-+- **Fix:** Orden FIFO estable en la cola — añadido `index` secuencial a cada job. Las canciones en waiting ya no cambian de posición aleatoriamente (el map de Go itera en orden aleatorio).
-+- **Feat:** `GET /api/results` — lista stems en `/output/` agrupados por canción. `GET /api/inputs` — lista archivos en `/input/`.
-+- **Fix:** Inputs y resultados persisten al recargar la página (F5). El frontend carga desde el filesystem al montar, no solo desde memoria.
-+- **Commits:** 225247a
-
-### Fixes finales — limpieza + límites (31-may-2026, sesión noche)
-
-- **Fix:** Slider de segment para htdemucs_ft limitado a 7.8s (step 0.1). Antes permitía 60s, el modelo solo soporta 7.8s.
-- **Fix:** `GET /api/results` devuelve `[]` en vez de `null` cuando no hay stems.
-- **Fix:** `DELETE /api/inputs/{name}` — borrado físico de archivos de input desde la UI. Antes solo los quitaba de la lista visual.
-- **Chore:** Limpiados archivos huérfanos de root en `/input/` y `/output/` (herencia del pipeline antiguo con `--user 0:0`).
-- **Commits:** e10ac87, 29c4bd5, cb7d118, 2d7f4c9, 4ccf810
-
-### Fase 6 — Catálogo UVR + Pantalla de descarga (31-may-2026, sesión noche)
-
-- **Feat:** Catálogo UVR completo — 98 modelos (26 Roformer, 56 Demucs, 8 MDX, 8 SCnet) con URLs de descarga extraídas del repo oficial. Método: descarga directa (wget) desde GitHub Releases y HuggingFace.
-- **Feat:** `GET /api/models/catalog` — devuelve el catálogo UVR con campo `downloaded: true/false` comparando con modelos instalados.
-- **Feat:** `POST /api/models/download` con `source: "direct"` — descarga modelos desde URLs directas (wget) a la categoría correcta según el nombre del archivo.
-- **Feat:** `ModelDownloader.svelte` — panel lateral con 3 pestañas: 📥 Descargar (catálogo UVR con checks ✅), 📤 Subir (dropzone para .ckpt/.pth/.onnx), ✅ Instalados (modelos locales).
-- **Commits:** ab5dfb6, 23e5885, 26959c7
-
-### Deploy-ready + defaults locales (30-may-2026)
-
-- **docker-compose.yml:** paths configurables via `.env` (`MODEL_DIR`, `HOST_UID`, `HOST_GID`, `ONDA_PORT`), defaults locales (`./models`)
-- **.env.example:** template documentado con todos los valores
-- **Makefile raiz:** `make setup` (detecta GPU, crea .env, directorios), `make build`, `make up`, `make test`, `make validate`, `make clean`
-- **scripts/download-models.sh:** guia de descarga de modelos ViperX, Demucs, ONNX desde HuggingFace
-- **onda-gui/Makefile:** sin paths hardcodeados, usa `PROJECT_DIR` relativo
-- **Limpieza:** `Dockerfile.v2` unificado como `Dockerfile`, eliminado `pipeline.sh.bak`, `.gitignore` mejorado
-
-### Robustez del pipeline + Build validation (30-may-2026)
-
-- **Fix:** Overlap float->int usa python3 (locale-independent), no awk — evita `ValueError: int('0.25')`
-- **Fix:** `json.load()` de archivos de progreso parciales protegidos con `|| echo 0` — evita crash por race condition
-- **Fix:** `ls *.wav` final protegido con `|| true` — evita falsos errores con pipefail
-- **Fix:** Pre-flight validation antes de ViperX: verifica modelo e inference_universal.py existen
-- **Feat:** `scripts/validate.sh` — validacion pre-build (sintaxis, archivos, anti-patrones, modelos)
-- **Commits:** fe5d254, 8080bdc en v2.1.0-alpha
-
-### Fixes post-Fase 5 (27-may-2026, sesión tarde) — 10 fixes
-- **ModelManager → per-model config:** `model_configs/{model_name}.json` (14 archivos), no global. Endpoints: `GET/POST /api/models/{name}/config`
-- **PipelineEditor interactividad:** Grafo SVG muestra nombres de modelo. Prop `hasFiles`. Toast en vez de alert.
-- **Default YAML UVR:** 14 modelos con valores reales de dim_t, num_overlap, batch_size importados desde YAML en .87
-- **display_name API:** Nombres amigables (BS_Roformer_Viperx, no model_bs_roformer_ep_317_sdr_12.9755)
-- **Demucs reorganizado:** htdemucs_ft (PyTorch) en categoría "Demucs", ONNX stems en "Demucs ONNX"
-- **Sliders min/max:** Valores numéricos + etiquetas Fast/-VRAM ↔ Quality/+VRAM en extremos
-- **VRAM realista:** `vram_estimate_mb`: htdemucs_ft=2800, Kim_Vocal=800, ViperX=3200 MB
-- **Parámetros Demucs PyTorch:** shifts (0-20), segment (0-60s), jobs (0-8) — solo visibles para htdemucs_ft
-- **Chunk/Batch docs:** Añadido "No afecta a la calidad del resultado" en descripciones
-- **ModelManager UX:** Selector de modelo con optgroups, sliders con descripciones, barra VRAM estimada
-
-### 5.1 — Cablear presets → pipeline
-- `pipeline.sh`: flags `--viperx-model PATH` (default: BS_Roformer_Viperx), `--demucs-model NAME` (default: htdemucs_ft), `--segment-size`, `--overlap`, `--batch-size`, `--device`
-- `server.go`: `SeparateRequest.StemModel`, pasa modelos como flags al pipeline. Endpoints `POST/GET /api/models/config`
-- `api.ts`: campos `vocal_model`, `stem_model`, `viperx_model`, `demucs_model`, `viperx_stems`, `demucs_stems`
-
-### 5.2 — Editor visual de pipeline (`PipelineEditor.svelte`, 746 líneas)
-- Selectores dropdown: ViperX (Roformer/VR_Arch) y Demucs (Demucs/MDX) con optgroups
-- Checkboxes de stems por paso (vocals, instrumental, drums, bass, other)
-- Auto-detección: ViperX activo + vocals → deshabilita vocals en Demucs con tooltip
-- Grafo SVG inline del flujo con nodos activos (cyan) / inactivos (gris)
-- Guardar/cargar/eliminar presets en localStorage con nombre personalizado
-- Botón "Ejecutar" que construye config y lanza separación
-
-### 5.3 — Gestor de modelos (`ModelManager.svelte`, 318 líneas)
-- Panel lateral con sliders: segment size (64-1024), overlap (0-0.5), chunk size (0-4096), batch size (0-32)
-- Dropdown device (cpu/cuda)
-- `POST/GET /api/models/config` — persiste configuración en `model_config.json`
-- Botón "Aplicar" con feedback visual de éxito/error
-
-### 5.4 — Verificación
-- Endpoints funcionales: `GET /api/models/config` (defaults), `POST /api/models/config` (guarda), `GET` (recupera)
-- Go compila, TypeScript compila, Vite build exitoso
-- 12 commits en `v2.1.0-alpha`, 233 commits totales, working tree limpio
-
-## v2.0.0-alpha
-
-### v2.0.0-alpha.9 — Simplificación + Pipeline inteligente + Bug fixes
-
-#### Changed (Simplificación — 27-may-2026)
-- **Fase 1:** Eliminado `inference/` (duplicado de `lib_v5/`), `frontend/src-tauri/`, `pipeline.go` (1.074 líneas), 15 componentes frontend obsoletos. Total: 10.955 líneas eliminadas
-- **Fase 2:** Frontend reducido a 5 componentes Svelte: `App.svelte`, `PipelinePanel.svelte`, `ConfigPanel.svelte`, `ResultsPanel.svelte`, `StatusBar.svelte`
-- **Fase 3:** Pipeline migrado de Go a Bash (`pipeline.sh`, 268 líneas). Backend Go ejecuta `bash pipeline.sh` vía `exec.Command`
-
-#### Added
-- Pipeline inteligente: cuando ViperX está activo, Demucs excluye automáticamente `vocals.wav` (duplicado) y `instrumental_viperx.wav` (intermedio). Pipeline completo = 4 stems finales
-- Nuevo flujo: `original → ViperX → {vocals_viperx, instrumental_viperx → Demucs → {drums, bass, other}}`
-
-#### Fixed
-- **Bug:** Dead import `groupBySong` en ResultsPanel
-- **Bug:** Memory leak en AudioContext de `drawRealWaveform()` — ahora usa `finally` para `.close()`
-- **Bug:** Sin `onDestroy` en ResultsPanel — AudioContexts y animation frames ahora se limpian al desmontar
-- **Bug:** `API_BASE` duplicado en ResultsPanel — centralizado en `api.ts`
-- **Bug:** `fmtTime(0)` con lógica confusa (`!0 === true` por coincidencia)
-- **Bug:** Canvas waveform con dimensiones hardcodeadas 200×32 — ahora usa `devicePixelRatio`
-- **Bug:** Eliminar un stem individual borraba todo el grupo de la UI — ahora filtra localmente sin reemplazar resultados completos
-- **Tests:** Aserciones actualizadas al nuevo naming (`vocals_viperx` / `instrumental_viperx`). 29/30 pasan, 1 xfail conocido
-
-### v2.0.0-alpha.8 — Backend controls + GPU monitor + Model loader
-
-#### Added (Backend — Go)
-- `/api/health`: respuesta estructurada `{backend, gpu, disk, docker}` con `{ok, code, detail}`
-- `/api/backend/start|stop|restart` (POST): control del contenedor de inferencia
-- `/api/gpu/info` (GET): VRAM, temperatura, utilización, runtime vía nvidia-smi
-- `/api/gpu/vram-calculator` (GET): estimación de VRAM por modelo + disponible
-- `/api/models/list` (GET): escaneo de modelos locales por categoría
-- `/api/models/download` (POST): descarga desde HuggingFace
-
-#### Added (Frontend — Svelte)
-- `BackendControls.svelte`: botones Start/Restart/Stop con estado
-- `HealthBar.svelte` (rewrite): dots BE/GPU/Disk/Docker con structured health
-- `PresetSelector.svelte`: dropdown de presets + botón START
-- `ModelConfig.svelte`: configuración por modelo (Vocal/Stems/Drums/Bass/Other)
-- `GpuMonitor.svelte`: barra VRAM + temp + utilización (polling 5s)
-- `VramCalculator.svelte`: consumo estimado por preset
-- `ModelLoader.svelte`: lista de modelos locales + descarga HuggingFace
-
-### v2.0.0-alpha.7 — UI overhaul + GPU fix + JSON tags
-
-#### Fixed
-- **Bug #3 — GPU no detectada**: contenedor `onda` recreado con `docker-compose.nvidia.yml` (runtime nvidia). Health check ahora devuelve `"gpu":true`
-- **Bug #1 — Presets sin nombre**: añadidos `json` tags al struct `Preset` en Go backend. API responde `"name"`/`"description"` en camelCase
-
-#### Added
-- **Bug #2 — UI overhaul** (paridad con v1.4.4):
-  - `FileQueue.svelte`: cola multi-archivo con checkboxes y progreso por archivo
-  - `PipelineConfig.svelte`: checkboxes ViperX/HTDemucs con sub-opciones de stems
-  - `PitchControl.svelte`: slider -12 a +12 semitonos
-  - `ResultsPanel.svelte`: grupos por canción, mute/solo/volumen por stem, waveform, descarga
-  - `AudioControls.svelte`: Web Audio API playback, seek slider
-  - `HealthBar.svelte`: indicadores BE/GPU/Disk/Docker con polling 15s
-  - `App.svelte`: integración de todos los componentes + flujo multi-archivo
-
-### v2.0.0-alpha.6 — Fix permisos output + documentación de testing
-
-#### Fixed
-- Docker: añadido `user: "1000:1000"` en `docker-compose.yml` para que archivos de output no se creen como root
-- Build: añadido `bin/` a `.gitignore` (binario compilado Go no debe committearse)
-
-#### Added
-- `docs/plans/`: planes de Fase 5 — testing integral, rebuild CUDA 12.8, demucs ONNX, MDX-Net, contenedor v2
-- `tests/integration/benchmark_results.json`: resultados comparativos de benchmark
-
-### Rollback Demucs ONNX → Demucs PyTorch
-
-#### Removed
-- `inference/inference_demucs_onnx.py` — script ONNX eliminado (bug #1: GPU hang en RTX 5060 Ti)
-- `tests/integration/test_demucs_onnx.py` — tests del script eliminado
-- `demucs-onnx` de `requirements-docker.txt` y `requirements-docker-v2.txt`
-
-#### Changed
-- `tests/integration/test_edge_cases.py` — reemplazado Demucs ONNX con Demucs PyTorch (`demucs` CLI)
-- `tests/integration/benchmark.py` — eliminada entrada `demucs-onnx-cpu`
-- `Dockerfile` y `Dockerfile.v2` — eliminado cleanup de onnxruntime CPU (ya no necesario sin `demucs-onnx`)
-
-#### Rationale
-`demucs-onnx==0.3.4` + `onnxruntime-gpu` en RTX 5060 Ti se cuelga (GPU al 100%, no genera output). Los modelos ONNX de StemSplitio son incompatibles con CUDAExecutionProvider en esta configuración. Demucs PyTorch funciona correctamente (~60x realtime). MDX-Net ONNX se mantiene (funciona en GPU sin problemas).
-
-### Rebuild CUDA 12.8 — onnxruntime-gpu con GPU real
-
-#### Fixed
-- Inferencia: `onnxruntime-gpu` ahora detecta CUDA 12.8 (antes solo CPU fallback)
-- Docker: añadidas librerías runtime CUDA 12.8 (cudnn9, cublas, cufft, curand, cusolver, cusparse)
-- Docker: `LD_LIBRARY_PATH` configurado para que ONNX Runtime encuentre CUDA y libcudart
-- Docker: `demucs-onnx==0.3.4` instalado (faltaba en requirements anteriores)
-- Docker: `onnxruntime` CPU ya no sobrescribe `onnxruntime-gpu` (eliminado post-install)
-
-#### Changed
-- Contenedor `onda:nvidia`: `python:3.12-slim` + CUDA 12.8 runtime (~500 MB extra)
-- Paquetes NVIDIA desde repositorio oficial (developer.download.nvidia.com)
-- `.dockerignore`: excluye `frontend/node_modules/` (reduce tamaño de imagen)
-
-#### Verification
-- `onnxruntime.get_available_providers()` → `['TensorrtExecutionProvider', 'CUDAExecutionProvider', 'CPUExecutionProvider']` ✅
-- `demucs-onnx` 0.3.4 funcional ✅
-- PyTorch CUDA RTX 5060 Ti sin regresión ✅
-
-> **Nota**: El historial de git anterior a este commit se perdió por un bug en la herramienta de desarrollo (subagente C creó un commit huérfano). El contenido del código está intacto. Este commit representa el estado completo de Fase 0 + Fase 1.
-
-#### Known Issues
-- **Demucs ONNX GPU se cuelga**: la inferencia con `demucs-onnx` + `onnxruntime-gpu` en RTX 5060 Ti consume VRAM (~3.2 GB) y GPU al 100% pero no genera output. El modelo ONNX (htdemucs_ft, StemSplitio) parece incompatible con TensorRT/CUDAExecutionProvider en esta configuración. La separación funciona en CPU. Issue: #1
-
-### Fase 0 — Estructura del proyecto
-- Rama `v2.0.0-alpha` creada a partir de `main` (v1.4.4 inamovible)
-- Estructura multi-lenguaje: `backend/` (Go), `frontend/` (Tauri + Svelte + TS)
-- Go module + CLI skeleton
-- Tauri + Svelte + TypeScript skeleton
-- ARCHITECTURE.md con diseño del sistema
-
-### Fase 1 — Core Go pipeline
-- `backend/cmd/onda/main.go`: entry point, dispatch de comandos
-- `backend/internal/cli/flags.go`: 298 líneas, flags, presets (turbo/balance/master/ultimate), compat legacy
-- `backend/internal/cli/flags_test.go`: 15 tests
-- `backend/internal/audio/`: audio.go, rubberband.go, ffmpeg.go + tests (11)
-- `backend/internal/pipeline/pipeline.go`: 464 líneas, orquestador 2-stage con 4 presets
-- `backend/internal/pipeline/pipeline_test.go`: 14 tests
-- Tests unitarios: 39/39 pass
-
-### Correcciones (Ronda 1)
-- **Bug #1**: Output path mapping — `--output` del usuario se traduce a ruta dentro del contenedor
-- **Bug #2**: PolarFormer YAML — `use_pope` y otras keys inválidas eliminadas. `attend.py` actualizado con soporte para parámetro `scale`
-
-### Correcciones (Ronda 2)
-- **Bug #3**: Demucs sin `-n` — ahora pasa `-n htdemucs_ft` al comando
-- **Bug #4**: Demucs estructura output — corrige track subdirectory y stems esperados (`vocals.wav`/`no_vocals.wav`)
-
-### Fase 3 — Frontend Alpha MVP
-
-#### Changed
-- Frontend: actualizar dependencias a últimas versiones estables (vite 8.0.14, @sveltejs/vite-plugin-svelte 7.1.2, typescript 6.0.3, @tauri-apps/api 2.11.0, @tauri-apps/cli 2.11.2)
-
-#### Fixed
-- Frontend: usar `mount()` de Svelte 5 en lugar de `new App()` (API legacy de Svelte 4 causaba pantalla en blanco)
-- Frontend: mostrar mensaje de error cuando la API de presets no responde, en lugar de "Cargando presets..." infinito
-
-### Fase 4 — Contenedor de Inferencia v2
-
-#### Changed
-- Inferencia: nuevo contenedor `onda-v2` con CUDA 13.2, PyTorch 2.12.0, Demucs 4.0.1
-- Inferencia: todas las dependencias Python fijadas con versiones exactas (requirements-docker-v2.txt)
-- Inferencia: wheel unificado de PyTorch (sin sufijo cuXXX), incluye runtime CUDA 13.0
-
-#### Added
-- `Dockerfile.v2`: multi-stage con python:3.12-slim, PyTorch 2.12.0, Demucs 4.0.1
-- `requirements-docker-v2.txt`: 27+ dependencias con versiones exactas
-
-#### Fixed
-- Inferencia: añadidas dependencias faltantes openunmix y lameenc para Demucs 4.0.1
-- Infraestructura: liberados ~57 GB en .87 (build cache, imágenes sin uso, volúmenes huérfanos)
-
-#### Performance
-- Separación: ~60x realtime en RTX 5060 Ti (canción de 3:54 en ~4s)
-
-### Roformer — Scripts de inferencia
-
-#### Added
-- `inference/inference_universal.py`: script standalone para todos los modelos Roformer (ViperX, MelBand, PolarFormer)
-- `inference/lib_v5/`: librerías core (bs_roformer.py, mel_band_roformer.py, attend.py, etc.)
-- Integración en Dockerfile.v2: scripts Roformer copiados a `/app/`
-
-#### Performance
-- ViperX: GPU 100%, ~2977 MiB VRAM, 59s para 30s de audio
-
-### MDX-Net — Modelos ONNX
-
-#### Added
-- Modelos MDX-Net ONNX: Kim_Vocal_2 (64 MB), Kim_Vocal_1 (64 MB), UVR_MDXNET_Main (64 MB)
-- `inference/inference_mdx.py`: script standalone con STFT manual, chunks fijos de 256 frames
-- Integración en ambos contenedores (onda y onda-v2)
-
-#### Performance
-- MDX-Net Kim Vocal 2: 5.8s para 30s de audio, salida bit-identical entre contenedores
-- El más rápido de los 3 métodos de separación
-
-### Demucs ONNX — Migración PyTorch → ONNX
-
-#### Added
-- `inference/inference_demucs_onnx.py` — wrapper CLI para Demucs ONNX vía `demucs-onnx` (StemSplitio)
-- Dependencia `demucs-onnx==0.3.4` (0.1 MB, sin PyTorch para inferencia)
-- Modelos ONNX: 4 especialistas de htdemucs_ft (vocals, drums, bass, other) — 302 MB c/u, ~1.2 GB total
-- Fuente: StemSplitio/htdemucs-ft-onnx (calidad idéntica a PyTorch, SDR 9.19 dB vocals)
-- `.gitignore`: excluye `models/Demucs_ONNX/`
-
-#### Changed
-- Inferencia Demucs ahora puede usar ONNX en lugar de PyTorch (instalación 40× más ligera)
-- Bind mount `models/Demucs_ONNX/` accesible desde el contenedor vía `./models:/app/models`
-
-#### Performance
-- Demucs ONNX vocals: 19.4s para 30s de audio (1.5x realtime), ~270 MB VRAM pico
-
-### Fase 5 — Testing Integral
-
-#### Added
-- `tests/integration/`: suite completa E2E con audio sintético
-- `generate_test_audio.py`: generador de fixtures (sine 440Hz, chirp, silence, short 0.5s)
-- Tests por método: `test_demucs_onnx.py`, `test_mdx_onnx.py`, `test_pipeline_api.py`
-- `benchmark.py`: script comparativo RTF de todos los métodos
-- `test_edge_cases.py`: tests de silencio, audio corto, archivo inexistente
-- `run_all.sh`: ejecución completa de la suite
-
-#### Coverage
-- 4 fixtures de audio sintético (FLAC 44100 Hz)
-- End-to-end: Demucs ONNX, MDX-Net ONNX, Pipeline HTTP API
-- Edge cases: silencio, audio 0.5s, archivo inexistente
-- Benchmark: PyTorch vs ONNX vs MDX-Net
-
-## v1.4.4
-
-Última versión estable. Inamovible en rama `main`.
+- VERSION actualizado a v2.7.12 (no reflejaba cambios previos)
+1|# Changelog
+2|
+3|## v2.7.4 — Cancel real (mata proceso en contenedor) + status correcto (2026-06-11)
+4|
+5|### Fixed
+6|- **Cancel ahora para el proceso real**: se ejecuta `pkill -f pipeline.sh` y `pkill -f python` dentro del contenedor `onda`, no solo el cliente docker local
+7|- **Status de archivos tras cancelar**: ahora muestra 'waiting' (listo para re-ejecutar) en vez de 'uploading'
+8|
+9|## v2.7.3 — Resultados navegables + progreso individual + PitchPage con outputs (2026-06-11)
+10|
+11|### Added
+12|- **Resultados navegables**: al hacer clic en un archivo completado de la cola, navega automáticamente a la pestaña Resultados
+13|- **Progreso individual por pista**: cada fila de la cola muestra "Paso X/Y: StepName" con su propia barra de progreso y porcentaje
+14|- **PitchPage: grupos de salida**: sección superior que lista los stems de output/ (excepto drums) con control de pitch shift por grupo
+15|
+16|### Changed
+17|- **PitchPage**: ahora también acepta `results` y `onResultsChange` props para mostrar y procesar stems existentes
+18|
+19|## v2.7.2 — Clear queue on execute + Stop button (2026-06-11)
+20|
+21|### Added
+22|- **Backend: `DELETE /api/queue`**: limpia toda la cola de trabajos y cancela el proceso en ejecución
+23|- **Backend: `POST /api/queue/cancel`**: cancela solo el trabajo actual sin limpiar la cola
+24|- **Frontend: Clear automático**: al hacer clic en cualquier botón "Ejecutar", se limpia la cola primero
+25|- **Frontend: Botón "⏹ Detener"**: aparece junto a cada botón de ejecutar cuando hay un proceso activo
+26|
+27|### Fixed
+28|- **Error 409 "song already queued"**: ya no se queda atascado al reintentar un trabajo fallido
+29|
+30|## v2.7.1 — YAML config en Go puro, sin Python en onda-gui (2026-06-10)
+31|
+32|### Changed
+33|- **onda-gui/Dockerfile**: eliminado `COPY pipeline.sh` innecesario — el backend ejecuta pipeline.sh vía `docker exec onda bash /pipeline.sh`, no localmente
+34|- **Go backend**: lectura/escritura de YAML con `gopkg.in/yaml.v3` en Go puro, elimina dependencia de Python en onda-gui
+35|- **Dockerfile**: `go mod tidy` incluido en build para dependencias Go limpias
+36|
+37|### Fixed
+38|- **Parámetros de inferencia**: ahora se escriben como `!!int` en YAML (no strings), usando `strconv.Itoa` para `yaml.v3`
+39|- **`!!python/tuple`**: el código Go ignora estos valores YAML específicos de Python sin errores
+40|
+41|### Removed
+42|- **Python + py3-yaml** de onda-gui Dockerfile — ya no se necesita, Go maneja YAML directamente
+43|- **`COPY pipeline.sh /pipeline.sh`** de onda-gui — código muerto, pipeline.sh solo necesario en contenedor `onda`
+44|
+45|## v2.6.4 — PitchPage: uploaded files with full player (2026-06-10)
+46|
+47|### Added
+48|- **Nginx location `/input_rubberband/`**: serves uploaded pitch audio files with CORS and proper MIME types
+49|- **`pitchInputDownloadUrl()`** in api.ts: URL builder for pitch upload serving
+50|- **`deletePitchUpload()`** in api.ts: client-side function for deleting uploaded pitch files
+51|- **`DELETE /api/uploads/pitch/{name}`** endpoint in Go backend: deletes files from `input_rubberband/` with path traversal protection
+52|- **Full per-file player in PitchPage.svelte**: each uploaded audio file now shows an independent player with:
+53|  - Waveform visualization (real audio data on first play, deterministic fallback)
+54|  - Play / Pause / Stop transport controls
+55|  - Seek slider with time display (current / duration)
+56|  - Volume slider with percentage label
+57|  - Download button (⬇)
+58|  - Delete button (🗑) with confirmation and server-side cleanup
+59|  - Upload status (uploading/ready/error) with toast notifications
+60|
+61|### Fixed
+62|- **Entrypoint.sh**: `mkdir -p /config/model_configs` now fails gracefully when /config is root-owned
+63|
+64|### Changed
+65|- **VERSION** aligned to `v2.6.4` (consistent `v` prefix across backend, frontend, pipeline)
+66|
+67|### Added
+68|- **Endpoint `POST /api/upload/pitch`**: guarda archivos en `input_rubberband/` independiente
+69|- **`uploadPitchAudio()`** en api.ts para el frontend
+70|- **Volumen `input_rubberband`** en docker-compose (persistente)
+71|- **Prop `onError`** en PipelineView para errores visibles (toast)
+72|
+73|### Fixed
+74|- **PipelineView**: si el preset no existe en el servidor, muestra error en vez de fallar silenciosamente
+75|- **Personalizado**: cambiar preset en el desplegable ahora actualiza `selectedPresetName` correctamente (prop `onPresetChange`)
+76|- **PitchPage**: ahora sube a `input_rubberband/` en vez de a la cola general
+77|
+78|## v2.6.2-alpha — Refactor de pestañas: 4 presets directos, Personalizado, PitchPage (2026-06-10)
+79|
+80|### Added
+81|- **Nueva pestaña "Personalizado"** en el sidebar — con selector de presets para elegir qué preset ejecutar
+82|- **PitchPage.svelte** — nueva página para Cambiar Tono con resultados existentes arriba y dropzone independiente abajo
+83|- **IconUser** en icons.ts
+84|
+85|### Changed
+86|- **Sidebar reorganizado**: 4 presets hardcodeados (Separador Voces Total ⭐, Eliminador de Voz 🎤, Separador Completo 〰️, Solo Instrumentos 🎸) + Personalizado 👤
+87|- Cada preset se ejecuta directamente al pulsar ▶ Ejecutar, sin selector de presets
+88|- Sidebar ya no carga presets dinámicamente de la API
+89|- **PipelineView**: nueva prop `hidePresetSelector` — cuando true, oculta el selector de presets y muestra botón ejecutar directo con barra de progreso
+90|
+91|### Fixed
+92|- **PipelineEditor**: los 4 presets predefinidos están bloqueados para eliminación (muestran 🔒)
+93|- **Persistencia**: font-size y scale ahora se cargan al iniciar la app (no solo al entrar a Ajustes → Interfaz)
+94|- **Sidebar texto**: nombres ahora envuelven a 2 líneas correctamente (white-space: normal)
+95|
+96|## v2.6.1-alpha — Pulido UI: colores púrpura, iconos SVG, sidebar vertical, layout fluido (2026-06-10)
+97|
+98|### Fixed
+99|- **Títulos de preset**: Ahora muestran el nombre original (ej. "Separador Voces Total") en vez del ID con guiones ("separador-voces-total")
+100|- **Paleta de colores**: Reemplazado acento azul (#00d4ff) por púrpura (#6c5ce7) en toda la interfaz — checkboxes, botones, gradientes, bordes, barras de progreso
+101|- **Iconos SVG**: Reemplazados emojis por iconos SVG line-art al estilo vocalremover.org (18 iconos: menú, estrella, música, tono, tempo, DAW, ayuda, ajustes, subida, modelo, descarga, presets, logs, onda, cerrar, refrescar)
+102|- **Sidebar vertical**: Items cambian a layout vertical (icono arriba, texto debajo) con borde activo inferior púrpura
+103|- **Layout fluido**: Interfaz ocupa todo el viewport y escala con la ventana. Eliminado `max-width: 800px` — contenido principal limitado a 900px para legibilidad
+104|
+105|## v2.6.0-alpha — Rediseño UI con sidebar vertical al estilo vocalremover.org
+106|
+107|## v2.5.1 (2026-06-09)
+108|
+109|### Added
+110|- **Default preset persistente**: endpoint `GET/POST /api/presets/default` que guarda el preset predeterminado en `/config/default_preset.json`. El frontend lo carga automáticamente al iniciar.
+111|- **Botón "Establecer como predeterminado"** en el Gestor de Presets, con confirmación visual verde.
+112|- **Reorganización del Gestor de Presets** en dos categorías: "Crear Presets" (configuración + guardar) y "Editor de Presets" (un solo selector para establecer predeterminado y eliminar).
+113|
+114|### Changed
+115|- **Selector de presets unificado**: un solo dropdown en "Editor de Presets" sirve para ambas acciones (predeterminado y eliminar). Eliminado el selector duplicado de la sección de eliminar.
+116|- Botón "Ejecutar" en PresetsPanel se deshabilita si no hay preset seleccionado.
+117|
+118|## v2.5.0-alpha (2026-06-09)
+119|
+120|### Added
+121|- **Botón 🎛 Gestor de Presets** en la UI principal que abre el editor en modal fullscreen.
+122|- **PresetsPanel**: nuevo componente con selector de preset, botón Ejecutar y barra de progreso integrada.
+123|- **Cabecera de cola**: fila de encabezado con checkbox maestro, columnas "Título", "Progreso" y "Estado".
+124|- **Banner de confirmación**: tras guardar un preset, banner verde "✅ Preset guardado correctamente" durante 5 segundos.
+125|- **Sección "🗑 Eliminar Presets"** con confirmación explícita antes de borrar.
+126|
+127|### Changed
+128|- **PipelineEditor renombrado** a "Gestor de Presets" con etiquetas descriptivas: "Modelo separador de Voces/Stems", "Separación de Voces/Stems".
+129|- **Botón Guardar Preset** grande y centrado (💾), con estilo verde prominente.
+130|- **Ventana de Logs**: convertida a modal fullscreen unificado (mismo patrón que ModelManager/ModelDownloader).
+131|- **✕ reemplaza "← Volver"** en ModelManager y ModelDownloader para consistencia visual.
+132|
+133|### Fixed
+134|- **Ventanas fullscreen unificadas**: PresetEditor y Logs usan `.fullscreen` (pantalla completa), mismo patrón que ModelManager. Eliminado `modal-overlay`/`modal-panel`.
+135|- **Barra de progreso en idle**: ya no muestra 100% falso — solo se activa con `status === 'running'`.
+136|- **PresetsPanel estrecho**: anchura ampliada para mejor legibilidad.
+137|- **Botón ✕ alineado**: header flex con ✕ a la izquierda y título centrado en todas las ventanas.
+138|- **Refresco de presets**: al cerrar el Editor, la lista de presets se recarga automáticamente.
+139|- **Tamaños de ventana inconsistentes**: todas las modales usan las mismas dimensiones y estilos.
+140|
+141|## v2.4.4 (2026-06-10)
+142|
+143|### Fixed
+144|- **Barra de progreso individual**: Python escribe `pipeline_status.json` directamente en cada chunk (~1% por actualización). Eliminado el frágil `report_progress` en bash.
+145|- **Barra de progreso total**: solo cuenta jobs del batch actual (ignora jobs históricos). Peso igual por paso: 1 canción × 2 pasos = 50% cada paso, 2 canciones × 1 paso = 50% cada una.
+146|- **Polling rápido**: frontend consulta `/api/queue/status` cada 500ms (eventos) y 200ms (pipeline_status.json).
+147|- **Pestaña Servicios**: sin auto-refresh (solo botón manual) para permitir revisar logs antiguos.
+148|- **`set -u` crash**: variables en heredocs de `report_progress` usan `${VAR:-default}` para evitar crash por unbound variable.
+149|- **Timestamps**: `LogWithNano()` con nano decreciente por línea para orden correcto en logs.
+150|- **Filtro "Todos"**: `<select>` usa `onchange` + `parseInt()` en vez de `bind:value` para evitar coerción string↔number.
+151|- **Versión frontend**: `ONDA_VERSION` se inyecta desde entorno; Dockerfile multi-stage sin valor fijo.
+152|- **pipeline_status.json**: se limpia al iniciar pipeline (ya no muestra estado "done" residual).
+153|- Reporte de progreso inicial en ViperX y Demucs (barra arranca en 0%, no vacío).
+154|- Progreso intermedio para Demucs (conteo de stems generados vs esperados).
+155|
+156|## v2.4.3-alpha (2026-06-10)
+157|
+158|### Fixed
+159|- VRAM: race condition corregida (loadConfig async causaba primera llamada con defaults)
+160|- Progreso: jobs "done" ahora muestran 100% en vez de 0%
+161|- Progreso: barra total calculada ponderando todos los jobs en cola
+162|
+163|## v2.4.2-alpha (2026-06-10)
+164|
+165|### Fixed
+166|- VRAM calculator: reactividad Svelte 5 corregida (sliders ahora disparan recálculo)
+167|- Device indicator: muestra "Ejecutando en GPU/CPU" durante inferencia activa
+168|- Eliminado banner GPU estático del header (no aportaba información)
+169|
+170|## v2.4.1-alpha (2026-06-09)
+171|
+172|### Fixed
+173|- VRAM calculator: reconoce nombres completos de modelo (BS_Roformer_Viperx, no solo "viperx")
+174|- VRAM calculator: incluye segment_size, overlap, batch_size en la fórmula
+175|- Progreso: barra de progreso lee valor real del queue status (ya no se queda en 0%)
+176|- Device indicator: muestra "Ejecutando en GPU/CPU" durante inferencia activa
+177|
+178|## v2.4.0-alpha (2026-06-09)
+179|
+180|### v2.4.0-alpha.2 (2026-06-09)
+181|
+182|- Fix: VRAM calculator UI ahora usa endpoint del backend (chunk_size y shifts afectan)
+183|- Feat: indicador GPU/CPU en la interfaz
+184|- Fix: progreso de inferencia usa set_progress_bar nativo de UVR (por chunk, no cada 10)
+185|- Feat: auto-refresh de logs (3s Eventos, 5s Servicios) + botón refrescar manual
+186|
+187|- Fix: VRAM calculator ahora incluye chunk_size en ViperX/Roformer
+188|- Fix: VRAM calculator ahora incluye shifts en modelos Demucs
+189|- Feat: progreso por paso en la cola (Paso 1/2 ViperX 65%)
+190|- Fix: timestamps de pipeline verificados (LogWithNano intacto)
+191|
+192|### v2.4.0-alpha.1 (2026-06-09)
+193|
+194|- Fix: presets API restaurada (regresión por limpieza agresiva en 4ab3cc1)
+195|
+196|### Fase 7 — Optimización y limpieza
+197|
+198|- Eliminadas ~880 líneas de código muerto (Go, Svelte, Python)
+199|- 3 duplicidades unificadas (copyFile, loaders catálogo, groupBySong)
+200|- 4 requirements.txt consolidados en 2 (NVIDIA + AMD)
+201|- 5 funciones API + 4 interfaces huérfanas eliminadas del frontend
+202|- Componente PipelinePanel.svelte (441 líneas) eliminado
+203|- Dependencia @tauri-apps/api no usada eliminada
+204|- Presets legacy + tests rotos eliminados
+205|- onda.sh reparado (referencias rotas a compose files)
+206|- validate.sh reparado (bug en chequeo git)
+207|- CSS huérfano eliminado
+208|
+209|## v2.3.8 (2026-06-09)
+210|
+211|### Fixed
+212|- Timestamps de docker logs mostraban hora actual — ahora se parsea el timestamp real de nginx
+213|- Filtro "Todos" en Servicios no funcionaba por coerción string↔number
+214|
+215|## v2.3.7 (2026-06-09)
+216|
+217|### Fixed
+218|- Timestamps de docker logs idénticos en pestaña Servicios — ahora cada línea tiene nano decreciente
+219|
+220|## v2.3.6 (2026-06-09)
+221|
+222|### Fixed
+223|- Upload de archivos se quedaba en "uploading" hasta refrescar — reactividad Svelte 5 corregida
+224|- Timestamps de logs de pipeline idénticos — ahora cada línea tiene nano decreciente
+225|- Eventos mostraba líneas detalladas de pipeline — ahora solo resúmenes
+226|- Servicios no tenía filtro — ahora dropdown: Últimos 50/100/500/Todos
+227|
+228|## v2.3.5 (2026-06-09)
+229|
+230|### Fixed
+231|- Archivos arrastrados se pierden al refrescar — ahora se suben al servidor inmediatamente al arrastrar
+232|- Logs de pipeline/inferencia no visibles — ahora cada línea de stdout/stderr de pipeline.sh se guarda en el ring buffer
+233|
+234|## v2.3.4 (2026-06-10)
+235|
+236|### Fixed
+237|- Presets guardan y restauran el estado COMPLETO del pipeline (pasos activos, stems, modelos)
+238|- Errores de pipeline muestran la salida real de stderr en los logs (antes solo "exit status 1")
+239|
+240|### Added
+241|- Campo `service` en logs (backend, pipeline, inference)
+242|- Panel de detalle al hacer click en un log (mensaje completo + metadata + botón copiar)
+243|- Pestaña "Servicios" con logs reales de docker (onda, onda-gui)
+244|- Colores por servicio en el visor de logs
+245|
+246|## v2.3.3 (2026-06-10)
+247|
+248|### Fixed
+249|- Model configs se pierden al redeploy — ahora persisten en /config/model_configs/
+250|- Presets de usuario no persisten — ahora guardados en /config/presets_user.json
+251|- Errores desaparecen muy rápido — ahora banner persistente con botón copiar
+252|
+253|### Added
+254|- Sistema de logs con ring buffer en memoria (GET /api/logs)
+255|- Panel de logs en la UI con colores y detalle expandible
+256|
+257|## v2.3.2 — Regresiones corregidas + bajos + UI 🧹
+258|
+259|### 🔴 Regresiones de v2.3.1 corregidas
+260|
+261|- **Rubberband paths rotos en contenedor**: `findProjectRoot()` devolvía `/` dentro del contenedor, causando que `strings.Replace` eliminara la barra inicial. Ahora se pasan paths absolutos del contenedor directamente.
+262|- **chmod 0755 impedía escritura uid 1000**: rubberband corre como uid 1000 en el contenedor `onda`. Restaurado `0777` en el directorio de salida del pitch.
+263|
+264|### 🟠 Medios corregidos
+265|
+266|- **Stale download status**: dos modelos con misma URL de dependencia se sobrescribían. Key compuesta `filename@URL`.
+267|- **pitchStr sin sanitizar** en `handlePitchFileServe`. Añadido `filepath.Clean()`.
+268|- **Check `_pitch` demasiado amplio**: bloqueaba archivos legítimos con `_pitch` en el nombre. Ahora verifica el directorio padre.
+269|
+270|### 🟢 Bajos backend corregidos
+271|
+272|- **copyFile sin Sync()** → añadido `out.Sync()` antes de `Close()`
+273|- **404 vs 200 vacío**: cuando un directorio no existe, devuelve 404 en vez de 200 con array vacío
+274|- **pip install silencioso**: ahora loggea errores de instalación
+275|- **Verificación de pip**: comprueba que pip existe antes de usarlo
+276|- **Upload sin check de disco**: verifica espacio libre antes de parsear 500MB en RAM
+277|- **Catálogo HF con sync.Once**: ahora se recarga en cada request
+278|
+279|### 🔵 UI frontend corregidos
+280|
+281|- **Progreso de cola no se actualizaba**: polling ahora actualiza pipelineStep, pipelineModel, pipelineEta
+282|- **AudioContext por waveform**: compartido un solo OfflineAudioContext para decodificar waveforms
+283|- **$inspect residual en producción**: eliminado
+284|- **onDestroy sin cancelación**: añadido AbortController para requests de pitch
+285|- **Errores red silenciados**: ahora muestra toast al fallar carga de subgrupos
+286|- **syncSubgroupGains ignoraba pausa**: ahora aplica cambios de volumen incluso si el player está pausado
+287|
+288|## v2.3.1 — Bugfix masivo: pitch shift, seguridad, player 🔧
+289|
+290|### 🐛 Bugs críticos corregidos
+291|
+292|- **Pitch shift no funcionaba**: `docker exec rubberband` recibía paths del host en vez de paths del contenedor (`/output/...`). Corregido convirtiendo paths automáticamente. Añadido timeout de 60s.
+293|- **PitchResponse devolvía paths absolutos del servidor**: el frontend recibía `/home/starmito/.../output/...` en vez de URLs HTTP. Nuevo endpoint `GET /api/pitch/files/{song}/{pitch}/{file}` para servir archivos de subgrupos.
+294|- **Reproductor de subgrupos no cargaba audio**: las URLs de descarga no coincidían con la estructura de directorios del servidor. Nuevo helper `pitchDownloadUrl()` en el frontend.
+295|- **Waveform y enlaces de descarga rotos**: usaban `stem.path` (ruta absoluta del servidor) como href. Corregido usando URLs HTTP.
+296|
+297|### 🟠 Bugs graves corregidos
+298|
+299|- **Inyección de código Python en descarga HF**: el parámetro `repo` se interpolaba directamente en un script Python sin sanitizar. Corregido escapando comillas simples.
+300|- **Path traversal en upload**: `header.Filename` iba directo a `filepath.Join` sin sanitizar. Corregido con `filepath.Base()`.
+301|- **handleDeleteFile**: permitía borrar archivos en subdirectorios arbitrarios de `output/`. Corregido rechazando paths que contengan `_pitch`.
+302|- **stopSubgroup()**: no reseteaba `duration`, `buffers`, `gainNodes`. El slider de seek mostraba tiempo incorrecto tras stop.
+303|- **toggleSubgroupSolo()**: no silenciaba los demás stems cuando se activaba Solo. Nueva función `syncSubgroupGains()`.
+304|- **handleSubgroupSeekChange()**: no reiniciaba el timer de reproducción tras hacer seek. Corregido cancelando y reiniciando `startSubgroupTimer()`.
+305|
+306|### 🟡 Bugs medios corregidos
+307|
+308|- **Chmod 0777** en directorios de pitch → 0755
+309|- **Race condition en presets**: `saveUserPresets()` fuera del write lock. Movido dentro.
+310|- **handleDeleteModel**: error de limpieza de config silencioso → incluye warning en respuesta
+311|- **Prefix check sin trailing separator**: `HasPrefix(absPath, outputPrefix)` podía dar falso positivo
+312|- **loadModelConfig**: errores de parseo silenciosos → ahora logea warning
+313|- **Colisión en tracker de descargas**: dos modelos con misma dependencia se sobrescribían. Key compuesta `filename@URL`.
+314|- **handleSeekInput**: no actualizaba `pauseOffset` → al pausar tras arrastrar slider, la reanudación iba a posición incorrecta
+315|- **$effect loadPitchSubgroups**: race conditions con respuestas fuera de orden. Añadido contador de versión.
+316|- **waveformDrawn**: memory leak (Set nunca se limpiaba). Limpiado en `onDestroy`.
+317|- **Último stem de subgrupo**: al borrarlo, el subgrupo quedaba vacío. Ahora se elimina automáticamente.
+318|- **buildConfig()**: no incluía `preset` → siempre usaba default. Corregido.
+319|- **demucsVocalsAutoDisabled**: no chequeaba `demucsEnabled` → se autodesactivaba innecesariamente.
+320|
+321|## v2.3.0 — Pitch shift + subgrupos + limpieza de pipeline 🎛️
+322|
+323|### 🎵 Nuevas funcionalidades
+324|
+325|- **Pitch shift post-procesamiento**: nuevo endpoint `POST /api/pitch`. Slider de tono debajo de cada grupo de stems en ResultsPanel con botón "🎵 Cambiar tono".
+326|- **Subgrupos con pitch**: al cambiar el tono, se genera un subgrupo anidado con reproducción independiente (▶⏸⏹ seek). Cada stem tiene Mute, Solo, Volumen, Descargar y Eliminar.
+327|- **Múltiples subgrupos**: se pueden tener varios subgrupos por canción (+2, -5, +12...) independientes entre sí.
+328|- **Persistencia**: los subgrupos se guardan en el servidor y sobreviven a recargas del navegador.
+329|- **Drums sin procesar**: los stems de drums se copian sin aplicar pitch shift.
+330|
+331|### 🗑️ Limpieza
+332|
+333|- **PipelinePanel eliminado**: la sección redundante con ViperX/Demucs/Pitch ya no se muestra. PipelineEditor es la única interfaz de configuración del pipeline.
+334|- **ConfigPanel eliminado**: el desplegable "Configuración avanzada" no estaba conectado al pipeline real.
+335|- **Selector de presets duplicado eliminado**: PipelinePanel ya no tenía su propio selector — todo se gestiona desde PipelineEditor.
+336|
+337|### 🐛 Bugs corregidos
+338|
+339|- **Rubberband en contenedor equivocado**: el backend ejecutaba `rubberband` como comando local en `onda-gui` donde no estaba instalado. Corregido ejecutando dentro del contenedor `onda` via `docker exec`.
+340|- **Permisos de escritura**: el directorio de salida del pitch se creaba como root pero rubberband corre como uid 1000. Corregido con `os.Chmod(outDir, 0777)`.
+341|- **Download URL de subgrupos**: usaba la API incorrecta (404). Corregido usando la ruta directa servida por nginx.
+342|- **Delete stem individual**: daba 405 por usar DELETE en estáticos de nginx. Nuevo endpoint `DELETE /api/pitch/{song}/{pitch}/{file}`.
+343|- **Waveform de subgrupos**: no se dibujaba por usar URL incorrecta. Nueva función `waveformFromUrl` con ruta directa.
+344|- **Path traversal en POST /api/pitch**: no tenía guard de seguridad a diferencia de GET y DELETE.
+345|
+346|### 🎨 UI
+347|
+348|- **Reproductores de stems responsive**: los botones ya no se salen del cuadro al hacer zoom en el navegador (flex-wrap, tamaños reducidos).
+349|- **SVG del editor corregido**: altura dinámica para que los 3 stems de Demucs se vean completos (ya no se corta el tercero).
+350|
+351|## v2.2.0 — Interfaces unificadas + pantalla completa 🖥️
+352|
+353|### 🎨 UI (08-jun-2026)
+354|
+355|- **ModelDownloader y ModelManager convertidos a pantalla completa** con botón "← Volver" en la cabecera (antes eran paneles laterales deslizantes).
+356|- **Catálogo HF integrado** en ModelDownloader — los modelos de Politrees/UVR_resources ahora aparecen en la misma pantalla que los modelos UVR.
+357|- **Filtros de fuente**: 3 botones tipo pill debajo del buscador — "Todas las fuentes", "UVR", "Hugging Face" — para mostrar solo los modelos de una fuente.
+358|- **Badge de fuente** en cada modelo: etiqueta "UVR" (verde) o "HF" (azul) al lado del botón de descargar.
+359|- **Descarga .yaml automática**: al descargar un checkpoint (.ckpt/.pth) de HF, también se descarga su archivo .yaml asociado.
+360|- **API extendida**: `downloadModel()` acepta `filename` opcional; nueva función `getHfCatalog()`.
+361|- **CatalogPanel eliminado**: toda la funcionalidad absorbida en ModelDownloader.
+362|
+363|### 🐛 Bugs corregidos (08-jun-2026)
+364|
+365|- **Versión centralizada**: ahora se lee del archivo `VERSION` en la raíz del proyecto. El backend usa `api.Version` (leído vía `init()`), el frontend lo obtiene del health endpoint. Ya no hay texto hardcodeado en `App.svelte`, `server.go` ni `main.go`.
+366|- **Build frontend en Docker**: el Dockerfile ahora es multi-stage con un `frontend-builder` que compila el Svelte dentro del Docker build. Ya no necesita rsync ni build manual.
+367|- **htdemucs_ft con 0MB corregido**: ahora muestra correctamente 2800 MB en la lista de modelos instalados (su VRAM real).
+368|- **Skill de despliegue actualizada**: documenta el workflow correcto con build multi-stage y versión centralizada.
+369|- **Presets persistentes en backend**: nueva API REST (`GET/POST/DELETE /api/presets`) con persistencia en archivo JSON. PipelineEditor guarda/carga presets desde el servidor. Se unifican presets built-in (turbo, balance, master, ultimate) con los del usuario.
+370|- **Selector de presets duplicado eliminado**: PipelinePanel ya no tiene su propio selector de presets — todo se gestiona desde PipelineEditor.
+371|- **ConfigPanel eliminado**: el desplegable "Configuración avanzada" no estaba conectado al pipeline real.
+372|- **Reproductores de stems responsive**: los botones ya no se salen del cuadro al hacer zoom en el navegador (flex-wrap, tamaños reducidos).
+373|- **SVG del editor corregido**: altura dinámica para que los 3 stems de Demucs se vean completos (ya no se corta el tercero).
+374|
+375|## v2.1.1 — Catálogo de modelos UVR funcional + fixes de UI ✅
+376|
+377|### 🐛 Catálogo de modelos — 4 bugs críticos arreglados (31-may-2026)
+378|
+379|El catálogo de descarga de modelos (ModelDownloader) no funcionaba por 4 bugs encadenados:
+380|
+381|- **Fix (crítico):** `each_key_duplicate` — 10 modelos del catálogo UVR tenían nombres/filenames duplicados. El `{#each}` de Svelte 5 craseaba el componente entero. Solución: eliminar la key del each + deduplicación inteligente.
+382|- **Fix (crítico):** `state_unsafe_mutation` — la función `groupedCatalog` mutaba `display_name` dentro de `$derived`. Svelte 5 prohíbe mutar `$state` en derivados. Solución: `flatMap` + spread operator para crear copias.
+383|- **Fix:** Catálogo mostraba "Cargando..." infinito — el `$effect` de Svelte 5 no disparaba reactividad con `catalog = data`. Solución: `catalog = [...data]` (spread assignment).
+384|- **Fix:** Botón "Descargar" siempre deshabilitado — backend envía `download_url`, frontend esperaba `huggingface_repo`. Solución: mapeo en `getModelCatalog()`.
+385|
+386|### 📏 Tamaños de archivo reales (31-may-2026)
+387|
+388|- **Fix:** Los 98 modelos del catálogo mostraban 0 MB. Script Python que obtiene tamaños vía HTTP HEAD (GitHub Releases, HuggingFace, Facebook CDN) + filesystem para modelos ya descargados.
+389|- **Fix:** Modelos built-in de Demucs (`htdemucs_ft`, `htdemucs`, `htdemucs_6s`, `hdemucs_mmi`) ahora muestran su tamaño VRAM real (1400–3200 MB).
+390|- **Fix:** URL rota de `deverb_bs_roformer` (typo en repo name + path incorrecto).
+391|
+392|### 🧹 Limpieza del catálogo (31-may-2026)
+393|
+394|- **Fix:** 31 sub-componentes UUID de Demucs (`.th` internos) ocultos del catálogo. Son archivos que Demucs descarga automáticamente.
+395|- **Fix:** Deduplicación por `display_name` — los archivos `.yaml` (0 MB) ya no aparecen junto a los `.ckpt` (X MB) del mismo modelo.
+396|- **Fix:** Versiones v2/v3 de Demucs renombradas: `demucs (v2)` vs `demucs (v3)` para evitar confusión.
+397|
+398|### 🎨 UI (31-may-2026)
+399|
+400|- **Fix:** Panel de ModelDownloader ampliado de 340px → 440px (+30%) para mejor visibilidad de nombres largos.
+401|- **Fix:** Icono favicon añadido (`public/icon.png`).
+402|
+403|### 🔧 Eliminación de modelos (31-may-2026)
+404|
+405|- **Fix:** El botón de papelera ahora borra el archivo físico real (antes solo lo quitaba de la lista en memoria).
+406|- **Fix:** Volumen `/models` cambiado de `:ro` a lectura-escritura para permitir borrar.
+407|
+408|### Commits (10 fixes)
+409|
+410|`c262734`, `ac6361a`, `615bab7`, `bcc5628`, `f62498f`, `edbebd7`, `b042382`, `005c43b`, `185d765`, `37e8645`
+411|
+412|### 🐛 Bug fixes en GPU info y frontend (1-jun-2026)
+413|
+414|- **Fix:** `vram_used_mb` desaparecía del JSON cuando valía 0 (GPU idle). Quitado `omitempty` del struct Go.
+415|- **Fix:** VRAM calculator (`/api/gpu/vram-calculator`) siempre devolvía 0. Ahora busca en catálogo UVR + fallback 2000 MB.
+416|- **Fix:** Header mostrando `v2.0.0-alpha` hardcodeado → `v2.1.1`.
+417|- **Fix:** `API_BASE` hardcodeada a `192.168.1.87` → URLs relativas (funciona desde cualquier IP).
+418|
+419|### 📦 Catálogo y descargas (1-jun-2026)
+420|
+421|- **Feat:** Filtrado de modelos `size_mb=0` (config files) del catálogo visible. De 98 → 72 modelos.
+422|- **Feat:** Descarga de dependencias: al bajar un modelo (.ckpt/.pth) se descargan automáticamente sus archivos .yaml asociados.
+423|- **Feat:** Añadido `hf_models.json` con 380 modelos del repo HuggingFace Politrees/UVR_resources organizados en 11 categorías.
+424|
+425|### 📦 Catálogo HF — Tamaños reales y normalización de nombres (8-jun-2026)
+426|
+427|- **Feat:** Tamaños reales de los 380 modelos HF obtenidos vía API de HuggingFace (300 checkpoints con tamaño, 80 YAML de configuración). Todos resueltos correctamente sin errores.
+428|- **Feat:** Normalización de nombres de modelos stem — 8 modelos `kuielab_*` ahora muestran su fuente (ej: `kuielab_a (bass stem)`).
+429|- **Fix:** `ModelManager.svelte` ahora muestra `display_name || name` en selectores y cabeceras.
+430|
+431|---
+432|
+433|## v2.1.0-alpha — Fase 5: Modelos configurables + Editor visual de pipeline ✅
+434|
+435|### Fixes recuperados del 28-may + modelsBasePath (31-may-2026, sesión mañana)
+436|
+437|Los commits originales de estos fixes (46898d0-c8c52fd) se perdieron en un git reset. Reimplementados hoy.
+438|
+439|- **Fix (crítico):** `handleSeparate` ahora ejecuta pipeline.sh dentro del contenedor `onda` (`docker exec onda bash /pipeline.sh`) en vez de en `onda-gui`. Esto resuelve "demucs: command not found" y "inference_universal.py not found".
+440|- **Fix:** `Dockerfile` de onda copia `pipeline.sh` → `/pipeline.sh` en la imagen.
+441|- **Fix:** `resolveModelDir()` — traduce nombres de modelo a rutas de directorio en el contenedor (`model_bs_roformer...` → `/app/models/VR_Models/BS_Roformer_Viperx`). Resuelve "ViperX model not found".
+442|- **Fix:** Dual-config loading — `handleSeparate` carga configs de ViperX y Demucs por separado (antes solo cargaba una). Demucs ya no ignora `shifts`/`segment`/`jobs` guardados.
+443|- **Fix:** `PipelineStatus` +8 campos (`segment_size`, `overlap`, `chunk_size`, `batch_size`, `device`, `shifts`, `demucs_segment`, `jobs`) — el frontend ahora recibe los flags reales.
+444|- **Fix:** Error handler preserva flags — al fallar el pipeline, lee el JSON existente (escrito por pipeline.sh vía trap) y solo actualiza `status` + `error`.
+445|- **Fix:** `modelsBasePath` ahora es dinámico — detecta `/models` en Docker, usa `ONDA_MODEL_DIR`/`MODEL_DIR` si existen, fallback al path legacy. Resuelve que `listModels()` solo devolvía htdemucs_ft.
+446|- **Fix:** `isDemucs` scope en frontend — separado en `isDemucs` (solo htdemucs_ft) e `isDemucsFamily` (todos). Demucs ONNX ya no muestra sliders inaplicables.
+447|- **Fix:** VRAM base sin ajustes — `estimateVRAM()` devuelve valores raw (sin aplicar config guardada). El frontend aplica sliders → sin doble multiplicación.
+448|- **Commits:** effd554, 858557f, abc7257, 32580b8
+449|
+450|### StatusBar versionado + CORS fix + GPU check (31-may-2026)
+451|
+452|- **Fix:** CORS duplicado — nginx ya no añade `Access-Control-Allow-Origin` (solo el backend Go), resolviendo indicadores rojos en navegador
+453|- **Feat:** `StatusBar.svelte` reescrito: muestra Backend, Frontend, Pipeline (apps primero) + GPU, Disco, Docker (infra) con versiones
+454|- **Feat:** `version_mismatch` en `/api/health` — detecta y reporta divergencias entre backend, frontend y pipeline
+455|- **Fix:** `handleHealth` en server.go completo: frontend version (lee `/usr/share/nginx/html/VERSION`), pipeline version (lee `/VERSION`), version_mismatch con detalle de componente conflictivo
+456|- **Fix:** `checkGPU()` usa PyTorch en vez de `nvidia-smi` (el contenedor `onda` no lo tiene)
+457|- **Fix:** `main.go` — flag `--addr` con default `:3001` (antes hardcodeado `:3000`, rompía nginx)
+458|- **Fix:** versiones unificadas: `const version = "v2.1.0-alpha"` en server.go + `ONDA_VERSION=v2.1.0-alpha` en Dockerfile
+459|- **Fix:** `entrypoint.sh` arranca backend Go (`/usr/bin/onda-backend serve --addr :3001`) en vez de Python
+460|- **Fix:** Dockerfile multi-stage: `golang:1.26-alpine` (go.mod requiere >=1.26)
+461|- **Fix:** Despliegue con `docker compose -f docker-compose.yml -f docker-compose.nvidia.yml` para acceso GPU
+462|- **Refactor:** `docker-compose.yml` unificado — GPU integrada, un solo `docker compose up -d --build` levanta todo. Eliminados `docker-compose.nvidia.yml` y `.amd.yml`.
+463|- **Feat:** Health check en `onda` (verifica CUDA con PyTorch). `onda-gui` espera con `condition: service_healthy`.
+464|- **Chore:** Limpiado `.env` — eliminadas variables obsoletas (`GPU_TYPE`, `GPU_DOCKERFILE`). Solo queda `MODEL_DIR`.
+465|- **Build:** `frontend/dist/` gitignored — construir con `npm run build` antes de `docker compose build`
+466|- **Commits:** 6bc3c3e, af1d6c7, 39fdc39, ad78c1b, 99c9edd, 3bcfec0, 97a52e0
+467|
+468|### Infraestructura unificada — paths, usuarios, permisos (31-may-2026, sesión tarde)
+469|
+470|- **Fix:** Paths unificados — ambos contenedores (`onda`, `onda-gui`) mapean el mismo volumen `/models`. Sin paths divergentes ni mounts separados.
+471|- **Fix:** Usuario `1000:1000` en `onda` — el pipeline se ejecuta como usuario del host, sin `--user` forzado en `docker exec` (hereda el `user:` del compose).
+472|- **Fix:** `rm -rf` del output previo recuperado — seguro porque el pipeline corre como uid 1000 (mismo owner que los archivos).
+473|- **Fix:** `onda-gui` usa root (necesario para entrypoint nginx/gestión de usuarios).
+474|- **Fix:** `STATUS_FILE` unificado a `/output/pipeline_status.json` — antes `pipeline.sh` escribía en `/tmp/pipeline_status.json` pero `server.go` leía de `/output/pipeline_status.json` (mismatch de paths).
+475|- **Refactor:** Eliminados `docker-compose.nvidia.yml` y `docker-compose.amd.yml` — un solo compose con GPU integrada vía `deploy.resources.reservations.devices`.
+476|- **Refactor:** Sin `chmod 777`, sin `--user 0:0`, sin `docker cp` — todo resuelto mediante código y docker compose.
+477|- **Commits:** 1d5c7d5, f9492be, 3fb1c69, 118b830
+478|
+479|### Fixes VRAM — fórmula realista + NaN (31-may-2026, sesión tarde)
+480|
+481|- **Fix (crítico):** Fórmula de VRAM estimada en ModelManager — cambiada de cadena multiplicativa a modelo aditivo. Antes: `base × (seg/256) × (1+overlap) × batch × (chunk/1024)` → ViperX con valores máximos daba 76.8 GB (factor 24×). Ahora: `(base + activationMemory) × batch` donde `activationMemory = base × 0.25 × (seg/256) × (1+overlap)`. ViperX máx: 7.8 GB, MelBand máx: 10.3 GB. El chunk_size ya no escala la VRAM del modelo (nunca debió — solo afecta al throughput de audio).
+482|- **Fix:** NaN en barra de VRAM — cuando la GPU no estaba disponible, el backend Go omitía `vram_total_mb` del JSON (`omitempty` en struct tag). El frontend recibía `undefined`, las guardas `!== null` no protegían, y `undefined/undefined` → NaN → "NaN%". Solución: quitar `omitempty`, retornar HTTP 503 en vez de 200 cuando GPU no disponible, validar `gpu.ok` + `isFinite()` en frontend, y cambiar guardas a `== null`.
+483|- **Commits:** 313fa20, 53ce03a
+484|### GPU info via PyTorch + VRAM Demucs (31-may-2026, sesión tarde)
+485|
+486|- **Fix:** GPU info ahora usa PyTorch (`torch.cuda`) vía `docker exec onda python3`. El contenedor `onda` (python:slim) no tiene `nvidia-smi`, lo que causaba `ok:false` y ocultaba la barra de VRAM en el frontend. Ahora obtiene VRAM total/usada/libre, nombre, uso% y temperatura desde PyTorch + pynvml.
+487|- **Feat:** Fórmula VRAM para Demucs (htdemucs_ft) — considera `segment` (escala lineal vs default 7.8s) y `jobs` (escala sub-lineal: `1 + (n-1) × 0.3`). Shifts se ignora (procesamiento secuencial, no escala VRAM).
+488|- **Fix:** `estimateVRAM()` en backend — eliminados todos los hardcodes por modelo (ViperX=3200, MelBand=4200, Polarformer=4800, etc.). Mediciones reales en RTX 5060 Ti muestran que los pesos en fp16 cargan 1:1 en VRAM vs disco (ViperX 609 MB disco → 616 MB VRAM). Nueva lógica: sizeMB para .ckpt/.pth, sizeMB×2 para ONNX, 2800 MB para htdemucs_ft.
+489|- **Commits:** 9ea7793, f9a1149, f2b2d17
+490|
+491|### Cola secuencial + Resultados acumulados (31-may-2026, sesión noche)
+492|
+493|- **Feat:** Cola secuencial FIFO en backend — worker único consume del channel `jobQueue`. Cada `POST /api/separate` encola en vez de lanzar goroutine. Solo 1 pipeline ejecutándose a la vez → GPU sin saturar.
+494|- **Feat:** `GET /api/queue/status` — estado de toda la cola (waiting/processing/done/error), ordenado por prioridad.
+495|- **Feat:** Cola visible en frontend (PipelinePanel) — emojis de estado por canción, mensaje de error si falla.
+496|- **Feat:** Resultados acumulados (ResultsPanel) — stems de cada canción aparecen como grupos independientes, no se reemplazan. Controles de reproducción/borrado por grupo.
+497|- **Refactor:** Eliminado código obsoleto — `/api/status`, `/api/events` (SSE), `pipeline_status.json` único.
+498|- **Commits:** e896323, 18b3335
+499|+### Fixes cola — orden FIFO + persistencia (31-may-2026, sesión noche)
+500|+
+501|
