@@ -30,6 +30,7 @@
     onError = (msg: string) => {},
     onQueueChange = (files: QueueFile[]) => {},
     onStart = (config: any) => {},
+    onCancel = () => {},
     onRemoveFile = (id: string) => {},
   } = $props();
 
@@ -250,6 +251,8 @@
         </button>
 
         {#if separating}
+          <button class="btn-stop" onclick={onCancel}>⏹ Detener</button>
+
           <div class="progress-card">
             <div class="progress-header">
               <span class="progress-status">{pipelineStatus}</span>
@@ -277,6 +280,7 @@
         hasFiles={queueFiles.some(qf => qf.checked)}
         disabled={separating}
         onExecute={handleExecute}
+        onCancel={onCancel}
         progress={currentProgress}
         status={pipelineStatus}
         step={pipelineStep}
@@ -555,5 +559,22 @@
     background: rgba(128,128,128,0.1);
     padding: 2px 8px;
     border-radius: 4px;
+  }
+
+  .btn-stop {
+    width: 100%;
+    padding: 12px;
+    background: #4a1a1a;
+    color: #e57373;
+    border: 1px solid #6a2a2a;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: bold;
+    cursor: pointer;
+    margin-bottom: 12px;
+    transition: background 0.2s;
+  }
+  .btn-stop:hover {
+    background: #5a2a2a;
   }
 </style>

@@ -10,7 +10,7 @@
   import PresetsPanel from './lib/PresetsPanel.svelte';
   import type { ResultStem } from './lib/types';
   import { detectStemType } from './lib/types';
-  import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getPresets, getDefaultPreset } from './lib/api';
+  import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getPresets, getDefaultPreset, clearQueue, cancelQueue } from './lib/api';
   import type { QueueJob } from './lib/api';
   import { IconOnda } from './lib/icons';
 
@@ -366,6 +366,13 @@
       queuePollingTimer = null;
     }
 
+    // Clear queue on backend before starting new jobs
+    try {
+      await clearQueue();
+    } catch (e) {
+      // Non-fatal — continue even if clear fails
+    }
+
     const checked = queueFiles.filter((qf) => qf.checked && qf.status !== 'done');
     if (checked.length === 0) {
       if (queueFiles.length > 0) {
@@ -453,6 +460,24 @@
       showToast('Pipeline error: ' + err.message, 'error');
       separating = false;
     }
+  }
+
+  function handleCancel() {
+    cancelQueue().catch(() => {});
+    if (queuePollingTimer) {
+      clearInterval(queuePollingTimer);
+      queuePollingTimer = null;
+    }
+    separating = false;
+    pipelineStatus = 'idle';
+    pipelineStep = '';
+    currentProgress = 0;
+    pipelineEta = '';
+    inferenceDevice = '';
+    queueJobs = [];
+    processedDoneSongs = new Set();
+    activeSongNames = new Set();
+    showToast('⏹ Proceso cancelado', 'success');
   }
 
   function startQueuePolling() {
@@ -675,6 +700,7 @@
             onError={(msg) => showToast(msg, 'error')}
             onQueueChange={(files) => queueFiles = files}
             onStart={handlePipelineStart}
+            onCancel={handleCancel}
             onRemoveFile={handleRemoveQueueFile}
           />
         {:else if activeTab === 'personalizado'}
@@ -696,6 +722,7 @@
             onError={(msg) => showToast(msg, 'error')}
             onQueueChange={(files) => queueFiles = files}
             onStart={handlePipelineStart}
+            onCancel={handleCancel}
             onRemoveFile={handleRemoveQueueFile}
           />
         {:else if activeTab === 'pitch'}
@@ -723,6 +750,7 @@
             {inferenceDevice}
             onQueueChange={(files) => queueFiles = files}
             onStart={handlePipelineStart}
+            onCancel={handleCancel}
             onRemoveFile={handleRemoveQueueFile}
           />
         {/if}

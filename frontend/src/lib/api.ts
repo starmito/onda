@@ -357,6 +357,24 @@ export async function getQueueStatus(): Promise<QueueStatusResponse> {
   }
 }
 
+export async function clearQueue(): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/queue`, { method: 'DELETE' });
+  if (!res.ok) {
+    throw new Error(`Queue clear failed with status ${res.status}: ${res.statusText}`);
+  }
+}
+
+export async function cancelQueue(): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/queue/cancel`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) {
+    throw new Error(`Queue cancel failed with status ${res.status}: ${res.statusText}`);
+  }
+}
+
 // ---- Results (file system persistence) ----
 export interface ResultsGroup {
   song: string;
