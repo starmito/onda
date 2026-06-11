@@ -456,8 +456,8 @@ func (s *Server) handleQueueClear(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Kill processes inside container
-	exec.Command("docker", "exec", "onda", "pkill", "-f", "pipeline.sh").Run()
-	exec.Command("docker", "exec", "onda", "pkill", "-f", "python").Run()
+	// Kill processes inside container (onda container has pidof, use that instead of pkill)
+	exec.Command("docker", "exec", "onda", "sh", "-c", "kill $(pidof python3) $(pidof python) 2>/dev/null; kill $(pidof bash) 2>/dev/null; exit 0").Run()
 
 	// Clear all jobs
 	s.jobs = make(map[string]*JobState)
@@ -481,8 +481,8 @@ func (s *Server) handleQueueCancel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Kill processes inside container
-	exec.Command("docker", "exec", "onda", "pkill", "-f", "pipeline.sh").Run()
-	exec.Command("docker", "exec", "onda", "pkill", "-f", "python").Run()
+	// Kill processes inside container (onda container has pidof, use that instead of pkill)
+	exec.Command("docker", "exec", "onda", "sh", "-c", "kill $(pidof python3) $(pidof python) 2>/dev/null; kill $(pidof bash) 2>/dev/null; exit 0").Run()
 
 	// Remove all jobs — cancel means "stop everything and start fresh"
 	s.jobs = make(map[string]*JobState)
