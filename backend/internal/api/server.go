@@ -62,11 +62,13 @@ type JobState struct {
 
 // Server wraps the HTTP server with routes, middleware, and a sequential job queue.
 type Server struct {
-	mux       *http.ServeMux
-	jobQueue  chan JobRequest
-	jobs      map[string]*JobState
-	jobsMu    sync.RWMutex
-	nextIndex int
+	mux           *http.ServeMux
+	jobQueue      chan JobRequest
+	jobs          map[string]*JobState
+	jobsMu        sync.RWMutex
+	nextIndex     int
+	currentCancel context.CancelFunc
+	currentCmd    *exec.Cmd
 }
 
 // NewServer creates a new http.Server with CORS middleware and routes registered.
@@ -78,6 +80,8 @@ func NewServer(addr string) *http.Server {
 	}
 	s.mux.HandleFunc("/api/health", s.handleHealth)
 	s.mux.HandleFunc("GET /api/queue/status", s.handleQueueStatus)
+	s.mux.HandleFunc("DELETE /api/queue", s.handleQueueClear)
+	s.mux.HandleFunc("POST /api/queue/cancel", s.handleQueueCancel)
 	s.mux.HandleFunc("GET /api/results", s.handleResults)
 	s.mux.HandleFunc("GET /api/inputs", s.handleInputs)
 	// Presets API (must be BEFORE /api/models catch-all)
@@ -438,6 +442,44 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"jobs": jobList})
 }
 
+// handleQueueClear cancels the current job and removes all jobs from the queue.
+// DELETE /api/queue
+func (s *Server) handleQueueClear(w http.ResponseWriter, r *http.Request) {
+	s.jobsMu.Lock()
+	defer s.jobsMu.Unlock()
+
+	// Cancel current job if running
+	if s.currentCancel != nil {
+		s.currentCancel()
+		s.currentCancel = nil
+		s.currentCmd = nil
+	}
+
+	// Clear all jobs
+	s.jobs = make(map[string]*JobState)
+	s.nextIndex = 0
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "cleared"})
+}
+
+// handleQueueCancel cancels the currently running job without clearing the queue.
+// POST /api/queue/cancel
+func (s *Server) handleQueueCancel(w http.ResponseWriter, r *http.Request) {
+	s.jobsMu.Lock()
+	defer s.jobsMu.Unlock()
+
+	// Cancel current job if running
+	if s.currentCancel != nil {
+		s.currentCancel()
+		s.currentCancel = nil
+		s.currentCmd = nil
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "cancelled"})
+}
+
 // capitalizeStep returns a display-friendly step name.
 func capitalizeStep(step string) string {
 	switch step {
@@ -463,9 +505,22 @@ func (s *Server) worker() {
 		}
 		s.jobsMu.Unlock()
 
+		ctx, cancel := context.WithCancel(context.Background())
 		dockerArgs := append([]string{"exec", "onda", "bash", "/pipeline.sh"}, job.Args...)
-		cmd := exec.Command("docker", dockerArgs...)
+		cmd := exec.CommandContext(ctx, "docker", dockerArgs...)
+
+		s.jobsMu.Lock()
+		s.currentCancel = cancel
+		s.currentCmd = cmd
+		s.jobsMu.Unlock()
+
 		out, err := cmd.CombinedOutput()
+
+		s.jobsMu.Lock()
+		s.currentCancel = nil
+		s.currentCmd = nil
+		s.jobsMu.Unlock()
+		cancel() // release context resources
 
 		// Log all pipeline output to ring buffer with distinct timestamps
 		baseNano := time.Now().UnixNano()
