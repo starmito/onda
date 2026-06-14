@@ -7,26 +7,30 @@ import (
 	"time"
 )
 
-// RubberbandPitch aplica pitch shift a un archivo de audio usando rubberband CLI.
+// RubberbandPitch aplica pitch shift a un archivo de audio usando ffmpeg con el filtro rubberband.
 // semitones: semitonos (-12 a +12)
-// input: ruta del HOST al archivo de entrada
-// output: ruta del HOST al archivo de salida
+// input: ruta DENTRO del contenedor al archivo de entrada
+// output: ruta DENTRO del contenedor al archivo de salida
+// ffmpeg se ejecuta dentro del contenedor onda via docker exec.
 func RubberbandPitch(semitones int, input, output string) error {
 	if semitones == 0 {
 		// Si pitch=0, copiar el archivo en vez de procesar
 		return CopyFile(input, output)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "docker", "exec", "onda", "rubberband",
-		"-p", fmt.Sprintf("%d", semitones),
-		input, output)
+	// Usar ffmpeg con el filtro rubberband (más fiable que rubberband-cli)
+	cmd := exec.CommandContext(ctx, "docker", "exec", "onda", "ffmpeg",
+		"-y",
+		"-i", input,
+		"-af", fmt.Sprintf("rubberband=pitch=%d", semitones),
+		output)
 
 	outputBytes, err := cmd.CombinedOutput()
 	if err != nil {
-		return fmt.Errorf("rubberband failed: %w\nOutput: %s", err, string(outputBytes))
+		return fmt.Errorf("ffmpeg rubberband failed: %w\nOutput: %s", err, string(outputBytes))
 	}
 	return nil
 }
