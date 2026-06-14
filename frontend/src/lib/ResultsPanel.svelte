@@ -1276,6 +1276,14 @@
     }
     waveformDrawn.clear();
   });
+
+  function formatPitchStemName(name: string): string {
+    const match = name.match(/^(.+?)_pitch([+-]\d+)(?:\..+)?$/);
+    if (match) {
+      return `${match[1]} (${match[2]})`;
+    }
+    return name;
+  }
 </script>
 
 {#if songGroups.length > 0}
@@ -1391,7 +1399,7 @@
 
               <!-- Stem info -->
               <span class="stem-emoji">{stemEmoji(stem.stemType)}</span>
-              <span class="stem-name" title={stem.name}>{stem.name}</span>
+              <span class="stem-name" title={stem.name}>{formatPitchStemName(stem.name)}</span>
 
               <!-- Controls -->
               <div class="stem-controls">
@@ -1514,7 +1522,7 @@
                   {@const pLevel = pitchedPeaks[stemId] || { l: 0, r: 0 }}
                   <div class="stem-row pitched-stem" class:muted={subState.muted}>
                     <span class="stem-emoji">{stemEmoji(stem.stemType)}</span>
-                    <span class="stem-name" title={stem.name}>{stem.name}</span>
+                    <span class="stem-name" title={stem.name}>{formatPitchStemName(stem.name)}</span>
                     <div class="stem-controls">
                       <button class="stem-btn mute-btn" class:active={subState.muted}
                         onclick={() => toggleSubgroupMute(group.song, sg.pitch, stem.name)}>M</button>

@@ -13,6 +13,6 @@ echo "→ Starting Go backend on :3001..."
 su-exec 1000:983 /usr/bin/onda-backend serve --addr :3001 &
 sleep 1
 
-# ── Start nginx as current user (root — only reads files, needs /dev/stdout) ──
+# ── Start nginx as user 1000 (starmito — non-root) ──
 echo "→ Starting nginx..."
-exec nginx -g "daemon off;"
+exec su-exec 1000:1000 nginx -g "daemon off;"
