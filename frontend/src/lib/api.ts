@@ -664,3 +664,33 @@ export async function getVRAMCalculator(params: {
   }
   return (await res.json()) as VRAMCalculatorResponse;
 }
+
+// ---- UI Settings (accent, theme, fontSize, scale) ----
+export interface UISettings {
+  accent: string;
+  theme: string;    // 'light' | 'dark'
+  fontSize: string; // 'small' | 'medium' | 'large'
+  scale: number;    // 75-150
+}
+
+export async function loadUISettings(): Promise<UISettings | null> {
+  try {
+    const res = await fetch(`${API_BASE}/api/settings/ui`);
+    if (!res.ok) return null;
+    return (await res.json()) as UISettings;
+  } catch {
+    return null;
+  }
+}
+
+export async function saveUISettings(settings: UISettings): Promise<void> {
+  try {
+    await fetch(`${API_BASE}/api/settings/ui`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings),
+    });
+  } catch {
+    // Silently fail — localStorage is the fallback
+  }
+}

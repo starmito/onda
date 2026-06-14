@@ -10,7 +10,7 @@
   import PresetsPanel from './lib/PresetsPanel.svelte';
   import type { ResultStem } from './lib/types';
   import { detectStemType } from './lib/types';
-  import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getPresets, getDefaultPreset, clearQueue, cancelQueue } from './lib/api';
+  import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getPresets, getDefaultPreset, clearQueue, cancelQueue, loadUISettings } from './lib/api';
   import type { QueueJob } from './lib/api';
   import { IconOnda, IconStar, IconVoiceRemove, IconSeparate, IconInstruments, IconUser } from './lib/icons';
 
@@ -135,14 +135,12 @@
     }
   }
 
-  // Load model list + persisted data on mount
-  onMount(() => {
-    // ── Load persisted accent color and theme ──
+  /** Fallback: load UI settings from localStorage */
+  function applyLocalStorageSettings() {
     const savedAccent = localStorage.getItem('onda-accent');
     if (savedAccent) {
       const body = document.body;
       body.style.setProperty('--accent', savedAccent);
-      // Calculate lighter/darker variants
       const num = parseInt(savedAccent.replace('#', ''), 16);
       const r = Math.min(255, Math.max(0, (num >> 16)));
       const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff)));
@@ -162,20 +160,65 @@
     if (savedTheme === 'light') {
       document.body.classList.add('light-theme');
     }
-
-    // ── Load persisted font size ──
     const savedFontSize = localStorage.getItem('onda-font-size');
     if (savedFontSize) {
       const root = document.documentElement;
       const sizes = { small: '12px', medium: '14px', large: '16px' };
       root.style.fontSize = sizes[savedFontSize as keyof typeof sizes] || '14px';
     }
-
-    // ── Load persisted UI scale ──
     const savedScale = localStorage.getItem('onda-scale');
     if (savedScale) {
       document.body.style.zoom = `${savedScale}%`;
     }
+  }
+
+  // Load model list + persisted data on mount
+  onMount(() => {
+    // ── Load persisted UI settings (accent, theme, fontSize, scale) ──
+    // Try API first, fallback to localStorage
+    loadUISettings().then(settings => {
+      if (settings) {
+        // Apply accent from API
+        if (settings.accent) {
+          const body = document.body;
+          body.style.setProperty('--accent', settings.accent);
+          const num = parseInt(settings.accent.replace('#', ''), 16);
+          const r = Math.min(255, Math.max(0, (num >> 16)));
+          const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff)));
+          const b = Math.min(255, Math.max(0, (num & 0xff)));
+          const lightR = Math.min(255, r + 40);
+          const lightG = Math.min(255, g + 40);
+          const lightB = Math.min(255, b + 40);
+          body.style.setProperty('--accent-light', `rgb(${lightR}, ${lightG}, ${lightB})`);
+          body.style.setProperty('--accent-dark', `rgb(${Math.max(0, r - 30)}, ${Math.max(0, g - 30)}, ${Math.max(0, b - 30)})`);
+          body.style.setProperty('--accent-glow', settings.accent + '4d');
+          body.style.setProperty('--accent-subtle', settings.accent + '14');
+          body.style.setProperty('--accent-bg', settings.accent + '22');
+          body.style.setProperty('--accent-border', settings.accent + '33');
+          body.style.accentColor = settings.accent;
+        }
+        // Apply theme from API
+        if (settings.theme === 'light') {
+          document.body.classList.add('light-theme');
+        }
+        // Apply font size from API
+        if (settings.fontSize) {
+          const root = document.documentElement;
+          const sizes = { small: '12px', medium: '14px', large: '16px' };
+          root.style.fontSize = sizes[settings.fontSize as keyof typeof sizes] || '14px';
+        }
+        // Apply scale from API
+        if (settings.scale) {
+          document.body.style.zoom = `${settings.scale}%`;
+        }
+        return; // API applied, skip localStorage
+      }
+      // Fallback to localStorage
+      applyLocalStorageSettings();
+    }).catch(() => {
+      // API failed, fallback to localStorage
+      applyLocalStorageSettings();
+    });
 
     // ── Load version from health endpoint ──
     getHealth()
