@@ -15,4 +15,4 @@ sleep 1
 
 # ── Start nginx as user 1000 (starmito — non-root) ──
 echo "→ Starting nginx..."
-exec su-exec 1000:1000 nginx -g "daemon off;"
+exec su-exec 1000:0 nginx -g "daemon off;"
