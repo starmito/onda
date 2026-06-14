@@ -152,9 +152,13 @@ func (s *Server) handlePitchShift(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		} else {
-			// Apply rubberband pitch shift
-			Log("pipeline", "debug", fmt.Sprintf("Rubberband command: docker exec onda rubberband -p %d %s %s", req.Pitch, inputPath, outputPath))
-			if err := audio.RubberbandPitch(req.Pitch, inputPath, outputPath); err != nil {
+			// Apply rubberband pitch shift INSIDE the onda container.
+			// rubberband runs via docker exec, so paths must be container paths,
+			// not host paths. The container bind-mounts /output/ from the host.
+			containerInputPath := "/output/" + req.Song + "/" + name
+			containerOutputPath := containerOutDir + "/" + outputName
+			Log("pipeline", "debug", fmt.Sprintf("Rubberband command: docker exec onda rubberband -p %d %s %s", req.Pitch, containerInputPath, containerOutputPath))
+			if err := audio.RubberbandPitch(req.Pitch, containerInputPath, containerOutputPath); err != nil {
 				Log("pipeline", "error", fmt.Sprintf("rubberband FAILED for stem %q: %v", name, err))
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusInternalServerError)

@@ -1,4 +1,13 @@
 # Changelog
+## v2.9.3 (2026-06-14) — Pitch fix (paths contenedor) + limpieza flags legacy
+
+### Fixed
+- **Pitch shift: paths de contenedor**: rubberband ahora recibe rutas válidas dentro del contenedor (`/output/...`) en vez de rutas del host (`/home/starmito/...`). Los stems no-drums (bass, other, vocals) ya no se generan como archivos de silencio. Todos los stems se procesan correctamente con rubberband.
+- **Flags legacy eliminados**: `--viperx`, `--demucs`, `--viperx-overlap`, `--demucs-model`, `--rubberband` eliminados de flags.go y server.go. Solo se usan flags modernos: `--vocal-model`, `--stem-model`, `--pitch`.
+
+### Removed
+- Código legacy de pipeline flags: struct fields `hasVocalOverlap`/`hasPitch`, declaraciones de flags legacy, mapeo legacy, ayuda legacy
+
 ## v2.9.2 (2026-06-14) — UI settings persistente + limpieza legacy
 
 ### Added
