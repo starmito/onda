@@ -2,7 +2,7 @@
 
 Interfaz web para separar voces e instrumentos de cualquier canción usando modelos deep learning (Demucs, ViperX) con aceleración NVIDIA GPU.
 
-![Version](https://img.shields.io/badge/version-v2.6.2--alpha-blue)
+![Version](https://img.shields.io/badge/version-v2.8.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## ✨ Características
