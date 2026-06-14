@@ -1,5 +1,29 @@
 # Changelog
 
+## v2.8.0 (2026-06-14) — Presets reales + player unificado + pipeline chaining
+
+### Added
+- **Presets con routing de stems**: backend Go con struct `Preset` y `PipelineStep[]`, routing matrix (cada stem → resultado / siguiente paso / descartar)
+- **PipelineEditor frontend**: matriz de routing visual con sidebar dinámico desde API, sin presets hardcodeados
+- **4 presets bloqueados persistentes**: Separador Voces Total, Eliminador de Voz, Separador Completo, Solo Instrumentos (seedeados en backend, protegidos con DELETE 403)
+- **Player unificado**: PitchPage y ResultsPanel usan el mismo componente completo — waveform, peak meters RMS en vivo, skip ±10s, mute/solo, volumen
+- **Botón descargar todo** en subgrupos de cambio de tono
+- **Pipeline chaining**: `pipeline.sh --steps JSON`, multi-step pipeline, flag `--no-clean`, `--input-from-step` para encadenar pasos
+
+### Fixed
+- **Pitch shift permissions**: directorio `_pitch+N` creado con `os.MkdirAll` con permisos correctos (no root)
+- **Error fatal si falla drums**: pitch.sh no continúa silenciosamente si falla la copia del stem de batería
+- **500 en eliminación de subgrupos**: URL encoding (`encodeURIComponent`) para nombres con paréntesis/espacios
+- **AudioContext recreado en cada montaje**: evita abort en `onDestroy` que interrumpía el pitch shift al cambiar de pantalla
+- **Conflicto tipo StemRoute/ActionRoute**: renombrado para evitar error de compilación
+
+### Changed
+- **Refactor frontend**: eliminado formato legacy de presets (`getHardcodedPreset()`, `lockedPresetNames`). Migración legacy→nuevo formato
+- **PipelineEditor**: presets se cargan directamente del backend sin conversión legacy
+
+### Removed
+- Código legacy de presets hardcodeados en frontend
+
 ## v2.7.12 (2026-06-11)
 
 ### Fixed
