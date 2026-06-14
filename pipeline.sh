@@ -157,6 +157,8 @@ DEVICE="cuda"
 SHIFTS=1
 DEMUCS_SEGMENT=0
 JOBS=0
+NO_CLEAN=false        # v2.8.0: don't clean output dir between chained steps
+INPUT_FROM_STEP=""    # v2.8.0: use this existing file as input instead of original
 
 INPUT=""
 while [[ $# -gt 0 ]]; do
@@ -174,10 +176,17 @@ while [[ $# -gt 0 ]]; do
         --shifts)       SHIFTS="$2"; shift 2 ;;
         --demucs-segment) DEMUCS_SEGMENT="$2"; shift 2 ;;
         --jobs)         JOBS="$2"; shift 2 ;;
+        --no-clean)     NO_CLEAN=true; shift ;;
+        --input-from-step) INPUT_FROM_STEP="$2"; shift 2 ;;
         -*)             echo "Unknown flag: $1"; exit 1 ;;
         *)              INPUT="$1"; shift ;;
     esac
 done
+
+# Resolve input: --input-from-step overrides positional arg
+if [ -n "$INPUT_FROM_STEP" ]; then
+    INPUT="$INPUT_FROM_STEP"
+fi
 
 # ── Progress ranges (dynamic based on active steps) ──
 VIPERX_START=0; VIPERX_END=0
@@ -244,11 +253,16 @@ echo "   Output:   ${OUTPUT}"
 echo "═══════════════════════════════════════"
 
 # Clean previous run output (safe: pipeline runs as uid 1000, owns these dirs)
-rm -rf "${OUTPUT}" 2>/dev/null || true
-mkdir -p "${OUTPUT}"
+# Skip if --no-clean is set (v2.8.0 chaining mode)
+if ! $NO_CLEAN; then
+    rm -rf "${OUTPUT}" 2>/dev/null || true
+    mkdir -p "${OUTPUT}"
+fi
 
 # Clean previous output to prevent accumulation of old stems
-rm -f "${OUTPUT}"/*.wav 2>/dev/null || true
+if ! $NO_CLEAN; then
+    rm -f "${OUTPUT}"/*.wav 2>/dev/null || true
+fi
 
 # ── Track what's available for downstream steps ──
 STEM_DIR=""        # dir with drums/bass/other/vocals for rubberband
