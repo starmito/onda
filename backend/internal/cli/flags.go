@@ -56,10 +56,6 @@ type PipelineFlags struct {
 	Pitch        int
 	Input        string
 	Output       string
-
-	// Internal tracking for legacy flag overrides
-	hasVocalOverlap bool
-	hasPitch        bool
 }
 
 // ParsePipelineFlags parses args (typically os.Args[2:]) and returns PipelineFlags.
@@ -78,13 +74,6 @@ func ParsePipelineFlags(args []string) (*PipelineFlags, error) {
 	pitch := fs.Int("pitch", 0, "Pitch shift in semitones (0 = disabled)")
 	input := fs.String("input", "", "Input audio file path")
 	output := fs.String("output", "", "Output directory path")
-
-	// Legacy flags
-	viperx := fs.Bool("viperx", false, "[legacy] Use ViperX for vocal separation (alias for --vocal-model viperx)")
-	demucs := fs.Bool("demucs", false, "[legacy] Use Demucs for stem separation (alias for --stem-model htdemucs_ft)")
-	viperxOverlap := fs.Int("viperx-overlap", 0, "[legacy] ViperX overlap (alias for --vocal-overlap)")
-	demucsModel := fs.String("demucs-model", "", "[legacy] Demucs model (alias for --stem-model)")
-	rubberband := fs.Bool("rubberband", false, "[legacy] Enable Rubberband pitch shift (alias for --pitch 0)")
 
 	// Help flag
 	help := fs.Bool("help", false, "Show help")
@@ -114,14 +103,6 @@ func ParsePipelineFlags(args []string) (*PipelineFlags, error) {
 		Output:       *output,
 	}
 
-	// Track whether explicit flags were set
-	if *vocalOverlap != 0 {
-		flags.hasVocalOverlap = true
-	}
-	if *pitch != 0 {
-		flags.hasPitch = true
-	}
-
 	// Parse stem-keep into slice
 	if *stemKeep != "" {
 		parts := strings.Split(*stemKeep, ",")
@@ -129,30 +110,6 @@ func ParsePipelineFlags(args []string) (*PipelineFlags, error) {
 			parts[i] = strings.TrimSpace(p)
 		}
 		flags.StemKeep = parts
-	}
-
-	// Apply legacy flag mappings
-	if *viperx {
-		if flags.VocalModel == "" {
-			flags.VocalModel = "viperx"
-		}
-	}
-	if *demucs {
-		if flags.StemModel == "" {
-			flags.StemModel = "htdemucs_ft"
-		}
-	}
-	if *viperxOverlap > 0 {
-		flags.VocalOverlap = *viperxOverlap
-		flags.hasVocalOverlap = true
-	}
-	if *demucsModel != "" {
-		flags.StemModel = *demucsModel
-	}
-	if *rubberband {
-		if !flags.hasPitch {
-			flags.Pitch = 0
-		}
 	}
 
 	// Validate
@@ -201,7 +158,7 @@ func Help() string {
 	b.WriteString("Usage:\n")
 	b.WriteString("  onda pipeline [flags]\n\n")
 	b.WriteString("Run the audio separation pipeline.\n\n")
-	b.WriteString("Flags (modern):\n")
+	b.WriteString("Flags:\n")
 	b.WriteString("  --preset string          Preset to use (default: none, use flags directly)\n")
 	b.WriteString("  --vocal-model string     Vocal separation model (overrides preset)\n")
 	b.WriteString("  --vocal-overlap int      Vocal overlap size (overrides preset)\n")
@@ -217,12 +174,6 @@ func Help() string {
 	b.WriteString("  --no-clean               Don't clean output directory (for pipeline chaining)\n")
 	b.WriteString("  --input-from-step string Use this existing stem file as input (for chaining)\n")
 	b.WriteString("  --help                   Show this help\n\n")
-	b.WriteString("Flags (legacy — compatibility with pipeline.sh):\n")
-	b.WriteString("  --viperx                 Use ViperX for vocal separation (alias for --vocal-model viperx)\n")
-	b.WriteString("  --demucs                 Use Demucs for stem separation (alias for --stem-model htdemucs_ft)\n")
-	b.WriteString("  --viperx-overlap int     ViperX overlap (alias for --vocal-overlap)\n")
-	b.WriteString("  --demucs-model string    Demucs model (alias for --stem-model)\n")
-	b.WriteString("  --rubberband             Enable Rubberband pitch shift (alias for --pitch 0)\n\n")
 	b.WriteString("Presets (v2.8.0):\n")
 	b.WriteString("  Voces Total       1 paso: ViperX separa voces + instrumental\n")
 	b.WriteString("  Eliminador de Voz 1 paso: ViperX elimina voces, solo instrumental\n")

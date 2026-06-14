@@ -839,19 +839,19 @@ func buildPipelineArgs(req SeparateRequest) (song string, args []string, steps [
 
 	// --- BACKWARD COMPAT: old format (no steps) ---
 	if req.Viperx {
-		args = append(args, "--viperx")
+		args = append(args, "--vocal-model", "BS_Roformer_Viperx")
 		if req.ViperxKeep != "" {
 			args = append(args, "--viperx-keep", req.ViperxKeep)
 		}
 	}
 	if req.Demucs {
-		args = append(args, "--demucs")
+		args = append(args, "--stem-model", "htdemucs_ft")
 		if len(req.DemucsKeep) > 0 {
 			args = append(args, "--demucs-keep", strings.Join(req.DemucsKeep, ","))
 		}
 	}
 	if req.Pitch != 0 {
-		args = append(args, "--rubberband", "--pitch", fmt.Sprintf("%d", req.Pitch))
+		args = append(args, "--pitch", fmt.Sprintf("%d", req.Pitch))
 	}
 
 	// Resolve model paths (pipeline.sh reads inference params from model's YAML)
@@ -878,7 +878,7 @@ func buildPipelineArgs(req SeparateRequest) (song string, args []string, steps [
 		}
 	}
 	if stemModel != "" {
-		args = append(args, "--demucs-model", stemModel)
+		args = append(args, "--stem-model", stemModel)
 	}
 
 	// Demucs-specific flags
@@ -909,7 +909,7 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 
 	switch step.Type {
 	case "viperx":
-		args = append(args, "--viperx")
+		args = append(args, "--vocal-model", "BS_Roformer_Viperx")
 		// Model
 		if step.Model != "" {
 			modelDir := resolveModelDir(step.Model)
@@ -930,10 +930,10 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 			}
 		}
 	case "demucs":
-		args = append(args, "--demucs")
+		args = append(args, "--stem-model", "htdemucs_ft")
 		// Model
 		if step.Model != "" {
-			args = append(args, "--demucs-model", step.Model)
+			args = append(args, "--stem-model", step.Model)
 		}
 		// Stem keep based on routing
 		if step.Stems != nil {
