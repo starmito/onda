@@ -849,6 +849,17 @@
     }
   }
 
+  function handleExportSubgroup(song: string, pitchIdx: number) {
+    const subs = pitchSubgroups[song];
+    if (!subs || !subs[pitchIdx]) return;
+    for (const stem of subs[pitchIdx].stems) {
+      const a = document.createElement('a');
+      a.href = stem.path;
+      a.download = stem.name;
+      a.click();
+    }
+  }
+
   async function handleDeleteGroup(song: string) {
     if (!confirm(`Eliminar todo el grupo "${song}"?`)) return;
     try {
@@ -1527,6 +1538,7 @@
                       <div class="subgroup-header">
                         <span class="subgroup-pitch-label">Tono: {subs.pitch > 0 ? '+' : ''}{subs.pitch}</span>
                         <span class="output-stem-count">{subStems.length} pistas</span>
+                        <button class="song-btn export-btn" onclick={() => handleExportSubgroup(song, idx)} title="Descargar todo">⬇</button>
                       </div>
 
                       <!-- ── Subgroup player bar (same as main group) ── -->
