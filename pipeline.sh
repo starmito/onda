@@ -9,14 +9,12 @@
 #   where JSON is an array of step objects, e.g.:
 #   '[{"type":"viperx","model":"BS_Roformer_Viperx","stems":{"vocals":{"action":"route","target":"step:1"},"instrumental":{"action":"save"}}},{"type":"demucs","model":"htdemucs_ft","stems":{"drums":{"action":"save"},"bass":{"action":"save"},"other":{"action":"save"},"vocals":{"action":"save"}}}]'
 #
-# Legacy flags (any combination):
-#   --viperx              BS-Roformer-Viperx → vocal + instrumental
-#   --viperx-keep WHAT    What to save: instrumental | vocals | both (default)
+# Flags:
+#   --steps JSON          Chained mode: JSON array of step objects
 #   --viperx-model PATH   ViperX model path (default: /models/VR_Models/BS_Roformer_Viperx)
-#   --demucs              HTDemucs_ft → drums, bass, other, vocals
+#   --viperx-keep WHAT    What to save: instrumental | vocals | both (default)
 #   --demucs-keep LIST    Stems to keep: drums,bass,other,vocals or all (default)
-#   --demucs-model NAME   Demucs model name (default: htdemucs_ft)
-#   --rubberband          Pitch shift all stems except drums
+#   --stem-model NAME     Demucs stem model name (default: htdemucs_ft)
 #   --pitch N             Semitones for rubberband (default: 0)
 #   --output DIR          Output directory (default: /output/<song_name>)
 #   --device NAME         Inference device: cpu | cuda (default: cuda)
@@ -26,13 +24,12 @@
 #   --no-clean            Don't clean output dir (for chained invocations)
 #   --input-from-step     Use existing file as input instead of original
 #
-# Default (no flags): --viperx --demucs --rubberband
 #
 # Examples:
-#   pipeline.sh cancion.mp3                                    # full legacy pipeline
-#   pipeline.sh --rubberband --pitch 2 cancion.wav             # only pitch
-#   pipeline.sh --viperx --viperx-keep instrumental cancion.mp3 # only instrumental
-#   pipeline.sh --viperx --demucs cancion.mp3                  # vocals + stems
+#   pipeline.sh cancion.mp3                                    # full pipeline (viperx + demucs + rubberband)
+#   pipeline.sh --pitch 2 cancion.wav                          # only rubberband pitch shift
+#   pipeline.sh --viperx-keep instrumental cancion.mp3         # only instrumentals
+#   pipeline.sh --demucs-keep drums,bass cancion.mp3           # only drums + bass
 #   pipeline.sh --steps '[...]' cancion.wav                    # chained steps
 
 set -euo pipefail
@@ -385,13 +382,13 @@ run_demucs_step() {
 
 
 # ── Parse flags ──────────────────────────────────
-VIPERX=false
+VIPERX=false           # auto-detected: true when viperx-specific flags are passed
 VIPERX_KEEP="both"
 VIPERX_MODEL="/models/VR_Models/BS_Roformer_Viperx"
-DEMUCS=false
+DEMUCS=false           # auto-detected: true when demucs-specific flags are passed
 DEMUCS_KEEP="all"
 DEMUCS_MODEL="htdemucs_ft"
-RUBBERBAND=false
+RUBBERBAND=false       # auto-detected: true when --pitch is passed
 PITCH=0
 OUTPUT=""
 DEVICE="cuda"
@@ -406,14 +403,12 @@ INPUT=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --steps)        STEPS_JSON="$2"; shift 2 ;;
-        --viperx)       VIPERX=true; shift ;;
-        --viperx-keep)  VIPERX_KEEP="$2"; shift 2 ;;
-        --viperx-model) VIPERX_MODEL="$2"; shift 2 ;;
-        --demucs)       DEMUCS=true; shift ;;
-        --demucs-keep)  DEMUCS_KEEP="$2"; shift 2 ;;
-        --demucs-model) DEMUCS_MODEL="$2"; shift 2 ;;
-        --rubberband)   RUBBERBAND=true; shift ;;
-        --pitch)        PITCH="$2"; shift 2 ;;
+        --vocal-model)  VOCAL_MODEL="$2"; VIPERX=true; shift 2 ;;
+        --viperx-keep)  VIPERX_KEEP="$2"; VIPERX=true; shift 2 ;;
+        --viperx-model) VIPERX_MODEL="$2"; VIPERX=true; shift 2 ;;
+        --demucs-keep)  DEMUCS_KEEP="$2"; DEMUCS=true; shift 2 ;;
+        --stem-model)   DEMUCS_MODEL="$2"; DEMUCS=true; shift 2 ;;
+        --pitch)        PITCH="$2"; RUBBERBAND=true; shift 2 ;;
         --output)       OUTPUT="$2"; shift 2 ;;
         --device)       DEVICE="$2"; shift 2 ;;
         --shifts)       SHIFTS="$2"; shift 2 ;;
@@ -432,7 +427,7 @@ if [ -n "$INPUT_FROM_STEP" ]; then
 fi
 
 if [ -z "$INPUT" ]; then
-    echo "Usage: pipeline.sh [--steps JSON] [--viperx] [--demucs] [--rubberband] [--pitch N] <input>"
+    echo "Usage: pipeline.sh [--steps JSON] [--pitch N] <input>"
     exit 1
 fi
 if [ ! -f "$INPUT" ]; then
@@ -442,6 +437,14 @@ fi
 
 SONG=$(basename "${INPUT%.*}")
 OUTPUT="${OUTPUT:-/output/${SONG}}"
+
+# ── Auto-detect steps: if no step was explicitly requested and not in --steps mode,
+#    enable all steps for backward compatibility (full pipeline).
+if ! $VIPERX && ! $DEMUCS && ! $RUBBERBAND && [ -z "$STEPS_JSON" ]; then
+    VIPERX=true
+    DEMUCS=true
+    RUBBERBAND=true
+fi
 
 # ══════════════════════════════════════════════════════════
 # CHAINED MODE (--steps JSON)
@@ -737,11 +740,6 @@ fi
 VIPERX_MODEL_DISPLAY="${VIPERX_MODEL##*/}"    # strip path, keep filename
 VIPERX_MODEL_DISPLAY="${VIPERX_MODEL_DISPLAY%.*}"  # strip extension
 DEMUCS_MODEL_DISPLAY="$DEMUCS_MODEL"
-
-# Default: all steps if none specified
-if ! $VIPERX && ! $DEMUCS && ! $RUBBERBAND; then
-    VIPERX=true; DEMUCS=true; RUBBERBAND=true
-fi
 
 # ── Validate ─────────────────────────────────────
 if [ ! -f "$INPUT" ]; then
