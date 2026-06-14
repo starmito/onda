@@ -2,7 +2,8 @@
 ## v2.9.3 (2026-06-14) — Pitch fix (paths contenedor) + limpieza flags legacy
 
 ### Fixed
-- **Pitch shift: paths de contenedor**: rubberband ahora recibe rutas válidas dentro del contenedor (`/output/...`) en vez de rutas del host (`/home/starmito/...`). Los stems no-drums (bass, other, vocals) ya no se generan como archivos de silencio. Todos los stems se procesan correctamente con rubberband.
+- **Pitch shift: rubberband-cli 3.3.0 produce silencio** — reemplazado por `ffmpeg -af rubberband=pitch=N` que funciona correctamente. Todos los stems (bass, other, vocals) ahora se procesan con audio real (max_sample=26230 vs 33 antes)
+- **Pitch shift: paths de contenedor** — rubberband ahora recibe rutas válidas dentro del contenedor (`/output/...`) en vez de rutas del host (`/home/starmito/...`).
 - **Flags legacy eliminados**: `--viperx`, `--demucs`, `--viperx-overlap`, `--demucs-model`, `--rubberband` eliminados de flags.go y server.go. Solo se usan flags modernos: `--vocal-model`, `--stem-model`, `--pitch`.
 
 ### Removed
