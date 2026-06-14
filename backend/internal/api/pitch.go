@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -20,10 +19,9 @@ type PitchRequest struct {
 
 // PitchResponse is returned by POST /api/pitch.
 type PitchResponse struct {
-	Song   string      `json:"song"`
-	Pitch  int         `json:"pitch"`
-	Files  []FileEntry `json:"files"`
-	Errors []string    `json:"errors,omitempty"`
+	Song  string      `json:"song"`
+	Pitch int         `json:"pitch"`
+	Files []FileEntry `json:"files"`
 }
 
 // handlePitchShift applies rubberband pitch shift to all stems of a song
@@ -91,15 +89,11 @@ func (s *Server) handlePitchShift(w http.ResponseWriter, r *http.Request) {
 	pitchSuffix := fmt.Sprintf("_pitch%+d", req.Pitch)
 	outDir := filepath.Join(songDir, req.Song+pitchSuffix)
 
-	// Create output directory INSIDE the onda container (as uid 1000),
-	// so it's writable by rubberband (also uid 1000 in onda).
-	// Bind-mount ZFS prevents chmod from working across container boundaries.
-	containerOutDir := "/output/" + req.Song + "/" + req.Song + pitchSuffix
-	mkdirCmd := exec.Command("docker", "exec", "onda", "mkdir", "-p", containerOutDir)
-	if out, err := mkdirCmd.CombinedOutput(); err != nil {
+	// Create output directory on the host with proper permissions
+	if err := os.MkdirAll(outDir, 0755); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to create output dir: %v (output: %s)", err, string(out))})
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to create output dir: %v", err)})
 		return
 	}
 
@@ -115,7 +109,6 @@ func (s *Server) handlePitchShift(w http.ResponseWriter, r *http.Request) {
 	Log("pipeline", "info", fmt.Sprintf("Pitch shift started: song=%q, pitch=%+d, dir=%s", req.Song, req.Pitch, songDir))
 
 	var resultFiles []FileEntry
-	var errs []string
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue // skip subdirectories (like previous pitch results)
@@ -147,19 +140,21 @@ func (s *Server) handlePitchShift(w http.ResponseWriter, r *http.Request) {
 		if isDrums {
 			// Copy drums as-is
 			if err := audio.CopyFile(inputPath, outputPath); err != nil {
-				errMsg := fmt.Sprintf("failed to copy drums stem %q in song %q: %v", name, req.Song, err)
-				Log("pipeline", "error", errMsg)
-				errs = append(errs, errMsg)
-				continue
+				Log("pipeline", "error", fmt.Sprintf("failed to copy drums stem %q: %v", name, err))
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to copy drums: %v", err)})
+				return
 			}
 		} else {
 			// Apply rubberband pitch shift
 			Log("pipeline", "debug", fmt.Sprintf("Rubberband command: docker exec onda rubberband -p %d %s %s", req.Pitch, inputPath, outputPath))
 			if err := audio.RubberbandPitch(req.Pitch, inputPath, outputPath); err != nil {
-				errMsg := fmt.Sprintf("rubberband FAILED for stem %q in song %q: %v", name, req.Song, err)
-				Log("pipeline", "error", errMsg)
-				errs = append(errs, errMsg)
-				continue
+				Log("pipeline", "error", fmt.Sprintf("rubberband FAILED for stem %q: %v", name, err))
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("rubberband failed for %s: %v", name, err)})
+				return
 			}
 		}
 
@@ -170,15 +165,6 @@ func (s *Server) handlePitchShift(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if len(resultFiles) == 0 {
-		if len(errs) > 0 {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]interface{}{
-				"error":  fmt.Sprintf("all %d stems failed for song %q", len(errs), req.Song),
-				"errors": errs,
-			})
-			return
-		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]string{"error": "no audio files found in song directory"})
@@ -186,15 +172,11 @@ func (s *Server) handlePitchShift(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	Log("pipeline", "info", fmt.Sprintf("Pitch shift completed: %d/%d stems for song %q", len(resultFiles), len(resultFiles)+len(errs), req.Song))
-	if len(errs) > 0 {
-		Log("pipeline", "warn", fmt.Sprintf("Pitch shift partial failures for song %q: %d errors", req.Song, len(errs)))
-	}
+	Log("pipeline", "info", fmt.Sprintf("Pitch shift completed: %d stems for song %q", len(resultFiles), req.Song))
 	json.NewEncoder(w).Encode(PitchResponse{
-		Song:   req.Song,
-		Pitch:  req.Pitch,
-		Files:  resultFiles,
-		Errors: errs,
+		Song:  req.Song,
+		Pitch: req.Pitch,
+		Files: resultFiles,
 	})
 }
 
