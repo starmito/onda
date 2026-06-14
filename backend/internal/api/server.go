@@ -713,7 +713,7 @@ func stepTypeDisplay(stepType string) string {
 func findChainedInput(outputDir string, step cli.PipelineStep) string {
 	// First, look for stems that are explicitly routed
 	for stem, route := range step.Stems {
-		if route.Action == cli.StemRoute {
+		if route.Action == cli.ActionRoute {
 			pattern := filepath.Join(outputDir, "*"+stem+"*")
 			matches, _ := filepath.Glob(pattern)
 			if len(matches) > 0 {
@@ -931,7 +931,7 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 		if step.Stems != nil {
 			var keep []string
 			for stem, route := range step.Stems {
-				if route.Action == cli.StemSave || route.Action == cli.StemRoute {
+				if route.Action == cli.StemSave || route.Action == cli.ActionRoute {
 					keep = append(keep, stem)
 				}
 			}
@@ -955,7 +955,7 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 func findRouteTargets(outputDir string, step cli.PipelineStep) []string {
 	var targets []string
 	for stem, route := range step.Stems {
-		if route.Action == cli.StemRoute || route.Action == cli.StemSave {
+		if route.Action == cli.ActionRoute || route.Action == cli.StemSave {
 			// Look for the stem file in the output directory
 			pattern := filepath.Join(outputDir, "*"+stem+"*")
 			matches, _ := filepath.Glob(pattern)

@@ -12,7 +12,7 @@ type StemAction string
 
 const (
 	StemSave    StemAction = "save"    // Guardar en resultado final
-	StemRoute   StemAction = "route"   // Enviar al siguiente paso
+	ActionRoute StemAction = "route"   // Enviar al siguiente paso
 	StemDiscard StemAction = "discard" // No guardar ni procesar
 )
 
