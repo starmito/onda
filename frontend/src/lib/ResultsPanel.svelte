@@ -102,6 +102,7 @@
       seekValue: number;
       sourceNodes: Map<string, AudioBufferSourceNode>;
       gainNodes: Map<string, GainNode>;
+      analysers: Map<string, AnalyserNode[]>;
       buffers: Map<string, AudioBuffer>;
       startTime: number;
       pauseOffset: number;
@@ -110,6 +111,16 @@
     } | null;
   }
   let pitchSubgroups = $state<Record<string, PitchedSubgroup[]>>({});
+
+  // Peak levels for pitched subgroup stems
+  let pitchedLevels = $state<Record<string, { l: number; r: number }>>({});
+  let pitchedPeaks = $state<Record<string, { l: number; r: number }>>({});
+
+  // Waveform state for pitched subgroup seek
+  let pitchedWaveformCanvases = $state<Record<string, HTMLCanvasElement>>({});
+  let pitchedWavePeaksCache = $state<Record<string, number[]>>({});
+  let pitchedDragging = $state<Record<string, boolean>>({});
+  let pitchedDragPreview = $state<Record<string, number>>({});
 
   async function loadPitchSubgroups(song: string) {
     try {
@@ -558,7 +569,7 @@
     if (!sg.player) {
       sg.player = {
         audioCtx: null, playing: false, paused: false, currentTime: 0, duration: 0,
-        seekValue: 0, sourceNodes: new Map(), gainNodes: new Map(), buffers: new Map(),
+        seekValue: 0, sourceNodes: new Map(), gainNodes: new Map(), analysers: new Map(), buffers: new Map(),
         startTime: 0, pauseOffset: 0, animFrame: null, loaded: false,
       };
       pitchSubgroups[song] = [...subs];
@@ -595,11 +606,17 @@
           const gain = player.gainNodes.get(name) || player.audioCtx.createGain();
           const stemState = stemStates[`pitch:${song}:${pitch}:${name}`] || { muted: false, solo: false, volume: 100 };
           gain.gain.value = stemState.muted ? 0 : stemState.volume / 100;
+          const splitter = player.audioCtx.createChannelSplitter(2);
+          const aL = player.audioCtx.createAnalyser(); aL.fftSize = 64;
+          const aR = player.audioCtx.createAnalyser(); aR.fftSize = 64;
+          gain.connect(splitter);
+          splitter.connect(aL, 0); splitter.connect(aR, 1);
+          aL.connect(player.audioCtx.destination); aR.connect(player.audioCtx.destination);
           source.connect(gain);
-          gain.connect(player.audioCtx.destination);
           source.start(0, player.pauseOffset);
           player.sourceNodes.set(name, source);
           player.gainNodes.set(name, gain);
+          player.analysers.set(name, [aL, aR]);
         }
         startSubgroupTimer(song, pitch);
         return;
@@ -632,11 +649,17 @@
         const gain = player.audioCtx.createGain();
         const stemState = stemStates[`pitch:${song}:${pitch}:${name}`] || { muted: false, solo: false, volume: 100 };
         gain.gain.value = stemState.muted ? 0 : stemState.volume / 100;
+        const splitter = player.audioCtx.createChannelSplitter(2);
+        const aL = player.audioCtx.createAnalyser(); aL.fftSize = 64;
+        const aR = player.audioCtx.createAnalyser(); aR.fftSize = 64;
+        gain.connect(splitter);
+        splitter.connect(aL, 0); splitter.connect(aR, 1);
+        aL.connect(player.audioCtx.destination); aR.connect(player.audioCtx.destination);
         source.connect(gain);
-        gain.connect(player.audioCtx.destination);
         source.start(0);
         player.sourceNodes.set(name, source);
         player.gainNodes.set(name, gain);
+        player.analysers.set(name, [aL, aR]);
       }
 
       startSubgroupTimer(song, pitch);
@@ -672,10 +695,17 @@
     if (player.animFrame) cancelAnimationFrame(player.animFrame);
     player.sourceNodes.forEach(s => { try { s.stop(); } catch(e) {} });
     player.sourceNodes.clear();
+    player.analysers.clear();
     player.duration = 0;
     player.loaded = false;
     player.buffers.clear();
     player.gainNodes.clear();
+    // Reset peak levels
+    for (const stem of (sg?.stems || [])) {
+      const stKey = `pitch:${song}:${pitch}:${stem.name}`;
+      pitchedLevels = { ...pitchedLevels, [stKey]: { l: 0, r: 0 } };
+      pitchedPeaks = { ...pitchedPeaks, [stKey]: { l: 0, r: 0 } };
+    }
     pitchSubgroups[song] = [...subs];
     pitchSubgroups = { ...pitchSubgroups };
   }
@@ -686,10 +716,37 @@
     const player = sg?.player;
     if (!player) return;
 
+    const pitchedKey = `${song}:${pitch}`;
+
     function tick() {
       if (!player.playing || player.paused) return;
       player.currentTime = player.audioCtx!.currentTime - player.startTime;
       player.seekValue = player.currentTime;
+      // Update peak levels from analysers
+      for (const stem of (sg?.stems || [])) {
+        const stKey = `pitch:${song}:${pitch}:${stem.name}`;
+        const ans = player.analysers.get(stem.name);
+        if (ans) {
+          const dL = new Uint8Array(ans[0].frequencyBinCount);
+          const dR = new Uint8Array(ans[1].frequencyBinCount);
+          ans[0].getByteTimeDomainData(dL);
+          ans[1].getByteTimeDomainData(dR);
+          let sumL = 0, sumR = 0;
+          for (let j = 0; j < dL.length; j++) {
+            const nL = (dL[j] - 128) / 128;
+            const nR = (dR[j] - 128) / 128;
+            sumL += nL * nL; sumR += nR * nR;
+          }
+          pitchedLevels = { ...pitchedLevels, [stKey]: { l: Math.sqrt(sumL / dL.length), r: Math.sqrt(sumR / dR.length) }};
+          const curL = Math.sqrt(sumL / dL.length);
+          const curR = Math.sqrt(sumR / dR.length);
+          const prevPk = pitchedPeaks[stKey] || { l: 0, r: 0 };
+          pitchedPeaks = { ...pitchedPeaks, [stKey]: { l: Math.max(prevPk.l, curL), r: Math.max(prevPk.r, curR) }};
+        }
+      }
+      // Redraw waveform
+      const cv = pitchedWaveformCanvases[pitchedKey];
+      if (cv) drawPitchedWaveform(cv, song, pitch);
       if (player.currentTime >= player.duration) {
         stopSubgroup(song, pitch);
         return;
@@ -721,6 +778,7 @@
     if (wasPlaying) {
       player.sourceNodes.forEach(s => { try { s.stop(); } catch(e) {} });
       player.sourceNodes.clear();
+      player.analysers.clear();
       player.pauseOffset = seekTo;
       player.currentTime = seekTo;
       player.startTime = player.audioCtx!.currentTime - seekTo;
@@ -731,10 +789,16 @@
         const gain = player.gainNodes.get(name) || player.audioCtx!.createGain();
         const stemState = stemStates[`pitch:${song}:${pitch}:${name}`] || { muted: false, solo: false, volume: 100 };
         gain.gain.value = stemState.muted ? 0 : stemState.volume / 100;
+        const splitter = player.audioCtx!.createChannelSplitter(2);
+        const aL = player.audioCtx!.createAnalyser(); aL.fftSize = 64;
+        const aR = player.audioCtx!.createAnalyser(); aR.fftSize = 64;
+        gain.connect(splitter);
+        splitter.connect(aL, 0); splitter.connect(aR, 1);
+        aL.connect(player.audioCtx!.destination); aR.connect(player.audioCtx!.destination);
         source.connect(gain);
-        gain.connect(player.audioCtx!.destination);
         source.start(0, seekTo);
         player.sourceNodes.set(name, source);
+        player.analysers.set(name, [aL, aR]);
       }
       startSubgroupTimer(song, pitch);
     }
@@ -965,22 +1029,247 @@
     }
   }
 
+  // ── Pitched subgroup skip ──
+  function pitchedSkipBack(song: string, pitch: number) {
+    const subs = pitchSubgroups[song] || [];
+    const sg = subs.find(s => s.pitch === pitch);
+    const player = sg?.player;
+    if (!player || !player.loaded || player.duration <= 0) return;
+    const newTime = Math.max(0, player.currentTime - 10);
+    pitchedSeek(song, pitch, newTime);
+  }
+  function pitchedSkipForward(song: string, pitch: number) {
+    const subs = pitchSubgroups[song] || [];
+    const sg = subs.find(s => s.pitch === pitch);
+    const player = sg?.player;
+    if (!player || !player.loaded || player.duration <= 0) return;
+    const newTime = Math.min(player.duration, player.currentTime + 10);
+    pitchedSeek(song, pitch, newTime);
+  }
+  async function pitchedSeek(song: string, pitch: number, time: number) {
+    const subs = pitchSubgroups[song] || [];
+    const sg = subs.find(s => s.pitch === pitch);
+    const player = sg?.player;
+    if (!player) return;
+    const wasPlaying = player.playing && !player.paused;
+    if (player.animFrame) cancelAnimationFrame(player.animFrame);
+    if (wasPlaying) {
+      player.sourceNodes.forEach(s => { try { s.stop(); } catch(e) {} });
+      player.sourceNodes.clear();
+      player.analysers.clear();
+      player.pauseOffset = time;
+      player.currentTime = time;
+      player.seekValue = time;
+      player.startTime = player.audioCtx!.currentTime - time;
+      for (const [name, buffer] of player.buffers) {
+        const source = player.audioCtx!.createBufferSource();
+        source.buffer = buffer;
+        const gain = player.gainNodes.get(name) || player.audioCtx!.createGain();
+        const stemState = stemStates[`pitch:${song}:${pitch}:${name}`] || { muted: false, solo: false, volume: 100 };
+        gain.gain.value = stemState.muted ? 0 : stemState.volume / 100;
+        const splitter = player.audioCtx!.createChannelSplitter(2);
+        const aL = player.audioCtx!.createAnalyser(); aL.fftSize = 64;
+        const aR = player.audioCtx!.createAnalyser(); aR.fftSize = 64;
+        gain.connect(splitter);
+        splitter.connect(aL, 0); splitter.connect(aR, 1);
+        aL.connect(player.audioCtx!.destination); aR.connect(player.audioCtx!.destination);
+        source.connect(gain);
+        source.start(0, Math.min(time, buffer.duration));
+        player.sourceNodes.set(name, source);
+        player.analysers.set(name, [aL, aR]);
+      }
+      startSubgroupTimer(song, pitch);
+    }
+  }
+
+  // ── Pitched subgroup waveform (seek canvas, same as main group) ──
+  async function computePitchedWavePeaks(song: string, pitch: number): Promise<number[]> {
+    const pitchedKey = `${song}:${pitch}`;
+    if (pitchedWavePeaksCache[pitchedKey]) return pitchedWavePeaksCache[pitchedKey];
+    const subs = pitchSubgroups[song] || [];
+    const sg = subs.find(s => s.pitch === pitch);
+    if (!sg || sg.stems.length === 0) return [];
+    try {
+      const url = pitchDownloadUrl(song, pitch, sg.stems[0].name);
+      const resp = await fetch(url);
+      const arrayBuf = await resp.arrayBuffer();
+      const audioCtx = new OfflineAudioContext(1, 1, 44100);
+      const audioBuf = await audioCtx.decodeAudioData(arrayBuf);
+      const channel = audioBuf.getChannelData(0);
+      const PEAK_RES = 2000;
+      const steps = Math.max(1, Math.floor(channel.length / PEAK_RES));
+      const data: number[] = [];
+      for (let i = 0; i < PEAK_RES; i++) {
+        let max = 0;
+        const start = i * steps;
+        const end = Math.min(start + steps, channel.length);
+        for (let j = start; j < end; j++) max = Math.max(max, Math.abs(channel[j]));
+        data.push(max);
+      }
+      audioCtx.close();
+      pitchedWavePeaksCache = { ...pitchedWavePeaksCache, [pitchedKey]: data };
+      return data;
+    } catch {
+      const data: number[] = [];
+      for (let i = 0; i < 2000; i++) {
+        data.push(((Math.abs((song.length + i * 31)) % 80) / 100) * 0.8 + 0.1);
+      }
+      pitchedWavePeaksCache = { ...pitchedWavePeaksCache, [pitchedKey]: data };
+      return data;
+    }
+  }
+
+  async function drawPitchedWaveform(canvas: HTMLCanvasElement, song: string, pitch: number) {
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    const w = canvas.clientWidth * dpr;
+    const h = canvas.clientHeight * dpr;
+    if (w <= 0 || h <= 0) return;
+    canvas.width = w; canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, w, h);
+    const accentCol = accent();
+    const dimAccentCol = darkenColor(accentCol, 60);
+    const isLight = typeof document !== 'undefined' && document.body.classList.contains('light-theme');
+    const lineCol = isLight ? '#000' : '#fff';
+    const pitchedKey = `${song}:${pitch}`;
+    const subs = pitchSubgroups[song] || [];
+    const sg = subs.find(s => s.pitch === pitch);
+    const player = sg?.player;
+    const isDragging = pitchedDragging[pitchedKey];
+    const rawProgress = player && player.loaded && player.duration > 0 ? (player.currentTime / player.duration) : 0;
+    const progress = isDragging ? (pitchedDragPreview[pitchedKey] ?? rawProgress) : rawProgress;
+    const peaks = pitchedWavePeaksCache[pitchedKey];
+    if (!peaks || peaks.length === 0) {
+      ctx.fillStyle = dimAccentCol;
+      ctx.fillRect(0, 0, w, h);
+      computePitchedWavePeaks(song, pitch);
+      return;
+    }
+    const splitX = Math.round(progress * w);
+    const barW = Math.max(1, Math.floor(w / peaks.length));
+    ctx.fillStyle = dimAccentCol;
+    for (let i = splitX; i < w; i += barW) {
+      const peakIdx = Math.floor((i / w) * peaks.length);
+      const peak = peaks[Math.min(peakIdx, peaks.length - 1)];
+      const barH = Math.max(1, peak * h);
+      ctx.fillRect(i, (h - barH) / 2, barW, barH);
+    }
+    ctx.fillStyle = accentCol;
+    for (let i = 0; i < splitX; i += barW) {
+      const peakIdx = Math.floor((i / w) * peaks.length);
+      const peak = peaks[Math.min(peakIdx, peaks.length - 1)];
+      const barH = Math.max(1, peak * h);
+      ctx.fillRect(i, (h - barH) / 2, barW, barH);
+    }
+    const showLine = isDragging || (progress > 0 && progress < 1);
+    if (showLine) {
+      ctx.strokeStyle = lineCol;
+      ctx.lineWidth = Math.max(1, 2 * dpr);
+      ctx.beginPath();
+      ctx.moveTo(splitX, 0);
+      ctx.lineTo(splitX, h);
+      ctx.stroke();
+    }
+  }
+
+  function darkenColor(hex: string, amount: number): string {
+    if (!hex || hex === '') return '#333';
+    const num = parseInt(hex.replace('#', ''), 16);
+    if (isNaN(num)) return '#333';
+    const r = Math.max(0, (num >> 16) - amount);
+    const g = Math.max(0, ((num >> 8) & 0xff) - amount);
+    const b = Math.max(0, (num & 0xff) - amount);
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+
+  function pitchedWaveformAction(node: HTMLCanvasElement, params: { song: string; pitch: number }) {
+    const pitchedKey = `${params.song}:${params.pitch}`;
+    pitchedWaveformCanvases[pitchedKey] = node;
+    drawPitchedWaveform(node, params.song, params.pitch);
+    if (!pitchedWavePeaksCache[pitchedKey]) {
+      computePitchedWavePeaks(params.song, params.pitch).then(() => drawPitchedWaveform(node, params.song, params.pitch));
+    }
+  }
+
+  function getPitchedWaveformFrac(e: MouseEvent, song: string, pitch: number): number {
+    const pitchedKey = `${song}:${pitch}`;
+    const canvas = pitchedWaveformCanvases[pitchedKey];
+    if (!canvas) return 0;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    return Math.max(0, Math.min(1, x / rect.width));
+  }
+
+  function handlePitchedWaveformMouseDown(e: MouseEvent, song: string, pitch: number) {
+    e.preventDefault();
+    const pitchedKey = `${song}:${pitch}`;
+    const frac = getPitchedWaveformFrac(e, song, pitch);
+    pitchedDragging = { ...pitchedDragging, [pitchedKey]: true };
+    pitchedDragPreview = { ...pitchedDragPreview, [pitchedKey]: frac };
+    const cv = pitchedWaveformCanvases[pitchedKey];
+    if (cv) drawPitchedWaveform(cv, song, pitch);
+  }
+  function handlePitchedWaveformMouseMove(e: MouseEvent, song: string, pitch: number) {
+    const pitchedKey = `${song}:${pitch}`;
+    if (!pitchedDragging[pitchedKey]) return;
+    e.preventDefault();
+    const frac = getPitchedWaveformFrac(e, song, pitch);
+    pitchedDragPreview = { ...pitchedDragPreview, [pitchedKey]: frac };
+    const cv = pitchedWaveformCanvases[pitchedKey];
+    if (cv) drawPitchedWaveform(cv, song, pitch);
+  }
+  function handlePitchedWaveformMouseUp(e: MouseEvent, song: string, pitch: number) {
+    const pitchedKey = `${song}:${pitch}`;
+    if (!pitchedDragging[pitchedKey]) return;
+    pitchedDragging = { ...pitchedDragging, [pitchedKey]: false };
+    const frac = pitchedDragPreview[pitchedKey] ?? 0;
+    const subs = pitchSubgroups[song] || [];
+    const sg = subs.find(s => s.pitch === pitch);
+    const player = sg?.player;
+    if (player && player.loaded && player.duration > 0) {
+      pitchedSeek(song, pitch, frac * player.duration);
+    }
+  }
+  function handlePitchedWaveformMouseLeave(e: MouseEvent, song: string, pitch: number) {
+    const pitchedKey = `${song}:${pitch}`;
+    if (pitchedDragging[pitchedKey]) {
+      handlePitchedWaveformMouseUp(e, song, pitch);
+    }
+  }
+  function handlePitchedGlobalMouseUp() {
+    for (const pitchedKey of Object.keys(pitchedDragging)) {
+      if (pitchedDragging[pitchedKey]) {
+        pitchedDragging = { ...pitchedDragging, [pitchedKey]: false };
+        const frac = pitchedDragPreview[pitchedKey] ?? 0;
+        const parts = pitchedKey.split(':');
+        const song = parts[0];
+        const pitch = parseInt(parts[1]);
+        const subs = pitchSubgroups[song] || [];
+        const sg = subs.find(s => s.pitch === pitch);
+        const player = sg?.player;
+        if (player && player.loaded && player.duration > 0) {
+          pitchedSeek(song, pitch, frac * player.duration);
+        }
+      }
+    }
+  }
+
   // Cleanup on component destroy
   onDestroy(() => {
-    abortController.abort();
     if (toastTimer) clearTimeout(toastTimer);
+    // Do NOT abort abortController — keeps background fetch alive
+    // Do NOT close AudioContexts for groups/subgroups — keeps playback alive
     for (const [key, player] of Object.entries(groupPlayers)) {
       player.sourceNodes.forEach(s => { try { s.stop(); } catch(e) {} });
-      player.audioCtx?.close();
       if (player.animFrame) cancelAnimationFrame(player.animFrame);
     }
-    // Cleanup subgroup players
+    // Cleanup subgroup players (stop sources, keep AudioContexts alive)
     for (const subs of Object.values(pitchSubgroups)) {
       for (const sg of subs) {
         const p = sg.player;
         if (p) {
           p.sourceNodes.forEach(s => { try { s.stop(); } catch(e) {} });
-          p.audioCtx?.close();
           if (p.animFrame) cancelAnimationFrame(p.animFrame);
         }
       }
@@ -1158,6 +1447,7 @@
         {#if pitchSubgroups[group.song]?.length}
           {#each pitchSubgroups[group.song] as sg (sg.pitch)}
             {@const subPlayer = sg.player}
+            {@const subsStems = sg.stems}
             <div class="pitched-group">
               <!-- Subgroup header -->
               <div class="pitched-header">
@@ -1167,30 +1457,62 @@
                 <button class="pitched-delete-btn" onclick={() => handleDeletePitchSubgroup(group.song, sg.pitch)} title="Eliminar subgrupo">🗑</button>
               </div>
 
-              <!-- Subgroup playback controls -->
-              <div class="song-header pitched-playback">
-                <button class="ctrl-btn play-btn" onclick={() => playSubgroup(group.song, sg.pitch)} disabled={subPlayer?.playing && !subPlayer?.paused}>▶</button>
-                <button class="ctrl-btn pause-btn" onclick={() => pauseSubgroup(group.song, sg.pitch)} disabled={!subPlayer?.playing || subPlayer?.paused}>⏸</button>
-                <button class="ctrl-btn stop-btn" onclick={() => stopSubgroup(group.song, sg.pitch)} disabled={!subPlayer?.playing && !subPlayer?.paused}>⏹</button>
-                <div class="seek-area">
-                  <input type="range" min="0" max={subPlayer?.duration || 100} step="0.1" value={subPlayer?.seekValue || 0}
-                    disabled={!subPlayer?.playing && !subPlayer?.paused}
-                    oninput={(e) => handleSubgroupSeekInput(e, group.song, sg.pitch)}
-                    onchange={(e) => handleSubgroupSeekChange(e, group.song, sg.pitch)}
-                    class="seek-slider" />
+              <!-- Subgroup player bar (same as main group) -->
+              <div class="song-header pitched-playback" style="flex-wrap:wrap">
+                <div class="playback-controls">
+                  <button class="ctrl-btn skip-btn" onclick={() => pitchedSkipBack(group.song, sg.pitch)}
+                    disabled={!subPlayer?.loaded} title="-10s">⏪</button>
+                  <button class="ctrl-btn play-btn" onclick={() => playSubgroup(group.song, sg.pitch)}
+                    disabled={subPlayer?.playing && !subPlayer?.paused}
+                    title={subPlayer?.playing && !subPlayer?.paused ? 'Playing' : 'Play'}>▶</button>
+                  <button class="ctrl-btn pause-btn" onclick={() => pauseSubgroup(group.song, sg.pitch)}
+                    disabled={!subPlayer?.playing || subPlayer?.paused} title="Pause">⏸</button>
+                  <button class="ctrl-btn stop-btn" onclick={() => stopSubgroup(group.song, sg.pitch)}
+                    disabled={!subPlayer?.playing && !subPlayer?.paused} title="Stop">⏹</button>
+                  <button class="ctrl-btn skip-btn" onclick={() => pitchedSkipForward(group.song, sg.pitch)}
+                    disabled={!subPlayer?.loaded} title="+10s">⏩</button>
+                </div>
+                <div class="seek-area" style="max-width:160px">
                   <span class="time-display">{fmtTime(subPlayer?.currentTime)} / {fmtTime(subPlayer?.duration)}</span>
+                </div>
+                <div class="vol-slider-wrap" style="flex-shrink:0">
+                  <input type="range" min="0" max="100" value={100}
+                    oninput={(e) => {
+                      const vol = parseInt((e.target as HTMLInputElement).value);
+                      for (const st of subsStems) {
+                        const key = `pitch:${group.song}:${sg.pitch}:${st.name}`;
+                        const cur = stemStates[key] || { muted: false, solo: false, volume: 100 };
+                        stemStates[key] = { ...cur, volume: vol };
+                      }
+                      stemStates = { ...stemStates };
+                      syncSubgroupGains(group.song, sg.pitch);
+                    }}
+                    class="vol-slider" style="width:80px" title="Master volume" />
                 </div>
               </div>
 
-              <!-- Subgroup stems -->
+              <!-- Subgroup waveform seek canvas -->
+              <div style="width:100%; margin-bottom:0.4rem; cursor:pointer; border-radius:4px; overflow:hidden"
+                onmouseover={() => {}}
+                class:waveform-hover={true}>
+                <canvas class="waveform-seek" width="200" height="80"
+                  use:pitchedWaveformAction={{ song: group.song, pitch: sg.pitch }}
+                  onmousedown={(e) => handlePitchedWaveformMouseDown(e, group.song, sg.pitch)}
+                  onmousemove={(e) => handlePitchedWaveformMouseMove(e, group.song, sg.pitch)}
+                  onmouseup={(e) => handlePitchedWaveformMouseUp(e, group.song, sg.pitch)}
+                  onmouseleave={(e) => handlePitchedWaveformMouseLeave(e, group.song, sg.pitch)}
+                  role="slider" tabindex="0"
+                  aria-label="Waveform seek" />
+              </div>
+
+              <!-- Subgroup stems with full controls + peak meters -->
               <div class="stems-list">
                 {#each sg.stems as stem}
                   {@const stemId = `pitch:${group.song}:${sg.pitch}:${stem.name}`}
                   {@const subState = stemStates[stemId] ?? { muted: false, solo: false, volume: 100 }}
+                  {@const sLevel = pitchedLevels[stemId] || { l: 0, r: 0 }}
+                  {@const pLevel = pitchedPeaks[stemId] || { l: 0, r: 0 }}
                   <div class="stem-row pitched-stem" class:muted={subState.muted}>
-                    <canvas class="waveform-mini" width="120" height="28"
-                      data-url={pitchDownloadUrl(group.song, sg.pitch, stem.name)}
-                      use:waveformUrl></canvas>
                     <span class="stem-emoji">{stemEmoji(stem.stemType)}</span>
                     <span class="stem-name" title={stem.name}>{stem.name}</span>
                     <div class="stem-controls">
@@ -1202,6 +1524,12 @@
                         <input type="range" min="0" max="100" value={subState.volume}
                           oninput={(e) => handleSubgroupVolume(e, group.song, sg.pitch, stem.name)} class="vol-slider" />
                         <span class="vol-label">{subState.volume}</span>
+                      </div>
+                      <!-- Peak meters -->
+                      <div class="peak-meter" style="min-width:100px; margin:0 0.3rem">
+                        <div class="peak-db-top">L:{toDbStr(pLevel.l)}dB R:{toDbStr(pLevel.r)}dB</div>
+                        <div class="peak-bar-container"><div class="peak-bar peak-l" style="width:{dbToPct(rmsToDb(sLevel.l))}%"></div><div class="peak-marker" style="left:{dbToPct(rmsToDb(pLevel.l))}%"></div></div>
+                        <div class="peak-bar-container"><div class="peak-bar peak-r" style="width:{dbToPct(rmsToDb(sLevel.r))}%"></div><div class="peak-marker" style="left:{dbToPct(rmsToDb(pLevel.r))}%"></div></div>
                       </div>
                       <a class="stem-btn dl-btn" href={pitchDownloadUrl(group.song, sg.pitch, stem.name)} download={stem.name}>⬇</a>
                       <button class="stem-btn delete-stem-btn"
