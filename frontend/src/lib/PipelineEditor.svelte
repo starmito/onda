@@ -136,47 +136,11 @@
     presetsError = false;
     try {
       const data = await getPresets();
-      const list: PipelinePreset[] = Object.entries(data).map(([name, p]: [string, any]) => {
-        // Convert backend preset format to steps format
-        const loadedSteps: PipelineStep[] = [];
-        let stepId = 0;
-
-        if (p.viperxEnabled || p.viperx) {
-          const stems: Record<string, StemConfig> = {};
-          const viperxStems = p.viperxStems || ['vocals', 'instrumental'];
-          for (const s of viperxStems) {
-            stems[s] = { action: 'save' };
-          }
-          loadedSteps.push({
-            id: `step-${stepId++}`,
-            type: 'viperx',
-            model: p.vocalModel || 'BS_Roformer_Viperx',
-            enabled: p.viperxEnabled ?? true,
-            stems,
-          });
-        }
-
-        if (p.demucsEnabled || p.demucs) {
-          const stems: Record<string, StemConfig> = {};
-          const demucsStems = p.demucsStems || ['drums', 'bass', 'other', 'vocals'];
-          for (const s of demucsStems) {
-            stems[s] = { action: 'save' };
-          }
-          loadedSteps.push({
-            id: `step-${stepId++}`,
-            type: 'demucs',
-            model: p.stemModel || 'htdemucs_ft',
-            enabled: p.demucsEnabled ?? true,
-            stems,
-          });
-        }
-
-        return {
-          name,
-          steps: loadedSteps,
-          locked: p.locked ?? false,
-        };
-      });
+      const list: PipelinePreset[] = Object.entries(data).map(([name, p]: [string, any]) => ({
+        name,
+        steps: p.steps || [],
+        locked: p.locked ?? false,
+      }));
       savedPresets = list;
       presetsLoading = false;
     } catch {
@@ -281,43 +245,10 @@
     if (!name || steps.length === 0) return;
 
     try {
-      // Convert steps to backend format
-      const viperxStep = steps.find(s => s.type === 'viperx');
-      const demucsStep = steps.find(s => s.type === 'demucs');
-
-      const viperxStems: string[] = [];
-      const demucsStems: string[] = [];
-
-      if (viperxStep?.enabled) {
-        for (const [stem, cfg] of Object.entries(viperxStep.stems)) {
-          if (cfg.action !== 'discard') {
-            viperxStems.push(stem);
-          }
-        }
-      }
-
-      if (demucsStep?.enabled) {
-        for (const [stem, cfg] of Object.entries(demucsStep.stems)) {
-          if (cfg.action !== 'discard') {
-            demucsStems.push(stem);
-          }
-        }
-      }
-
       const presetData: PresetData = {
         name,
-        viperxEnabled: viperxStep?.enabled ?? false,
-        demucsEnabled: demucsStep?.enabled ?? false,
-        vocalModel: viperxStep?.model || 'BS_Roformer_Viperx',
-        vocalOverlap: 4,
-        stemModel: demucsStep?.model || 'htdemucs_ft',
-        drumsModel: '',
-        bassModel: '',
-        otherModel: '',
-        viperxStems,
-        demucsStems,
-        pitch: 0,
-        description: '',
+        steps,
+        locked: false,
       };
 
       await savePreset(presetData);

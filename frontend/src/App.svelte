@@ -29,16 +29,13 @@
   }
   interface PipelineConfigType {
     preset?: string;
-    viperx: boolean;
-    viperxKeep?: string;
-    viperxModel?: string;
-    viperxStems?: string[];
-    demucs: boolean;
-    demucsKeep?: string[];
-    demucsModel?: string;
-    demucsStems?: string[];
-    vocalModel?: string;   // model name for ViperX (resolved from YAML path)
-    stemModel?: string;    // model name for Demucs
+    steps?: Array<{
+      id: string;
+      model: string;
+      type: string;
+      enabled: boolean;
+      stems: Record<string, { action: string; target?: string }>;
+    }>;
   }
 
   // ---- State ----
@@ -283,12 +280,7 @@
         name,
         config: {
           preset: name,
-          viperx: p.viperxEnabled ?? true,
-          viperxModel: p.vocalModel || 'BS_Roformer_Viperx',
-          viperxStems: p.viperxStems || ['vocals', 'instrumental'],
-          demucs: p.demucsEnabled ?? true,
-          demucsModel: p.stemModel || 'htdemucs_ft',
-          demucsStems: p.demucsStems || ['drums', 'bass', 'other'],
+          steps: p.steps || [],
         }
       }));
       savedPresets = list;
@@ -312,12 +304,7 @@
         name,
         config: {
           preset: name,
-          viperx: p.viperxEnabled ?? true,
-          viperxModel: p.vocalModel || 'BS_Roformer_Viperx',
-          viperxStems: p.viperxStems || ['vocals', 'instrumental'],
-          demucs: p.demucsEnabled ?? true,
-          demucsModel: p.stemModel || 'htdemucs_ft',
-          demucsStems: p.demucsStems || ['drums', 'bass', 'other'],
+          steps: p.steps || [],
         }
       }));
       savedPresets = list;
@@ -441,7 +428,7 @@
         return;
       }
 
-      const preset = config.preset || (config.viperxModel ? 'custom' : '');
+      const preset = config.preset || '';
 
       // Enqueue each uploaded file via separateAudio
       for (const { qf, path } of uploaded) {
@@ -449,20 +436,14 @@
         const songName = path.split('/').pop()?.replace(/\.[^.]+$/, '') || '';
         activeSongNames.add(songName);
         try {
-          await separateAudio({
+          const opts: any = {
             preset,
             input: path,
-            viperx: config.viperx,
-            viperx_keep: config.viperxKeep,
-            viperx_model: config.viperxModel,
-            viperx_stems: config.viperxStems,
-            demucs: config.demucs,
-            demucs_keep: config.demucsKeep,
-            demucs_model: config.demucsModel,
-            demucs_stems: config.demucsStems,
-            vocal_model: config.vocalModel,
-            stem_model: config.stemModel,
-          });
+          };
+          if (config.steps && config.steps.length > 0) {
+            opts.steps = config.steps;
+          }
+          await separateAudio(opts);
         } catch (err: any) {
           qf.status = 'error';
           qf.errorMsg = err.message;
