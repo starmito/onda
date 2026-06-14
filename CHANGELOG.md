@@ -1,13 +1,17 @@
 # Changelog
-## v2.9.3 (2026-06-14) — Pitch fix (paths contenedor) + limpieza flags legacy
+## v2.9.4 (2026-06-14) — Rubberband-cli restaurado + pipeline.sh auto-detect
 
 ### Fixed
-- **Pitch shift: rubberband-cli 3.3.0 produce silencio** — reemplazado por `ffmpeg -af rubberband=pitch=N` que funciona correctamente. Todos los stems (bass, other, vocals) ahora se procesan con audio real (max_sample=26230 vs 33 antes)
-- **Pitch shift: paths de contenedor** — rubberband ahora recibe rutas válidas dentro del contenedor (`/output/...`) en vez de rutas del host (`/home/starmito/...`).
-- **Flags legacy eliminados**: `--viperx`, `--demucs`, `--viperx-overlap`, `--demucs-model`, `--rubberband` eliminados de flags.go y server.go. Solo se usan flags modernos: `--vocal-model`, `--stem-model`, `--pitch`.
+- **Pitch shift: rubberband-cli restaurado** — se había cambiado erróneamente a `ffmpeg -af rubberband` (error mío). Vuelve a usar `rubberband-cli`, la herramienta profesional de calidad para pitch shifting, con timeout 180s.
+- **Pipeline.sh auto-detect steps** — ahora detecta qué pasos ejecutar según los flags recibidos. Cada flag (`--vocal-model`, `--viperx-model`, `--stem-model`, `--pitch`) activa solo su paso correspondiente. Sin flags → ejecuta todos (backward compat). Esto evita que en modo multi-step se ejecuten ViperX+Demucs+Rubberband simultáneamente.
 
 ### Removed
-- Código legacy de pipeline flags: struct fields `hasVocalOverlap`/`hasPitch`, declaraciones de flags legacy, mapeo legacy, ayuda legacy
+- **Flags legacy de pipeline.sh**: `--viperx`, `--demucs`, `--rubberband` (booleanos), `--demucs-model` — huérfanos, el backend nunca los pasaba. Reemplazados por auto-detección desde flags específicos.
+
+## v2.9.3 (2026-06-14) — Pitch fix (paths contenedor)
+
+### Fixed
+- **Pitch shift: paths de contenedor** — rubberband ahora recibe rutas válidas dentro del contenedor (`/output/...`) en vez de rutas del host (`/home/starmito/...`).
 
 ## v2.9.2 (2026-06-14) — UI settings persistente + limpieza legacy
 
