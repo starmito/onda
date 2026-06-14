@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import { loadUISettings, saveUISettings } from './api';
 
   const sizes = [
     { label: 'Pequeño', value: 'small' },
@@ -23,13 +24,38 @@
   let selectedAccent = $state('#6c5ce7');
   let isLight = $state(false);
 
-  onMount(() => {
-    // Load saved preferences
+  onMount(async () => {
+    // Try loading from API first, fallback to localStorage
+    try {
+      const settings = await loadUISettings();
+      if (settings) {
+        if (settings.accent) {
+          selectedAccent = settings.accent;
+          applyAccent(settings.accent);
+        }
+        if (settings.theme === 'light') {
+          isLight = true;
+          applyTheme(true);
+        }
+        if (settings.fontSize) {
+          fontSize = settings.fontSize;
+          applyFontSize(settings.fontSize);
+        }
+        if (settings.scale) {
+          scale = settings.scale;
+          applyScale(settings.scale);
+        }
+        return; // API data applied, skip localStorage
+      }
+    } catch {
+      // Fall through to localStorage
+    }
+
+    // Fallback: load from localStorage
     const savedAccent = localStorage.getItem('onda-accent');
     if (savedAccent) {
       selectedAccent = savedAccent;
       applyAccent(savedAccent);
-      document.body.style.accentColor = savedAccent;
     }
     const savedTheme = localStorage.getItem('onda-theme');
     if (savedTheme === 'light') {
@@ -60,6 +86,12 @@
     body.style.setProperty('--accent-border', color + '33');
     body.style.accentColor = color;
     localStorage.setItem('onda-accent', color);
+    saveUISettings({
+      accent: color,
+      theme: isLight ? 'light' : 'dark',
+      fontSize,
+      scale,
+    }).catch(() => {});
   }
 
   function adjustColor(hex: string, amount: number): string {
@@ -83,6 +115,12 @@
       document.body.classList.remove('light-theme');
     }
     localStorage.setItem('onda-theme', light ? 'light' : 'dark');
+    saveUISettings({
+      accent: selectedAccent,
+      theme: light ? 'light' : 'dark',
+      fontSize,
+      scale,
+    }).catch(() => {});
   }
 
   function handleThemeToggle() {
@@ -95,6 +133,12 @@
     const sizes = { small: '12px', medium: '14px', large: '16px' };
     root.style.fontSize = sizes[size as keyof typeof sizes] || '14px';
     localStorage.setItem('onda-font-size', size);
+    saveUISettings({
+      accent: selectedAccent,
+      theme: isLight ? 'light' : 'dark',
+      fontSize: size,
+      scale,
+    }).catch(() => {});
   }
 
   function handleFontSize(size: string) {
@@ -105,6 +149,12 @@
   function applyScale(value: number) {
     document.body.style.zoom = `${value}%`;
     localStorage.setItem('onda-scale', String(value));
+    saveUISettings({
+      accent: selectedAccent,
+      theme: isLight ? 'light' : 'dark',
+      fontSize,
+      scale: value,
+    }).catch(() => {});
   }
 
   function handleScale(value: number) {

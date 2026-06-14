@@ -1,4 +1,14 @@
 # Changelog
+## v2.9.2 (2026-06-14) — UI settings persistente + limpieza legacy
+
+### Added
+- **Persistencia de configuración de interfaz**: las opciones de Ajustes (acento, tema claro/oscuro, tamaño de fuente, escala UI) ahora se guardan en el servidor mediante endpoint `GET/POST /api/settings/ui` en `/config/ui_settings.json`. Sobreviven a cambios de navegador/dispositivo
+  - Backend: nuevo archivo `ui_settings.go` con load/save + handlers REST
+  - Frontend: carga desde API al iniciar (fallback a localStorage si falla), guarda en API + localStorage en cada cambio
+
+### Removed
+- **Sin restos de presets legacy**: verificado que no hay `getHardcodedPreset()`, `lockedPresetNames`, ni código huérfano de presets antiguos en frontend. Los flags `--viperx`, `--demucs` en backend son solo aliases CLI de compatibilidad
+
 ## v2.9.1 (2026-06-14) — Recovery + permisos no-root + pitch fix + stem display
 
 ### Added

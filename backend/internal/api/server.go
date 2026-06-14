@@ -82,6 +82,11 @@ func NewServer(addr string) *http.Server {
 		jobQueue: make(chan JobRequest, 20),
 		jobs:     make(map[string]*JobState),
 	}
+
+	// Load persisted UI settings (uses defaults if file doesn't exist)
+	if err := loadUISettings(); err != nil {
+		Log("backend", "warn", "Failed to load UI settings: "+err.Error())
+	}
 	s.mux.HandleFunc("/api/health", s.handleHealth)
 	s.mux.HandleFunc("GET /api/queue/status", s.handleQueueStatus)
 	s.mux.HandleFunc("DELETE /api/queue", s.handleQueueClear)
@@ -94,6 +99,9 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("DELETE /api/presets/{name}", s.handleDeletePreset)
 	s.mux.HandleFunc("GET /api/presets/default", s.handleGetDefaultPreset)
 	s.mux.HandleFunc("POST /api/presets/default", s.handleSetDefaultPreset)
+	// UI Settings API
+	s.mux.HandleFunc("GET /api/settings/ui", s.handleGetUISettings)
+	s.mux.HandleFunc("POST /api/settings/ui", s.handleSaveUISettings)
 	s.mux.HandleFunc("GET /api/logs", s.handleGetLogs)
 	s.mux.HandleFunc("GET /api/logs/services", s.handleGetServiceLogs)
 	s.mux.HandleFunc("/api/models", s.handleModels)
