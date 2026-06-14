@@ -1,36 +1,39 @@
 #!/usr/bin/env bash
-# Onda Pipeline — Modular step-based audio separation
+# Onda Pipeline v2.8.0 — Modular step-based audio separation with chaining
 #
 # Usage:
 #   pipeline.sh [flags] <input_audio>
 #
-# Flags (any combination):
+# Chained mode (--steps JSON):
+#   pipeline.sh --steps JSON <input_audio>
+#   where JSON is an array of step objects, e.g.:
+#   '[{"type":"viperx","model":"BS_Roformer_Viperx","stems":{"vocals":{"action":"route","target":"step:1"},"instrumental":{"action":"save"}}},{"type":"demucs","model":"htdemucs_ft","stems":{"drums":{"action":"save"},"bass":{"action":"save"},"other":{"action":"save"},"vocals":{"action":"save"}}}]'
+#
+# Legacy flags (any combination):
 #   --viperx              BS-Roformer-Viperx → vocal + instrumental
 #   --viperx-keep WHAT    What to save: instrumental | vocals | both (default)
-#   --viperx-model PATH   ViperX model path (default: /app/models/VR_Models/BS_Roformer_Viperx)
+#   --viperx-model PATH   ViperX model path (default: /models/VR_Models/BS_Roformer_Viperx)
 #   --demucs              HTDemucs_ft → drums, bass, other, vocals
 #   --demucs-keep LIST    Stems to keep: drums,bass,other,vocals or all (default)
 #   --demucs-model NAME   Demucs model name (default: htdemucs_ft)
 #   --rubberband          Pitch shift all stems except drums
 #   --pitch N             Semitones for rubberband (default: 0)
 #   --output DIR          Output directory (default: /output/<song_name>)
-#   --segment-size N      ViperX segment size (default: 256)
-#   --overlap N           ViperX overlap ratio (default: 0.25)
-#   --chunk-size N        Processing chunk size (default: 0 = auto)
-#   --batch-size N        Processing batch size (default: 0 = auto)
 #   --device NAME         Inference device: cpu | cuda (default: cuda)
-#   --shifts N            Demucs shift-averaging passes (default: 1, paper uses 10)
+#   --shifts N            Demucs shift-averaging passes (default: 1)
 #   --demucs-segment N    Demucs segment duration in seconds (default: 0 = auto)
 #   --jobs N              Demucs parallel workers (default: 0 = auto)
+#   --no-clean            Don't clean output dir (for chained invocations)
+#   --input-from-step     Use existing file as input instead of original
 #
 # Default (no flags): --viperx --demucs --rubberband
 #
 # Examples:
-#   pipeline.sh cancion.mp3                                    # full pipeline
+#   pipeline.sh cancion.mp3                                    # full legacy pipeline
 #   pipeline.sh --rubberband --pitch 2 cancion.wav             # only pitch
 #   pipeline.sh --viperx --viperx-keep instrumental cancion.mp3 # only instrumental
 #   pipeline.sh --viperx --demucs cancion.mp3                  # vocals + stems
-#   pipeline.sh --demucs --rubberband --pitch -1 song.wav      # stems + pitch
+#   pipeline.sh --steps '[...]' cancion.wav                    # chained steps
 
 set -euo pipefail
 
@@ -59,7 +62,7 @@ to_container() {
 # ── Progress reporting ──────────────────────────
 START_TIME=$(date +%s)
 LAST_ETA=""  # cap ETA so it never increases between steps
-STATUS_FILE="/output/pipeline_status.json"
+STATUS_FILE="${PIPELINE_STATUS_FILE:-/output/pipeline_status.json}"
 rm -f "$STATUS_FILE"
 CURRENT_STEP=""
 
@@ -142,6 +145,244 @@ run_with_elapsed() {
     return $cmd_rc
 }
 
+# ═══════════════════════════════════════════════════════════
+# Multi-step progress reporting (for --steps chaining mode)
+# ═══════════════════════════════════════════════════════════
+
+# Initialize multi-step progress tracking from the steps config file
+# Reads from STEPS_CONFIG_FILE, writes to STEPS_STATE_FILE and pipeline_status.json
+multi_step_init() {
+    python3 << 'PYEOF'
+import json, os, time
+
+config_file = os.environ.get('STEPS_CONFIG_FILE', '')
+state_file = os.environ.get('STEPS_STATE_FILE', '')
+status_file = os.environ.get('STATUS_FILE', '')
+song = os.environ.get('SONG', '')
+start_time = int(os.environ.get('START_TIME', '0'))
+
+with open(config_file) as f:
+    steps = json.load(f)
+
+state = {'steps': []}
+for s in steps:
+    state['steps'].append({
+        'name': s.get('type', ''),
+        'model': s.get('model', ''),
+        'progress': 0,
+        'status': 'waiting',
+        'current_stems': list(s.get('stems', {}).keys())
+    })
+
+with open(state_file, 'w') as f:
+    json.dump(state, f)
+
+# Write initial pipeline_status.json
+now = int(time.time())
+elapsed = now - start_time
+result = {
+    'status': 'running',
+    'song': song,
+    'steps': state['steps'],
+    'overall_progress': 0,
+    'elapsed': elapsed,
+    'eta': 0
+}
+with open(status_file, 'w') as f:
+    json.dump(result, f)
+PYEOF
+}
+
+# Update progress for a specific step and refresh pipeline_status.json
+multi_step_progress() {
+    local step_status="$1"
+    local step_idx="$2"
+    local progress_val="$3"
+
+    export STEP_STATUS="$step_status" STEP_IDX="$step_idx" PROGRESS_VAL="$progress_val"
+
+    python3 << 'PYEOF'
+import json, os, time
+
+state_file = os.environ.get('STEPS_STATE_FILE', '')
+status_file = os.environ.get('STATUS_FILE', '')
+song = os.environ.get('SONG', '')
+start_time = int(os.environ.get('START_TIME', '0'))
+last_eta_file = status_file + '.eta'
+
+step_status = os.environ.get('STEP_STATUS', 'running')
+step_idx = int(os.environ.get('STEP_IDX', '-1'))
+progress_val = int(os.environ.get('PROGRESS_VAL', '0'))
+
+with open(state_file) as f:
+    state = json.load(f)
+
+if 0 <= step_idx < len(state['steps']):
+    state['steps'][step_idx]['progress'] = progress_val
+    state['steps'][step_idx]['status'] = step_status
+
+total = len(state['steps'])
+overall = sum(s['progress'] for s in state['steps']) // max(total, 1)
+state['overall_progress'] = overall
+
+now = int(time.time())
+elapsed = now - start_time
+
+eta = 0
+if overall > 0 and elapsed > 0:
+    new_eta = int((elapsed * (100 - overall)) / overall)
+    last_eta = 0
+    try:
+        with open(last_eta_file) as f:
+            last_eta = int(f.read().strip())
+    except Exception:
+        pass
+    if last_eta == 0 or new_eta < last_eta:
+        eta = new_eta
+        with open(last_eta_file, 'w') as f:
+            f.write(str(eta))
+    else:
+        eta = last_eta
+
+all_done = all(s['status'] in ('completed', 'done') for s in state['steps'])
+has_error = any(s['status'] == 'error' for s in state['steps'])
+
+if all_done:
+    final_status = 'done'
+elif has_error:
+    final_status = 'error'
+else:
+    final_status = 'running'
+
+result = {
+    'status': final_status,
+    'song': song,
+    'steps': state['steps'],
+    'overall_progress': overall,
+    'elapsed': elapsed,
+    'eta': eta
+}
+
+with open(status_file, 'w') as f:
+    json.dump(result, f)
+PYEOF
+}
+
+# Update elapsed/eta for multi-step mode (non-blocking background updater)
+multi_step_elapsed_loop() {
+    while true; do
+        sleep 1
+        if [ -f "$STATUS_FILE" ]; then
+            python3 << 'PYEOF' 2>/dev/null || true
+import json, os, time, shutil
+
+status_file = os.environ.get('STATUS_FILE', '')
+last_eta_file = status_file + '.eta'
+
+with open(status_file) as f:
+    d = json.load(f)
+
+now = int(time.time())
+start_time = int(os.environ.get('START_TIME', '0'))
+elapsed = now - start_time
+d['elapsed'] = elapsed
+
+op = d.get('overall_progress', 0)
+if op > 0 and elapsed > 0:
+    new_eta = int((elapsed * (100 - op)) / op)
+    last_eta = 0
+    try:
+        with open(last_eta_file) as f:
+            last_eta = int(f.read().strip())
+    except Exception:
+        pass
+    if last_eta == 0 or new_eta < last_eta:
+        d['eta'] = new_eta
+        with open(last_eta_file, 'w') as f:
+            f.write(str(new_eta))
+    else:
+        d['eta'] = last_eta
+
+with open(status_file + '.tmp', 'w') as f:
+    json.dump(d, f)
+
+shutil.move(status_file + '.tmp', status_file)
+PYEOF
+        fi
+    done
+}
+
+# Run a ViperX step in chaining mode
+# Args: model_path, input_file, output_dir
+run_viperx_step() {
+    local model_path="$1"
+    local input_file="$2"
+    local output_dir="$3"
+
+    if [ ! -d "$model_path" ]; then
+        echo "❌ ViperX model not found: ${model_path}" >&2
+        exit 2
+    fi
+    if [ ! -f /app/inference_universal.py ]; then
+        echo "❌ inference_universal.py not found" >&2
+        exit 2
+    fi
+
+    # Read YAML params
+    local yaml_num_overlap="4"
+    local viperx_yaml
+    viperx_yaml=$(ls "${model_path}"/*.yaml 2>/dev/null | head -1)
+    if [ -n "$viperx_yaml" ]; then
+        yaml_num_overlap=$(python3 -c "import yaml; print(yaml.load(open('$viperx_yaml'), Loader=yaml.FullLoader)['inference']['num_overlap'])" 2>/dev/null || echo "4")
+    fi
+
+    run_with_elapsed python3 /app/inference_universal.py \
+        --pipeline-status "$STATUS_FILE" \
+        "${model_path}" "${input_file}" "${output_dir}" "${yaml_num_overlap}"
+}
+
+# Run a Demucs step in chaining mode
+# Args: model_name, input_file, output_dir, [expected_stems_count]
+run_demucs_step() {
+    local model_name="$1"
+    local input_file="$2"
+    local output_dir="$3"
+    local expected_stems="${4:-4}"
+
+    local demucs_args=(-n "${model_name}" --device "${DEVICE}" -o "${output_dir}")
+    [ "${SHIFTS:-1}" -gt 0 ] && demucs_args+=(--shifts "${SHIFTS:-1}")
+    [ "${DEMUCS_SEGMENT:-0}" -gt 0 ] && demucs_args+=(--segment "${DEMUCS_SEGMENT:-0}")
+    [ "${JOBS:-0}" -gt 0 ] && demucs_args+=(-j "${JOBS:-0}")
+
+    update_elapsed_loop &
+    local elapsed_pid=$!
+    demucs "${demucs_args[@]}" "${input_file}" &
+    local demucs_pid=$!
+
+    # Poll for stems appearing in output directory
+    while kill -0 $demucs_pid 2>/dev/null; do
+        if [ -d "${output_dir}" ]; then
+            local found
+            found=$(find "${output_dir}" -type f -name "*.wav" 2>/dev/null | wc -l)
+            if [ "$found" -gt 0 ] && [ "$expected_stems" -gt 0 ]; then
+                local step_pct=$(( found * 100 / expected_stems ))
+                [ "$step_pct" -gt 100 ] && step_pct=100
+                # Also update multi-step progress if in chained mode
+                if [ -n "${STEPS_STATE_FILE:-}" ] && [ -f "$STEPS_STATE_FILE" ]; then
+                    multi_step_progress "processing" "$CURRENT_STEP_INDEX" "$step_pct"
+                fi
+            fi
+        fi
+        sleep 2
+    done
+    wait $demucs_pid
+    local demucs_rc=$?
+    kill $elapsed_pid 2>/dev/null || true
+    wait $elapsed_pid 2>/dev/null || true
+
+    return $demucs_rc
+}
+
 
 # ── Parse flags ──────────────────────────────────
 VIPERX=false
@@ -159,10 +400,12 @@ DEMUCS_SEGMENT=0
 JOBS=0
 NO_CLEAN=false        # v2.8.0: don't clean output dir between chained steps
 INPUT_FROM_STEP=""    # v2.8.0: use this existing file as input instead of original
+STEPS_JSON=""         # v2.8.0: JSON array of steps for single-invocation chaining
 
 INPUT=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --steps)        STEPS_JSON="$2"; shift 2 ;;
         --viperx)       VIPERX=true; shift ;;
         --viperx-keep)  VIPERX_KEEP="$2"; shift 2 ;;
         --viperx-model) VIPERX_MODEL="$2"; shift 2 ;;
@@ -188,6 +431,296 @@ if [ -n "$INPUT_FROM_STEP" ]; then
     INPUT="$INPUT_FROM_STEP"
 fi
 
+if [ -z "$INPUT" ]; then
+    echo "Usage: pipeline.sh [--steps JSON] [--viperx] [--demucs] [--rubberband] [--pitch N] <input>"
+    exit 1
+fi
+if [ ! -f "$INPUT" ]; then
+    echo "❌ File not found: $INPUT"
+    exit 1
+fi
+
+SONG=$(basename "${INPUT%.*}")
+OUTPUT="${OUTPUT:-/output/${SONG}}"
+
+# ══════════════════════════════════════════════════════════
+# CHAINED MODE (--steps JSON)
+# Execute all steps in a single invocation with stem routing
+# ══════════════════════════════════════════════════════════
+if [ -n "$STEPS_JSON" ]; then
+
+    # write steps config to file for safe Python access
+    mkdir -p "${OUTPUT}"
+    STEPS_CONFIG_FILE="${OUTPUT}/.steps_config.json"
+    STEPS_STATE_FILE="${OUTPUT}/.steps_state.json"
+    export STEPS_CONFIG_FILE STEPS_STATE_FILE STATUS_FILE SONG START_TIME OUTPUT
+    export DEVICE SHIFTS DEMUCS_SEGMENT JOBS PITCH
+
+    # Write steps JSON to config file
+    cat > "$STEPS_CONFIG_FILE" <<< "$STEPS_JSON"
+
+    # ── Validate steps JSON with Python ──
+    python3 << 'PYEOF' > /dev/null 2>&1 && rc=0 || rc=$?
+import json, sys, os
+config_file = os.environ.get('STEPS_CONFIG_FILE', '')
+try:
+    with open(config_file) as f:
+        steps = json.load(f)
+    if not isinstance(steps, list) or len(steps) == 0:
+        sys.exit(1)
+    for s in steps:
+        if 'type' not in s:
+            sys.exit(1)
+except Exception:
+    sys.exit(1)
+PYEOF
+
+    if [ "$rc" -ne 0 ]; then
+        echo "❌ Invalid --steps JSON: must be a non-empty array of step objects" >&2
+        rm -f "$STEPS_CONFIG_FILE"
+        exit 1
+    fi
+
+    echo "════════════════════════════════════════════════════"
+    echo "🎵 Onda Pipeline v2.8.0 — Chained Steps Mode"
+    echo "   Input:    ${INPUT}"
+    echo "   Output:   ${OUTPUT}"
+    echo "════════════════════════════════════════════════════"
+
+    # Clean output dir (unless --no-clean)
+    if ! $NO_CLEAN; then
+        rm -rf "${OUTPUT}" 2>/dev/null || true
+        mkdir -p "${OUTPUT}"
+    fi
+
+    # Re-create config/state files after possible cleanup
+    cat > "$STEPS_CONFIG_FILE" <<< "$STEPS_JSON"
+
+    # Routed files directory (intermediate stems passed between steps)
+    export ROUTED_DIR="${OUTPUT}/_routed"
+    mkdir -p "${ROUTED_DIR}"
+
+    # ── Parse step count and initialize progress ──
+    TOTAL_STEPS=$(python3 -c "
+import json
+with open('$STEPS_CONFIG_FILE') as f:
+    steps = json.load(f)
+print(len(steps))
+" 2>/dev/null || echo 0)
+
+    # Initialize multi-step progress tracking
+    multi_step_init
+
+    # ── Iterate through steps ──
+    CURRENT_INPUT="$INPUT"
+    CURRENT_STEP_INDEX=0
+
+    for ((STEP_IDX=0; STEP_IDX<TOTAL_STEPS; STEP_IDX++)); do
+
+        # Extract step config via Python (reading from config file)
+        STEP_INFO=$(python3 -c "
+import json
+with open('$STEPS_CONFIG_FILE') as f:
+    steps = json.load(f)
+s = steps[$STEP_IDX]
+print(s.get('type',''))
+print(s.get('model',''))
+stems = s.get('stems', {})
+for k, v in stems.items():
+    a = v.get('action', 'save')
+    t = v.get('target', '')
+    print('STEM|{}|{}|{}'.format(k, a, t))
+print('ENDSTEMS')
+" 2>/dev/null)
+
+        STEP_TYPE=$(echo "$STEP_INFO" | sed -n '1p')
+        STEP_MODEL=$(echo "$STEP_INFO" | sed -n '2p')
+
+        if [ -z "$STEP_TYPE" ]; then
+            echo "❌ Step ${STEP_IDX}: missing type" >&2
+            exit 1
+        fi
+
+        CURRENT_STEP="${STEP_TYPE}"
+        CURRENT_STEP_INDEX=$STEP_IDX
+
+        echo ""
+        echo "🔧 Step $((STEP_IDX+1))/${TOTAL_STEPS}: ${STEP_TYPE}${STEP_MODEL:+ (${STEP_MODEL})}"
+        echo "   input: ${CURRENT_INPUT}"
+
+        # Create step temp directory
+        STEP_TMP="${OUTPUT}/_step_${STEP_IDX}"
+        mkdir -p "${STEP_TMP}"
+
+        # Mark step as processing
+        multi_step_progress "processing" $STEP_IDX 0
+
+        step_rc=0
+        case "$STEP_TYPE" in
+            viperx)
+                run_viperx_step "${STEP_MODEL:-/models/VR_Models/BS_Roformer_Viperx}" "${CURRENT_INPUT}" "${STEP_TMP}"
+                echo "   ✅ ${STEP_TYPE} done"
+                ;;
+            demucs)
+                # Count expected stems from config (non-discard stems)
+                STEM_COUNT=$(python3 -c "
+import json
+with open('$STEPS_CONFIG_FILE') as f:
+    steps = json.load(f)
+s = steps[$STEP_IDX]
+stems = [k for k, v in s.get('stems', {}).items() if v.get('action') != 'discard']
+print(len(stems))
+" 2>/dev/null || echo 4)
+
+                run_demucs_step "${STEP_MODEL:-htdemucs_ft}" "${CURRENT_INPUT}" "${STEP_TMP}" "$STEM_COUNT"
+                step_rc=$?
+                if [ $step_rc -ne 0 ]; then
+                    echo "❌ Demucs failed with exit code $step_rc" >&2
+                    exit $step_rc
+                fi
+                echo "   ✅ ${STEP_TYPE} done"
+                ;;
+            rubberband)
+                # Find stems from parent step's temp dir
+                PARENT_IDX=$((STEP_IDX-1))
+                PARENT_TMP="${OUTPUT}/_step_${PARENT_IDX}"
+                if [ ! -d "$PARENT_TMP" ]; then
+                    PARENT_TMP="${OUTPUT}"
+                fi
+
+                # Parse stem names from config
+                STEM_NAMES=$(python3 -c "
+import json
+with open('$STEPS_CONFIG_FILE') as f:
+    steps = json.load(f)
+s = steps[$STEP_IDX]
+for k in s.get('stems', {}).keys():
+    print(k)
+" 2>/dev/null)
+
+                while IFS= read -r stem_name; do
+                    [ -z "$stem_name" ] && continue
+                    # Skip drums — they get copied as-is (no pitch)
+                    if [ "$stem_name" = "drums" ]; then
+                        SRC=$(find "${PARENT_TMP}" -maxdepth 3 -iname "*drums*" -type f 2>/dev/null | head -1)
+                        if [ -n "$SRC" ]; then
+                            cp "$SRC" "${STEP_TMP}/drums.wav"
+                            echo "   ✅ drums (no pitch) → ${STEP_TMP}/drums.wav"
+                        fi
+                        continue
+                    fi
+                    SRC=$(find "${PARENT_TMP}" -maxdepth 3 -iname "*${stem_name}*" -type f 2>/dev/null | head -1)
+                    if [ -n "$SRC" ]; then
+                        run_with_elapsed rubberband --pitch "${PITCH}" --quiet "${SRC}" "${STEP_TMP}/${stem_name}.wav"
+                        echo "   ✅ ${stem_name} pitched → ${STEP_TMP}/${stem_name}.wav"
+                    else
+                        echo "   ⚠️  Stem '${stem_name}' not found for rubberband"
+                    fi
+                done <<< "$STEM_NAMES"
+                echo "   ✅ ${STEP_TYPE} done"
+                ;;
+            *)
+                echo "❌ Unknown step type: ${STEP_TYPE}" >&2
+                exit 1
+                ;;
+        esac
+
+        # ── Process stems (save / route / discard) ──
+        # Parse stem routing from the step's config file
+        STEM_ROUTING=$(python3 -c "
+import json
+with open('$STEPS_CONFIG_FILE') as f:
+    steps = json.load(f)
+s = steps[$STEP_IDX]
+for k, v in s.get('stems', {}).items():
+    a = v.get('action', 'save')
+    t = v.get('target', '')
+    print('{}|{}|{}'.format(k, a, t))
+" 2>/dev/null)
+
+        ROUTED_TO_NEXT=""
+        while IFS= read -r stem_line; do
+            [ -z "$stem_line" ] && continue
+            IFS='|' read -r stem_name stem_action stem_target <<< "$stem_line"
+
+            # Find the stem file in the step's temp dir
+            STEM_FILE=$(find "${STEP_TMP}" -maxdepth 3 -iname "*${stem_name}*" -type f 2>/dev/null | head -1)
+
+            if [ -z "$STEM_FILE" ]; then
+                # Try finding in demucs output subdirectory (model-named dir)
+                STEM_FILE=$(find "${STEP_TMP}" -maxdepth 4 -iname "*${stem_name}*.wav" -type f 2>/dev/null | head -1)
+            fi
+
+            if [ -z "$STEM_FILE" ] && [ "$stem_action" != "discard" ]; then
+                echo "   ⚠️  Stem '${stem_name}' not found in step output"
+                continue
+            fi
+
+            case "$stem_action" in
+                route)
+                    # Route to another step: copy to routed dir
+                    routed_name="step_${STEP_IDX}_${stem_name}.wav"
+                    cp "$STEM_FILE" "${ROUTED_DIR}/${routed_name}"
+                    echo "   📍 ${stem_name} → route${stem_target:+ (→ ${stem_target})}"
+                    # Check if routed to next step
+                    NEXT_IDX=$((STEP_IDX+1))
+                    if [ "$stem_target" = "step:${NEXT_IDX}" ] || [ "$stem_target" = "step:next" ] || { [ "$stem_target" = "step:demucs" ] && [ "$NEXT_IDX" -lt "$TOTAL_STEPS" ]; }; then
+                        ROUTED_TO_NEXT="${ROUTED_DIR}/${routed_name}"
+                    fi
+                    ;;
+                save)
+                    cp "$STEM_FILE" "${OUTPUT}/${stem_name}.wav"
+                    echo "   ✅ ${stem_name} → ${OUTPUT}/${stem_name}.wav"
+                    ;;
+                discard)
+                    echo "   🗑️  ${stem_name} discarded"
+                    ;;
+                *)
+                    # Default: save
+                    cp "$STEM_FILE" "${OUTPUT}/${stem_name}.wav"
+                    echo "   ✅ ${stem_name} → ${OUTPUT}/${stem_name}.wav"
+                    ;;
+            esac
+        done <<< "$STEM_ROUTING"
+
+        # ── Determine input for next step ──
+        NEXT_IDX=$((STEP_IDX+1))
+        if [ "$NEXT_IDX" -lt "$TOTAL_STEPS" ]; then
+            if [ -n "$ROUTED_TO_NEXT" ] && [ -f "$ROUTED_TO_NEXT" ]; then
+                CURRENT_INPUT="$ROUTED_TO_NEXT"
+                echo "   🔗 Next step input ← routed stem: ${CURRENT_INPUT}"
+            else
+                echo "   ⚠️  No routed stem for step ${NEXT_IDX}, using original input"
+                CURRENT_INPUT="$INPUT"
+            fi
+        fi
+
+        # Mark step as completed
+        multi_step_progress "completed" $STEP_IDX 100
+
+        # ── Cleanup step temp ──
+        rm -rf "$STEP_TMP" 2>/dev/null || true
+    done
+
+    # ── Final cleanup ──
+    rm -rf "${ROUTED_DIR}" "${STEPS_STATE_FILE}" "${STEPS_CONFIG_FILE}" 2>/dev/null || true
+
+    # Final progress report
+    multi_step_progress "done" -1 100
+
+    echo ""
+    echo "════════════════════════════════════════════════════"
+    echo "✅ Pipeline complete!"
+    echo ""
+    ls -lh "${OUTPUT}"/*.wav 2>/dev/null | awk '{print "   " $NF " (" $5 ")"}' || true
+    echo "════════════════════════════════════════════════════"
+    exit 0
+fi
+
+# ══════════════════════════════════════════════════════════
+# LEGACY MODE (original behavior, no --steps)
+# ══════════════════════════════════════════════════════════
+
 # ── Progress ranges (dynamic based on active steps) ──
 VIPERX_START=0; VIPERX_END=0
 DEMUCS_START=0; DEMUCS_END=0
@@ -211,10 +744,6 @@ if ! $VIPERX && ! $DEMUCS && ! $RUBBERBAND; then
 fi
 
 # ── Validate ─────────────────────────────────────
-if [ -z "$INPUT" ]; then
-    echo "Usage: pipeline.sh [--viperx] [--demucs] [--rubberband] [--pitch N] <input>"
-    exit 1
-fi
 if [ ! -f "$INPUT" ]; then
     echo "❌ File not found: $INPUT"
     exit 1
@@ -239,9 +768,6 @@ if $VIPERX && $DEMUCS && [ "${DEMUCS_KEEP}" = "all" ]; then
     DEMUCS_KEEP="drums,bass,other"
     echo "   ℹ️  ViperX activo → Demucs vocals excluido (ya existe vocals_viperx)"
 fi
-
-SONG=$(basename "${INPUT%.*}")
-OUTPUT="${OUTPUT:-/output/${SONG}}"
 
 echo "═══════════════════════════════════════"
 echo "🎵 Onda Pipeline"

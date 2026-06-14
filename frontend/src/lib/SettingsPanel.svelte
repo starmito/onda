@@ -9,13 +9,13 @@
   interface Props {
     subtab?: string;
     onsubtabchange?: (tab: string) => void;
+    onpresetschange?: () => void;
   }
 
-  let { subtab = 'models', onsubtabchange }: Props = $props();
+  let { subtab = 'models', onsubtabchange, onpresetschange }: Props = $props();
 
   // No-op handlers for sub-component props
   const noop = () => {};
-  const noopStart = (_config: any) => {};
 
   // ---- Logs state (from App.svelte) ----
   const API_BASE = '';
@@ -161,7 +161,7 @@
       </div>
     {:else if subtab === 'presets'}
       <div class="subtab-content">
-        <PipelineEditor disabled={false} hasFiles={false} onstart={noopStart} />
+        <PipelineEditor show={true} onclose={noop} onpresetschange={onpresetschange || noop} />
       </div>
     {:else if subtab === 'logs'}
       <div class="logs-container">

@@ -1,5 +1,5 @@
 <script>
-	import { IconMenu, IconStar, IconVoiceRemove, IconSeparate, IconInstruments, IconUser, IconTone, IconBPM, IconDAW, IconHelp, IconSettings, IconFolder } from './icons';
+	import { IconMenu, IconUser, IconTone, IconBPM, IconDAW, IconHelp, IconSettings, IconFolder } from './icons';
 
 	/**
 	 * Sidebar.svelte — Sidebar vertical colapsable al estilo vocalremover.org
@@ -13,17 +13,10 @@
 	let {
 		activeTab = '',
 		collapsed = false,
+		presets = [],
 		ontoggle = () => {},
 		ontabchange = (tabId) => {},
 	} = $props();
-
-	/** 4 presets predefinidos + Personalizado */
-	const presetItems = [
-		{ id: 'Separador Voces Total', name: 'Separador Voces Total', icon: IconStar },
-		{ id: 'Eliminador de Voz',      name: 'Eliminador de Voz', icon: IconVoiceRemove },
-		{ id: 'Separador Completo',     name: 'Separador Completo', icon: IconSeparate },
-		{ id: 'Separador solo instrumentos', name: 'Solo Instrumentos', icon: IconInstruments },
-	];
 
 	const customItem = { id: 'personalizado', name: 'Personalizado', icon: IconUser };
 
@@ -53,8 +46,8 @@
 		<span class="label-text">Menú</span>
 	</button>
 
-	<!-- 4 Presets predefinidos -->
-	{#each presetItems as item (item.id)}
+	<!-- Presets (desde backend) -->
+	{#each presets as item (item.id)}
 		<button
 			class="nav-item top-item"
 			class:active={activeTab === item.id}
