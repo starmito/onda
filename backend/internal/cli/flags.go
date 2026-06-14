@@ -7,24 +7,40 @@ import (
 	"strings"
 )
 
-// Preset defines what models and parameters each preset uses.
-type Preset struct {
-	Name          string   `json:"name"`
-	ViperxEnabled bool     `json:"viperxEnabled"`
-	DemucsEnabled bool     `json:"demucsEnabled"`
-	VocalModel    string   `json:"vocalModel"`
-	VocalOverlap  int      `json:"vocalOverlap"`
-	StemModel     string   `json:"stemModel"`
-	DrumsModel    string   `json:"drumsModel"`
-	BassModel     string   `json:"bassModel"`
-	OtherModel    string   `json:"otherModel"`
-	ViperxStems   []string `json:"viperxStems"`
-	DemucsStems   []string `json:"demucsStems"`
-	Pitch         int      `json:"pitch"`
-	Description   string   `json:"description"`
+// StemAction defines what happens to a stem after a pipeline step.
+type StemAction string
+
+const (
+	StemSave    StemAction = "save"    // Guardar en resultado final
+	StemRoute   StemAction = "route"   // Enviar al siguiente paso
+	StemDiscard StemAction = "discard" // No guardar ni procesar
+)
+
+// StemRoute describes the routing of a single stem from a pipeline step.
+type StemRoute struct {
+	Action StemAction `json:"action"`
+	Target string     `json:"target,omitempty"` // Paso destino: "result", "step:1", etc.
 }
 
-// Presets is the map of all built-in presets (empty — only user presets are used).
+// PipelineStep defines a single step in a multi-step pipeline preset.
+type PipelineStep struct {
+	ID      string                `json:"id"`                // "viperx-1", "demucs-2", etc.
+	Model   string                `json:"model"`             // nombre del modelo o ruta
+	Type    string                `json:"type"`              // "viperx" | "demucs"
+	Enabled bool                  `json:"enabled"`
+	Stems   map[string]StemRoute  `json:"stems"`             // stem_name → routing
+}
+
+// Preset defines a complete audio processing preset with routing and pipeline chaining.
+type Preset struct {
+	Name        string         `json:"name"`
+	Steps       []PipelineStep `json:"steps"`
+	Pitch       int            `json:"pitch"`
+	Description string         `json:"description"`
+	Locked      bool           `json:"locked"` // true para los 4 predeterminados
+}
+
+// Presets is the map of all built-in presets (empty — seeded in presets.go).
 var Presets = map[string]Preset{}
 
 // PipelineFlags holds all parsed CLI flags for the pipeline subcommand.
@@ -186,7 +202,7 @@ func Help() string {
 	b.WriteString("  onda pipeline [flags]\n\n")
 	b.WriteString("Run the audio separation pipeline.\n\n")
 	b.WriteString("Flags (modern):\n")
-	b.WriteString("  --preset string          Preset to use: turbo, balance, master, ultimate (default \"balance\")\n")
+	b.WriteString("  --preset string          Preset to use (default: none, use flags directly)\n")
 	b.WriteString("  --vocal-model string     Vocal separation model (overrides preset)\n")
 	b.WriteString("  --vocal-overlap int      Vocal overlap size (overrides preset)\n")
 	b.WriteString("  --vocal-keep string      What to keep: both, vocals, instrumental (default \"both\")\n")
@@ -198,6 +214,8 @@ func Help() string {
 	b.WriteString("  --pitch int              Pitch shift in semitones (0 = disabled) (default 0)\n")
 	b.WriteString("  --input string           Input audio file path (required)\n")
 	b.WriteString("  --output string          Output directory path\n")
+	b.WriteString("  --no-clean               Don't clean output directory (for pipeline chaining)\n")
+	b.WriteString("  --input-from-step string Use this existing stem file as input (for chaining)\n")
 	b.WriteString("  --help                   Show this help\n\n")
 	b.WriteString("Flags (legacy — compatibility with pipeline.sh):\n")
 	b.WriteString("  --viperx                 Use ViperX for vocal separation (alias for --vocal-model viperx)\n")
@@ -205,11 +223,11 @@ func Help() string {
 	b.WriteString("  --viperx-overlap int     ViperX overlap (alias for --vocal-overlap)\n")
 	b.WriteString("  --demucs-model string    Demucs model (alias for --stem-model)\n")
 	b.WriteString("  --rubberband             Enable Rubberband pitch shift (alias for --pitch 0)\n\n")
-	b.WriteString("Presets:\n")
-	b.WriteString("  turbo      Rápido, ~8GB VRAM — melband_kj + htdemucs_ft, overlap=2\n")
-	b.WriteString("  balance    Recomendado, ~12GB VRAM — polarformer + htdemucs_ft, overlap=4\n")
-	b.WriteString("  master     Máxima calidad vocal, ~12GB VRAM — polarformer, overlap=8, bass dedicated\n")
-	b.WriteString("  ultimate   Mejor por stem, 4 pases dedicados, ~12GB VRAM — polarformer, all stem models\n")
+	b.WriteString("Presets (v2.8.0):\n")
+	b.WriteString("  Voces Total       1 paso: ViperX separa voces + instrumental\n")
+	b.WriteString("  Eliminador de Voz 1 paso: ViperX elimina voces, solo instrumental\n")
+	b.WriteString("  Separador Completo 2 pasos: ViperX → Demucs (drums, bass, other, vocals)\n")
+	b.WriteString("  Solo Instrumentos 1 paso: Demucs stems sin voces\n")
 
 	return b.String()
 }

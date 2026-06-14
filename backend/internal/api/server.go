@@ -17,6 +17,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/starmito/onda/internal/cli"
 	"gopkg.in/yaml.v3"
 )
 
@@ -44,6 +45,9 @@ type JobRequest struct {
 	Song   string          `json:"song"`
 	Args   []string        `json:"args"`
 	Config SeparateRequest `json:"config"`
+	// Steps for multi-step pipeline chaining (v2.8.0+)
+	Steps     []cli.PipelineStep `json:"steps,omitempty"`
+	StepIndex int                `json:"step_index"` // current step being executed (for multi-step)
 }
 
 // JobState tracks the status of a separation job.
@@ -526,8 +530,99 @@ func (s *Server) worker() {
 			os.WriteFile(statusPath, []byte(`{}`), 0644)
 		}
 
+		// Handle multi-step pipeline chaining
+		steps := job.Steps
+		if len(steps) > 1 {
+			// Multi-step chaining: execute each step sequentially
+			s.runMultiStepPipeline(job, steps, state)
+		} else {
+			// Single step (or old format): execute once
+			s.runSinglePipeline(job, state)
+		}
+	}
+}
+
+// runSinglePipeline executes a single pipeline.sh invocation.
+func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
+	ctx, cancel := context.WithCancel(context.Background())
+	dockerArgs := append([]string{"exec", "onda", "bash", "/pipeline.sh"}, job.Args...)
+	cmd := exec.CommandContext(ctx, "docker", dockerArgs...)
+
+	s.jobsMu.Lock()
+	s.currentCancel = cancel
+	s.currentCmd = cmd
+	s.jobsMu.Unlock()
+
+	out, err := cmd.CombinedOutput()
+
+	s.jobsMu.Lock()
+	s.currentCancel = nil
+	s.currentCmd = nil
+	s.jobsMu.Unlock()
+	cancel()
+
+	// Log all pipeline output to ring buffer with distinct timestamps
+	logPipelineOutput(string(out))
+
+	s.jobsMu.Lock()
+	if state, ok := s.jobs[job.Song]; ok {
+		if err != nil {
+			state.Status = "error"
+			state.Error = strings.TrimSpace(string(out))
+			Log("pipeline", "error", "Pipeline failed for "+job.Song+": "+strings.TrimSpace(string(out)))
+		} else {
+			state.Status = "done"
+			state.Files = listStems(job.Song)
+			Log("pipeline", "success", fmt.Sprintf("Pipeline completed: %s (%d stems)", job.Song, len(state.Files)))
+		}
+	}
+	s.jobsMu.Unlock()
+}
+
+// runMultiStepPipeline executes multiple pipeline.sh invocations, one per step,
+// chaining outputs from each step to the next.
+func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, state *JobState) {
+	projectRoot := findProjectRoot()
+	song := job.Song
+	outputDir := filepath.Join(projectRoot, "output", song)
+
+	// Ensure output directory exists
+	os.MkdirAll(outputDir, 0755)
+
+	currentInput := job.Config.Input
+	allStems := make([]FileEntry, 0)
+
+	for i, step := range steps {
+		if !step.Enabled {
+			Log("pipeline", "info", fmt.Sprintf("Step %d/%d (%s) disabled, skipping", i+1, len(steps), step.ID))
+			continue
+		}
+
+		// Update job state with current step info
+		s.jobsMu.Lock()
+		if state, ok := s.jobs[job.Song]; ok {
+			state.CurrentStep = i + 1
+			state.StepName = stepTypeDisplay(step.Type)
+		}
+		s.jobsMu.Unlock()
+
+		Log("pipeline", "info", fmt.Sprintf("Step %d/%d: %s (%s)", i+1, len(steps), step.ID, step.Type))
+
+		// Build args for this specific step
+		containerOutput := "/output/" + song
+		stepArgs := buildStepPipelineArgs(step, currentInput, containerOutput, job.Config.Device)
+		stepArgs = append(stepArgs, "--output", containerOutput)
+
+		// For steps after the first, add --no-clean to preserve previous outputs
+		if i > 0 {
+			stepArgs = append(stepArgs, "--no-clean")
+		}
+
+		stepArgs = append(stepArgs, currentInput)
+
+		// Execute this step
 		ctx, cancel := context.WithCancel(context.Background())
-		dockerArgs := append([]string{"exec", "onda", "bash", "/pipeline.sh"}, job.Args...)
+		dockerArgs := append([]string{"exec", "onda", "bash", "/pipeline.sh"}, stepArgs...)
 		cmd := exec.CommandContext(ctx, "docker", dockerArgs...)
 
 		s.jobsMu.Lock()
@@ -541,32 +636,134 @@ func (s *Server) worker() {
 		s.currentCancel = nil
 		s.currentCmd = nil
 		s.jobsMu.Unlock()
-		cancel() // release context resources
+		cancel()
 
-		// Log all pipeline output to ring buffer with distinct timestamps
-		baseNano := time.Now().UnixNano()
-		lines := strings.Split(string(out), "\n")
-		for i, line := range lines {
-			line = strings.TrimSpace(line)
-			if line == "" {
-				continue
-			}
-			LogWithNano("pipeline", "info", line, baseNano-int64(i))
-		}
+		// Log pipeline output
+		logPipelineOutput(string(out))
 
-		s.jobsMu.Lock()
-		if state, ok := s.jobs[job.Song]; ok {
-			if err != nil {
+		// Check for errors
+		if err != nil {
+			s.jobsMu.Lock()
+			if state, ok := s.jobs[job.Song]; ok {
 				state.Status = "error"
-				state.Error = strings.TrimSpace(string(out))
-				Log("pipeline", "error", "Pipeline failed for "+job.Song+": "+strings.TrimSpace(string(out)))
+				state.Error = fmt.Sprintf("Step %d (%s) failed: %s", i+1, step.ID, strings.TrimSpace(string(out)))
+				Log("pipeline", "error", fmt.Sprintf("Pipeline step %d/%d failed for %s: %s", i+1, len(steps), job.Song, strings.TrimSpace(string(out))))
+			}
+			s.jobsMu.Unlock()
+			return
+		}
+
+		// After step completes, find output stems for chaining to next step
+		if i < len(steps)-1 {
+			// Look for the routed stem to use as input for the next step
+			routedInput := findChainedInput(outputDir, step)
+			if routedInput != "" {
+				// Convert host path to container path for next invocation
+				currentInput = toInternalContainerPath(routedInput)
+				Log("pipeline", "info", fmt.Sprintf("Chaining: step %d output → input for step %d: %s", i+1, i+2, currentInput))
 			} else {
-				state.Status = "done"
-				state.Files = listStems(job.Song)
-				Log("pipeline", "success", fmt.Sprintf("Pipeline completed: %s (%d stems)", job.Song, len(state.Files)))
+				// Fallback: if no routed stem found, use the original input
+				Log("pipeline", "warn", fmt.Sprintf("No routed stem found for step %d, using original input", i+1))
+				currentInput = job.Config.Input
 			}
 		}
-		s.jobsMu.Unlock()
+
+		// Collect stems from this step
+		stepStems := listStems(song)
+		for _, f := range stepStems {
+			// Only add if not already in the list
+			found := false
+			for _, existing := range allStems {
+				if existing.Name == f.Name {
+					found = true
+					break
+				}
+			}
+			if !found {
+				allStems = append(allStems, f)
+			}
+		}
+	}
+
+	// Finalize: mark job as done
+	s.jobsMu.Lock()
+	if state, ok := s.jobs[job.Song]; ok {
+		state.Status = "done"
+		state.Files = listStems(song)
+		state.CurrentStep = len(steps)
+		Log("pipeline", "success", fmt.Sprintf("Pipeline completed: %s (%d stems, %d steps)", job.Song, len(state.Files), len(steps)))
+	}
+	s.jobsMu.Unlock()
+}
+
+// stepTypeDisplay returns a human-readable name for a step type.
+func stepTypeDisplay(stepType string) string {
+	switch stepType {
+	case "viperx":
+		return "ViperX"
+	case "demucs":
+		return "Demucs"
+	default:
+		return stepType
+	}
+}
+
+// findChainedInput looks for a stem file from the previous step that should be
+// used as input to the next step. It looks for stems routed with StemRoute action.
+func findChainedInput(outputDir string, step cli.PipelineStep) string {
+	// First, look for stems that are explicitly routed
+	for stem, route := range step.Stems {
+		if route.Action == cli.StemRoute {
+			pattern := filepath.Join(outputDir, "*"+stem+"*")
+			matches, _ := filepath.Glob(pattern)
+			if len(matches) > 0 {
+				return matches[0]
+			}
+		}
+	}
+
+	// Fallback: find any .wav file that looks like an inter-step stem
+	// e.g., instrumental_viperx.wav (the conventional name)
+	patterns := []string{
+		filepath.Join(outputDir, "*instrumental*"),
+		filepath.Join(outputDir, "*no_vocals*"),
+	}
+	for _, pattern := range patterns {
+		matches, _ := filepath.Glob(pattern)
+		if len(matches) > 0 {
+			return matches[0]
+		}
+	}
+
+	return ""
+}
+
+// toInternalContainerPath converts a host path to a container-relative path.
+func toInternalContainerPath(hostPath string) string {
+	// Convert host output dir to container /output/
+	projectRoot := findProjectRoot()
+	if projectRoot != "" && strings.HasPrefix(hostPath, filepath.Join(projectRoot, "output")) {
+		rel := strings.TrimPrefix(hostPath, filepath.Join(projectRoot, "output"))
+		return "/output" + rel
+	}
+	// Convert host input dir to container /input/
+	if projectRoot != "" && strings.HasPrefix(hostPath, filepath.Join(projectRoot, "input")) {
+		rel := strings.TrimPrefix(hostPath, filepath.Join(projectRoot, "input"))
+		return "/input" + rel
+	}
+	return hostPath
+}
+
+// logPipelineOutput logs all lines from a pipeline run to the ring buffer.
+func logPipelineOutput(output string) {
+	baseNano := time.Now().UnixNano()
+	lines := strings.Split(string(output), "\n")
+	for i, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		LogWithNano("pipeline", "info", line, baseNano-int64(i))
 	}
 }
 
@@ -593,10 +790,46 @@ func listStems(song string) []FileEntry {
 }
 
 // buildPipelineArgs constructs the argument list for pipeline.sh from a SeparateRequest.
-func buildPipelineArgs(req SeparateRequest) (song string, args []string) {
+// If a preset with Steps is referenced, those steps are returned separately for multi-step chaining.
+// Returns: song name, pipeline args, list of steps for chaining (if any).
+func buildPipelineArgs(req SeparateRequest) (song string, args []string, steps []cli.PipelineStep) {
 	song = strings.TrimSuffix(filepath.Base(req.Input), filepath.Ext(req.Input))
 	containerOutput := "/output/" + song
 
+	// --- Resolve preset steps if a named preset is provided ---
+	if req.Preset != "" {
+		preset, ok := getAllPresets()[req.Preset]
+		if ok && len(preset.Steps) > 0 {
+			steps = preset.Steps
+		}
+	}
+
+	// If the request itself has explicit steps, use those (overrides preset lookup)
+	if len(req.Steps) > 0 {
+		steps = req.Steps
+	}
+
+	// --- Multi-step preset handling ---
+	if len(steps) > 0 {
+		// For multi-step presets, build args for the FIRST step only.
+		// The worker will iterate through remaining steps.
+		stepArgs := buildStepPipelineArgs(steps[0], req.Input, containerOutput, req.Device)
+		args = append(args, stepArgs...)
+		args = append(args, "--output", containerOutput)
+
+		// If it's the only step, use the input directly
+		// Otherwise, we'll chain
+		if len(steps) == 1 {
+			args = append(args, req.Input)
+		} else {
+			// For multi-step, pass input and add --no-clean
+			args = append(args, "--no-clean")
+			args = append(args, req.Input)
+		}
+		return song, args, steps
+	}
+
+	// --- BACKWARD COMPAT: old format (no steps) ---
 	if req.Viperx {
 		args = append(args, "--viperx")
 		if req.ViperxKeep != "" {
@@ -628,15 +861,19 @@ func buildPipelineArgs(req SeparateRequest) (song string, args []string) {
 	if stemModel == "" {
 		stemModel = req.DemucsModel
 	}
-	if stemModel == "" {
+	if stemModel == "" && req.Preset != "" {
+		// Fallback: try to find models from old-format preset fields
 		preset := getAllPresets()[req.Preset]
-		stemModel = preset.StemModel
+		// (old-format presets had StemModel directly, new ones use Steps)
+		if preset.Description != "" && len(preset.Steps) == 0 {
+			// This shouldn't happen with new format, but keep for safety
+		}
 	}
 	if stemModel != "" {
 		args = append(args, "--demucs-model", stemModel)
 	}
 
-	// Demucs-specific flags (no YAML config — use CLI args)
+	// Demucs-specific flags
 	if stemModel != "" && (strings.HasPrefix(stemModel, "htdemucs") || strings.Contains(stemModel, "htdemucs")) {
 		if req.Shifts > 1 {
 			args = append(args, "--shifts", fmt.Sprintf("%d", req.Shifts))
@@ -655,7 +892,79 @@ func buildPipelineArgs(req SeparateRequest) (song string, args []string) {
 
 	args = append(args, "--output", containerOutput)
 	args = append(args, req.Input)
-	return song, args
+	return song, args, nil
+}
+
+// buildStepPipelineArgs builds pipeline.sh arguments for a single PipelineStep.
+func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device string) []string {
+	var args []string
+
+	switch step.Type {
+	case "viperx":
+		args = append(args, "--viperx")
+		// Model
+		if step.Model != "" {
+			modelDir := resolveModelDir(step.Model)
+			if modelDir != "" {
+				args = append(args, "--viperx-model", modelDir)
+			}
+		}
+		// Keep setting based on stem routing
+		if step.Stems != nil {
+			_, hasVocals := step.Stems["vocals"]
+			_, hasInst := step.Stems["instrumental"]
+			if hasVocals && hasInst {
+				args = append(args, "--viperx-keep", "both")
+			} else if hasVocals {
+				args = append(args, "--viperx-keep", "vocals")
+			} else if hasInst {
+				args = append(args, "--viperx-keep", "instrumental")
+			}
+		}
+	case "demucs":
+		args = append(args, "--demucs")
+		// Model
+		if step.Model != "" {
+			args = append(args, "--demucs-model", step.Model)
+		}
+		// Stem keep based on routing
+		if step.Stems != nil {
+			var keep []string
+			for stem, route := range step.Stems {
+				if route.Action == cli.StemSave || route.Action == cli.StemRoute {
+					keep = append(keep, stem)
+				}
+			}
+			if len(keep) > 0 {
+				args = append(args, "--demucs-keep", strings.Join(keep, ","))
+			}
+		}
+	}
+
+	// Device override
+	if device != "" && device != "cuda" {
+		args = append(args, "--device", device)
+	}
+
+	args = append(args, "--output", outputDir)
+	return args
+}
+
+// findRouteTargets returns a list of stem filenames that should be routed to a specific step.
+// This is used by the worker to determine which files from step N are inputs to step N+1.
+func findRouteTargets(outputDir string, step cli.PipelineStep) []string {
+	var targets []string
+	for stem, route := range step.Stems {
+		if route.Action == cli.StemRoute || route.Action == cli.StemSave {
+			// Look for the stem file in the output directory
+			pattern := filepath.Join(outputDir, "*"+stem+"*")
+			matches, _ := filepath.Glob(pattern)
+			for _, m := range matches {
+				targets = append(targets, m)
+			}
+		}
+	}
+	return targets
 }
 
 // handleGPU returns GPU availability and info from the Docker container.
@@ -713,6 +1022,9 @@ type SeparateRequest struct {
 	Demucs     bool     `json:"demucs"`
 	DemucsKeep []string `json:"demucs_keep,omitempty"`
 
+	// New v2.8.0: explicit steps array for multi-step pipeline chaining
+	Steps []cli.PipelineStep `json:"steps,omitempty"`
+
 	// Demucs-specific overrides (optional, only used when model is htdemucs*)
 	Shifts        int `json:"shifts,omitempty"`
 	DemucsSegment int `json:"demucs_segment,omitempty"`
@@ -768,7 +1080,26 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Build pipeline arguments and extract song name
-	song, pipelineArgs := buildPipelineArgs(req)
+	// The third return value is the list of steps for multi-step chaining
+	song, pipelineArgs, steps := buildPipelineArgs(req)
+
+	// Compute total pipeline steps
+	totalSteps := len(steps)
+	if totalSteps == 0 {
+		// Old format: count from flags
+		if req.Viperx {
+			totalSteps++
+		}
+		if req.Demucs {
+			totalSteps++
+		}
+		if req.Pitch != 0 {
+			totalSteps++
+		}
+		if totalSteps == 0 {
+			totalSteps = 2 // default: viperx + demucs
+		}
+	}
 
 	// Check if song is already in the queue
 	s.jobsMu.Lock()
@@ -781,27 +1112,13 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
-	// Compute total pipeline steps
-	totalSteps := 0
-	if req.Viperx {
-		totalSteps++
-	}
-	if req.Demucs {
-		totalSteps++
-	}
-	if req.Pitch != 0 {
-		totalSteps++
-	}
-	if totalSteps == 0 {
-		totalSteps = 2 // default: viperx + demucs
-	}
 
 	s.jobs[song] = &JobState{Song: song, Status: "waiting", Index: s.nextIndex, TotalSteps: totalSteps}
 	s.nextIndex++
 	s.jobsMu.Unlock()
 
-	// Enqueue the job
-	s.jobQueue <- JobRequest{Song: song, Args: pipelineArgs, Config: req}
+	// Enqueue the job (with steps if multi-step)
+	s.jobQueue <- JobRequest{Song: song, Args: pipelineArgs, Config: req, Steps: steps}
 
 	Log("backend", "success", "Job queued: "+song)
 
