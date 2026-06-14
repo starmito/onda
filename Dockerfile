@@ -42,4 +42,10 @@ COPY . .
 # Ensure pipeline.sh is at /pipeline.sh for docker exec calls
 COPY pipeline.sh /pipeline.sh
 RUN chmod +x /pipeline.sh
+
+# Non-root user (UID 1000 = starmito)
+RUN adduser --uid 1000 --disabled-password starmito && \
+    chown -R starmito:starmito /app /pipeline.sh
+USER starmito
+
 ENTRYPOINT ["python"]

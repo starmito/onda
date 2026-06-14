@@ -1415,6 +1415,14 @@
     // Do NOT close AudioContexts for groups/subgroups — keeps playback alive
     for (const p of uploadPlayers) cleanupUploadPlayer(p);
   });
+
+  function formatPitchStemName(name: string): string {
+    const match = name.match(/^(.+?)_pitch([+-]\d+)(?:\..+)?$/);
+    if (match) {
+      return `${match[1]} (${match[2]})`;
+    }
+    return name;
+  }
 </script>
 
 <div class="pitch-page">
@@ -1598,7 +1606,7 @@
                                 oninput={(e) => handleSubgroupVolumeChange(e, song, idx, sstem.name)}
                                 class="stem-vol-slider" title="Volumen" />
                             </div>
-                            <span class="stem-name" title={sstem.name}>{sstem.stemType || sstem.name}</span>
+                            <span class="stem-name" title={sstem.name}>{formatPitchStemName(sstem.name)}</span>
                             <div class="peak-meter">
                               <div class="peak-db-top">L: {toDbStr(pLevel.l)} dB &nbsp; R: {toDbStr(pLevel.r)} dB</div>
                               <div class="peak-bar-container"><div class="peak-bar peak-l" style="width:{dbToPct(rmsToDb(sLevel.l))}%"></div><div class="peak-marker" style="left:{dbToPct(rmsToDb(pLevel.l))}%"></div></div>
