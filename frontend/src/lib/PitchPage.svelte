@@ -64,6 +64,7 @@
     seekValue: number;
     sourceNodes: Map<string, AudioBufferSourceNode>;
     gainNodes: Map<string, GainNode>;
+    analysers: Map<string, AnalyserNode[]>;
     buffers: Map<string, AudioBuffer>;
     startTime: number;
     pauseOffset: number;
@@ -102,6 +103,16 @@
   let stemLevels = $state<Record<string, { l: number; r: number }>>({});
   // Per-stem peak hold (highest value reached during playback)
   let stemPeaks = $state<Record<string, { l: number; r: number }>>({});
+
+  // Subgroup peak levels and peaks
+  let subgroupLevels = $state<Record<string, { l: number; r: number }>>({});
+  let subgroupPeaks = $state<Record<string, { l: number; r: number }>>({});
+
+  // Subgroup waveform state
+  let subgroupWaveformCanvases = $state<Record<string, HTMLCanvasElement>>({});
+  let subgroupWavePeaksCache = $state<Record<string, number[]>>({});
+  let subgroupDragging = $state<Record<string, boolean>>({});
+  let subgroupDragPreview = $state<Record<string, number>>({});
 
   function rmsToDb(rms: number): number {
     if (rms < 0.001) return -60;
@@ -173,6 +184,56 @@
       const key = stemStateKey(song, stem.name);
       const gain = p.gainNodes.get(key);
       if (gain) gain.gain.value = effectiveGain(song, stem.name);
+    }
+  }
+
+  // ── Subgroup stem state (same pattern, different key) ──
+  function subgroupStemKey(song: string, pitchIdx: number, name: string): string {
+    return `subgroup:${song}:${pitchIdx}:${name}`;
+  }
+  function getSubgroupStemState(song: string, pitchIdx: number, name: string) {
+    const key = subgroupStemKey(song, pitchIdx, name);
+    return stemStates[key] || { muted: false, solo: false, volume: 100 };
+  }
+  function anySubgroupSolo(song: string, pitchIdx: number): boolean {
+    const subs = pitchSubgroups[song];
+    if (!subs || !subs[pitchIdx]) return false;
+    return subs[pitchIdx].stems.some(s => stemStates[subgroupStemKey(song, pitchIdx, s.name)]?.solo);
+  }
+  function effectiveSubgroupGain(song: string, pitchIdx: number, name: string): number {
+    const state = getSubgroupStemState(song, pitchIdx, name);
+    if (state.muted) return 0;
+    if (anySubgroupSolo(song, pitchIdx) && !state.solo) return 0;
+    return state.volume / 100;
+  }
+  function toggleSubgroupMute(song: string, pitchIdx: number, name: string) {
+    const key = subgroupStemKey(song, pitchIdx, name);
+    stemStates[key] = { ...getSubgroupStemState(song, pitchIdx, name), muted: !(stemStates[key]?.muted ?? false) };
+    syncSubgroupGains(song, pitchIdx);
+  }
+  function toggleSubgroupSolo(song: string, pitchIdx: number, name: string) {
+    const key = subgroupStemKey(song, pitchIdx, name);
+    stemStates[key] = { ...getSubgroupStemState(song, pitchIdx, name), solo: !(stemStates[key]?.solo ?? false) };
+    syncSubgroupGains(song, pitchIdx);
+  }
+  function setSubgroupVolume(song: string, pitchIdx: number, name: string, vol: number) {
+    const key = subgroupStemKey(song, pitchIdx, name);
+    stemStates[key] = { ...getSubgroupStemState(song, pitchIdx, name), volume: vol };
+    syncSubgroupGains(song, pitchIdx);
+  }
+  function handleSubgroupVolumeChange(e: Event, song: string, pitchIdx: number, name: string) {
+    setSubgroupVolume(song, pitchIdx, name, parseInt((e.target as HTMLInputElement).value));
+  }
+  function syncSubgroupGains(song: string, pitchIdx: number) {
+    const key = getSubgroupKey(song, pitchIdx);
+    const p = subgroupPlayers[key];
+    if (!p || !p.playing) return;
+    const subs = pitchSubgroups[song];
+    if (!subs || !subs[pitchIdx]) return;
+    for (const stem of subs[pitchIdx].stems) {
+      const gKey = subgroupStemKey(song, pitchIdx, stem.name);
+      const gain = p.gainNodes.get(stem.name);
+      if (gain) gain.gain.value = effectiveSubgroupGain(song, pitchIdx, stem.name);
     }
   }
 
@@ -487,6 +548,7 @@
     }
     // Attach global mouseup for drag operations that leave the canvas
     window.addEventListener('mouseup', handleGlobalMouseUp);
+    window.addEventListener('mouseup', handleSubgroupGlobalMouseUp);
   });
 
   // ── Subgroup player functions (same architecture) ──
@@ -499,7 +561,7 @@
       subgroupPlayers[key] = {
         audioCtx: null, playing: false, paused: false,
         currentTime: 0, duration: 0, seekValue: 0,
-        sourceNodes: new Map(), gainNodes: new Map(), buffers: new Map(),
+        sourceNodes: new Map(), gainNodes: new Map(), analysers: new Map(), buffers: new Map(),
         startTime: 0, pauseOffset: 0, animFrame: null, loaded: false,
       };
     }
@@ -537,7 +599,7 @@
     const p = subgroupPlayers[key];
     if (!p) return;
     p.sourceNodes.forEach(src => { try { src.stop(); } catch {} });
-    p.sourceNodes.clear(); p.gainNodes.clear();
+    p.sourceNodes.clear(); p.gainNodes.clear(); p.analysers.clear();
     if (p.animFrame) { cancelAnimationFrame(p.animFrame); p.animFrame = null; }
   }
 
@@ -560,14 +622,25 @@
       if (!buf) continue;
       if (buf.duration > maxDur) maxDur = buf.duration;
       const gain = ctx.createGain();
-      gain.gain.value = 1;
-      gain.connect(ctx.destination);
+      gain.gain.value = effectiveSubgroupGain(song, pitchIdx, stem.name);
+      // Split to stereo for peak meters
+      const splitter = ctx.createChannelSplitter(2);
+      const analyserL = ctx.createAnalyser();
+      analyserL.fftSize = 64;
+      const analyserR = ctx.createAnalyser();
+      analyserR.fftSize = 64;
+      gain.connect(splitter);
+      splitter.connect(analyserL, 0);
+      splitter.connect(analyserR, 1);
+      analyserL.connect(ctx.destination);
+      analyserR.connect(ctx.destination);
       const src = ctx.createBufferSource();
       src.buffer = buf;
       src.connect(gain);
       src.start(0, offset);
       p.sourceNodes.set(stem.name, src);
       p.gainNodes.set(stem.name, gain);
+      p.analysers.set(stem.name, [analyserL, analyserR]);
     }
     p.duration = maxDur;
     p.playing = true; p.paused = false;
@@ -576,6 +649,38 @@
       if (!pl || !pl.playing || pl.paused) return;
       const elapsed = ctx.currentTime - pl.startTime;
       pl.currentTime = elapsed; pl.seekValue = elapsed;
+      // Update stem peak levels from analysers
+      for (const stem of (subs[pitchIdx]?.stems || [])) {
+        const stKey = subgroupStemKey(song, pitchIdx, stem.name);
+        const ans = pl.analysers.get(stem.name);
+        if (ans) {
+          const dataL = new Uint8Array(ans[0].frequencyBinCount);
+          const dataR = new Uint8Array(ans[1].frequencyBinCount);
+          ans[0].getByteTimeDomainData(dataL);
+          ans[1].getByteTimeDomainData(dataR);
+          let sumL = 0, sumR = 0;
+          for (let j = 0; j < dataL.length; j++) {
+            const normL = (dataL[j] - 128) / 128;
+            const normR = (dataR[j] - 128) / 128;
+            sumL += normL * normL;
+            sumR += normR * normR;
+          }
+          subgroupLevels = { ...subgroupLevels, [stKey]: {
+            l: Math.sqrt(sumL / dataL.length),
+            r: Math.sqrt(sumR / dataR.length),
+          }};
+          const curRmsL = Math.sqrt(sumL / dataL.length);
+          const curRmsR = Math.sqrt(sumR / dataR.length);
+          const prevPeak = subgroupPeaks[stKey] || { l: 0, r: 0 };
+          subgroupPeaks = { ...subgroupPeaks, [stKey]: {
+            l: Math.max(prevPeak.l, curRmsL),
+            r: Math.max(prevPeak.r, curRmsR),
+          }};
+        }
+      }
+      // Redraw subgroup waveform
+      const cv = subgroupWaveformCanvases[key];
+      if (cv) drawSubgroupWaveform(cv, key);
       if (elapsed >= pl.duration) { stopSubgroup(key); return; }
       pl.animFrame = requestAnimationFrame(tick);
     }
@@ -598,6 +703,18 @@
     p.audioCtx?.suspend();
     p.playing = false; p.paused = false;
     p.currentTime = 0; p.seekValue = 0; p.pauseOffset = 0; p.duration = 0;
+    // Reset peak levels for subgroup stems
+    const parts = key.split('::');
+    const song = parts[0];
+    const pitchIdx = parseInt(parts[1]);
+    const subs = pitchSubgroups[song];
+    if (subs && subs[pitchIdx]) {
+      for (const stem of subs[pitchIdx].stems) {
+        const stKey = subgroupStemKey(song, pitchIdx, stem.name);
+        subgroupLevels = { ...subgroupLevels, [stKey]: { l: 0, r: 0 } };
+        subgroupPeaks = { ...subgroupPeaks, [stKey]: { l: 0, r: 0 } };
+      }
+    }
   }
 
   async function seekSubgroup(key: string, time: number) {
@@ -629,14 +746,20 @@
       if (buf.duration > maxDur) maxDur = buf.duration;
       const offset = Math.min(time, buf.duration);
       const gain = ctx.createGain();
-      gain.gain.value = 1;
-      gain.connect(ctx.destination);
+      gain.gain.value = effectiveSubgroupGain(song, pitchIdx, stem.name);
+      const splitter = ctx.createChannelSplitter(2);
+      const aL = ctx.createAnalyser(); aL.fftSize = 64;
+      const aR = ctx.createAnalyser(); aR.fftSize = 64;
+      gain.connect(splitter);
+      splitter.connect(aL, 0); splitter.connect(aR, 1);
+      aL.connect(ctx.destination); aR.connect(ctx.destination);
       const src = ctx.createBufferSource();
       src.buffer = buf;
       src.connect(gain);
       src.start(0, offset);
       p2.sourceNodes.set(stem.name, src);
       p2.gainNodes.set(stem.name, gain);
+      p2.analysers.set(stem.name, [aL, aR]);
     }
     p2.duration = maxDur;
     p2.playing = true; p2.paused = false;
@@ -645,6 +768,29 @@
       if (!pl || !pl.playing || pl.paused) return;
       const elapsed = ctx.currentTime - pl.startTime;
       pl.currentTime = elapsed; pl.seekValue = elapsed;
+      // Update subgroup peak levels
+      for (const stem of (subs[pitchIdx]?.stems || [])) {
+        const stKey = subgroupStemKey(song, pitchIdx, stem.name);
+        const ans = pl.analysers.get(stem.name);
+        if (ans) {
+          const dL = new Uint8Array(ans[0].frequencyBinCount);
+          const dR = new Uint8Array(ans[1].frequencyBinCount);
+          ans[0].getByteTimeDomainData(dL);
+          ans[1].getByteTimeDomainData(dR);
+          let sL = 0, sR = 0;
+          for (let j = 0; j < dL.length; j++) {
+            sL += ((dL[j] - 128) / 128) ** 2;
+            sR += ((dR[j] - 128) / 128) ** 2;
+          }
+          subgroupLevels = { ...subgroupLevels, [stKey]: { l: Math.sqrt(sL / dL.length), r: Math.sqrt(sR / dR.length) }};
+          const curRmsL = Math.sqrt(sL / dL.length);
+          const curRmsR = Math.sqrt(sR / dR.length);
+          const prevPeak = subgroupPeaks[stKey] || { l: 0, r: 0 };
+          subgroupPeaks = { ...subgroupPeaks, [stKey]: { l: Math.max(prevPeak.l, curRmsL), r: Math.max(prevPeak.r, curRmsR) }};
+        }
+      }
+      const cv = subgroupWaveformCanvases[key];
+      if (cv) drawSubgroupWaveform(cv, key);
       if (elapsed >= pl.duration) { stopSubgroup(key); return; }
       pl.animFrame = requestAnimationFrame(tick);
     }
@@ -658,6 +804,17 @@
   }
   function handleSubSeekChange(e: Event, key: string) {
     seekSubgroup(key, parseFloat((e.target as HTMLInputElement).value));
+  }
+
+  function subgroupSkipBack(key: string) {
+    const p = subgroupPlayers[key];
+    if (!p || !p.loaded || p.duration <= 0) return;
+    seekSubgroup(key, Math.max(0, p.currentTime - 10));
+  }
+  function subgroupSkipForward(key: string) {
+    const p = subgroupPlayers[key];
+    if (!p || !p.loaded || p.duration <= 0) return;
+    seekSubgroup(key, Math.min(p.duration, p.currentTime + 10));
   }
 
   async function handleDeleteSubgroup(song: string, pitchIdx: number) {
@@ -1062,6 +1219,159 @@
 
   // Attach global mouseup on mount, detach on destroy
 
+  // ── Subgroup waveform (same as main group) ──
+  async function computeSubgroupWavePeaks(key: string): Promise<number[]> {
+    if (subgroupWavePeaksCache[key]) return subgroupWavePeaksCache[key];
+    const parts = key.split('::');
+    const song = parts[0];
+    const pitchIdx = parseInt(parts[1]);
+    const subs = pitchSubgroups[song];
+    if (!subs || !subs[pitchIdx] || subs[pitchIdx].stems.length === 0) return [];
+    try {
+      const url = subs[pitchIdx].stems[0].path;
+      const resp = await fetch(url);
+      const arrayBuf = await resp.arrayBuffer();
+      const audioCtx = new OfflineAudioContext(1, 1, 44100);
+      const audioBuf = await audioCtx.decodeAudioData(arrayBuf);
+      const channel = audioBuf.getChannelData(0);
+      const PEAK_RES = 2000;
+      const steps = Math.max(1, Math.floor(channel.length / PEAK_RES));
+      const data: number[] = [];
+      for (let i = 0; i < PEAK_RES; i++) {
+        let max = 0;
+        const start = i * steps;
+        const end = Math.min(start + steps, channel.length);
+        for (let j = start; j < end; j++) max = Math.max(max, Math.abs(channel[j]));
+        data.push(max);
+      }
+      audioCtx.close();
+      subgroupWavePeaksCache = { ...subgroupWavePeaksCache, [key]: data };
+      return data;
+    } catch {
+      const data: number[] = [];
+      for (let i = 0; i < 2000; i++) {
+        data.push(((Math.abs((key.length + i * 31)) % 80) / 100) * 0.8 + 0.1);
+      }
+      subgroupWavePeaksCache = { ...subgroupWavePeaksCache, [key]: data };
+      return data;
+    }
+  }
+
+  async function drawSubgroupWaveform(canvas: HTMLCanvasElement, key: string) {
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    const w = canvas.clientWidth * dpr;
+    const h = canvas.clientHeight * dpr;
+    if (w <= 0 || h <= 0) return;
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, w, h);
+    const accentCol = accent();
+    const dimAccentCol = darkenColor(accentCol, 60);
+    const isLight = typeof document !== 'undefined' && document.body.classList.contains('light-theme');
+    const lineCol = isLight ? '#000' : '#fff';
+    const p = subgroupPlayers[key];
+    const isDragging = subgroupDragging[key];
+    const rawProgress = p && p.loaded && p.duration > 0 ? (p.currentTime / p.duration) : 0;
+    const progress = isDragging ? (subgroupDragPreview[key] ?? rawProgress) : rawProgress;
+    const peaks = subgroupWavePeaksCache[key];
+    if (!peaks || peaks.length === 0) {
+      ctx.fillStyle = dimAccentCol;
+      ctx.fillRect(0, 0, w, h);
+      computeSubgroupWavePeaks(key);
+      return;
+    }
+    const splitX = Math.round(progress * w);
+    const barW = Math.max(1, Math.floor(w / peaks.length));
+    ctx.fillStyle = dimAccentCol;
+    for (let i = splitX; i < w; i += barW) {
+      const peakIdx = Math.floor((i / w) * peaks.length);
+      const peak = peaks[Math.min(peakIdx, peaks.length - 1)];
+      const barH = Math.max(1, peak * h);
+      ctx.fillRect(i, (h - barH) / 2, barW, barH);
+    }
+    ctx.fillStyle = accentCol;
+    for (let i = 0; i < splitX; i += barW) {
+      const peakIdx = Math.floor((i / w) * peaks.length);
+      const peak = peaks[Math.min(peakIdx, peaks.length - 1)];
+      const barH = Math.max(1, peak * h);
+      ctx.fillRect(i, (h - barH) / 2, barW, barH);
+    }
+    const showLine = isDragging || (progress > 0 && progress < 1);
+    if (showLine) {
+      ctx.strokeStyle = lineCol;
+      ctx.lineWidth = Math.max(1, 2 * dpr);
+      ctx.beginPath();
+      ctx.moveTo(splitX, 0);
+      ctx.lineTo(splitX, h);
+      ctx.stroke();
+    }
+  }
+
+  function subgroupWaveformAction(node: HTMLCanvasElement, key: string) {
+    subgroupWaveformCanvases[key] = node;
+    drawSubgroupWaveform(node, key);
+    if (!subgroupWavePeaksCache[key]) {
+      computeSubgroupWavePeaks(key).then(() => drawSubgroupWaveform(node, key));
+    }
+  }
+
+  function getSubgroupWaveformFrac(e: MouseEvent, key: string): number {
+    const canvas = subgroupWaveformCanvases[key];
+    if (!canvas) return 0;
+    const rect = canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    return Math.max(0, Math.min(1, x / rect.width));
+  }
+
+  function handleSubgroupWaveformMouseDown(e: MouseEvent, key: string) {
+    e.preventDefault();
+    const frac = getSubgroupWaveformFrac(e, key);
+    subgroupDragging = { ...subgroupDragging, [key]: true };
+    subgroupDragPreview = { ...subgroupDragPreview, [key]: frac };
+    const cv = subgroupWaveformCanvases[key];
+    if (cv) drawSubgroupWaveform(cv, key);
+  }
+
+  function handleSubgroupWaveformMouseMove(e: MouseEvent, key: string) {
+    if (!subgroupDragging[key]) return;
+    e.preventDefault();
+    const frac = getSubgroupWaveformFrac(e, key);
+    subgroupDragPreview = { ...subgroupDragPreview, [key]: frac };
+    const cv = subgroupWaveformCanvases[key];
+    if (cv) drawSubgroupWaveform(cv, key);
+  }
+
+  function handleSubgroupWaveformMouseUp(e: MouseEvent, key: string) {
+    if (!subgroupDragging[key]) return;
+    subgroupDragging = { ...subgroupDragging, [key]: false };
+    const frac = subgroupDragPreview[key] ?? 0;
+    const p = subgroupPlayers[key];
+    if (p && p.loaded && p.duration > 0) {
+      seekSubgroup(key, frac * p.duration);
+    }
+  }
+
+  function handleSubgroupWaveformMouseLeave(e: MouseEvent, key: string) {
+    if (subgroupDragging[key]) {
+      handleSubgroupWaveformMouseUp(e, key);
+    }
+  }
+
+  function handleSubgroupGlobalMouseUp() {
+    for (const key of Object.keys(subgroupDragging)) {
+      if (subgroupDragging[key]) {
+        subgroupDragging = { ...subgroupDragging, [key]: false };
+        const frac = subgroupDragPreview[key] ?? 0;
+        const p = subgroupPlayers[key];
+        if (p && p.loaded && p.duration > 0) {
+          seekSubgroup(key, frac * p.duration);
+        }
+      }
+    }
+  }
+
   // ── Format / Helpers ──
   function fmtTime(sec: number | undefined): string {
     if (sec == null || !isFinite(sec)) return '0:00';
@@ -1088,16 +1398,10 @@
   // ── Cleanup ──
   onDestroy(() => {
     if (toastTimer) clearTimeout(toastTimer);
-    abortController.abort();
     window.removeEventListener('mouseup', handleGlobalMouseUp);
-    for (const song of Object.keys(groupPlayers)) {
-      const p = groupPlayers[song];
-      if (p.audioCtx) p.audioCtx.close();
-    }
-    for (const key of Object.keys(subgroupPlayers)) {
-      const p = subgroupPlayers[key];
-      if (p.audioCtx) p.audioCtx.close();
-    }
+    window.removeEventListener('mouseup', handleSubgroupGlobalMouseUp);
+    // Do NOT abort abortController — keeps background fetch alive
+    // Do NOT close AudioContexts for groups/subgroups — keeps playback alive
     for (const p of uploadPlayers) cleanupUploadPlayer(p);
   });
 </script>
@@ -1218,30 +1522,80 @@
                   <h4 class="subgroups-title">Subgrupos de tono</h4>
                   {#each pitchSubgroups[song] as subs, idx}
                     {@const subKey = getSubgroupKey(song, idx)}
+                    {@const subStems = subs.stems}
                     <div class="pitch-subgroup-card">
                       <div class="subgroup-header">
                         <span class="subgroup-pitch-label">Tono: {subs.pitch > 0 ? '+' : ''}{subs.pitch}</span>
-                        <span class="output-stem-count">{subs.stems.length} pistas</span>
+                        <span class="output-stem-count">{subStems.length} pistas</span>
                       </div>
+
+                      <!-- ── Subgroup player bar (same as main group) ── -->
                       <div class="group-player-bar">
                         <div class="playback-controls">
+                          <button class="ctrl-btn skip-btn" onclick={() => subgroupSkipBack(subKey)}
+                            disabled={!subgroupPlayers[subKey]?.loaded} title="-10 segundos">{@html IconSkipBack}</button>
                           <button class="ctrl-btn play-btn" onclick={() => playSubgroup(song, idx)}
-                            disabled={subgroupPlayers[subKey]?.playing && !subgroupPlayers[subKey]?.paused}>▶</button>
+                            disabled={subgroupPlayers[subKey]?.playing && !subgroupPlayers[subKey]?.paused}
+                            title={subgroupPlayers[subKey]?.playing && !subgroupPlayers[subKey]?.paused ? 'Reproduciendo' : 'Reproducir'}>▶</button>
                           <button class="ctrl-btn pause-btn" onclick={() => pauseSubgroup(subKey)}
-                            disabled={!subgroupPlayers[subKey]?.playing || subgroupPlayers[subKey]?.paused}>⏸</button>
+                            disabled={!subgroupPlayers[subKey]?.playing || subgroupPlayers[subKey]?.paused} title="Pausa">⏸</button>
                           <button class="ctrl-btn stop-btn" onclick={() => stopSubgroup(subKey)}
-                            disabled={!subgroupPlayers[subKey]?.playing && !subgroupPlayers[subKey]?.paused}>⏹</button>
+                            disabled={!subgroupPlayers[subKey]?.playing && !subgroupPlayers[subKey]?.paused} title="Parar">⏹</button>
+                          <button class="ctrl-btn skip-btn" onclick={() => subgroupSkipForward(subKey)}
+                            disabled={!subgroupPlayers[subKey]?.loaded} title="+10 segundos">{@html IconSkipForward}</button>
                         </div>
                         <div class="seek-area">
                           <span class="time-display">{fmtTime(subgroupPlayers[subKey]?.currentTime)}/{fmtTime(subgroupPlayers[subKey]?.duration)}</span>
                         </div>
+                        <div class="vol-slider-wrap">
+                          <label class="vol-label-small">Vol:</label>
+                          <input type="range" min="0" max="100" value={100}
+                            oninput={(e) => {
+                              for (const sstem of subStems) setSubgroupVolume(song, idx, sstem.name, parseInt((e.target as HTMLInputElement).value));
+                            }}
+                            class="vol-slider" title="Volumen general" />
+                        </div>
                       </div>
-                      <div class="subgroup-stems">
-                        {#each subs.stems as sstem}
-                          <div class="stem-row">
+
+                      <!-- ── Subgroup waveform seek ── -->
+                      <div class="waveform-seek-row">
+                        <canvas class="waveform-seek" width="200" height={WAVEFORM_H}
+                          use:subgroupWaveformAction={subKey}
+                          onmousedown={(e) => handleSubgroupWaveformMouseDown(e, subKey)}
+                          onmousemove={(e) => handleSubgroupWaveformMouseMove(e, subKey)}
+                          onmouseup={(e) => handleSubgroupWaveformMouseUp(e, subKey)}
+                          onmouseleave={(e) => handleSubgroupWaveformMouseLeave(e, subKey)}
+                          role="slider" tabindex="0"
+                          aria-label="Barra de reproducción" />
+                      </div>
+
+                      <!-- ── Subgroup stems (full controls like main group) ── -->
+                      <div class="output-stems">
+                        {#each subStems as sstem}
+                          {@const sgState = getSubgroupStemState(song, idx, sstem.name)}
+                          {@const sLevel = subgroupLevels[subgroupStemKey(song, idx, sstem.name)] || { l: 0, r: 0 }}
+                          {@const pLevel = subgroupPeaks[subgroupStemKey(song, idx, sstem.name)] || { l: 0, r: 0 }}
+                          <div class="stem-row" class:muted={sgState.muted}>
                             <span class="stem-emoji">{stemEmoji(sstem.stemType)}</span>
-                            <span class="stem-name">{sstem.stemType || sstem.name}</span>
-                            <div class="stem-controls">
+                            <div class="stem-left-controls">
+                              <button class="stem-btn mute-btn" class:active={sgState.muted}
+                                onclick={() => toggleSubgroupMute(song, idx, sstem.name)} title="Silenciar">M</button>
+                              <button class="stem-btn solo-btn" class:active={sgState.solo}
+                                onclick={() => toggleSubgroupSolo(song, idx, sstem.name)} title="Solo">S</button>
+                              <input type="range" min="0" max="100" value={sgState.volume}
+                                oninput={(e) => handleSubgroupVolumeChange(e, song, idx, sstem.name)}
+                                class="stem-vol-slider" title="Volumen" />
+                            </div>
+                            <span class="stem-name" title={sstem.name}>{sstem.stemType || sstem.name}</span>
+                            <div class="peak-meter">
+                              <div class="peak-db-top">L: {toDbStr(pLevel.l)} dB &nbsp; R: {toDbStr(pLevel.r)} dB</div>
+                              <div class="peak-bar-container"><div class="peak-bar peak-l" style="width:{dbToPct(rmsToDb(sLevel.l))}%"></div><div class="peak-marker" style="left:{dbToPct(rmsToDb(pLevel.l))}%"></div></div>
+                              <div class="peak-bar-container"><div class="peak-bar peak-r" style="width:{dbToPct(rmsToDb(sLevel.r))}%"></div><div class="peak-marker" style="left:{dbToPct(rmsToDb(pLevel.r))}%"></div></div>
+                              <div class="peak-db-bottom">
+                                <span>-60</span><span>-40</span><span>-20</span><span>-12</span><span>0 dB</span>
+                              </div>
+                            </div>
+                            <div class="stem-actions">
                               <a class="song-btn export-btn" href={sstem.path} download={sstem.name} title="Descargar">⬇</a>
                             </div>
                           </div>
