@@ -148,36 +148,12 @@
   function handleExecute() {
     const selected = savedPresets.find(p => p.name === presetName);
     if (!selected) {
-      // Built-in preset mode: use hardcoded default configs
-      if (hidePresetSelector && presetName) {
-        const hardcodedConfig = getHardcodedPreset(presetName);
-        if (hardcodedConfig) {
-          onStart(hardcodedConfig);
-          return;
-        }
-      }
       onError(`Preset "${presetName}" no encontrado en el servidor`);
       return;
     }
     const config = selected.config;
     config.preset = presetName || undefined;
     onStart(config);
-  }
-
-  /** Hardcoded configs for built-in presets (fallback when backend has no saved presets) */
-  function getHardcodedPreset(name: string): Record<string, any> | null {
-    switch (name) {
-      case 'Separador Voces Total':
-        return { viperx: true, viperxKeep: 'both', vocalModel: 'model_bs_roformer_ep_317_sdr_12.9755' };
-      case 'Eliminador de Voz':
-        return { viperx: true, viperxKeep: 'instrumental', vocalModel: 'model_bs_roformer_ep_317_sdr_12.9755' };
-      case 'Separador Completo':
-        return { demucs: true, demucsKeep: ['drums', 'bass', 'other', 'vocals'], stemModel: 'htdemucs_ft' };
-      case 'Separador solo instrumentos':
-        return { demucs: true, demucsKeep: ['drums', 'bass', 'other'], stemModel: 'htdemucs_ft' };
-      default:
-        return null;
-    }
   }
 </script>
 

@@ -12,7 +12,7 @@
   import { detectStemType } from './lib/types';
   import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getPresets, getDefaultPreset, clearQueue, cancelQueue } from './lib/api';
   import type { QueueJob } from './lib/api';
-  import { IconOnda } from './lib/icons';
+  import { IconOnda, IconStar, IconVoiceRemove, IconSeparate, IconInstruments, IconUser } from './lib/icons';
 
 
   interface QueueFile {
@@ -72,18 +72,32 @@
   let errorBanner = $state<{ message: string } | null>(null);
 
   // ---- New layout state ----
-  let activeTab = $state('Separador Voces Total');
+  let activeTab = $state('personalizado');
   let sidebarCollapsed = $state(false);
   let settingsSubTab = $state('models');
   let activeTabName = $derived(activeTab);
 
-  /** IDs de las 4 pestañas de preset directo (sin selector) */
-  const builtinPresetIds = new Set([
-    'Separador Voces Total',
-    'Eliminador de Voz',
-    'Separador Completo',
-    'Separador solo instrumentos',
-  ]);
+  /** Icon mapping for locked (built-in) presets */
+  const BUILTIN_ICONS: Record<string, string> = {
+    'Separador Voces Total': IconStar,
+    'Eliminador de Voz': IconVoiceRemove,
+    'Separador Completo': IconSeparate,
+    'Separador solo instrumentos': IconInstruments,
+  };
+
+  /** Sidebar items derived from savedPresets */
+  let sidebarPresets = $derived(
+    savedPresets.map(p => ({
+      id: p.name,
+      name: p.name,
+      icon: BUILTIN_ICONS[p.name] || IconUser,
+    }))
+  );
+
+  /** Check if a tab ID corresponds to a known preset */
+  function isPresetTab(tabId: string): boolean {
+    return savedPresets.some(p => p.name === tabId);
+  }
 
   function copyToClipboard(text: string) {
     // navigator.clipboard requires HTTPS or localhost — fallback for HTTP
@@ -696,6 +710,7 @@
     <Sidebar
       activeTab={activeTab}
       collapsed={sidebarCollapsed}
+      presets={sidebarPresets}
       ontoggle={() => sidebarCollapsed = !sidebarCollapsed}
       ontabchange={(tab) => activeTab = tab}
     />
@@ -708,10 +723,10 @@
 
       <div class="content">
         {#if activeTab === 'settings'}
-          <SettingsPanel subtab={settingsSubTab} onsubtabchange={(t) => settingsSubTab = t} />
+          <SettingsPanel subtab={settingsSubTab} onsubtabchange={(t) => settingsSubTab = t} onpresetschange={refreshPresets} />
         {:else if activeTab === 'help'}
           <HelpPage />
-        {:else if builtinPresetIds.has(activeTab)}
+        {:else if isPresetTab(activeTab)}
           <!-- Built-in preset: dropzone + queue + execute direct + results -->
           <PipelineView
             presetName={activeTab}
