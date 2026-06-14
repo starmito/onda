@@ -87,8 +87,8 @@ func seedPresets() {
 				Type:    "viperx",
 				Enabled: true,
 				Stems: map[string]cli.StemRoute{
-					"vocals":       {Action: cli.StemRoute, Target: "step:demucs"},
-					"instrumental": {Action: cli.StemRoute, Target: "step:demucs"},
+					"vocals":       {Action: cli.ActionRoute, Target: "step:demucs"},
+					"instrumental": {Action: cli.ActionRoute, Target: "step:demucs"},
 				},
 			},
 			{
