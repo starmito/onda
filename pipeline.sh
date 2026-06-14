@@ -403,7 +403,7 @@ INPUT=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --steps)        STEPS_JSON="$2"; shift 2 ;;
-        --vocal-model)  VOCAL_MODEL="$2"; VIPERX=true; shift 2 ;;
+        --vocal-model)  VIPERX_MODEL="$2"; VIPERX=true; shift 2 ;;
         --viperx-keep)  VIPERX_KEEP="$2"; VIPERX=true; shift 2 ;;
         --viperx-model) VIPERX_MODEL="$2"; VIPERX=true; shift 2 ;;
         --demucs-keep)  DEMUCS_KEEP="$2"; DEMUCS=true; shift 2 ;;
