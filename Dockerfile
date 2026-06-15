@@ -58,6 +58,10 @@ COPY . .
 COPY pipeline.sh /pipeline.sh
 RUN chmod +x /pipeline.sh
 
+# GPU detection script (Fase 9 — multi-GPU)
+COPY onda/detect_gpu.sh /app/detect_gpu.sh
+RUN chmod +x /app/detect_gpu.sh
+
 # Non-root user (UID 1000 = starmito)
 RUN adduser --uid 1000 --disabled-password starmito && \
     chown -R starmito:starmito /app /pipeline.sh
