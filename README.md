@@ -1,8 +1,8 @@
 # 🎵 Onda — Separación de fuentes musicales con IA
 
-Interfaz web para separar voces e instrumentos de cualquier canción usando modelos deep learning (Demucs, ViperX) con aceleración NVIDIA GPU.
+Interfaz web para separar voces e instrumentos de cualquier canción usando modelos deep learning (Demucs, ViperX) con aceleración GPU (NVIDIA CUDA / AMD ROCm) o CPU.
 
-![Version](https://img.shields.io/badge/version-v2.8.0-blue)
+![Version](https://img.shields.io/badge/version-v3.0.0-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## ✨ Características
@@ -19,13 +19,12 @@ Interfaz web para separar voces e instrumentos de cualquier canción usando mode
 - 🎨 **Interfaz personalizable**: 8 colores de acento, tema claro/oscuro, escala 75-150%, tamaño de texto
 - 🖥️ **WebUI responsive**: Svelte 5 + backend Go
 - 🐳 **Dockerizado**: un solo `docker compose up -d`
-- 🚀 **GPU NVIDIA**: aceleración CUDA para inferencia rápida
+- 🚀 **GPU NVIDIA/AMD + CPU**: aceleración CUDA, ROCm o CPU automática según `--build-arg DEVICE`
 
 ## 📋 Requisitos
 
 - **Docker** y **docker compose** v2
-- **NVIDIA GPU** con drivers instalados (opcional — fallback CPU automático)
-- **NVIDIA Container Toolkit** (`nvidia-docker2`) para GPU
+- **GPU NVIDIA** con drivers + NVIDIA Container Toolkit para CUDA, **GPU AMD** con ROCm para ROCm, o **solo CPU** (sin GPU)
 - **Modelos UVR**: descargar desde la interfaz web (aprox 2-4 GB cada uno)
 
 ## 🚀 Instalación
@@ -38,8 +37,14 @@ cd onda
 cp .env.example .env
 # Editar .env: MODEL_DIR (ruta a modelos), ONDA_PORT, etc.
 
-# Arrancar
+# Arrancar (CUDA por defecto)
 docker compose up -d
+
+# Para ROCm:
+# DEVICE=rocm docker compose --profile rocm up -d
+
+# Para CPU:
+# DEVICE=cpu docker compose --profile cpu up -d
 ```
 
 Abre http://localhost:3000
@@ -73,6 +78,78 @@ Abre http://localhost:3000
 - **onda-gui**: servidor único (Go backend + Nginx + Svelte frontend compilado)
 - **/input/, /output/**: bind mounts al host, persistentes
 - **/config/**: bind mount para presets y configuraciones
+
+## 💻 GPU Compatibility
+
+Onda soporta tres plataformas de inferencia mediante el argumento `--build-arg DEVICE` en el Dockerfile. La detección automática selecciona el device óptimo si no se especifica explícitamente.
+
+### Build-arg DEVICE
+
+| DEVICE  | Plataforma     | Base Image                          | GPU Support                |
+|---------|----------------|-------------------------------------|----------------------------|
+| `cuda`  | NVIDIA CUDA    | `nvidia/cuda:12.8.0-runtime-ubuntu22.04` | NVIDIA GPU + Container Toolkit |
+| `rocm`  | AMD ROCm       | `rocm/dev-ubuntu-22.04:6.4.1-complete`   | AMD GPU + ROCm drivers    |
+| `cpu`   | CPU-only       | `ubuntu:22.04`                      | Ninguna (solo CPU)         |
+
+### Cómo construir para cada plataforma
+
+```bash
+# CUDA (NVIDIA) — por defecto
+docker compose build --build-arg DEVICE=cuda
+docker compose up -d
+
+# ROCm (AMD)
+DEVICE=rocm docker compose --profile rocm up -d
+
+# CPU-only
+DEVICE=cpu docker compose --profile cpu up -d
+```
+
+### Detección automática de GPU
+
+El script `detect_gpu.sh` se ejecuta automáticamente al iniciar el contenedor. Detecta:
+
+1. **GPU NVIDIA** mediante `nvidia-smi` → selecciona `cuda`
+2. **GPU AMD** mediante `rocminfo` → selecciona `rocm`
+3. **Ninguna GPU** → selecciona `cpu`
+
+Si no se pasa `--device` explícitamente a `pipeline.sh`, el auto-detect selecciona el device automáticamente.
+
+### Health endpoint
+
+`GET /api/health` ahora reporta:
+
+```json
+{
+  "device": "cuda",
+  "gpu_type": "cuda",
+  "gpu_warning": false
+}
+```
+
+- `gpu_type`: `cuda` / `rocm` / `cpu`
+- `gpu_warning`: `true` si se está ejecutando en CPU (el rendimiento es significativamente menor)
+
+### Frontend
+
+- **Header**: indicador visual del tipo de GPU activo (CUDA 🔵 / ROCm 🔴 / CPU 🟡)
+- **CPU warning**: banner de aviso cuando se ejecuta en CPU, informando que el rendimiento puede ser limitado
+
+### docker-compose alternativos
+
+Además del `docker-compose.yml` por defecto (CUDA):
+
+- **ROCm**: usar `--profile rocm` — configura el dispositivo AMD y monta los drivers ROCm
+- **CPU**: usar `--profile cpu` — elimina dependencias de GPU, imagen minimalista
+
+### Scripts de validación
+
+`scripts/validate.sh` verifica el entorno completo de Onda:
+
+- Docker y docker compose disponibles
+- Estado de GPU (NVIDIA/AMD o CPU)
+- Acceso a modelos y directorios
+- Configuración de red
 
 ## 🧭 Navegación
 
@@ -127,7 +204,7 @@ Desde **Ajustes → Interfaz**:
 
 | Fase | Descripción | Estado |
 |---|---|---|
-| **Fase 9** | ROCm + CPU (soporte multi-GPU) | Pendiente |
+| **Fase 9** | ROCm + CPU (soporte multi-GPU) | ✅ Completado |
 | **Fase 10** | DAW ligero (waveform, cortes, fades) | Pendiente |
 | **Fase 11** | App escritorio (empaquetado) | Pendiente |
 
@@ -135,7 +212,10 @@ Desde **Ajustes → Interfaz**:
 
 Este proyecto sigue versionado semántico (MAJOR.MINOR.PATCH). Etiqueta `-alpha` indica desarrollo activo.
 
-- **v2.6.2-alpha** (actual): Refactor tabs, 4 presets directos, Personalizado, PitchPage, presets bloqueados
+- **v3.0.0** (actual): Multi-platform CUDA, ROCm y CPU
+- **v2.9.4**: Rubberband-cli restaurado, pipeline.sh auto-detect pasos
+- **v2.9.3**: Pitch fix (paths contenedor)
+- **v2.6.2-alpha**: Refactor tabs, 4 presets directos, Personalizado, PitchPage, presets bloqueados
 - **v2.6.1-alpha**: Pulido UI — colores púrpura, iconos SVG, sidebar vertical, layout fluido
 - **v2.6.0-alpha**: Rediseño UI — sidebar vertical colapsable, sistema de temas
 - **v2.5.1**: Default preset persistente, selector unificado
