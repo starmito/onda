@@ -10,7 +10,7 @@ fi
 
 # ── Start Go backend as user 1000 (needs write access to volumes) ──
 echo "→ Starting Go backend on :3001..."
-su-exec 1000:983 /usr/bin/onda-backend serve --addr :3001 &
+su-exec 1000:983 /usr/bin/onda-backend serve --addr 0.0.0.0:3001 &
 sleep 1
 
 # ── Start nginx as user 1000 (starmito — non-root) ──
