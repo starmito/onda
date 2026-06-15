@@ -1,16 +1,31 @@
 # Onda v2 — Inferencia (CUDA 13.2, PyTorch 2.12.0)
 # Multi-stage: builder compila deps, runtime slim
+# Multi-platform: ARG DEVICE=cuda | cpu | rocm
+ARG DEVICE=cuda
 
-FROM python:3.12-slim AS builder
+# ── Base stages (platform-specific PyTorch) ──────────
+FROM python:3.12-slim AS base-cpu
+RUN pip install --no-cache-dir --target /deps \
+    torch==2.12.0+cpu \
+    torchaudio==2.11.0+cpu \
+    --index-url https://download.pytorch.org/whl/cpu
+
+FROM python:3.12-slim AS base-cuda
+RUN pip install --no-cache-dir --target /deps \
+    torch==2.12.0 \
+    torchaudio==2.11.0
+
+FROM python:3.12-slim AS base-rocm
+RUN pip install --no-cache-dir --target /deps \
+    torch==2.12.0 \
+    torchaudio==2.11.0 \
+    --index-url https://download.pytorch.org/whl/rocm6.2
+
+FROM base-${DEVICE} AS builder
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
-
-# PyTorch 2.12.0 — wheel unificado (incluye CUDA 13.0 runtime)
-RUN pip install --no-cache-dir --target /deps \
-    torch==2.12.0 \
-    torchaudio==2.11.0
 
 # Demucs 4.0.1 — sin dependencias (torchaudio se instala aparte)
 RUN pip install --no-cache-dir --target /deps \
