@@ -49,6 +49,19 @@ func checkGPU() (bool, string, error) {
 	return available, info, nil
 }
 
+// detectGPUType ejecuta detect_gpu.sh dentro del contenedor onda.
+// Devuelve "cuda", "rocm", o "cpu".
+func detectGPUType() string {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "docker", "exec", dockerContainer, "bash", "/app/detect_gpu.sh")
+	out, err := cmd.Output()
+	if err != nil {
+		return "cpu" // fallback safe
+	}
+	return strings.TrimSpace(string(out))
+}
+
 // checkDisk returns disk health for the project output directory.
 // ok=true if > 10 GB free; otherwise ok=false with code "E5".
 func checkDisk() map[string]interface{} {
