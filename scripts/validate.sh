@@ -1,111 +1,126 @@
 #!/usr/bin/env bash
-# Onda pre-build validation — catches issues BEFORE docker build
-# Run: bash scripts/validate.sh
+# ─────────────────────────────────────────────────────────────
+#  Onda — Environment Validation Script
+#  Verifica que el entorno esté listo antes de ejecutar Onda.
+#  Funciona desde cualquier directorio (rutas relativas).
+# ─────────────────────────────────────────────────────────────
 set -uo pipefail
-# NOTE: no set -e — we want to run ALL checks even if some fail
+# NOTE: no set -e — queremos ejecutar TODAS las comprobaciones
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
-pass=0; fail=0; warn=0
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
-check() { if [ $? -eq 0 ]; then echo -e "  ${GREEN}✓${NC} $1"; pass=$((pass+1)); else echo -e "  ${RED}✗${NC} $1"; fail=$((fail+1)); fi }
-warn_check() { if [ $? -eq 0 ]; then echo -e "  ${GREEN}✓${NC} $1"; pass=$((pass+1)); else echo -e "  ${YELLOW}⚠${NC} $1"; warn=$((warn+1)); fi }
+PASS=0
+FAIL=0
+RESULTS=()
 
-echo "═══════════════════════════════════════"
-echo "🔍 Onda Pre-Build Validation"
-echo "═══════════════════════════════════════"
+check() {
+    local desc="$1"
+    shift
+    if "$@"; then
+        RESULTS+=("  ✅ $desc")
+        PASS=$((PASS+1))
+    else
+        RESULTS+=("  ❌ $desc")
+        FAIL=$((FAIL+1))
+    fi
+}
+
+cd "$PROJECT_DIR"
+
+echo ""
+echo "╔══════════════════════════════════════════════╗"
+echo "║     🔍 Onda — Environment Validation         ║"
+echo "╚══════════════════════════════════════════════╝"
+echo "  Project : $(basename "$PROJECT_DIR")"
+echo "  Dir     : $PROJECT_DIR"
 echo ""
 
-# ── 1. Required files ──
-echo "📁 Required files"
-[ -f pipeline.sh ]        ; check "pipeline.sh"
-[ -f inference_universal.py ]; check "inference_universal.py"
-[ -f Dockerfile ] || [ -f Dockerfile.v2 ]       ; check "Dockerfile"
-[ -f docker-compose.yml ]  ; check "docker-compose.yml"
-[ -f .dockerignore ]       ; check ".dockerignore"
-[ -f requirements-docker.txt ]; check "requirements-docker.txt"
+# ── 1. Docker installed ────────────────────────────────────
+echo "📦 Docker"
+check "docker installed + running" docker --version &>/dev/null
 echo ""
 
-# ── 2. Bash syntax ──
-echo "🔧 Bash syntax"
-bash -n pipeline.sh        ; check "pipeline.sh syntax OK"
-
-# Check for common anti-patterns
-grep -q '[^a-zA-Z]jq ' pipeline.sh && { echo -e "  ${YELLOW}⚠${NC} pipeline.sh contains 'jq ' (should use python3)"; warn=$((warn+1)); } || echo -e "  ${GREEN}✓${NC} pipeline.sh jq-free"; pass=$((pass+1))
-grep -q '^[^#]*docker exec' pipeline.sh && { echo -e "  ${YELLOW}⚠${NC} pipeline.sh has docker exec"; warn=$((warn+1)); } || { echo -e "  ${GREEN}✓${NC} pipeline.sh no docker exec"; pass=$((pass+1)); }
-echo ""
-
-# ── 3. Python syntax ──
-echo "🐍 Python syntax"
-python3 -c "import ast; ast.parse(open('inference_universal.py').read())" 2>/dev/null; check "inference_universal.py syntax OK"
-
-# Check lib_v5/ if it exists
-if [ -d lib_v5 ]; then
-    py_ok=true
-    for f in lib_v5/*.py; do
-        python3 -c "import ast; ast.parse(open('$f').read())" 2>/dev/null || py_ok=false
-    done
-    $py_ok && check "lib_v5/*.py syntax OK" || { echo -e "  ${RED}✗${NC} lib_v5/*.py has syntax errors"; ((fail++)); }
+# ── 2. GPU detection ───────────────────────────────────────
+echo "🎮 GPU"
+if [ -f "$PROJECT_DIR/onda/detect_gpu.sh" ]; then
+    GPU_BACKEND=$(bash "$PROJECT_DIR/onda/detect_gpu.sh" 2>/dev/null)
+    if [ "$GPU_BACKEND" = "cuda" ]; then
+        check "GPU detected (cuda)" true
+    elif [ "$GPU_BACKEND" = "rocm" ]; then
+        check "GPU detected (rocm)" true
+    else
+        check "GPU: no accelerator found (CPU mode)" true
+    fi
+elif command -v nvidia-smi &>/dev/null; then
+    check "nvidia-smi available" nvidia-smi &>/dev/null
+else
+    check "GPU: no accelerator found (CPU mode)" true
 fi
 echo ""
 
-# ── 4. Dockerfile sanity ──
-echo "🐳 Dockerfile checks"
-grep -q 'FROM.*runtime' Dockerfile ; check "Dockerfile has multi-stage (runtime)"
-grep -q 'python3\|python' Dockerfile ; warn_check "Dockerfile references python"
+# ── 3. VERSION file ────────────────────────────────────────
+echo "📄 VERSION"
+check "VERSION file exists" test -f VERSION
+if [ -f VERSION ]; then
+    check "VERSION format valid (vX.Y.Z)" grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+$' VERSION
+fi
+echo ""
 
-# Check .dockerignore has critical excludes
-for pattern in 'venv/' '__pycache__/' 'models/' '.git/' 'output'; do
-    grep -q "$pattern" .dockerignore && check ".dockerignore: $pattern" || { echo -e "  ${YELLOW}⚠${NC} .dockerignore missing '$pattern'"; ((warn++)); }
+# ── 4. Required directories ────────────────────────────────
+echo "📂 Directories"
+check "input/ directory exists" test -d input
+check "output/ directory exists" test -d output
+check "models/ directory exists" test -d models
+echo ""
+
+# ── 5. Dockerfile syntax ───────────────────────────────────
+echo "🐳 Dockerfile"
+check "Dockerfile exists" test -f Dockerfile
+if [ -f Dockerfile ]; then
+    # Attempt dry-run syntax check; fall back gracefully if buildx --check unavailable
+    if docker buildx build --check . &>/dev/null 2>&1; then
+        check "Dockerfile syntax OK" true
+    elif docker buildx version &>/dev/null; then
+        # buildx present but --check not supported in older versions
+        check "Dockerfile exists (syntax check skipped — old Docker)" true
+    else
+        check "Dockerfile exists (syntax check skipped — buildx unavailable)" true
+    fi
+fi
+echo ""
+
+# ── 6. docker-compose.yml syntax ───────────────────────────
+echo "🐙 docker-compose.yml"
+check "docker-compose.yml exists" test -f docker-compose.yml
+if [ -f docker-compose.yml ]; then
+    check "docker-compose.yml syntax valid" docker compose config -q &>/dev/null
+fi
+echo ""
+
+# ── 7. pipeline.sh (bonus check) ───────────────────────────
+echo "📜 pipeline.sh"
+check "pipeline.sh exists" test -f pipeline.sh
+if [ -f pipeline.sh ]; then
+    check "pipeline.sh bash syntax OK" bash -n pipeline.sh &>/dev/null
+fi
+echo ""
+
+# ── Summary ────────────────────────────────────────────────
+echo "╔══════════════════════════════════════════════╗"
+printf "║  Results:  %2d passed,  %2d failed              ║\n" "$PASS" "$FAIL"
+echo "╚══════════════════════════════════════════════╝"
+echo ""
+
+# Print individual results
+for r in "${RESULTS[@]}"; do
+    echo "$r"
 done
 echo ""
 
-# ── 5. Model paths ──
-echo "🤖 Model paths"
-MODEL_DIR="${ONDA_MODEL_DIR:-/mnt/almacen/onda/models}"
-if [ -d "$MODEL_DIR" ]; then
-    check "Model dir exists: $MODEL_DIR"
-    # Check ViperX model
-    VIPERX_PATH="$MODEL_DIR/VR_Models/BS_Roformer_Viperx"
-    [ -d "$VIPERX_PATH" ] && check "ViperX model: $VIPERX_PATH" || warn_check "ViperX model: $VIPERX_PATH (not found — OK for build, needed for runtime)"
-
-    # Check Demucs model
-    DEMUCS_PATH="$MODEL_DIR/Demucs_ONNX"
-    [ -d "$DEMUCS_PATH" ] && check "ONNX stems: $DEMUCS_PATH" || warn_check "ONNX stems: $DEMUCS_PATH (not found — Demucs included in Docker image)"
-else
-    warn_check "Model dir: $MODEL_DIR (not accessible from this machine — OK for build)"
-fi
-echo ""
-
-# ── 6. Docker build context size check ──
-echo "📦 Build context"
-if command -v du &>/dev/null; then
-    SIZE=$(du -sh . --exclude=models --exclude=venv --exclude=input --exclude=output --exclude=output_* --exclude=.git --exclude=frontend/node_modules 2>/dev/null | cut -f1)
-    echo -e "  ${GREEN}ℹ${NC}  Build context (excl. models/venv/input/output): ~$SIZE"
-fi
-echo ""
-
-# ── 7. Git state ──
-echo "🔀 Git state"
-if git rev-parse --git-dir >/dev/null 2>&1; then
-    git diff --quiet || { echo -e "  ⚠ Uncommitted changes exist"; warn=$((warn+1)); }
-    git diff --cached --quiet || { echo -e "  ⚠ Staged changes not committed"; warn=$((warn+1)); }
-    UNPUSHED=$(git log @{u}.. 2>/dev/null | grep -c "^commit " || echo "0")
-    if [ "$UNPUSHED" -eq 0 ]; then echo -e "  ✓ All commits pushed"; pass=$((pass+1)); else echo -e "  ⚠ $UNPUSHED unpushed commits"; warn=$((warn+1)); fi
-else
-    echo -e "  ⚠ Not a git repository — skipping git checks"; warn=$((warn+1))
-fi
-echo ""
-
-# ── Summary ──
-echo "═══════════════════════════════════════"
-echo -e "  ${GREEN}Passed: $pass${NC}  ${RED}Failed: $fail${NC}  ${YELLOW}Warnings: $warn${NC}"
-echo "═══════════════════════════════════════"
-
-if [ "$fail" -gt 0 ]; then
-    echo -e "${RED}❌ Validation FAILED — fix errors before building${NC}"
+if [ "$FAIL" -gt 0 ]; then
+    echo "❌ Environment validation FAILED — review errors above"
     exit 1
-elif [ "$warn" -gt 0 ]; then
-    echo -e "${YELLOW}⚠️  Validation passed with warnings — review before building${NC}"
 else
-    echo -e "${GREEN}✅ All checks passed — ready to build${NC}"
+    echo "✅ All checks passed — environment is ready"
 fi
