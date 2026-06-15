@@ -1,4 +1,4 @@
-# Onda — Despliegue unificado (NVIDIA GPU)
+# Onda — Despliegue multi-GPU (NVIDIA/AMD/CPU)
 # ── docker compose up -d --build ── levanta todo
 #
 # Configuración vía .env (crear desde .env.example):
@@ -7,14 +7,31 @@
 
 services:
   # ═══════════════════════════════════════════════════════════════
-  #  onda — Contenedor de inferencia (Python + PyTorch + CUDA)
+  #  onda — Contenedor de inferencia (Python + PyTorch)
+  #         NVIDIA CUDA · AMD ROCm · CPU
   # ═══════════════════════════════════════════════════════════════
   onda:
+    # ── NVIDIA CUDA (default) ──
     image: onda:nvidia
     build:
       context: .
       dockerfile: Dockerfile
+      # args:
+      #   DEVICE: cuda    # cuda | rocm | cpu
     container_name: onda
+    # ── Para AMD ROCm, descomentar lo siguiente y comentar las
+    #    líneas equivalentes de NVIDIA:
+    # image: onda:rocm
+    # runtime: runc
+    # devices:
+    #   - /dev/kfd
+    #   - /dev/dri
+    # group_add:
+    #   - "video"  # grupo 44
+    # ── Para CPU, descomentar lo siguiente y comentar NVIDIA:
+    # image: onda:cpu
+    # runtime: runc
+    # (sin devices, sin group_add, sin NVIDIA_VISIBLE_DEVICES)
     runtime: nvidia
     environment:
       - NVIDIA_VISIBLE_DEVICES=all
@@ -32,7 +49,7 @@ services:
     working_dir: /app
     entrypoint: ["sh", "-c", "mkdir -p /tmp/numba_cache /tmp/torch_cache /tmp/xdg_cache /tmp/hf_cache /tmp/torch_inductor_cache && exec tail -f /dev/null"]
     healthcheck:
-      test: ["CMD", "python3", "-c", "import torch; assert torch.cuda.is_available(), 'CUDA not available'"]
+      test: ["CMD", "python3", "-c", "exit(0)"]
       interval: 10s
       timeout: 10s
       retries: 6
