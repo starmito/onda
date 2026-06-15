@@ -1,9 +1,20 @@
 # Changelog
+## [3.0.0] - 2026-06-15
+### Added
+- Multi-platform Dockerfile: soporte para CUDA, ROCm y CPU via --build-arg DEVICE
+- Script detect_gpu.sh: detección automática de GPU (NVIDIA, AMD, o ninguna)
+- pipeline.sh: auto-detect de device si no se pasa --device explícitamente
+- Health endpoint: reporta tipo de GPU (cuda/rocm/cpu) con warning en CPU
+- Frontend: indicador de GPU type en header y banner de aviso en CPU
+- scripts/validate.sh: validación del entorno de Onda
+- docker-compose.yml: documentación de configuraciones para AMD ROCm y CPU
+
 ## v2.9.4 (2026-06-14) — Rubberband-cli restaurado + pipeline.sh auto-detect
 
 ### Fixed
 - **Pitch shift: rubberband-cli restaurado** — se había cambiado erróneamente a `ffmpeg -af rubberband` (error mío). Vuelve a usar `rubberband-cli`, la herramienta profesional de calidad para pitch shifting, con timeout 180s.
 - **Pipeline.sh auto-detect steps** — ahora detecta qué pasos ejecutar según los flags recibidos. Cada flag (`--vocal-model`, `--viperx-model`, `--stem-model`, `--pitch`) activa solo su paso correspondiente. Sin flags → ejecuta todos (backward compat). Esto evita que en modo multi-step se ejecuten ViperX+Demucs+Rubberband simultáneamente.
+- **Flag `--vocal-model` reparado** — antes setaba `VOCAL_MODEL` (variable nunca leída). Ahora setea `VIPERX_MODEL` directamente, usado como fallback si no se proporciona `--viperx-model`.
 
 ### Removed
 - **Flags legacy de pipeline.sh**: `--viperx`, `--demucs`, `--rubberband` (booleanos), `--demucs-model` — huérfanos, el backend nunca los pasaba. Reemplazados por auto-detección desde flags específicos.
