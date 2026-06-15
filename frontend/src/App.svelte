@@ -59,6 +59,8 @@
 
   // ---- Health / Version from backend ----
   let healthVersion = $state('');
+  let gpuType = $state<'cuda' | 'rocm' | 'cpu' | ''>('');
+  let gpuWarning = $state('');
 
   // Toast
   let toastMessage = $state('');
@@ -224,6 +226,12 @@
     getHealth()
       .then((h) => {
         if (h?.version) healthVersion = h.version;
+        if (h?.gpu?.type) gpuType = h.gpu.type;
+        if (h?.gpu?.warning) gpuWarning = h.gpu.warning;
+        // Fallback: derive type from gpu.ok if type not present
+        if (h?.gpu && !h.gpu.type) {
+          gpuType = h.gpu.ok ? 'cuda' : 'cpu';
+        }
       })
       .catch(() => {}); // silent fail
 
@@ -743,7 +751,19 @@
       <header class="app-header">
         <h1>{@html IconOnda} Onda</h1>
         <span class="version">{healthVersion || ''}</span>
+        {#if gpuType}
+          <span class="gpu-label" class:cpu={gpuType === 'cpu'}>
+            {#if gpuType === 'cuda'}⚡ CUDA{:else if gpuType === 'rocm'}🔥 ROCm{:else}⚠️ CPU{/if}
+          </span>
+        {/if}
       </header>
+
+      {#if gpuType === 'cpu'}
+        <div class="cpu-warning">
+          <span>⚠️ Ejecutando en CPU — la inferencia será más lenta</span>
+          <button class="cpu-warning-close" onclick={() => gpuType = ''}>✕</button>
+        </div>
+      {/if}
 
       <div class="content">
         {#if activeTab === 'settings'}
@@ -928,6 +948,39 @@
     border: 1px solid var(--accent-border);
     border-radius: 4px;
     background: var(--accent-subtle);
+  }
+  .gpu-label.cpu {
+    color: #ff9800;
+    border-color: rgba(255, 152, 0, 0.3);
+    background: rgba(255, 152, 0, 0.1);
+  }
+
+  /* CPU Warning Banner */
+  .cpu-warning {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 1rem;
+    padding: 0.6rem 1.5rem;
+    background: rgba(255, 152, 0, 0.12);
+    border-bottom: 1px solid rgba(255, 152, 0, 0.2);
+    color: #ffb74d;
+    font-size: 0.85rem;
+    font-weight: 600;
+    flex-shrink: 0;
+  }
+  .cpu-warning-close {
+    background: rgba(255, 152, 0, 0.15);
+    border: 1px solid rgba(255, 152, 0, 0.25);
+    color: #ffb74d;
+    font-size: 0.9rem;
+    padding: 0.15rem 0.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .cpu-warning-close:hover {
+    background: rgba(255, 152, 0, 0.25);
   }
 
   .btn-gear {
