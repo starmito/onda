@@ -392,6 +392,7 @@ RUBBERBAND=false       # auto-detected: true when --pitch is passed
 PITCH=0
 OUTPUT=""
 DEVICE="cuda"
+DEVICE_SET_EXPLICITLY=false
 SHIFTS=1
 DEMUCS_SEGMENT=0
 JOBS=0
@@ -410,7 +411,7 @@ while [[ $# -gt 0 ]]; do
         --stem-model)   DEMUCS_MODEL="$2"; DEMUCS=true; shift 2 ;;
         --pitch)        PITCH="$2"; RUBBERBAND=true; shift 2 ;;
         --output)       OUTPUT="$2"; shift 2 ;;
-        --device)       DEVICE="$2"; shift 2 ;;
+        --device)       DEVICE="$2"; DEVICE_SET_EXPLICITLY=true; shift 2 ;;
         --shifts)       SHIFTS="$2"; shift 2 ;;
         --demucs-segment) DEMUCS_SEGMENT="$2"; shift 2 ;;
         --jobs)         JOBS="$2"; shift 2 ;;
@@ -420,6 +421,13 @@ while [[ $# -gt 0 ]]; do
         *)              INPUT="$1"; shift ;;
     esac
 done
+
+# ── Auto-detect device if not explicitly set ──
+if ! $DEVICE_SET_EXPLICITLY; then
+    DETECTED_DEVICE=$(/app/detect_gpu.sh 2>/dev/null || echo "cpu")
+    echo "   ℹ️  Auto-detected device: ${DETECTED_DEVICE}"
+    DEVICE="${DETECTED_DEVICE}"
+fi
 
 # Resolve input: --input-from-step overrides positional arg
 if [ -n "$INPUT_FROM_STEP" ]; then
