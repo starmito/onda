@@ -171,6 +171,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	containerStatus, _ := checkDockerContainer()
 	gpuAvailable, gpuInfo, _ := checkGPU()
+	gpuType := detectGPUType()
 
 	// ── Read frontend version ──
 	frontendVersion := ""
@@ -204,7 +205,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	// ── Overall status ──
 	status := "ok"
 	backendOK := containerStatus == "running"
-	if !backendOK || !gpuAvailable || len(mismatches) > 0 {
+	if !backendOK || (!gpuAvailable && gpuType != "rocm") || len(mismatches) > 0 {
 		status = "degraded"
 	}
 
@@ -215,10 +216,13 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var gpuObj map[string]interface{}
-	if gpuAvailable {
-		gpuObj = map[string]interface{}{"ok": true, "detail": gpuInfo}
+	if gpuAvailable || gpuType == "rocm" {
+		gpuObj = map[string]interface{}{"ok": true, "type": gpuType, "detail": gpuInfo}
 	} else {
-		gpuObj = map[string]interface{}{"ok": false, "code": "E3", "detail": gpuInfo}
+		gpuObj = map[string]interface{}{"ok": false, "type": gpuType, "code": "E3", "detail": gpuInfo}
+	}
+	if gpuType == "cpu" {
+		gpuObj["warning"] = "No GPU detected — running on CPU. Performance may be degraded."
 	}
 
 	frontendOK := frontendVersion == Version
