@@ -94,7 +94,7 @@ JSONEOF
 }
 trap 'report_progress "error" "${CURRENT_STEP:-unknown}" 0' ERR
 # Normalize rocm -> cuda immediately so DEVICE is always "cuda" in status reports
-case "$DEVICE" in
+case "${DEVICE:-}" in
     rocm) DEVICE="cuda" ;;
 esac
 
