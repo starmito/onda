@@ -3,19 +3,19 @@ set -euo pipefail
 
 # Detect GPU availability and echo the appropriate backend.
 #   - nvidia-smi       → 'cuda'
-#   - rocm-smi         → 'rocm' (ROCm stack + rocm-smi package)
-#   - /dev/kfd + AMD GPU lspci → 'rocm' (ROCm kernel loaded, sin rocm-smi)
+#   - rocm-smi         → 'rocm'
+#   - /dev/kfd         → 'rocm' (kernel ROCm cargado, aunque falte rocm-smi)
 #   - otherwise        → 'cpu'
 #
-# En Ubuntu 26.04: 'sudo apt install rocm' instala el stack ROCm pero
-# NO incluye rocm-smi (paquete separado).  El fallback por /dev/kfd
-# + lspci cubre ese caso sin falsos positivos en LXC sin passthrough.
+# /dev/kfd es un character device creado EXCLUSIVAMENTE por el kernel
+# amdgpu cuando tiene soporte ROCm. No existe en sistemas sin ROCm.
+# Es la señal más fiable — no necesita lspci ni paquetes extra.
 
 if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
     echo 'cuda'
 elif command -v rocm-smi &>/dev/null && rocm-smi &>/dev/null; then
     echo 'rocm'
-elif [ -c /dev/kfd ] && command -v lspci &>/dev/null && (lspci -nn 2>/dev/null || true) | grep -qiE '(amd|ati).*(vga|display|3d|gpu)|(vga|display|3d|gpu).*(amd|ati)'; then
+elif [ -c /dev/kfd ]; then
     echo 'rocm'
 else
     echo 'cpu'
