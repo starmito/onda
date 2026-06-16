@@ -310,13 +310,19 @@ PYEOF
 }
 
 # Run a ViperX step in chaining mode
-# Args: model_path, input_file, output_dir
+# Args: model_path (file or dir), input_file, output_dir
 run_viperx_step() {
     local model_path="$1"
     local input_file="$2"
     local output_dir="$3"
 
-    if [ ! -d "$model_path" ]; then
+    # Find model directory: if model_path is a file, use its parent dir
+    local model_dir="$model_path"
+    if [ -f "$model_path" ]; then
+        model_dir="$(dirname "$model_path")"
+    fi
+
+    if [ ! -d "$model_dir" ]; then
         echo "❌ ViperX model not found: ${model_path}" >&2
         exit 2
     fi
@@ -328,14 +334,14 @@ run_viperx_step() {
     # Read YAML params
     local yaml_num_overlap="4"
     local viperx_yaml
-    viperx_yaml=$(ls "${model_path}"/*.yaml 2>/dev/null | head -1)
+    viperx_yaml=$(ls "${model_dir}"/*.yaml 2>/dev/null | head -1)
     if [ -n "$viperx_yaml" ]; then
         yaml_num_overlap=$(python3 -c "import yaml; print(yaml.load(open('$viperx_yaml'), Loader=yaml.FullLoader)['inference']['num_overlap'])" 2>/dev/null || echo "4")
     fi
 
     run_with_elapsed python3 /app/inference_universal.py \
         --pipeline-status "$STATUS_FILE" \
-        "${model_path}" "${input_file}" "${output_dir}" "${yaml_num_overlap}"
+        "${model_dir}" "${input_file}" "${output_dir}" "${yaml_num_overlap}"
 }
 
 # Run a Demucs step in chaining mode
@@ -815,8 +821,12 @@ if $VIPERX; then
     mkdir -p "${TMP_VIP}"  # must exist before progress file write
     CURRENT_STEP="viperx"
     report_progress "running" "viperx" 0
-    # Pre-flight: verify model path exists
-    if [ ! -d "${VIPERX_MODEL}" ]; then
+    # Pre-flight: verify model path exists (file or directory)
+    local viperx_model_dir="${VIPERX_MODEL}"
+    if [ -f "${VIPERX_MODEL}" ]; then
+        viperx_model_dir="$(dirname "${VIPERX_MODEL}")"
+    fi
+    if [ ! -d "${viperx_model_dir}" ]; then
         echo "❌ ViperX model not found: ${VIPERX_MODEL}" >&2
         exit 2
     fi
@@ -831,7 +841,7 @@ if $VIPERX; then
     # run_with_elapsed starts the background elapsed/eta updater loop.
     run_with_elapsed python3 /app/inference_universal.py \
         --pipeline-status "$STATUS_FILE" \
-        "${VIPERX_MODEL}" "${INPUT}" "${TMP_VIP}" ${VIPERX_OVERLAP_INT}
+        "${viperx_model_dir}" "${INPUT}" "${TMP_VIP}" ${VIPERX_OVERLAP_INT}
     echo "   ✅ Viperx done"
 
     # Find instrumental (for demucs)
