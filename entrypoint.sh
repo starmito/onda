@@ -4,8 +4,6 @@ set -euo pipefail
 GPU=$(detect_gpu.sh)
 echo "🎯 GPU detected: $GPU"
 CACHE_DIR="/opt/pytorch-backends/$GPU"
-
-# Añadir cache al PYTHONPATH (inicializar si no existe)
 export PYTHONPATH="${PYTHONPATH:-}:$CACHE_DIR"
 
 # Si no está cacheado, instalar backend completo
@@ -14,17 +12,20 @@ if [ ! -f "$CACHE_DIR/torch/__init__.py" ]; then
     mkdir -p "$CACHE_DIR"
     case $GPU in
         cuda)
-            pip install --target "$CACHE_DIR" torch==2.12.0 torchaudio==2.11.0 torchvision==0.27.0 onnxruntime-gpu==1.26.0
+            pip install --target "$CACHE_DIR" torch==2.12.0 torchaudio==2.11.0 torchvision==0.27.0
+            pip install --target "$CACHE_DIR" onnxruntime-gpu==1.26.0
             ;;
         rocm)
-            pip install --target "$CACHE_DIR" torch==2.11.0+rocm7.2 torchaudio==2.11.0+rocm7.2 torchvision==0.27.0+rocm7.2 onnxruntime --index-url https://download.pytorch.org/whl/rocm7.2
+            pip install --target "$CACHE_DIR" torch==2.11.0+rocm7.2 torchaudio==2.11.0+rocm7.2 torchvision==0.27.0+rocm7.2 --index-url https://download.pytorch.org/whl/rocm7.2
+            pip install --target "$CACHE_DIR" onnxruntime
             ;;
         *)
-            pip install --target "$CACHE_DIR" torch==2.12.0+cpu torchaudio==2.11.0+cpu onnxruntime --index-url https://download.pytorch.org/whl/cpu
+            pip install --target "$CACHE_DIR" torch==2.12.0+cpu torchaudio==2.11.0+cpu --index-url https://download.pytorch.org/whl/cpu
+            pip install --target "$CACHE_DIR" onnxruntime
             ;;
     esac
 
-    # Instalar paquetes que dependen de torch
+    # Instalar paquetes que dependen de torch (siempre desde PyPI)
     pip install --target "$CACHE_DIR" \
         diffq pytorch_lightning ml_collections onnx2pytorch \
         rotary_embedding_torch segmentation_models_pytorch \
