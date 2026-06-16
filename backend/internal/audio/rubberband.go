@@ -9,9 +9,9 @@ import (
 
 // RubberbandPitch aplica pitch shift a un archivo de audio usando rubberband-cli.
 // semitones: semitonos (-12 a +12)
-// input: ruta DENTRO del contenedor al archivo de entrada
-// output: ruta DENTRO del contenedor al archivo de salida
-// rubberband-cli se ejecuta dentro del contenedor onda via docker exec.
+// input: ruta al archivo de entrada
+// output: ruta al archivo de salida
+// rubberband-cli se ejecuta directamente (mismo contenedor).
 func RubberbandPitch(semitones int, input, output string) error {
 	if semitones == 0 {
 		// Si pitch=0, copiar el archivo en vez de procesar
@@ -22,7 +22,7 @@ func RubberbandPitch(semitones int, input, output string) error {
 	defer cancel()
 
 	// Usar rubberband-cli (calidad profesional, no ffmpeg)
-	cmd := exec.CommandContext(ctx, "docker", "exec", "onda", "rubberband",
+	cmd := exec.CommandContext(ctx, "rubberband",
 		"-p", fmt.Sprintf("%d", semitones),
 		input, output)
 
@@ -34,9 +34,9 @@ func RubberbandPitch(semitones int, input, output string) error {
 }
 
 // Deprecated: only used in tests
-// IsRubberbandInstalled verifica si rubberband está disponible dentro del contenedor onda
+// IsRubberbandInstalled verifica si rubberband está disponible
 func IsRubberbandInstalled() bool {
-	cmd := exec.Command("docker", "exec", "onda", "which", "rubberband")
+	cmd := exec.Command("which", "rubberband")
 	err := cmd.Run()
 	return err == nil
 }

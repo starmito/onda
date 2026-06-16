@@ -1,0 +1,11 @@
+# Override CUDA para Onda v3.1.0
+# Añade runtime nvidia y variable de entorno para entrypoint.sh
+#
+# Uso: docker compose -f docker-compose.yml -f docker-compose.cuda.yml up -d --build
+
+services:
+  onda:
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+      - ONDA_DEVICE=cuda

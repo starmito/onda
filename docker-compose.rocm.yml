@@ -1,0 +1,10 @@
+# Override ROCm para Onda v3.1.0
+# Establece variable de entorno para entrypoint.sh
+# Los devices (/dev/kfd, /dev/dri) ya están en docker-compose.yml base
+#
+# Uso: docker compose -f docker-compose.yml -f docker-compose.rocm.yml up -d --build
+
+services:
+  onda:
+    environment:
+      - ONDA_DEVICE=rocm

@@ -1,5 +1,25 @@
 # Changelog
-## [3.0.0] - 2026-06-15
+## [3.1.0] - 2026-06-16
+### Added
+- **Arquitectura unificada**: un solo contenedor con Go backend + Nginx + Frontend Svelte + Python inference
+- **Auto-detección de hardware**: entrypoint detecta GPU (CUDA → ROCm → CPU) e instala solo el backend de PyTorch necesario
+- **Cache persistente**: volumen `pytorch-cache` para mantener torch entre recreaciones del contenedor
+- **Deploy automático**: `deploy.sh` detecta GPU y selecciona la config Docker correcta
+- **Soporte ROCm 7.2**: torch 2.11.0+rocm7.2 para GPUs AMD RDNA 3+ (Radeon 780M, RX 7900, etc.)
+- **Soporte CPU**: torch 2.12.0+cpu para hardware sin GPU o iGPU no soportada
+
+### Changed
+- **Unificación de contenedores**: `onda` (inferencia) y `onda-gui` (frontend) ahora son UN solo contenedor
+- **Go backend**: eliminadas todas las llamadas a `docker exec` — ahora ejecuta Python/rubberband directamente
+- **docker-compose.yml**: un solo servicio con overrides para CUDA y ROCm
+- **detect_gpu.sh**: ahora detecta ROCm también por presencia de /dev/kfd + /dev/dri (LXC)
+- **nginx.conf**: unificado, sirve frontend + proxy API + archivos de audio
+
+### Removed
+- **Contenedor onda separado**: ya no existe — todo corre en el mismo contenedor
+- **Contenedor onda-gui separado**: ya no existe — fusionado con el contenedor principal
+- **Dependencia de Docker socket**: el backend ya no necesita /var/run/docker.sock
+- **docker exec en backend**: reemplazado por ejecución directa de comandos
 ### Added
 - Multi-platform Dockerfile: soporte para CUDA, ROCm y CPU via --build-arg DEVICE
 - Script detect_gpu.sh: detección automática de GPU (NVIDIA, AMD, o ninguna)

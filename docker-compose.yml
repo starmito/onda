@@ -1,80 +1,43 @@
-# Onda — Despliegue multi-GPU (NVIDIA/AMD/CPU)
-# ── docker compose up -d --build ── levanta todo
+# Onda v3.1.0 — Contenedor unificado (Python + Go + Nginx + Svelte)
+# GPU auto-detect en runtime. Perfiles/overrides para CUDA, ROCm, CPU.
 #
-# Configuración vía .env (crear desde .env.example):
-#   MODEL_DIR    — ruta a los modelos (default: ./models)
+# Uso:
+#   docker compose up -d --build                      # CPU mode (default)
+#   docker compose -f docker-compose.yml -f docker-compose.cuda.yml up -d --build   # CUDA
+#   docker compose -f docker-compose.yml -f docker-compose.rocm.yml up -d --build   # ROCm
+#
+# O simplemente: bash deploy.sh   (detección automática)
+#
+# Variables de entorno (via .env):
 #   ONDA_PORT    — puerto de la UI (default: 3000)
+#   MODEL_DIR    — ruta local a los modelos (default: ./models)
 
 services:
-  # ═══════════════════════════════════════════════════════════════
-  #  onda — Contenedor de inferencia (Python + PyTorch)
-  #         NVIDIA CUDA · AMD ROCm · CPU
-  # ═══════════════════════════════════════════════════════════════
   onda:
-    # ── NVIDIA CUDA (default) ──
-    image: onda:nvidia
     build:
       context: .
       dockerfile: Dockerfile
-      # args:
-      #   DEVICE: cuda    # cuda | rocm | cpu
+    image: onda:3.1.0
     container_name: onda
-    # ── Para AMD ROCm, descomentar lo siguiente y comentar las
-    #    líneas equivalentes de NVIDIA:
-    # image: onda:rocm
-    # runtime: runc
-    # devices:
-    #   - /dev/kfd
-    #   - /dev/dri
-    # group_add:
-    #   - "video"  # grupo 44
-    # ── Para CPU, descomentar lo siguiente y comentar NVIDIA:
-    # image: onda:cpu
-    # runtime: runc
-    # (sin devices, sin group_add, sin NVIDIA_VISIBLE_DEVICES)
-    runtime: nvidia
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all
-      - NUMBA_CACHE_DIR=/tmp/numba_cache
-      - TORCH_HOME=/tmp/torch_cache
-      - XDG_CACHE_HOME=/tmp/xdg_cache
-      - HF_HOME=/tmp/hf_cache
-      - HOME=/tmp
-      - TORCHINDUCTOR_CACHE_DIR=/tmp/torch_inductor_cache
+    ports:
+      - "${ONDA_PORT:-3000}:3000"
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
     volumes:
       - ${MODEL_DIR:-./models}:/models:rw
       - ./input:/input
       - ./output:/output
       - ./input_rubberband:/input_rubberband
-    working_dir: /app
-    entrypoint: ["sh", "-c", "mkdir -p /tmp/numba_cache /tmp/torch_cache /tmp/xdg_cache /tmp/hf_cache /tmp/torch_inductor_cache && exec tail -f /dev/null"]
-    healthcheck:
-      test: ["CMD", "python3", "-c", "exit(0)"]
-      interval: 10s
-      timeout: 10s
-      retries: 6
-      start_period: 30s
-
-  # ═══════════════════════════════════════════════════════════════
-  #  onda-gui — Frontend Svelte + Backend Go + Nginx
-  # ═══════════════════════════════════════════════════════════════
-  onda-gui:
-    build:
-      context: .
-      dockerfile: ./onda-gui/Dockerfile
-    image: onda-gui:latest
-    container_name: onda-gui
-    group_add:
-      - "983"  # docker group
-    ports:
-      - "${ONDA_PORT:-3000}:3000"
-    depends_on:
-      onda:
-        condition: service_healthy
-    volumes:
-      - ${MODEL_DIR:-./models}:/models
-      - ./input:/input
-      - ./output:/output
-      - ./input_rubberband:/input_rubberband
       - ./config:/config
-      - /var/run/docker.sock:/var/run/docker.sock
+      - pytorch-cache:/opt/pytorch-backends
+    environment:
+      - NUMBA_CACHE_DIR=/tmp/numba_cache
+      - XDG_CACHE_HOME=/tmp/xdg_cache
+      - HF_HOME=/tmp/hf_cache
+    restart: unless-stopped
+
+volumes:
+  pytorch-cache:
