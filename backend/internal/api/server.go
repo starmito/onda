@@ -203,7 +203,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	// ── Overall status ──
 	status := "ok"
-	if (!gpuAvailable && gpuType != "rocm") || len(mismatches) > 0 {
+	if (!gpuAvailable && gpuType == "cpu") || len(mismatches) > 0 {
 		status = "degraded"
 	}
 
