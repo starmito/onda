@@ -236,16 +236,17 @@ export interface DownloadModelResponse {
   message?: string;
 }
 
-// ---- Download Progress ----
-export interface DownloadProgress {
-  status: string;         // "downloading", "done", "error"
-  repo: string;
-  target?: string;
-  progress: number;       // 0-100
-  downloaded_bytes: number;
+export interface DownloadStatusResponse {
+  status: string;
+  progress: string;
+  percentage: number;
   total_bytes: number;
-  speed?: string;         // e.g., "5.2 MB/s"
+  downloaded_bytes: number;
+  repo: string;
+  target: string;
   error?: string;
+  filename?: string;
+  source: string;
 }
 
 export async function downloadModel(repo: string, filename?: string): Promise<DownloadModelResponse> {
@@ -262,15 +263,12 @@ export async function downloadModel(repo: string, filename?: string): Promise<Do
   return (await res.json()) as DownloadModelResponse;
 }
 
-export async function getDownloadStatus(repo: string): Promise<DownloadProgress> {
+export async function getDownloadStatus(repo: string): Promise<DownloadStatusResponse> {
   const res = await fetch(`${API_BASE}/api/models/download/status?repo=${encodeURIComponent(repo)}`);
   if (!res.ok) {
-    if (res.status === 404) {
-      return { status: 'done', repo, progress: 100, downloaded_bytes: 0, total_bytes: 0 };
-    }
-    throw new Error(`Download status failed with status ${res.status}: ${res.statusText}`);
+    throw new Error(`Download status fetch failed with status ${res.status}: ${res.statusText}`);
   }
-  return (await res.json()) as DownloadProgress;
+  return (await res.json()) as DownloadStatusResponse;
 }
 
 export async function uploadModel(file: File): Promise<UploadResponse> {

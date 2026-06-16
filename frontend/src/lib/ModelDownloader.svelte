@@ -13,6 +13,18 @@
     type DownloadProgress,
   } from './api';
 
+  // Cleanup polling intervals on component destroy
+  $effect(() => {
+    return () => {
+      for (const key of Object.keys(downloadProgress)) {
+        const info = downloadProgress[key];
+        if (info.intervalId) {
+          clearInterval(info.intervalId);
+        }
+      }
+    };
+  });
+
   interface Props {
     onclose?: () => void;
   }
@@ -39,7 +51,15 @@
   let hfCatalogError = $state(false);
 
   // ---- Downloading state ----
-  let downloading = $state<Set<string>>(new Set());
+  // Track progress per model: key = model.filename || model.name
+  interface DownloadProgressInfo {
+    percentage: number;
+    status: string;      // "downloading", "done", "error"
+    pollKeys: string[];  // repo/URL keys to poll on backend
+    intervalId?: ReturnType<typeof setInterval>;
+    error?: string;
+  }
+  let downloadProgress = $state<Record<string, DownloadProgressInfo>>({});
   let downloadErrors = $state<Map<string, string>>(new Map());
   let downloadProgress = $state<Map<string, DownloadProgress>>(new Map());
 
@@ -284,85 +304,103 @@
 
   async function startDownload(model: CombinedModel) {
     const key = model.filename || model.name;
-    const repoKey = getRepoKey(model);
-    
-    const set = new Set(downloading);
-    set.add(key);
-    downloading = set;
-    
-    const errMap = new Map(downloadErrors);
-    errMap.delete(key);
-    downloadErrors = errMap;
-
-    // Initialize progress
-    const progMap = new Map(downloadProgress);
-    progMap.set(key, { status: 'downloading', repo: repoKey, progress: 0, downloaded_bytes: 0, total_bytes: 0 });
-    downloadProgress = progMap;
+// Initialize progress
+    downloadProgress = {
+      ...downloadProgress,
+      [key]: { percentage: 0, status: 'downloading', pollKeys: [] }
+    };
+    downloadErrors = new Map(downloadErrors);
+    downloadErrors.delete(key);
 
     try {
+      // Determine what to POST and poll
+      let pollKeys: string[] = [];
+
       if (model.source === 'uvr') {
-        await downloadModel(model.huggingface_repo!);
+        const repo = model.huggingface_repo!;
+        pollKeys = [repo];
+        // Fire POST without awaiting — download runs async on backend
+        downloadModel(repo).catch(err => {
+          // Store error but don't block; polling will reflect actual failure
+          const errors = new Map(downloadErrors);
+          errors.set(key, err.message || 'Download failed');
+          downloadErrors = errors;
+        });
       } else {
-        await downloadModel('Politrees/UVR_resources', model.hf_path);
-        // If checkpoint, also download .yaml
+        // HF model: download from Politrees/UVR_resources
+        const repo = 'Politrees/UVR_resources';
+        pollKeys = [repo];
+
+        downloadModel(repo, model.hf_path).catch(err => {
+          const errors = new Map(downloadErrors);
+          errors.set(key, err.message || 'Download failed');
+          downloadErrors = errors;
+        });
+
+        // Also download .yaml if applicable
         if (model.filename?.match(/\.(ckpt|pth)$/i)) {
           const baseName = model.filename!.slice(0, model.filename!.lastIndexOf('.'));
           const yamlEntry = hfCatalog.find(m => m.filename === baseName + '.yaml');
           if (yamlEntry) {
-            await downloadModel('Politrees/UVR_resources', yamlEntry.hf_path);
+            downloadModel(repo, yamlEntry.hf_path).catch(() => {});
           }
         }
       }
 
-      // Start polling for download progress
-      const pollInterval = setInterval(async () => {
-        try {
-          const status = await getDownloadStatus(repoKey);
-          const pMap = new Map(downloadProgress);
-          pMap.set(key, status);
-          downloadProgress = pMap;
+// Update progress with poll keys
+      downloadProgress = {
+        ...downloadProgress,
+        [key]: { ...downloadProgress[key], pollKeys }
+      };
 
-          if (status.status === 'done') {
-            clearInterval(pollInterval);
-            // Remove from downloading, refresh catalog
-            const s = new Set(downloading);
-            s.delete(key);
-            downloading = s;
-            await refreshCatalog();
-          } else if (status.status === 'error') {
-            clearInterval(pollInterval);
-            const errs = new Map(downloadErrors);
-            errs.set(key, status.error || 'Download failed');
-            downloadErrors = errs;
-            const s = new Set(downloading);
-            s.delete(key);
-            downloading = s;
-            const pm = new Map(downloadProgress);
-            pm.delete(key);
-            downloadProgress = pm;
+      // Start polling
+      const intervalId = setInterval(async () => {
+        // Check each poll key; use the one with most progress
+        let bestPct = 0;
+        let bestStatus = 'downloading';
+        let completedCount = 0;
+
+        for (const pk of pollKeys) {
+          try {
+            const st = await getDownloadStatus(pk);
+            if (st.percentage > bestPct) bestPct = st.percentage;
+            if (st.status === 'done') completedCount++;
+            if (st.status === 'error') { bestStatus = 'error'; break; }
+          } catch {
+            // Poll failed — skip this key
           }
-        } catch (pollErr) {
-          // If polling returns 404, download might be done already
-          clearInterval(pollInterval);
-          const s = new Set(downloading);
-          s.delete(key);
-          downloading = s;
-          const pm = new Map(downloadProgress);
-          pm.delete(key);
-          downloadProgress = pm;
         }
-      }, 2000);
 
+        // All done or first error
+        const finalStatus = completedCount === pollKeys.length ? 'done' : bestStatus;
+
+        downloadProgress = {
+          ...downloadProgress,
+          [key]: { ...downloadProgress[key], percentage: bestPct, status: finalStatus, intervalId }
+        };
+
+        if (finalStatus === 'done' || finalStatus === 'error') {
+          clearInterval(intervalId);
+          if (finalStatus === 'done') {
+            await refreshCatalog();
+            // Clean up progress after a short delay
+            const { [key]: _, ...rest } = downloadProgress;
+            setTimeout(() => { downloadProgress = rest; }, 2000);
+          }
+        }
+      }, 1500);
+
+      // Store interval ID for cleanup
+      downloadProgress = {
+        ...downloadProgress,
+        [key]: { ...downloadProgress[key], intervalId }
+      };
     } catch (err: any) {
       const errors = new Map(downloadErrors);
       errors.set(key, err.message || 'Download failed');
       downloadErrors = errors;
-      const s = new Set(downloading);
-      s.delete(key);
-      downloading = s;
-      const pm = new Map(downloadProgress);
-      pm.delete(key);
-      downloadProgress = pm;
+const { [key]: _, ...rest } = downloadProgress;
+      downloadProgress = rest;
     }
   }
 
@@ -544,19 +582,19 @@
                     </span>
                     {#if model.downloaded}
                       <span class="check-icon" title="Ya instalado">✅</span>
-                    {:else if downloading.has(model.filename || model.name)}
-                      {#if (downloadProgress.get(model.filename || model.name)?.progress ?? 0) > 0}
-                        <div class="download-progress-wrap">
-                          <div class="progress-bar">
-                            <div class="progress-fill" style="width: {downloadProgress.get(model.filename || model.name)?.progress ?? 0}%"></div>
-                          </div>
-                          <span class="progress-text">{downloadProgress.get(model.filename || model.name)?.progress ?? 0}%</span>
-                        </div>
-                        {#if downloadProgress.get(model.filename || model.name)?.speed}
-                          <span class="speed-text">{downloadProgress.get(model.filename || model.name)?.speed}</span>
-                        {/if}
+{:else if downloadProgress[model.filename || model.name]}
+                      {@const prog = downloadProgress[model.filename || model.name]}
+                      {#if prog.status === 'error'}
+                        <span class="download-error" title={prog.error}>❌</span>
+                      {:else if prog.status === 'done'}
+                        <span class="check-icon" title="Completado">✅</span>
                       {:else}
-                        <span class="spinner">⏳</span>
+                        <div class="progress-bar-wrap">
+                          <div class="progress-bar">
+                            <div class="progress-fill" style="width: {prog.percentage}%"></div>
+                          </div>
+                          <span class="progress-text">{Math.round(prog.percentage)}%</span>
+                        </div>
                       {/if}
                     {:else}
                       <button
@@ -918,6 +956,40 @@
   .download-error {
     font-size: 0.9rem;
     cursor: help;
+  }
+
+  /* Progress bar */
+  .progress-bar-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 100px;
+  }
+
+  .progress-bar {
+    flex: 1;
+    height: 8px;
+    background: var(--bg-surface, #1a1a3a);
+    border-radius: 4px;
+    overflow: hidden;
+    border: 1px solid var(--border, #2a2a4a);
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent, #6c5ce7), var(--accent-light, #a29bfe));
+    border-radius: 4px;
+    transition: width 0.3s ease;
+    min-width: 0;
+  }
+
+  .progress-text {
+    font-size: 0.7rem;
+    color: var(--accent-light, #a29bfe);
+    font-weight: 700;
+    flex-shrink: 0;
+    min-width: 2.5rem;
+    text-align: right;
   }
 
   /* Upload dropzone */
