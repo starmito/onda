@@ -90,6 +90,10 @@ report_progress() {
 JSONEOF
 }
 trap 'report_progress "error" "${CURRENT_STEP:-unknown}" 0' ERR
+# Normalize rocm -> cuda immediately so DEVICE is always "cuda" in status reports
+case "$DEVICE" in
+    rocm) DEVICE="cuda" ;;
+esac
 
 # Clear stale pipeline status from previous run and signal that a new pipeline has started
 report_progress "running" "starting" 0
