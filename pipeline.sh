@@ -822,7 +822,7 @@ if $VIPERX; then
     CURRENT_STEP="viperx"
     report_progress "running" "viperx" 0
     # Pre-flight: verify model path exists (file or directory)
-    local viperx_model_dir="${VIPERX_MODEL}"
+    viperx_model_dir="${VIPERX_MODEL}"
     if [ -f "${VIPERX_MODEL}" ]; then
         viperx_model_dir="$(dirname "${VIPERX_MODEL}")"
     fi
