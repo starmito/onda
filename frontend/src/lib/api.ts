@@ -236,6 +236,18 @@ export interface DownloadModelResponse {
   message?: string;
 }
 
+// ---- Download Progress ----
+export interface DownloadProgress {
+  status: string;         // "downloading", "done", "error"
+  repo: string;
+  target?: string;
+  progress: number;       // 0-100
+  downloaded_bytes: number;
+  total_bytes: number;
+  speed?: string;         // e.g., "5.2 MB/s"
+  error?: string;
+}
+
 export async function downloadModel(repo: string, filename?: string): Promise<DownloadModelResponse> {
   const body: DownloadModelRequest = { source: 'huggingface', repo };
   if (filename) body.filename = filename;
@@ -248,6 +260,17 @@ export async function downloadModel(repo: string, filename?: string): Promise<Do
     throw new Error(`Model download failed with status ${res.status}: ${res.statusText}`);
   }
   return (await res.json()) as DownloadModelResponse;
+}
+
+export async function getDownloadStatus(repo: string): Promise<DownloadProgress> {
+  const res = await fetch(`${API_BASE}/api/models/download/status?repo=${encodeURIComponent(repo)}`);
+  if (!res.ok) {
+    if (res.status === 404) {
+      return { status: 'done', repo, progress: 100, downloaded_bytes: 0, total_bytes: 0 };
+    }
+    throw new Error(`Download status failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as DownloadProgress;
 }
 
 export async function uploadModel(file: File): Promise<UploadResponse> {

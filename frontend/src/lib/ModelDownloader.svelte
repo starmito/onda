@@ -4,11 +4,13 @@
     getHfCatalog,
     getLocalModels,
     downloadModel,
+    getDownloadStatus,
     uploadModel,
     deleteModel,
     type UVRModelEntry,
     type HFModelEntry,
     type LocalModel,
+    type DownloadProgress,
   } from './api';
 
   interface Props {
@@ -39,6 +41,8 @@
   // ---- Downloading state ----
   let downloading = $state<Set<string>>(new Set());
   let downloadErrors = $state<Map<string, string>>(new Map());
+  let downloadProgress = $state<Map<string, DownloadProgress>>(new Map());
+
 
   // ---- Upload state ----
   let uploadMessage = $state('');
@@ -273,12 +277,27 @@
     }
   }
 
+  function getRepoKey(model: CombinedModel): string {
+    if (model.source === 'uvr') return model.huggingface_repo || model.name;
+    return 'Politrees/UVR_resources';
+  }
+
   async function startDownload(model: CombinedModel) {
+    const key = model.filename || model.name;
+    const repoKey = getRepoKey(model);
+    
     const set = new Set(downloading);
-    set.add(model.filename || model.name);
+    set.add(key);
     downloading = set;
-    downloadErrors.delete(model.filename || model.name);
-    downloadErrors = new Map(downloadErrors);
+    
+    const errMap = new Map(downloadErrors);
+    errMap.delete(key);
+    downloadErrors = errMap;
+
+    // Initialize progress
+    const progMap = new Map(downloadProgress);
+    progMap.set(key, { status: 'downloading', repo: repoKey, progress: 0, downloaded_bytes: 0, total_bytes: 0 });
+    downloadProgress = progMap;
 
     try {
       if (model.source === 'uvr') {
@@ -294,15 +313,56 @@
           }
         }
       }
-      await refreshCatalog();
+
+      // Start polling for download progress
+      const pollInterval = setInterval(async () => {
+        try {
+          const status = await getDownloadStatus(repoKey);
+          const pMap = new Map(downloadProgress);
+          pMap.set(key, status);
+          downloadProgress = pMap;
+
+          if (status.status === 'done') {
+            clearInterval(pollInterval);
+            // Remove from downloading, refresh catalog
+            const s = new Set(downloading);
+            s.delete(key);
+            downloading = s;
+            await refreshCatalog();
+          } else if (status.status === 'error') {
+            clearInterval(pollInterval);
+            const errs = new Map(downloadErrors);
+            errs.set(key, status.error || 'Download failed');
+            downloadErrors = errs;
+            const s = new Set(downloading);
+            s.delete(key);
+            downloading = s;
+            const pm = new Map(downloadProgress);
+            pm.delete(key);
+            downloadProgress = pm;
+          }
+        } catch (pollErr) {
+          // If polling returns 404, download might be done already
+          clearInterval(pollInterval);
+          const s = new Set(downloading);
+          s.delete(key);
+          downloading = s;
+          const pm = new Map(downloadProgress);
+          pm.delete(key);
+          downloadProgress = pm;
+        }
+      }, 2000);
+
     } catch (err: any) {
       const errors = new Map(downloadErrors);
-      errors.set(model.filename || model.name, err.message || 'Download failed');
+      errors.set(key, err.message || 'Download failed');
       downloadErrors = errors;
-    } finally {
-      const set2 = new Set(downloading);
-      set2.delete(model.filename || model.name);
-      downloading = set2;
+      const s = new Set(downloading);
+      s.delete(key);
+      downloading = s;
+      const pm = new Map(downloadProgress);
+      pm.delete(key);
+      downloadProgress = pm;
     }
   }
 
@@ -485,7 +545,19 @@
                     {#if model.downloaded}
                       <span class="check-icon" title="Ya instalado">✅</span>
                     {:else if downloading.has(model.filename || model.name)}
-                      <span class="spinner">⏳</span>
+                      {#if (downloadProgress.get(model.filename || model.name)?.progress ?? 0) > 0}
+                        <div class="download-progress-wrap">
+                          <div class="progress-bar">
+                            <div class="progress-fill" style="width: {downloadProgress.get(model.filename || model.name)?.progress ?? 0}%"></div>
+                          </div>
+                          <span class="progress-text">{downloadProgress.get(model.filename || model.name)?.progress ?? 0}%</span>
+                        </div>
+                        {#if downloadProgress.get(model.filename || model.name)?.speed}
+                          <span class="speed-text">{downloadProgress.get(model.filename || model.name)?.speed}</span>
+                        {/if}
+                      {:else}
+                        <span class="spinner">⏳</span>
+                      {/if}
                     {:else}
                       <button
                         class="btn-download"
@@ -804,6 +876,43 @@
   .btn-download:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+
+  .download-progress-wrap {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    min-width: 120px;
+  }
+
+  .progress-bar {
+    flex: 1;
+    height: 6px;
+    background: var(--bg-surface, #1a1a3a);
+    border-radius: 3px;
+    overflow: hidden;
+    min-width: 60px;
+  }
+
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--accent), var(--accent-dark));
+    border-radius: 3px;
+    transition: width 0.3s ease;
+  }
+
+  .progress-text {
+    font-size: 0.7rem;
+    font-weight: 700;
+    color: var(--accent);
+    min-width: 2.2em;
+    text-align: right;
+  }
+
+  .speed-text {
+    font-size: 0.6rem;
+    color: var(--text-muted);
+    white-space: nowrap;
   }
 
   .download-error {
