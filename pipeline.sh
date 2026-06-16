@@ -424,7 +424,7 @@ done
 
 # ── Auto-detect device if not explicitly set ──
 if ! $DEVICE_SET_EXPLICITLY; then
-    DETECTED_DEVICE=$(/app/detect_gpu.sh 2>/dev/null || echo "cpu")
+    DETECTED_DEVICE=$(detect_gpu.sh 2>/dev/null || echo "cpu")
     echo "   ℹ️  Auto-detected device: ${DETECTED_DEVICE}"
     DEVICE="${DETECTED_DEVICE}"
 fi
