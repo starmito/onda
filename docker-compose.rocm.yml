@@ -1,10 +1,13 @@
 # Override ROCm para Onda v3.1.1
-# Establece variable de entorno para entrypoint.sh
-# Los devices (/dev/kfd, /dev/dri) ya están en docker-compose.yml base
+# Añade los devices AMD ROCm (/dev/kfd, /dev/dri) necesarios para GPU
 #
 # Uso: docker compose -f docker-compose.yml -f docker-compose.rocm.yml up -d --build
 
 services:
   onda:
-    # Vacío a propósito: /dev/kfd y /dev/dri ya están en docker-compose.yml base
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    group_add:
+      - video
     environment: {}

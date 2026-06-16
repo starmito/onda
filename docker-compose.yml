@@ -21,11 +21,6 @@ services:
     container_name: onda
     ports:
       - "${ONDA_PORT:-3000}:3000"
-    devices:
-      - /dev/kfd
-      - /dev/dri
-    group_add:
-      - video
     volumes:
       - ${MODEL_DIR:-./models}:/models:rw
       - ./input:/input
