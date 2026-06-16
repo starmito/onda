@@ -780,45 +780,31 @@ func startHFDirProgressPoller(key string, targetDir string, initialSize int64, i
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
-		var prevBytes int64
-		var prevTime time.Time
 		for {
 			select {
 			case <-stop:
 				return
-			case t := <-ticker.C:
+			case <-ticker.C:
 				currentBytes := getDirSize(targetDir) - initialSize
 				if currentBytes < 0 {
 					currentBytes = 0
 				}
-				elapsed := 0.0
-				if !prevTime.IsZero() {
-					elapsed = t.Sub(prevTime).Seconds()
-				}
 				downloadMu.Lock()
 				if status, ok := downloadJobs[key]; ok {
-					status.DownloadedBytes = currentBytes
+					status.Downloaded = currentBytes
 					// Set a rough progress: if total_bytes > 0, use ratio; else show downloaded_bytes
-					if status.TotalBytes > 0 {
-						pct := int((currentBytes * 100) / status.TotalBytes)
+					if status.Total > 0 {
+						pct := float64(currentBytes*100) / float64(status.Total)
 						if pct > 99 {
 							pct = 99
 						}
 						if pct < 0 {
 							pct = 0
 						}
-						status.Progress = pct
-					}
-					if prevBytes > 0 && elapsed > 0 {
-						bps := float64(currentBytes-prevBytes) / elapsed
-						if bps >= 0 {
-							status.Speed = formatBytes(bps)
-						}
+						status.Percentage = pct
 					}
 				}
 				downloadMu.Unlock()
-				prevBytes = currentBytes
-				prevTime = t
 			}
 		}
 	}()
@@ -978,13 +964,16 @@ func runDirectDownload(url, filename, targetDir string) {
 	log.Printf("[models] downloading %s → %s", url, destPath)
 
 	// Get total bytes for progress tracking via HEAD request
-	totalBytes := getContentLength(url)
+	var contentLength int64
+	if resp, err := http.Head(url); err == nil && resp.StatusCode == http.StatusOK {
+		contentLength = resp.ContentLength
+	}
 
 	// Update the job status with total_bytes immediately
 	downloadMu.Lock()
 	for _, key := range []string{filename + "@" + url, url} {
 		if status, ok := downloadJobs[key]; ok {
-			status.TotalBytes = totalBytes
+			status.Total = contentLength
 			break
 		}
 	}
@@ -992,10 +981,6 @@ func runDirectDownload(url, filename, targetDir string) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Second)
 	defer cancel()
-
-	// Start progress polling goroutine (polls file size every 2 seconds)
-	stopPoller := startProgressPoller(url, destPath, totalBytes, 2*time.Second)
-	defer stopPoller()
 
 	// Use wget with progress output to stderr
 	cmd := exec.CommandContext(ctx, "wget", "-q", "--show-progress", "-O", destPath, url)
