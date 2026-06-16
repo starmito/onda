@@ -76,6 +76,7 @@ RUN chmod +x /pipeline.sh
 
 # ViperX inference
 COPY inference_universal.py /app/inference_universal.py
+COPY lib_v5/ /app/lib_v5/
 
 # GPU detection
 COPY onda/detect_gpu.sh /usr/local/bin/detect_gpu.sh
