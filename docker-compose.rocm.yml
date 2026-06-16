@@ -6,5 +6,5 @@
 
 services:
   onda:
-    environment:
-      - ONDA_DEVICE=rocm
+    # Vacío a propósito: /dev/kfd y /dev/dri ya están en docker-compose.yml base
+    environment: {}

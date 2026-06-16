@@ -1,16 +1,16 @@
 # Onda v3.1.0 — Contenedor unificado (Python + Go + Nginx + Svelte)
 # GPU auto-detect en runtime via entrypoint.sh
-# Multi-stage: go-builder → frontend-builder → python-base → runtime
+# Build: docker compose build
+# Deploy: docker compose up -d  (o bash deploy.sh para auto-detectar GPU)
 
-# ── Stage 0: Compilar backend Go ──────────────────────────
+# ── Stage 1: Compilar backend Go ────────────────────────
 FROM golang:1.26-alpine AS go-builder
 WORKDIR /src
 COPY backend/ ./
-RUN go mod tidy && \
-    CGO_ENABLED=0 GOOS=linux go build -o /onda-backend ./cmd/onda/
+RUN go mod tidy && CGO_ENABLED=0 GOOS=linux go build -o /onda-backend ./cmd/onda/
 RUN chmod +x /onda-backend
 
-# ── Stage 1: Compilar frontend Svelte ─────────────────────
+# ── Stage 2: Compilar frontend Svelte ───────────────────
 FROM node:22-alpine AS frontend-builder
 WORKDIR /src
 COPY frontend/package.json frontend/package-lock.json ./
@@ -18,33 +18,20 @@ RUN npm ci --silent
 COPY frontend/ ./
 RUN npm run build
 
-# ── Stage 2: Base Python con dependencias comunes ─────────
+# ── Stage 3: Dependencias Python (sin torch) ────────────
 FROM python:3.12-slim AS python-base
-
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libsndfile1 \
-    rubberband-cli \
-    ffmpeg \
-    nginx \
-    && rm -rf /var/lib/apt/lists/*
-
-# Dependencias comunes (sin torch/torchaudio/onnxruntime-gpu — se instalan en runtime)
-COPY requirements-common.txt /tmp/requirements-common.txt
+# SIN build-essential — ruedas pre-compiladas para todos los paquetes
+COPY requirements-common.txt /tmp/
 RUN SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True \
     pip install --no-cache-dir -r /tmp/requirements-common.txt
-
-# Demucs 4.0.1 — sin dependencias (torchaudio se instala aparte en runtime)
 RUN pip install --no-cache-dir demucs==4.0.1 --no-deps
-
-# Demucs CLI entry point (pip --target omite console scripts)
 RUN printf '#!/bin/bash\ncd /tmp\nexec python -m demucs "$@"\n' > /usr/local/bin/demucs && \
     chmod +x /usr/local/bin/demucs
 
-# ── Stage 3: Runtime final (todo combinado) ───────────────
+# ── Stage 4: Imagen final ────────────────────────────────
 FROM python:3.12-slim AS runtime
 
-# System dependencies
+# Solo lo necesario para PRODUCCIÓN (sin build-essential)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libsndfile1 \
     rubberband-cli \
@@ -52,7 +39,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     nginx \
     && rm -rf /var/lib/apt/lists/*
 
-# Python deps (common — sin torch-family)
+# Python deps (desde python-base)
 COPY --from=python-base /usr/local/lib/python3.12/site-packages/ /usr/local/lib/python3.12/site-packages/
 COPY --from=python-base /usr/local/bin/demucs /usr/local/bin/demucs
 
@@ -70,7 +57,7 @@ COPY onda-gui/nginx.conf /etc/nginx/nginx.conf
 COPY pipeline.sh /pipeline.sh
 RUN chmod +x /pipeline.sh
 
-# GPU detection script
+# GPU detection
 COPY onda/detect_gpu.sh /usr/local/bin/detect_gpu.sh
 RUN chmod +x /usr/local/bin/detect_gpu.sh
 
@@ -86,16 +73,12 @@ RUN cp /VERSION /usr/share/nginx/html/VERSION
 COPY uvr_models.json /app/uvr_models.json
 COPY hf_models.json /app/hf_models.json
 
-# Nginx temp dirs for non-root
-RUN mkdir -p /var/log/nginx /var/cache/nginx /var/run && \
-    chown -R 1000:1000 /var/log/nginx /var/cache/nginx && \
-    chmod 755 /var/log/nginx /var/cache/nginx
+# Nginx logs a /tmp/ (world-writable, evita problemas de permisos)
+RUN mkdir -p /var/cache/nginx /var/run && \
+    chmod 777 /var/cache/nginx
 
-# Create runtime directories
+# Directorios runtime (bind mounts del host)
 RUN mkdir -p /input /output /input_rubberband /config
-
-# Non-root user
-RUN adduser --uid 1000 --disabled-password starmito
 
 WORKDIR /app
 EXPOSE 3000
