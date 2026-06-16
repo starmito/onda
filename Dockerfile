@@ -18,15 +18,31 @@ RUN npm ci --silent
 COPY frontend/ ./
 RUN npm run build
 
-# ── Stage 3: Dependencias Python (sin torch) ────────────
+# ── Stage 3: Dependencias Python (torch CPU en build time) ─
 FROM python:3.12-slim AS python-base
-# SIN build-essential — ruedas pre-compiladas para todos los paquetes
-COPY requirements-common.txt /tmp/
-RUN SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True \
-    pip install --no-cache-dir -r /tmp/requirements-common.txt
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# torch CPU (necesario para resolver dependencias de diffq, pytorch_lightning, etc.)
+RUN pip install --no-cache-dir torch==2.12.0+cpu torchaudio==2.11.0+cpu --index-url https://download.pytorch.org/whl/cpu
+
+# Demucs con --no-deps (no necesita torch en build)
 RUN pip install --no-cache-dir demucs==4.0.1 --no-deps
 RUN printf '#!/bin/bash\ncd /tmp\nexec python -m demucs "$@"\n' > /usr/local/bin/demucs && \
     chmod +x /usr/local/bin/demucs
+
+# Dependencias comunes SIN torch (numpy, scipy, etc.)
+COPY requirements-common.txt /tmp/
+RUN SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True \
+    pip install --no-cache-dir -r /tmp/requirements-common.txt
+
+# Paquetes que dependen de torch (torch CPU ya está instalado, pip NO descargará CUDA)
+RUN pip install --no-cache-dir \
+    diffq pytorch_lightning ml_collections onnx2pytorch \
+    rotary_embedding_torch segmentation_models_pytorch \
+    transformers timm torchmetrics spafe julius \
+    torch_audiomentations asteroid openunmix dora-search
 
 # ── Stage 4: Imagen final ────────────────────────────────
 FROM python:3.12-slim AS runtime
