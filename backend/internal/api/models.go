@@ -704,6 +704,13 @@ cmd := exec.CommandContext(ctx, "python3", scriptPath, repo, targetDir)
 		status.Progress = "Download complete"
 		status.Percentage = 100
 		log.Printf("[models] download complete for %s", repo)
+
+		// Infer model architecture from checkpoint and enrich YAML
+		if err := exec.Command("python3", "/app/infer_model_arch.py", targetDir).Run(); err != nil {
+			log.Printf("[models] infer-model-arch failed for %s: %v", targetDir, err)
+		} else {
+			log.Printf("[models] YAML enriched for %s", targetDir)
+		}
 	}
 
 	downloadMu.Unlock()
@@ -755,6 +762,18 @@ status.Progress = "Download failed"
 status.Progress = "Download complete"
 		status.Percentage = 100
 		log.Printf("[models] download complete (retry) for %s", repo)
+
+		// Infer model architecture from checkpoint and enrich YAML
+
+		if err := exec.Command("python3", "/app/infer_model_arch.py", targetDir).Run(); err != nil {
+
+			log.Printf("[models] infer-model-arch failed (retry) for %s: %v", targetDir, err)
+
+		} else {
+
+			log.Printf("[models] YAML enriched for %s", targetDir)
+
+		}
 	}
 }
 
@@ -1089,6 +1108,13 @@ status.Progress = "Download failed"
 		status.Percentage = 100
 		status.Downloaded = status.Total
 		log.Printf("[models] direct download complete for %s → %s", url, destPath)
+
+		// Infer model architecture from checkpoint and enrich YAML
+		if err := exec.Command("python3", "/app/infer_model_arch.py", targetDir).Run(); err != nil {
+			log.Printf("[models] infer-model-arch failed for %s: %v", targetDir, err)
+		} else {
+			log.Printf("[models] YAML enriched for %s", targetDir)
+		}
 	}
 }
 
