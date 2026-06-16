@@ -833,7 +833,6 @@ func buildPipelineArgs(req SeparateRequest) (song string, args []string, steps [
 
 	// --- BACKWARD COMPAT: old format (no steps) ---
 	if req.Viperx {
-		args = append(args, "--vocal-model", "BS_Roformer_Viperx")
 		if req.ViperxKeep != "" {
 			args = append(args, "--viperx-keep", req.ViperxKeep)
 		}
@@ -903,7 +902,6 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 
 	switch step.Type {
 	case "viperx":
-		args = append(args, "--vocal-model", "BS_Roformer_Viperx")
 		// Model
 		if step.Model != "" {
 			modelDir := resolveModelDir(step.Model)
