@@ -34,17 +34,17 @@ func init() {
 // If a user preset with the same name exists on disk, the user version takes precedence
 // (loaded later in loadUserPresets which puts into userPresets, and getAllPresets lets user presets override).
 func seedPresets() {
-	// 1. Separador Voces Total → 1 step ViperX, vocals=route_to_result, instrumental=save
+	// 1. Separador Voces Total → 1 step Vocal, vocals=route_to_result, instrumental=save
 	cli.Presets["Voces Total"] = cli.Preset{
 		Name:        "Voces Total",
-		Description: "1 paso: ViperX separa voces → instrumental guardado, voces enviadas a resultado",
+		Description: "1 paso: Vocal separa voces → instrumental guardado, voces enviadas a resultado",
 		Pitch:       0,
 		Locked:      true,
 		Steps: []cli.PipelineStep{
 			{
-				ID:      "viperx",
+				ID:      "vocal",
 				Model:   "BS_Roformer_Viperx",
-				Type:    "viperx",
+				Type:    "vocal",
 				Enabled: true,
 				Stems: map[string]cli.StemRoute{
 					"vocals":       {Action: cli.StemSave, Target: "result"},
@@ -54,17 +54,17 @@ func seedPresets() {
 		},
 	}
 
-	// 2. Eliminador de Voz → 1 step ViperX, vocals=discard, instrumental=save
+	// 2. Eliminador de Voz → 1 step Vocal, vocals=discard, instrumental=save
 	cli.Presets["Eliminador de Voz"] = cli.Preset{
 		Name:        "Eliminador de Voz",
-		Description: "1 paso: ViperX elimina voces, solo instrumental guardado",
+		Description: "1 paso: Vocal elimina voces, solo instrumental guardado",
 		Pitch:       0,
 		Locked:      true,
 		Steps: []cli.PipelineStep{
 			{
-				ID:      "viperx",
+				ID:      "vocal",
 				Model:   "BS_Roformer_Viperx",
-				Type:    "viperx",
+				Type:    "vocal",
 				Enabled: true,
 				Stems: map[string]cli.StemRoute{
 					"vocals":       {Action: cli.StemDiscard},
@@ -74,17 +74,17 @@ func seedPresets() {
 		},
 	}
 
-	// 3. Separador Completo → 2 steps: ViperX vocals→route, Demucs htdemucs_ft drums,bass,other,vocals
+	// 3. Separador Completo → 2 steps: Vocal vocals→route, Demucs htdemucs_ft drums,bass,other,vocals
 	cli.Presets["Separador Completo"] = cli.Preset{
 		Name:        "Separador Completo",
-		Description: "2 pasos: ViperX separa voces → Demucs separa en drums, bass, other, vocals",
+		Description: "2 pasos: Vocal separa voces → Demucs separa en drums, bass, other, vocals",
 		Pitch:       0,
 		Locked:      true,
 		Steps: []cli.PipelineStep{
 			{
-				ID:      "viperx",
+				ID:      "vocal",
 				Model:   "BS_Roformer_Viperx",
-				Type:    "viperx",
+				Type:    "vocal",
 				Enabled: true,
 				Stems: map[string]cli.StemRoute{
 					"vocals":       {Action: cli.ActionRoute, Target: "step:demucs"},
@@ -184,16 +184,16 @@ func migratePreset(data json.RawMessage) cli.Preset {
 		Description: oldPreset.Description,
 	}
 
-	// ViperX step
+	// Vocal step
 	if oldPreset.ViperxEnabled {
 		vocalModel := oldPreset.VocalModel
 		if vocalModel == "" {
 			vocalModel = "BS_Roformer_Viperx"
 		}
 		step := cli.PipelineStep{
-			ID:      "viperx",
+			ID:      "vocal",
 			Model:   vocalModel,
-			Type:    "viperx",
+			Type:    "vocal",
 			Enabled: true,
 			Stems:   make(map[string]cli.StemRoute),
 		}

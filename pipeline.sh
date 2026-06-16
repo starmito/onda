@@ -11,8 +11,10 @@
 #
 # Flags:
 #   --steps JSON          Chained mode: JSON array of step objects
-#   --viperx-model PATH   ViperX model path (default: /models/VR_Models/BS_Roformer_Viperx)
-#   --viperx-keep WHAT    What to save: instrumental | vocals | both (default)
+#   --vocal-model PATH    Vocal model path (default: /models/VR_Models/BS_Roformer_Viperx)
+#   --vocal-keep WHAT     What to save: instrumental | vocals | both (default) (alias: --viperx-keep)
+#   --viperx-model PATH   Same as --vocal-model (deprecated)
+#   --viperx-keep WHAT    Same as --vocal-keep (deprecated)
 #   --demucs-keep LIST    Stems to keep: drums,bass,other,vocals or all (default)
 #   --stem-model NAME     Demucs stem model name (default: htdemucs_ft)
 #   --pitch N             Semitones for rubberband (default: 0)
@@ -63,7 +65,8 @@ STATUS_FILE="${PIPELINE_STATUS_FILE:-/output/pipeline_status.json}"
 rm -f "$STATUS_FILE"
 CURRENT_STEP=""
 
-VIPERX_MODEL_DISPLAY=""   # friendly name like "BS_Roformer_Viperx"
+VOCAL_MODEL_DISPLAY=""   # friendly name like "BS_Roformer_Viperx"
+VIPERX_MODEL_DISPLAY=""  # alias for backward compatibility
 DEMUCS_MODEL_DISPLAY=""   # friendly name like "htdemucs_ft"
 
 report_progress() {
@@ -86,7 +89,7 @@ report_progress() {
     fi
     progress_float=$(awk "BEGIN {printf \"%.2f\", $progress/100}")
     cat > "$STATUS_FILE" << JSONEOF
-{"status":"$status","step":"$step","progress":$progress_float,"song":"${SONG:-}","elapsed":$elapsed,"eta":$eta,"vocal_model":"${VIPERX_MODEL_DISPLAY:-}","stem_model":"${DEMUCS_MODEL_DISPLAY:-}","segment_size":${VIPERX_DIM_T:-0},"overlap":${VIPERX_NUM_OVERLAP:-0},"chunk_size":0,"batch_size":${VIPERX_BATCH_SIZE:-0},"device":"${DEVICE:-cpu}","gpu_type":"${GPU_TYPE:-unknown}","shifts":${SHIFTS:-1},"demucs_segment":${DEMUCS_SEGMENT:-0},"jobs":${JOBS:-0}}
+{"status":"$status","step":"$step","progress":$progress_float,"song":"${SONG:-}","elapsed":$elapsed,"eta":$eta,"vocal_model":"${VOCAL_MODEL_DISPLAY:-${VIPERX_MODEL_DISPLAY:-}}","stem_model":"${DEMUCS_MODEL_DISPLAY:-}","segment_size":${VIPERX_DIM_T:-0},"overlap":${VIPERX_NUM_OVERLAP:-0},"chunk_size":0,"batch_size":${VIPERX_BATCH_SIZE:-0},"device":"${DEVICE:-cpu}","gpu_type":"${GPU_TYPE:-unknown}","shifts":${SHIFTS:-1},"demucs_segment":${DEMUCS_SEGMENT:-0},"jobs":${JOBS:-0}}
 JSONEOF
 }
 trap 'report_progress "error" "${CURRENT_STEP:-unknown}" 0' ERR
@@ -313,9 +316,9 @@ PYEOF
     done
 }
 
-# Run a ViperX step in chaining mode
+# Run a Vocal model step in chaining mode
 # Args: model_path (file or dir), input_file, output_dir
-run_viperx_step() {
+run_vocal_step() {
     local model_path="$1"
     local input_file="$2"
     local output_dir="$3"
@@ -327,7 +330,7 @@ run_viperx_step() {
     fi
 
     if [ ! -d "$model_dir" ]; then
-        echo "❌ ViperX model not found: ${model_path}" >&2
+        echo "❌ Model not found: ${model_path}" >&2
         exit 2
     fi
     if [ ! -f /app/inference_universal.py ]; then
@@ -337,15 +340,20 @@ run_viperx_step() {
 
     # Read YAML params
     local yaml_num_overlap="4"
-    local viperx_yaml
-    viperx_yaml=$(ls "${model_dir}"/*.yaml 2>/dev/null | head -1)
-    if [ -n "$viperx_yaml" ]; then
-        yaml_num_overlap=$(python3 -c "import yaml; print(yaml.load(open('$viperx_yaml'), Loader=yaml.FullLoader)['inference']['num_overlap'])" 2>/dev/null || echo "4")
+    local vocal_yaml
+    vocal_yaml=$(ls "${model_dir}"/*.yaml 2>/dev/null | head -1)
+    if [ -n "$vocal_yaml" ]; then
+        yaml_num_overlap=$(python3 -c "import yaml; print(yaml.load(open('$vocal_yaml'), Loader=yaml.FullLoader)['inference']['num_overlap'])" 2>/dev/null || echo "4")
     fi
 
     run_with_elapsed python3 /app/inference_universal.py \
         --pipeline-status "$STATUS_FILE" \
         "${model_dir}" "${input_file}" "${output_dir}" "${yaml_num_overlap}"
+}
+
+# Alias for backward compatibility
+run_viperx_step() {
+    run_vocal_step "$@"
 }
 
 # Run a Demucs step in chaining mode
@@ -392,9 +400,12 @@ run_demucs_step() {
 
 
 # ── Parse flags ──────────────────────────────────
-VIPERX=false           # auto-detected: true when viperx-specific flags are passed
-VIPERX_KEEP="both"
-VIPERX_MODEL="/models/VR_Models/BS_Roformer_Viperx"
+VOCAL=false             # auto-detected: true when vocal-specific flags are passed
+VIPERX=false            # alias for backward compatibility
+VOCAL_KEEP="both"
+VIPERX_KEEP="both"      # alias for backward compatibility
+VOCAL_MODEL="/models/VR_Models/BS_Roformer_Viperx"
+VIPERX_MODEL="/models/VR_Models/BS_Roformer_Viperx"  # alias for backward compatibility
 DEMUCS=false           # auto-detected: true when demucs-specific flags are passed
 DEMUCS_KEEP="all"
 DEMUCS_MODEL="htdemucs_ft"
@@ -414,9 +425,10 @@ INPUT=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --steps)        STEPS_JSON="$2"; shift 2 ;;
-        --vocal-model)  VIPERX_MODEL="$2"; VIPERX=true; shift 2 ;;
-        --viperx-keep)  VIPERX_KEEP="$2"; VIPERX=true; shift 2 ;;
-        --viperx-model) VIPERX_MODEL="$2"; VIPERX=true; shift 2 ;;
+        --vocal-model)  VOCAL_MODEL="$2"; VIPERX_MODEL="$2"; VOCAL=true; shift 2 ;;
+        --vocal-keep)   VOCAL_KEEP="$2"; VIPERX_KEEP="$2"; VOCAL=true; shift 2 ;;
+        --viperx-model) VOCAL_MODEL="$2"; VIPERX_MODEL="$2"; VOCAL=true; shift 2 ;;
+        --viperx-keep)  VOCAL_KEEP="$2"; VIPERX_KEEP="$2"; VOCAL=true; shift 2 ;;
         --demucs-keep)  DEMUCS_KEEP="$2"; DEMUCS=true; shift 2 ;;
         --stem-model)   DEMUCS_MODEL="$2"; DEMUCS=true; shift 2 ;;
         --pitch)        PITCH="$2"; RUBBERBAND=true; shift 2 ;;
@@ -461,7 +473,8 @@ OUTPUT="${OUTPUT:-/output/${SONG}}"
 
 # ── Auto-detect steps: if no step was explicitly requested and not in --steps mode,
 #    enable all steps for backward compatibility (full pipeline).
-if ! $VIPERX && ! $DEMUCS && ! $RUBBERBAND && [ -z "$STEPS_JSON" ]; then
+if ! $VOCAL && ! $VIPERX && ! $DEMUCS && ! $RUBBERBAND && [ -z "$STEPS_JSON" ]; then
+    VOCAL=true
     VIPERX=true
     DEMUCS=true
     RUBBERBAND=true
@@ -581,8 +594,8 @@ print('ENDSTEMS')
 
         step_rc=0
         case "$STEP_TYPE" in
-            viperx)
-                run_viperx_step "${STEP_MODEL:-/models/VR_Models/BS_Roformer_Viperx}" "${CURRENT_INPUT}" "${STEP_TMP}"
+            viperx|vocal)
+                run_vocal_step "${STEP_MODEL:-/models/VR_Models/BS_Roformer_Viperx}" "${CURRENT_INPUT}" "${STEP_TMP}"
                 echo "   ✅ ${STEP_TYPE} done"
                 ;;
             demucs)
@@ -747,19 +760,24 @@ fi
 
 # ── Progress ranges (dynamic based on active steps) ──
 VIPERX_START=0; VIPERX_END=0
+VOCAL_START=0; VOCAL_END=0
 DEMUCS_START=0; DEMUCS_END=0
-if $VIPERX && $DEMUCS; then
+if { $VOCAL || $VIPERX; } && $DEMUCS; then
+    VOCAL_START=0; VOCAL_END=65
     VIPERX_START=0; VIPERX_END=65
     DEMUCS_START=65; DEMUCS_END=100
-elif $VIPERX; then
+elif $VOCAL || $VIPERX; then
+    VOCAL_START=0; VOCAL_END=100
     VIPERX_START=0; VIPERX_END=100
 elif $DEMUCS; then
     DEMUCS_START=0; DEMUCS_END=100
 fi
 
 # ── Model display names for status reporting ─────
-VIPERX_MODEL_DISPLAY="${VIPERX_MODEL##*/}"    # strip path, keep filename
-VIPERX_MODEL_DISPLAY="${VIPERX_MODEL_DISPLAY%.*}"  # strip extension
+VOCAL_MODEL_DISPLAY="${VOCAL_MODEL##*/}"    # strip path, keep filename
+VOCAL_MODEL_DISPLAY="${VOCAL_MODEL_DISPLAY%.*}"  # strip extension
+VIPERX_MODEL_DISPLAY="${VIPERX_MODEL##*/}"    # alias for backward compat
+VIPERX_MODEL_DISPLAY="${VIPERX_MODEL_DISPLAY%.*}"
 DEMUCS_MODEL_DISPLAY="$DEMUCS_MODEL"
 
 # ── Validate ─────────────────────────────────────
@@ -769,29 +787,39 @@ if [ ! -f "$INPUT" ]; then
 fi
 
 # ── Read model YAML for default inference parameters ──
-VIPERX_DIM_T=""
+VOCAL_DIM_T=""
+VOCAL_NUM_OVERLAP=""
+VOCAL_BATCH_SIZE=""
+VIPERX_DIM_T=""    # alias for backward compat
 VIPERX_NUM_OVERLAP=""
 VIPERX_BATCH_SIZE=""
-if $VIPERX && [ -d "${VIPERX_MODEL}" ]; then
-    VIPERX_YAML=$(ls "${VIPERX_MODEL}"/*.yaml 2>/dev/null | head -1)
-    if [ -n "$VIPERX_YAML" ]; then
-        VIPERX_DIM_T=$(python3 -c "import yaml; print(yaml.load(open('$VIPERX_YAML'), Loader=yaml.FullLoader)['inference']['dim_t'])" 2>/dev/null || echo "")
-        VIPERX_NUM_OVERLAP=$(python3 -c "import yaml; print(yaml.load(open('$VIPERX_YAML'), Loader=yaml.FullLoader)['inference']['num_overlap'])" 2>/dev/null || echo "")
-        VIPERX_BATCH_SIZE=$(python3 -c "import yaml; print(yaml.load(open('$VIPERX_YAML'), Loader=yaml.FullLoader)['inference']['batch_size'])" 2>/dev/null || echo "")
-        echo "   ℹ️  Model YAML: dim_t=${VIPERX_DIM_T}, overlap=${VIPERX_NUM_OVERLAP}, batch=${VIPERX_BATCH_SIZE}"
+if $VOCAL || $VIPERX; then
+    MODEL_DIR="${VOCAL_MODEL}"
+    [ -z "$MODEL_DIR" ] && MODEL_DIR="${VIPERX_MODEL}"
+    if [ -d "$MODEL_DIR" ]; then
+        VOCAL_YAML=$(ls "${MODEL_DIR}"/*.yaml 2>/dev/null | head -1)
+        if [ -n "$VOCAL_YAML" ]; then
+            VOCAL_DIM_T=$(python3 -c "import yaml; print(yaml.load(open('$VOCAL_YAML'), Loader=yaml.FullLoader)['inference']['dim_t'])" 2>/dev/null || echo "")
+            VOCAL_NUM_OVERLAP=$(python3 -c "import yaml; print(yaml.load(open('$VOCAL_YAML'), Loader=yaml.FullLoader)['inference']['num_overlap'])" 2>/dev/null || echo "")
+            VOCAL_BATCH_SIZE=$(python3 -c "import yaml; print(yaml.load(open('$VOCAL_YAML'), Loader=yaml.FullLoader)['inference']['batch_size'])" 2>/dev/null || echo "")
+            VIPERX_DIM_T="${VOCAL_DIM_T}"
+            VIPERX_NUM_OVERLAP="${VOCAL_NUM_OVERLAP}"
+            VIPERX_BATCH_SIZE="${VOCAL_BATCH_SIZE}"
+            echo "   ℹ️  Model YAML: dim_t=${VOCAL_DIM_T}, overlap=${VOCAL_NUM_OVERLAP}, batch=${VOCAL_BATCH_SIZE}"
+        fi
     fi
 fi
 
-# ── Smart defaults: ViperX ya separa vocals, Demucs no necesita repetir ──
-if $VIPERX && $DEMUCS && [ "${DEMUCS_KEEP}" = "all" ]; then
+# ── Smart defaults: Vocal model ya separa vocals, Demucs no necesita repetir ──
+if { $VOCAL || $VIPERX; } && $DEMUCS && [ "${DEMUCS_KEEP}" = "all" ]; then
     DEMUCS_KEEP="drums,bass,other"
-    echo "   ℹ️  ViperX activo → Demucs vocals excluido (ya existe vocals_viperx)"
+    echo "   ℹ️  Vocal model activo → Demucs vocals excluido (ya existe vocals)"
 fi
 
 echo "═══════════════════════════════════════"
 echo "🎵 Onda Pipeline"
 echo "   Input:    ${INPUT}"
-echo "   Viperx:   ${VIPERX} (keep: ${VIPERX_KEEP})"
+echo "   Vocal:   ${VOCAL:-$VIPERX} (keep: ${VOCAL_KEEP:-$VIPERX_KEEP})"
 echo "   Demucs:   ${DEMUCS} (keep: ${DEMUCS_KEEP})"
 echo "   Rubber:   ${RUBBERBAND} (pitch: ${PITCH})"
 echo "   Output:   ${OUTPUT}"
@@ -814,22 +842,23 @@ STEM_DIR=""        # dir with drums/bass/other/vocals for rubberband
 INSTRUMENTAL=""    # .wav for demucs input
 
 # ══════════════════════════════════════════════════════
-# STEP 1: Viperx → vocal + instrumental
+# STEP 1: Vocal model → vocal + instrumental
 # ══════════════════════════════════════════════════════
-if $VIPERX; then
+if $VOCAL || $VIPERX; then
     echo ""
-    echo "🔪 Viperx → vocal + instrumental..."
-    TMP_VIP="${OUTPUT}/_viperx"
-    mkdir -p "${TMP_VIP}"  # must exist before progress file write
-    CURRENT_STEP="viperx"
-    report_progress "running" "viperx" 0
+    echo "🔪 Vocal model → vocal + instrumental..."
+    TMP_VOCAL="${OUTPUT}/_vocal"
+    TMP_VIP="${TMP_VOCAL}"  # alias for compat
+    mkdir -p "${TMP_VOCAL}"  # must exist before progress file write
+    CURRENT_STEP="vocal"
+    report_progress "running" "vocal" 0
     # Pre-flight: verify model path exists (file or directory)
-    viperx_model_dir="${VIPERX_MODEL}"
-    if [ -f "${VIPERX_MODEL}" ]; then
-        viperx_model_dir="$(dirname "${VIPERX_MODEL}")"
+    vocal_model_dir="${VOCAL_MODEL:-${VIPERX_MODEL}}"
+    if [ -f "${vocal_model_dir}" ]; then
+        vocal_model_dir="$(dirname "${vocal_model_dir}")"
     fi
-    if [ ! -d "${viperx_model_dir}" ]; then
-        echo "❌ ViperX model not found: ${VIPERX_MODEL}" >&2
+    if [ ! -d "${vocal_model_dir}" ]; then
+        echo "❌ Vocal model not found: ${VOCAL_MODEL:-${VIPERX_MODEL}}" >&2
         exit 2
     fi
     if [ ! -f /app/inference_universal.py ]; then
@@ -839,42 +868,42 @@ if $VIPERX; then
     # Launch inference — Python writes pipeline_status.json directly on each chunk.
     # inference_universal.py reads dim_t, num_overlap, batch_size from the model's YAML.
     # Pass num_overlap as positional arg for backward compatibility.
-    VIPERX_OVERLAP_INT="${VIPERX_NUM_OVERLAP:-4}"
+    VOCAL_OVERLAP_INT="${VOCAL_NUM_OVERLAP:-${VIPERX_NUM_OVERLAP:-4}}"
     # run_with_elapsed starts the background elapsed/eta updater loop.
     run_with_elapsed python3 /app/inference_universal.py \
         --pipeline-status "$STATUS_FILE" \
-        "${viperx_model_dir}" "${INPUT}" "${TMP_VIP}" ${VIPERX_OVERLAP_INT}
-    echo "   ✅ Viperx done"
+        "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}" ${VOCAL_OVERLAP_INT}
+    echo "   ✅ Vocal model done"
 
     # Find instrumental (for demucs)
-    INSTRUMENTAL=$(find "${TMP_VIP}" -maxdepth 1 \( -iname "*instrumental*" -o -iname "*no_vocals*" \) | head -1)
+    INSTRUMENTAL=$(find "${TMP_VOCAL}" -maxdepth 1 \( -iname "*instrumental*" -o -iname "*no_vocals*" \) | head -1)
 
-    # Copy based on --viperx-keep flag
-    VIPERX_VOCAL=$(find "${TMP_VIP}" -maxdepth 1 -iname "*vocal*" ! -iname "*instrumental*" | head -1)
+    # Copy based on --vocal-keep flag
+    VOCAL_VOCAL=$(find "${TMP_VOCAL}" -maxdepth 1 -iname "*vocal*" ! -iname "*instrumental*" | head -1)
     KEEP_VOCALS=false; KEEP_INST=false
-    case "${VIPERX_KEEP}" in
+    case "${VOCAL_KEEP:-${VIPERX_KEEP}}" in
         both)           KEEP_VOCALS=true; KEEP_INST=true ;;
         vocals)         KEEP_VOCALS=true ;;
         instrumental)   KEEP_INST=true ;;
-        *)              echo "   ⚠️  Invalid --viperx-keep value: ${VIPERX_KEEP} (use: instrumental|vocals|both)"; KEEP_VOCALS=true; KEEP_INST=true ;;
+        *)              echo "   ⚠️  Invalid --vocal-keep value: ${VOCAL_KEEP:-${VIPERX_KEEP}} (use: instrumental|vocals|both)"; KEEP_VOCALS=true; KEEP_INST=true ;;
     esac
 
-    if $KEEP_VOCALS && [ -n "${VIPERX_VOCAL}" ]; then
-        cp "${VIPERX_VOCAL}" "${OUTPUT}/vocals_viperx.wav"
-        echo "   ✅ vocals_viperx → ${OUTPUT}/vocals_viperx.wav"
-    elif [ -n "${VIPERX_VOCAL}" ]; then
-        echo "   🗑️  vocals discarded (--viperx-keep ${VIPERX_KEEP})"
+    if $KEEP_VOCALS && [ -n "${VOCAL_VOCAL}" ]; then
+        cp "${VOCAL_VOCAL}" "${OUTPUT}/vocals.wav"
+        echo "   ✅ vocals → ${OUTPUT}/vocals.wav"
+    elif [ -n "${VOCAL_VOCAL}" ]; then
+        echo "   🗑️  vocals discarded (--vocal-keep ${VOCAL_KEEP:-${VIPERX_KEEP}})"
     fi
     if $KEEP_INST && [ -n "${INSTRUMENTAL}" ]; then
-        cp "${INSTRUMENTAL}" "${OUTPUT}/instrumental_viperx.wav"
-        echo "   ✅ instrumental_viperx → ${OUTPUT}/instrumental_viperx.wav"
+        cp "${INSTRUMENTAL}" "${OUTPUT}/instrumental.wav"
+        echo "   ✅ instrumental → ${OUTPUT}/instrumental.wav"
     elif [ -n "${INSTRUMENTAL}" ]; then
-        echo "   🗑️  instrumental discarded (--viperx-keep ${VIPERX_KEEP})"
+        echo "   🗑️  instrumental discarded (--vocal-keep ${VOCAL_KEEP:-${VIPERX_KEEP}})"
     fi
 
-    # If demucs is off but rubberband is on, stems come from viperx dir
+    # If demucs is off but rubberband is on, stems come from vocal dir
     if ! $DEMUCS && $RUBBERBAND; then
-        STEM_DIR="${TMP_VIP}"
+        STEM_DIR="${TMP_VOCAL}"
     fi
 fi
 
@@ -957,10 +986,10 @@ if $DEMUCS; then
     fi
 fi
 
-# ── Limpiar instrumental_viperx si fue solo paso intermedio para Demucs ──
-if $VIPERX && $DEMUCS; then
-    rm -f "${OUTPUT}/instrumental_viperx.wav"
-    echo "   🗑️  instrumental_viperx (intermedio, consumido por Demucs)"
+# ── Clean up instrumental if it was only an intermediate step for Demucs ──
+if { $VOCAL || $VIPERX; } && $DEMUCS; then
+    rm -f "${OUTPUT}/instrumental.wav"
+    echo "   🗑️  instrumental (intermedio, consumido por Demucs)"
 fi
 
 # ══════════════════════════════════════════════════════
@@ -1007,7 +1036,7 @@ fi
 report_progress "done" "complete" 100
 
 # ── Cleanup temps ────────────────────────────────
-rm -rf "${OUTPUT}/_viperx" "${OUTPUT}/_demucs" 2>/dev/null || true
+rm -rf "${OUTPUT}/_vocal" "${OUTPUT}/_demucs" 2>/dev/null || true
 
 echo ""
 echo "═══════════════════════════════════════"

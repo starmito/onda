@@ -11,7 +11,160 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-Status     string  `json:"status"`     // "downloading", "done", "error"
+"regexp"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+)
+
+// modelsBasePath is the root directory where models live inside the container.
+// Both onda and onda-gui use /models (bind-mounted from host).
+const modelsBasePath = "/models"
+
+// modelSubdirs lists the known model subdirectories to scan.
+var modelSubdirs = []string{
+	"VR_Models",
+	"MDX_Net_Models",
+	"RoFormer_Models",
+	"Demucs_Models",
+	"Demucs_ONNX",
+}
+
+// modelExtensions are the file extensions considered valid model files.
+var modelExtensions = map[string]bool{
+	".pth":         true,
+	".onnx":        true,
+	".ckpt":        true,
+	".th":          true,
+	".safetensors": true,
+}
+
+// modelWeightExtensions lists extensions for model weight files (used for base-name stripping).
+var modelWeightExtensions = []string{".ckpt", ".pth", ".onnx", ".th", ".safetensors"}
+
+// dependencyExtensions lists extensions for dependency files (yaml configs, supplemental weights).
+var dependencyExtensions = []string{".yaml", ".ckpt", ".pth", ".onnx", ".th"}
+
+// categoryMap translates directory names to human-readable category labels.
+// Note: VR_Models/ contains different model architectures; category is refined
+// by detectCategory() from the subdirectory name (Roformer, MelBand, SCnet, etc.)
+var categoryMap = map[string]string{
+	"VR_Models":       "VR_Arch",
+	"MDX_Net_Models":  "MDX",
+	"RoFormer_Models": "Roformer",
+	"Demucs_Models":   "Demucs",
+	"Demucs_ONNX":     "Demucs ONNX",
+}
+
+// detectCategory refines the category based on the model subdirectory name.
+// VR_Models/ contains Roformers (BS_Roformer_Viperx), MelBands, SCNets, etc.
+func detectCategory(subdir, relPath string) string {
+	baseCat := categoryMap[subdir]
+	if subdir != "VR_Models" {
+		return baseCat
+	}
+	// Under VR_Models/, detect from the model-specific subdirectory
+	parts := strings.Split(filepath.ToSlash(relPath), "/")
+	if len(parts) >= 2 {
+		modelDir := strings.ToLower(parts[1])
+		switch {
+		case strings.Contains(modelDir, "roformer") || strings.Contains(modelDir, "viperx") || strings.Contains(modelDir, "vocal"):
+			return "Roformer"
+		case strings.Contains(modelDir, "melband"):
+			return "Roformer/MelBand"
+		case strings.Contains(modelDir, "scnet"):
+			return "SCnet"
+		}
+	}
+	return baseCat
+}
+
+// computeDisplayName derives a human-friendly display name from the file's
+// relative path and its parent directory structure.
+func computeDisplayName(subdir, rel, name string) string {
+	parentDir := filepath.Base(filepath.Dir(rel))
+	if parentDir == subdir {
+		// File sits directly in the category directory (no model-specific subdir).
+		// This happens for Demucs ONNX stems: htdemucs_ft_vocals → "htdemucs_ft (vocals)"
+		if subdir == "Demucs_ONNX" {
+			return demucsONNXDisplayName(name)
+		}
+		return name
+	}
+	// Use the model-specific subdirectory name (already friendly: "BS_Roformer_Viperx", etc.)
+	return parentDir
+}
+
+// demucsONNXDisplayName converts a Demucs ONNX stem filename to a display name.
+// E.g., "htdemucs_ft_vocals" → "htdemucs_ft (vocals)"
+func demucsONNXDisplayName(name string) string {
+	demucsStems := []string{"vocals", "drums", "bass", "other", "guitar", "piano"}
+	for _, stem := range demucsStems {
+		if strings.HasSuffix(name, "_"+stem) {
+			base := strings.TrimSuffix(name, "_"+stem)
+			return base + " (" + stem + ")"
+		}
+	}
+	return name
+}
+
+// ModelEntry describes a single model file found on disk.
+type ModelEntry struct {
+	Name           string `json:"name"`
+	DisplayName    string `json:"display_name"`
+	Category       string `json:"category"`
+	Path           string `json:"path"`
+	SizeMB         int64  `json:"size_mb"`
+	VramEstimateMB int64  `json:"vram_estimate_mb"`
+}
+
+// estimateVRAM returns an estimated VRAM usage in MB for a model based on its
+// name, category, and on-disk size. Modern models (.ckpt/.pth/.safetensors)
+// use fp16 weights and load roughly 1:1 from disk to VRAM. The frontend
+// calculates inference activation overhead separately, so this only accounts
+// for the base model weights.
+func estimateVRAM(name string, category string, sizeMB int64) int64 {
+	lower := strings.ToLower(name)
+
+	// Built-in PyTorch model with no on-disk file
+	if lower == "htdemucs_ft" && sizeMB == 0 {
+		return 2800
+	}
+
+	// ONNX expands roughly 2× in VRAM vs disk
+	if category == "Demucs ONNX" {
+		if sizeMB > 0 {
+			return sizeMB * 2
+		}
+		return 500
+	}
+
+	// fp16 .ckpt/.pth/.safetensors → 1:1 disk-to-VRAM
+	if sizeMB > 0 {
+		return sizeMB
+	}
+
+	// Fallback minimum
+	return 500
+}
+type ModelsListResponse struct {
+	Models     []ModelEntry `json:"models"`
+	Categories []string     `json:"categories"`
+}
+
+// DownloadRequest is the JSON body for POST /api/models/download.
+type DownloadRequest struct {
+	Source   string `json:"source"`
+	Repo     string `json:"repo"`
+	URL      string `json:"url,omitempty"`
+	Filename string `json:"filename,omitempty"`
+	Category string `json:"category,omitempty"`
+}
+
+// DownloadStatus tracks the progress of an async model download.
+type DownloadStatus struct {
+	Status     string  `json:"status"`     // "downloading", "done", "error"
 	Repo       string  `json:"repo"`
 	Target     string  `json:"target,omitempty"`
 	Progress   string  `json:"progress,omitempty"`
