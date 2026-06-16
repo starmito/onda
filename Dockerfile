@@ -24,7 +24,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir torch==2.11.0+cpu torchaudio==2.11.0+cpu torchvision==0.16.0+cpu --index-url https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir torch==2.11.0+cpu torchaudio==2.11.0+cpu torchvision==0.26.0+cpu --index-url https://download.pytorch.org/whl/cpu
 
 # Demucs con --no-deps (no necesita torch en build)
 RUN pip install --no-cache-dir demucs==4.0.1 --no-deps
