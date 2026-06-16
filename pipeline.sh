@@ -123,7 +123,7 @@ update_elapsed_loop() {
 import json
 d=json.load(open('$STATUS_FILE'))
 d['elapsed']=$e
-d['eta']=$eta
+d['eta']=${eta:-0}
 json.dump(d, open('${STATUS_FILE}.tmp','w'))
 " && mv "${STATUS_FILE}.tmp" "$STATUS_FILE"
         fi
