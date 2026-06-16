@@ -25,7 +25,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # torch CPU (necesario para resolver dependencias de diffq, pytorch_lightning, etc.)
-RUN pip install --no-cache-dir torch==2.12.0+cpu torchaudio==2.12.0+cpu torchvision==0.27.0+cpu --index-url https://download.pytorch.org/whl/cpu
+RUN pip install --no-cache-dir torch==2.12.0+cpu torchvision==0.27.0+cpu --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir torchaudio==2.12.0
 
 # Demucs con --no-deps (no necesita torch en build)
 RUN pip install --no-cache-dir demucs==4.0.1 --no-deps
