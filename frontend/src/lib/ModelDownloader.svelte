@@ -61,7 +61,6 @@
   }
   let downloadProgress = $state<Record<string, DownloadProgressInfo>>({});
   let downloadErrors = $state<Map<string, string>>(new Map());
-  let downloadProgress = $state<Map<string, DownloadProgress>>(new Map());
 
 
   // ---- Upload state ----
