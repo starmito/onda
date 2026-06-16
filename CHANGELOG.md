@@ -1,10 +1,11 @@
 # Changelog
 ## [3.1.1] - 2026-06-16
 ### Fixed
-- **detect_gpu.sh**: detección ROCm ahora usa `/dev/kfd` + `lspci` como fallback para
-  sistemas donde `rocm-smi` no está instalado (Ubuntu 26.04 instala ROCm pero
-  `rocm-smi` es paquete separado). El script verifica que exista un AMD GPU
-  real mediante `lspci` para evitar falsos positivos en LXC sin passthrough.
+- **detect_gpu.sh**: detección ROCm simplificada a solo `/dev/kfd` (sin lspci).
+  `/dev/kfd` (Kernel Fusion Driver) es un character device creado EXCLUSIVAMENTE
+  por el kernel amdgpu cuando tiene soporte ROCm. No necesita lspci, rocm-smi
+  ni ningún paquete extra. Funciona tanto en host (Ubuntu 26.04) como dentro
+  del contenedor Docker con `--device=/dev/kfd`.
 ### Added
 - **Arquitectura unificada**: un solo contenedor con Go backend + Nginx + Frontend Svelte + Python inference
 - **Auto-detección de hardware**: entrypoint detecta GPU (CUDA → ROCm → CPU) e instala solo el backend de PyTorch necesario
