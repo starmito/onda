@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Headless RoFormer inference — supports MelBand & BS RoFormer.
 Usage: python3 inference_universal.py [model_dir] [input_audio] [output_dir]"""
-import sys, os, json, time, yaml, warnings
+import sys, os, json, time, yaml, warnings, re
 import torch, torch.nn as nn
 import numpy as np
 import librosa, soundfile as sf
@@ -66,7 +66,45 @@ def separate(model_dir, input_path, output_dir="output", progress_file=None, num
     elif 'freqs_per_bands' in config['model']:
         model_cls, model_type = BSRoformer, "BSRoformer"
     else:
-        print("ERROR: Unknown model"); return False
+        print("WARNING: YAML lacks architecture fields, trying checkpoint...")
+        # Fallback: detect architecture from checkpoint state dict
+        ckpts_fb = sorted([f for f in os.listdir(model_dir) if f.endswith('.ckpt') or f.endswith('.pth')])
+        if not ckpts_fb:
+            print("ERROR: No checkpoint found either"); return False
+
+        sd_path = os.path.join(model_dir, ckpts_fb[0])
+        print(f"Reading {sd_path} for architecture detection...")
+        ckpt_raw = torch.load(sd_path, map_location='cpu', weights_only=True)
+
+        # BSRoformer has band_split.to_features.N.1.weight
+        has_band_split = any('band_split.to_features.' in k and '.1.weight' in k for k in ckpt_raw.keys())
+        has_freq_indices = any('freq_indices' in k for k in ckpt_raw.keys())
+        has_mel_filters = any('freqs_per_band' in k for k in ckpt_raw.keys())
+
+        if has_band_split:
+            if has_mel_filters and has_freq_indices:
+                model_cls, model_type = MelBandRoformer, "MelBandRoformer"
+                # Extract num_bands from band count
+                band_count = sum(1 for k in ckpt_raw if re.match(r'band_split\.to_features\.\d+\.1\.weight', k))
+                config['model']['num_bands'] = band_count
+            else:
+                model_cls, model_type = BSRoformer, "BSRoformer"
+                # Extract freqs_per_bands from band_split dim_inputs
+                bands_dict = {}
+                for k, v in ckpt_raw.items():
+                    m = re.match(r'band_split\.to_features\.(\d+)\.1\.weight', k)
+                    if m:
+                        idx = int(m.group(1))
+                        bands_dict[idx] = v.shape[1]
+                sorted_dims = [bands_dict[i] for i in sorted(bands_dict.keys())]
+                # Detect stereo vs mono
+                if sum(d // 4 for d in sorted_dims) == 1025:
+                    config['model']['freqs_per_bands'] = [d // 4 for d in sorted_dims]
+                else:
+                    config['model']['freqs_per_bands'] = [d // 2 for d in sorted_dims]
+            print(f"Detected: {model_type} from checkpoint")
+        else:
+            print("ERROR: Unknown model, cannot detect from checkpoint"); return False
     
     print(f"Model: {ckpt_name} | Type: {model_type}")
     
