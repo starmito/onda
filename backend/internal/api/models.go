@@ -1,174 +1,26 @@
 package api
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
-	"strings"
-	"sync"
-	"time"
-)
-
-// modelsBasePath is the root directory where models live inside the container.
-// Both onda and onda-gui use /models (bind-mounted from host).
-const modelsBasePath = "/models"
-
-// modelSubdirs lists the known model subdirectories to scan.
-var modelSubdirs = []string{
-	"VR_Models",
-	"MDX_Net_Models",
-	"RoFormer_Models",
-	"Demucs_Models",
-	"Demucs_ONNX",
-}
-
-// modelExtensions are the file extensions considered valid model files.
-var modelExtensions = map[string]bool{
-	".pth":         true,
-	".onnx":        true,
-	".ckpt":        true,
-	".th":          true,
-	".safetensors": true,
-}
-
-// modelWeightExtensions lists extensions for model weight files (used for base-name stripping).
-var modelWeightExtensions = []string{".ckpt", ".pth", ".onnx", ".th", ".safetensors"}
-
-// dependencyExtensions lists extensions for dependency files (yaml configs, supplemental weights).
-var dependencyExtensions = []string{".yaml", ".ckpt", ".pth", ".onnx", ".th"}
-
-// categoryMap translates directory names to human-readable category labels.
-// Note: VR_Models/ contains different model architectures; category is refined
-// by detectCategory() from the subdirectory name (Roformer, MelBand, SCnet, etc.)
-var categoryMap = map[string]string{
-	"VR_Models":       "VR_Arch",
-	"MDX_Net_Models":  "MDX",
-	"RoFormer_Models": "Roformer",
-	"Demucs_Models":   "Demucs",
-	"Demucs_ONNX":     "Demucs ONNX",
-}
-
-// detectCategory refines the category based on the model subdirectory name.
-// VR_Models/ contains Roformers (BS_Roformer_Viperx), MelBands, SCNets, etc.
-func detectCategory(subdir, relPath string) string {
-	baseCat := categoryMap[subdir]
-	if subdir != "VR_Models" {
-		return baseCat
-	}
-	// Under VR_Models/, detect from the model-specific subdirectory
-	parts := strings.Split(filepath.ToSlash(relPath), "/")
-	if len(parts) >= 2 {
-		modelDir := strings.ToLower(parts[1])
-		switch {
-		case strings.Contains(modelDir, "roformer") || strings.Contains(modelDir, "viperx"):
-			return "Roformer"
-		case strings.Contains(modelDir, "melband"):
-			return "Roformer/MelBand"
-		case strings.Contains(modelDir, "scnet"):
-			return "SCnet"
-		}
-	}
-	return baseCat
-}
-
-// computeDisplayName derives a human-friendly display name from the file's
-// relative path and its parent directory structure.
-func computeDisplayName(subdir, rel, name string) string {
-	parentDir := filepath.Base(filepath.Dir(rel))
-	if parentDir == subdir {
-		// File sits directly in the category directory (no model-specific subdir).
-		// This happens for Demucs ONNX stems: htdemucs_ft_vocals → "htdemucs_ft (vocals)"
-		if subdir == "Demucs_ONNX" {
-			return demucsONNXDisplayName(name)
-		}
-		return name
-	}
-	// Use the model-specific subdirectory name (already friendly: "BS_Roformer_Viperx", etc.)
-	return parentDir
-}
-
-// demucsONNXDisplayName converts a Demucs ONNX stem filename to a display name.
-// E.g., "htdemucs_ft_vocals" → "htdemucs_ft (vocals)"
-func demucsONNXDisplayName(name string) string {
-	demucsStems := []string{"vocals", "drums", "bass", "other", "guitar", "piano"}
-	for _, stem := range demucsStems {
-		if strings.HasSuffix(name, "_"+stem) {
-			base := strings.TrimSuffix(name, "_"+stem)
-			return base + " (" + stem + ")"
-		}
-	}
-	return name
-}
-
-// ModelEntry describes a single model file found on disk.
-type ModelEntry struct {
-	Name           string `json:"name"`
-	DisplayName    string `json:"display_name"`
-	Category       string `json:"category"`
-	Path           string `json:"path"`
-	SizeMB         int64  `json:"size_mb"`
-	VramEstimateMB int64  `json:"vram_estimate_mb"`
-}
-
-// estimateVRAM returns an estimated VRAM usage in MB for a model based on its
-// name, category, and on-disk size. Modern models (.ckpt/.pth/.safetensors)
-// use fp16 weights and load roughly 1:1 from disk to VRAM. The frontend
-// calculates inference activation overhead separately, so this only accounts
-// for the base model weights.
-func estimateVRAM(name string, category string, sizeMB int64) int64 {
-	lower := strings.ToLower(name)
-
-	// Built-in PyTorch model with no on-disk file
-	if lower == "htdemucs_ft" && sizeMB == 0 {
-		return 2800
-	}
-
-	// ONNX expands roughly 2× in VRAM vs disk
-	if category == "Demucs ONNX" {
-		if sizeMB > 0 {
-			return sizeMB * 2
-		}
-		return 500
-	}
-
-	// fp16 .ckpt/.pth/.safetensors → 1:1 disk-to-VRAM
-	if sizeMB > 0 {
-		return sizeMB
-	}
-
-	// Fallback minimum
-	return 500
-}
-type ModelsListResponse struct {
-	Models     []ModelEntry `json:"models"`
-	Categories []string     `json:"categories"`
-}
-
-// DownloadRequest is the JSON body for POST /api/models/download.
-type DownloadRequest struct {
-	Source   string `json:"source"`
-	Repo     string `json:"repo"`
-	URL      string `json:"url,omitempty"`
-	Filename string `json:"filename,omitempty"`
-	Category string `json:"category,omitempty"`
-}
-
-// DownloadStatus tracks the progress of an async model download.
-type DownloadStatus struct {
-	Status          string `json:"status"`   // "downloading", "done", "error"
-	Repo            string `json:"repo"`
-	Target          string `json:"target,omitempty"`
-	Progress        int    `json:"progress"`        // 0-100
-	DownloadedBytes int64  `json:"downloaded_bytes"`
-	TotalBytes      int64  `json:"total_bytes"`
-	Speed           string `json:"speed,omitempty"` // e.g., "5.2 MB/s"
-	Error           string `json:"error,omitempty"`
+Status     string  `json:"status"`     // "downloading", "done", "error"
+	Repo       string  `json:"repo"`
+	Target     string  `json:"target,omitempty"`
+	Progress   string  `json:"progress,omitempty"`
+	Percentage float64 `json:"percentage"` // 0.0 to 100.0 — real-time progress
+	Total      int64   `json:"total_bytes"`
+	Downloaded int64   `json:"downloaded_bytes"`
+	Error      string  `json:"error,omitempty"`
+	Filename   string  `json:"filename,omitempty"`
+	Source     string  `json:"source"`
 }
 
 // downloadTracker holds in-flight download statuses keyed by repo name.
@@ -371,9 +223,10 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 
 		// Register the download job
 		status := &DownloadStatus{
-			Status: "downloading",
-			Repo:   req.Repo,
-			Target: "/models/" + targetSubdir,
+			Status:   "downloading",
+			Repo:     req.Repo,
+			Target:   "/models/" + targetSubdir,
+			Source:   "huggingface",
 		}
 		downloadMu.Lock()
 		downloadJobs[req.Repo] = status
@@ -411,9 +264,11 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 
 		// Register the download job keyed by URL
 		status := &DownloadStatus{
-			Status: "downloading",
-			Repo:   req.URL,
-			Target: "/models/" + category,
+			Status:   "downloading",
+			Repo:     req.URL,
+			Target:   "/models/" + category,
+			Filename: req.Filename,
+			Source:   "direct",
 		}
 		downloadMu.Lock()
 		downloadJobs[req.URL] = status
@@ -438,9 +293,11 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 				// when two models share the same dependency URL.
 				depKey := req.Filename + "@" + dep.DownloadURL
 				depStatus := &DownloadStatus{
-					Status: "downloading",
-					Repo:   depKey,
-					Target: "/models/" + depCategory,
+					Status:   "downloading",
+					Repo:     depKey,
+					Target:   "/models/" + depCategory,
+					Filename: dep.Filename,
+					Source:   "direct",
 				}
 				downloadMu.Lock()
 				downloadJobs[depKey] = depStatus
@@ -504,176 +361,247 @@ func (s *Server) handleModelsDownloadStatus(w http.ResponseWriter, r *http.Reque
 	json.NewEncoder(w).Encode(job)
 }
 
-
-// getContentLength performs an HTTP HEAD request to determine the file size for progress tracking.
-func getContentLength(url string) int64 {
-	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Head(url)
-	if err != nil {
-		return 0
-	}
-	defer resp.Body.Close()
-	if resp.ContentLength > 0 {
-		return resp.ContentLength
-	}
-	// Try to read Content-Length header manually
-	if cl := resp.Header.Get("Content-Length"); cl != "" {
-		if n, err := strconv.ParseInt(cl, 10, 64); err == nil && n > 0 {
-			return n
-		}
-	}
-	return 0
-}
-
-// formatBytes converts a byte rate to a human-readable string (e.g., "5.2 MB/s").
-func formatBytes(bytesPerSec float64) string {
-	switch {
-	case bytesPerSec >= 1<<30:
-		return fmt.Sprintf("%.1f GB/s", bytesPerSec/float64(1<<30))
-	case bytesPerSec >= 1<<20:
-		return fmt.Sprintf("%.1f MB/s", bytesPerSec/float64(1<<20))
-	case bytesPerSec >= 1<<10:
-		return fmt.Sprintf("%.1f KB/s", bytesPerSec/float64(1<<10))
-	default:
-		return fmt.Sprintf("%.0f B/s", bytesPerSec)
-	}
-}
-
-// startProgressPoller starts a goroutine that polls the size of a file on disk
-// and updates the download job status with real progress. Returns a cancel function.
-func startProgressPoller(key string, destPath string, totalBytes int64, interval time.Duration) func() {
-	stop := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(interval)
-		defer ticker.Stop()
-		var prevBytes int64
-		var prevTime time.Time
-		for {
-			select {
-			case <-stop:
-				return
-			case t := <-ticker.C:
-				fi, err := os.Stat(destPath)
-				if err != nil {
-					continue
-				}
-				currentBytes := fi.Size()
-				elapsed := 0.0
-				if !prevTime.IsZero() {
-					elapsed = t.Sub(prevTime).Seconds()
-				}
-				downloadMu.Lock()
-				// Try primary key, then composite key (filename@url)
-				status, ok := downloadJobs[key]
-				if !ok {
-					// Maybe it's a composite key — try matching by suffix
-					for k, v := range downloadJobs {
-						if strings.HasSuffix(k, key) || strings.HasSuffix(key, k) {
-							status = v
-							ok = true
-							break
-						}
-					}
-				}
-				if ok && status != nil {
-					status.DownloadedBytes = currentBytes
-					if totalBytes > 0 {
-						pct := int((currentBytes * 100) / totalBytes)
-						if pct > 99 {
-							pct = 99 // keep at 99 until complete
-						}
-						if pct < 0 {
-							pct = 0
-						}
-						status.Progress = pct
-					}
-					if prevBytes > 0 && elapsed > 0 {
-						bps := float64(currentBytes-prevBytes) / elapsed
-						if bps >= 0 {
-							status.Speed = formatBytes(bps)
-						}
-					}
-				}
-				downloadMu.Unlock()
-				prevBytes = currentBytes
-				prevTime = t
-			}
-		}
-	}()
-	return func() { close(stop) }
-}
-
-// runHuggingFaceDownload executes the huggingface_hub snapshot_download in a background goroutine.
+// runHuggingFaceDownload executes the huggingface_hub snapshot_download
+// using a wrapper Python script, parsing tqdm progress from stderr in real-time.
 func runHuggingFaceDownload(repo, targetDir string) {
-	// Escape single quotes to prevent Python code injection.
-	// python3 -c receives the script directly (no shell), so we use
-	// Python string escaping: \' inside single-quoted string.
-	safeRepo := strings.ReplaceAll(repo, "'", "\\'")
-	safeTarget := strings.ReplaceAll(targetDir, "'", "\\'")
-	script := fmt.Sprintf(
-		"from huggingface_hub import snapshot_download; snapshot_download('%s', local_dir='%s')",
-		safeRepo, safeTarget,
-	)
+	// Write a Python wrapper script that does the download and outputs progress info
+	scriptContent := `import sys, json, os
+from huggingface_hub import snapshot_download
 
-	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
+repo = sys.argv[1]
+target = sys.argv[2]
+os.makedirs(target, exist_ok=True)
+
+try:
+    result = snapshot_download(repo, local_dir=target, resume_download=True)
+    print(json.dumps({"status": "done", "path": result}), flush=True)
+except Exception as e:
+    print(json.dumps({"status": "error", "error": str(e)}), flush=True)
+    sys.exit(1)
+`
+	scriptPath := filepath.Join(os.TempDir(), "onda_hf_download.py")
+	if err := os.WriteFile(scriptPath, []byte(scriptContent), 0644); err != nil {
+		log.Printf("[models] failed to write HF download script: %v", err)
+		downloadMu.Lock()
+		if status, ok := downloadJobs[repo]; ok {
+			status.Status = "error"
+			status.Progress = "Download failed"
+			status.Error = fmt.Sprintf("failed to write script: %v", err)
+		}
+		downloadMu.Unlock()
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Second)
 	defer cancel()
 
-	// Get initial directory size for HF progress tracking
-	initialSize := getDirSize(targetDir)
-
-	// Start progress poller for directory-based downloads
-	stopPoller := startHFDirProgressPoller(repo, targetDir, initialSize, 2*time.Second)
-	defer stopPoller()
-
-	// Try with python3 first
-	cmd := exec.CommandContext(ctx, "python3", "-c", script)
-	output, err := cmd.CombinedOutput()
-
+cmd := exec.CommandContext(ctx, "python3", scriptPath, repo, targetDir)
+	stderr, err := cmd.StderrPipe()
 	if err != nil {
-		// If python3 fails, try installing huggingface_hub and retry
-		log.Printf("[models] python3 download attempt failed: %v — trying pip install", err)
-
-		// Check if pip is available before attempting install
-		if err := exec.Command("which", "pip").Run(); err != nil {
-			log.Printf("[models] pip not found, skipping huggingface_hub install")
-		} else {
-			installCtx, installCancel := context.WithTimeout(context.Background(), 120*time.Second)
-			defer installCancel()
-			installCmd := exec.CommandContext(installCtx, "pip", "install", "huggingface_hub")
-			if installOutput, installErr := installCmd.CombinedOutput(); installErr != nil {
-				log.Printf("[models] pip install failed: %v — output: %s", installErr, string(installOutput))
-			}
+		log.Printf("[models] failed to get stderr pipe: %v", err)
+		downloadMu.Lock()
+		if status, ok := downloadJobs[repo]; ok {
+			status.Status = "error"
+			status.Progress = "Download failed"
+			status.Error = fmt.Sprintf("failed to get stderr pipe: %v", err)
 		}
-
-		// Retry download
-		retryCtx, retryCancel := context.WithTimeout(context.Background(), 300*time.Second)
-		defer retryCancel()
-		cmd2 := exec.CommandContext(retryCtx, "python3", "-c", script)
-		output, err = cmd2.CombinedOutput()
+		downloadMu.Unlock()
+		return
 	}
+
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		log.Printf("[models] failed to get stdout pipe: %v", err)
+		downloadMu.Lock()
+		if status, ok := downloadJobs[repo]; ok {
+			status.Status = "error"
+			status.Progress = "Download failed"
+			status.Error = fmt.Sprintf("failed to get stdout pipe: %v", err)
+		}
+		downloadMu.Unlock()
+		return
+	}
+
+	if err := cmd.Start(); err != nil {
+		log.Printf("[models] failed to start HF download: %v", err)
+		downloadMu.Lock()
+		if status, ok := downloadJobs[repo]; ok {
+			status.Status = "error"
+			status.Progress = "Download failed"
+			status.Error = fmt.Sprintf("failed to start: %v", err)
+		}
+		downloadMu.Unlock()
+		return
+	}
+
+	// Parse tqdm progress bars from stderr.
+	// huggingface_hub outputs lines like:
+	// Downloading: 100%|████████████| 100M/100M [00:10<00:00, 10.0MB/s]
+	// Downloading:  45%|████▌       | 45.0M/100M [00:05<00:06, 8.5MB/s]
+	hfPercentRe := regexp.MustCompile(`(\d+)%\s*\|`)
+	hfBytesRe := regexp.MustCompile(`\|?\s*([\d.]+)/([\d.]+)\s*(B|[KMGT]i?B?/s?)`)
+
+	// Channel to collect final result from stdout
+	type scriptResult struct {
+		status string
+		path   string
+		errMsg string
+	}
+	resultCh := make(chan scriptResult, 1)
+
+	// Read stdout for final JSON result
+	go func() {
+		defer close(resultCh)
+		stdoutBuf, _ := io.ReadAll(stdout)
+		var res scriptResult
+		if err := json.Unmarshal(stdoutBuf, &res); err != nil {
+			res.status = "error"
+			res.errMsg = fmt.Sprintf("failed to parse script output: %v", err)
+		}
+		resultCh <- res
+	}()
+
+	// Read stderr for progress bars
+	stderrCh := make(chan struct{}, 1)
+	go func() {
+		defer close(stderrCh)
+		scanner := bufio.NewScanner(stderr)
+		scanner.Buffer(make([]byte, 4096), 4096)
+		for scanner.Scan() {
+			line := scanner.Text()
+
+			pctMatch := hfPercentRe.FindStringSubmatch(line)
+			if pctMatch == nil {
+				continue
+			}
+			pct, _ := strconv.ParseFloat(pctMatch[1], 64)
+
+			var downloaded, total int64
+			bytesMatch := hfBytesRe.FindStringSubmatch(line)
+			if len(bytesMatch) >= 4 {
+				dlVal, _ := strconv.ParseFloat(bytesMatch[1], 64)
+				totalVal, _ := strconv.ParseFloat(bytesMatch[2], 64)
+				unit := bytesMatch[3]
+
+				var multiplier int64 = 1
+				switch {
+				case strings.HasPrefix(unit, "K"):
+					multiplier = 1024
+				case strings.HasPrefix(unit, "M"):
+					multiplier = 1024 * 1024
+				case strings.HasPrefix(unit, "G"):
+					multiplier = 1024 * 1024 * 1024
+				}
+
+				downloaded = int64(dlVal * float64(multiplier))
+				total = int64(totalVal * float64(multiplier))
+			}
+
+			downloadMu.Lock()
+			if status, ok := downloadJobs[repo]; ok {
+				status.Percentage = pct
+				status.Downloaded = downloaded
+				if total > 0 {
+					status.Total = total
+				} else if downloaded > status.Total {
+					status.Total = downloaded
+				}
+			}
+			downloadMu.Unlock()
+		}
+	}()
+
+	// Wait for process to finish
+	waitErr := cmd.Wait()
+
+	// Consume remaining stderr
+	<-stderrCh
+
+	// Get the final result from stdout
+	res := <-resultCh
+
+	downloadMu.Lock()
+
+	status, ok := downloadJobs[repo]
+	if !ok {
+		downloadMu.Unlock()
+		log.Printf("[models] no download job found for repo %q", repo)
+		return
+	}
+
+	if waitErr != nil || res.status == "error" {
+		status.Status = "error"
+		status.Progress = "Download failed"
+		errMsg := res.errMsg
+		if errMsg == "" {
+			errMsg = waitErr.Error()
+		}
+		status.Error = errMsg
+		log.Printf("[models] download error for %s: %s", repo, errMsg)
+
+		// If python3 fails, try installing huggingface_hub and retry
+		if strings.Contains(errMsg, "No module named") || strings.Contains(errMsg, "ModuleNotFoundError") {
+			log.Printf("[models] huggingface_hub not found — trying pip install")
+			downloadMu.Unlock()
+			tryInstallAndRetryHF(repo, targetDir, scriptPath)
+			return
+		}
+	} else {
+		status.Status = "done"
+		status.Progress = "Download complete"
+		status.Percentage = 100
+		log.Printf("[models] download complete for %s", repo)
+	}
+
+	downloadMu.Unlock()
+}
+
+// tryInstallAndRetryHF installs huggingface_hub via pip and retries the download.
+func tryInstallAndRetryHF(repo, targetDir, scriptPath string) {
+	installCtx, installCancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer installCancel()
+	installCmd := exec.CommandContext(installCtx, "pip", "install", "huggingface_hub")
+	if installOutput, installErr := installCmd.CombinedOutput(); installErr != nil {
+		log.Printf("[models] pip install failed: %v — output: %s", installErr, string(installOutput))
+		downloadMu.Lock()
+		if status, ok := downloadJobs[repo]; ok {
+			status.Status = "error"
+			status.Progress = "Download failed"
+			status.Error = fmt.Sprintf("pip install failed: %v", installErr)
+		}
+		downloadMu.Unlock()
+		return
+	}
+
+	// Retry download using the same script
+	retryCtx, retryCancel := context.WithTimeout(context.Background(), 600*time.Second)
+	defer retryCancel()
+	cmd := exec.CommandContext(retryCtx, "python3", scriptPath, repo, targetDir)
+	output, err := cmd.CombinedOutput()
 
 	downloadMu.Lock()
 	defer downloadMu.Unlock()
 
-	status := downloadJobs[repo]
+	status, ok := downloadJobs[repo]
+	if !ok {
+		log.Printf("[models] no download job found for repo %q after retry", repo)
+		return
+	}
+
 	if err != nil {
 		status.Status = "error"
-		status.Progress = 0
-		errStr := err.Error()
+status.Progress = "Download failed"
+		errMsg := err.Error()
 		if len(output) > 0 {
-			errStr = string(output)
+			errMsg = string(output)
 		}
-		status.Error = errStr
-		log.Printf("[models] download error for %s: %s", repo, errStr)
+		status.Error = errMsg
+		log.Printf("[models] download error (retry) for %s: %s", repo, errMsg)
 	} else {
 		status.Status = "done"
-		status.Progress = 100
-		status.DownloadedBytes = getDirSize(targetDir) - initialSize
-		if status.DownloadedBytes < 0 {
-			status.DownloadedBytes = 0
-		}
-		status.Speed = ""
-		log.Printf("[models] download complete for %s", repo)
+status.Progress = "Download complete"
+		status.Percentage = 100
+		log.Printf("[models] download complete (retry) for %s", repo)
 	}
 }
 
@@ -874,7 +802,8 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
-// runDirectDownload downloads a model file from a direct URL using wget.
+// runDirectDownload downloads a model file from a direct URL using wget,
+// parsing --show-progress output line-by-line for real-time progress updates.
 func runDirectDownload(url, filename, targetDir string) {
 	// Ensure the target directory exists
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
@@ -917,13 +846,91 @@ func runDirectDownload(url, filename, targetDir string) {
 
 	// Use wget with progress output to stderr
 	cmd := exec.CommandContext(ctx, "wget", "-q", "--show-progress", "-O", destPath, url)
-	output, err := cmd.CombinedOutput()
+
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		log.Printf("[models] failed to get stderr pipe: %v", err)
+		downloadMu.Lock()
+		updateDownloadError(url, filename, fmt.Sprintf("failed to get stderr pipe: %v", err))
+		downloadMu.Unlock()
+		return
+	}
+
+	if err := cmd.Start(); err != nil {
+		log.Printf("[models] failed to start wget: %v", err)
+		downloadMu.Lock()
+		updateDownloadError(url, filename, fmt.Sprintf("failed to start wget: %v", err))
+		downloadMu.Unlock()
+		return
+	}
+
+	// Parse wget progress lines from stderr
+	// wget --show-progress outputs lines like:
+	//   0%  |                                   |  1024  ETA 00:00:30
+	//  45%  |===============                    | 45M  ETA 00:00:15
+	// 100%  |==================================| 100M  ETA 00:00:00
+	wgetPercentRe := regexp.MustCompile(`\s*(\d+)%\s`)
+	wgetBytesRe := regexp.MustCompile(`[|\]]\s+([\d.]+)([KMG]?)`)
+
+	scanner := bufio.NewScanner(stderr)
+	scanner.Buffer(make([]byte, 4096), 4096)
+	for scanner.Scan() {
+		line := scanner.Text()
+
+		// Parse percentage
+		pctMatch := wgetPercentRe.FindStringSubmatch(line)
+		if pctMatch == nil {
+			continue
+		}
+		pct, _ := strconv.ParseFloat(pctMatch[1], 64)
+
+		// Parse downloaded bytes
+		var downloaded int64
+		bytesMatch := wgetBytesRe.FindStringSubmatch(line)
+		if len(bytesMatch) >= 3 {
+			val, _ := strconv.ParseFloat(bytesMatch[1], 64)
+			switch bytesMatch[2] {
+			case "K", "k":
+				downloaded = int64(val * 1024)
+			case "M", "m":
+				downloaded = int64(val * 1024 * 1024)
+			case "G", "g":
+				downloaded = int64(val * 1024 * 1024 * 1024)
+			default:
+				downloaded = int64(val)
+			}
+		}
+
+		downloadMu.Lock()
+		if status, ok := downloadJobs[filename+"@"+url]; ok {
+			status.Percentage = pct
+			status.Downloaded = downloaded
+			if downloaded > status.Total {
+				status.Total = downloaded
+			}
+			if pct > 0 && status.Total > 0 {
+				// Derive total from percentage if not already set
+				status.Total = int64(float64(downloaded) / (pct / 100.0))
+			}
+		} else if status, ok := downloadJobs[url]; ok {
+			status.Percentage = pct
+			status.Downloaded = downloaded
+			if downloaded > status.Total {
+				status.Total = downloaded
+			}
+			if pct > 0 && status.Total > 0 {
+				status.Total = int64(float64(downloaded) / (pct / 100.0))
+			}
+		}
+		downloadMu.Unlock()
+	}
+
+	waitErr := cmd.Wait()
 
 	downloadMu.Lock()
 	defer downloadMu.Unlock()
 
 	// Try composite key (filename@url) first, then plain URL as fallback.
-	// Composite key is used for dependency downloads to avoid key collisions.
 	status, ok := downloadJobs[filename+"@"+url]
 	if !ok {
 		status, ok = downloadJobs[url]
@@ -932,23 +939,30 @@ func runDirectDownload(url, filename, targetDir string) {
 		log.Printf("[models] no download job found for %s (url=%s)", filename, url)
 		return
 	}
-	if err != nil {
+
+	if waitErr != nil {
 		status.Status = "error"
-		status.Progress = 0
-		errStr := err.Error()
-		if len(output) > 0 {
-			errStr = string(output)
-		}
-		status.Error = errStr
-		log.Printf("[models] direct download error for %s: %s", url, errStr)
+status.Progress = "Download failed"
+		status.Error = waitErr.Error()
+		log.Printf("[models] direct download error for %s: %v", url, waitErr)
 	} else {
 		status.Status = "done"
-		status.Progress = 100
-		// Get final file size
-		if fi, fiErr := os.Stat(destPath); fiErr == nil {
-			status.DownloadedBytes = fi.Size()
-		}
-		status.Speed = ""
+		status.Progress = "Download complete"
+		status.Percentage = 100
+		status.Downloaded = status.Total
 		log.Printf("[models] direct download complete for %s → %s", url, destPath)
+	}
+}
+
+// updateDownloadError sets error status on a download job (lock must be held by caller).
+func updateDownloadError(url, filename, errMsg string) {
+	if status, ok := downloadJobs[filename+"@"+url]; ok {
+		status.Status = "error"
+		status.Progress = "Download failed"
+		status.Error = errMsg
+	} else if status, ok := downloadJobs[url]; ok {
+		status.Status = "error"
+		status.Progress = "Download failed"
+		status.Error = errMsg
 	}
 }
