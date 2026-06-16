@@ -4,6 +4,9 @@ set -euo pipefail
 GPU=$(detect_gpu.sh)
 echo "🎯 GPU detected: $GPU"
 
+# PYTHONPATH siempre incluye /app/lib_v5/ (necesario para inference_universal.py)
+export PYTHONPATH="${PYTHONPATH:-}:/app/lib_v5"
+
 # Para CPU: torch ya está en la imagen, no hacer nada extra
 if [ "$GPU" != "cpu" ]; then
     CACHE_DIR="/opt/pytorch-backends/$GPU"
@@ -14,10 +17,10 @@ if [ "$GPU" != "cpu" ]; then
         mkdir -p "$CACHE_DIR"
         case $GPU in
             cuda)
-                pip install --target "$CACHE_DIR" torch==2.12.0 torchaudio==2.11.0 torchvision==0.27.0 onnxruntime-gpu==1.26.0
+                pip install --target "$CACHE_DIR" torch==2.12.0 torchaudio==2.12.0 torchvision==0.27.0 onnxruntime-gpu==1.26.0
                 ;;
             rocm)
-                pip install --target "$CACHE_DIR" torch==2.11.0+rocm7.2 torchaudio==2.11.0+rocm7.2 torchvision==0.26.0+rocm7.2 onnxruntime --extra-index-url https://download.pytorch.org/whl/rocm7.2
+                pip install --target "$CACHE_DIR" torch==2.11.0+rocm7.2 torchaudio==2.11.0+rocm7.2 torchvision==0.16.0+rocm7.2 onnxruntime --extra-index-url https://download.pytorch.org/whl/rocm7.2
                 ;;
         esac
         echo "✅ $GPU backend installed"
