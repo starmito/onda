@@ -429,6 +429,11 @@ if ! $DEVICE_SET_EXPLICITLY; then
     DEVICE="${DETECTED_DEVICE}"
 fi
 
+# Normalize device names to what demucs/viperx accept
+case "$DEVICE" in
+    rocm) DEVICE="cuda" ;;   # ROCm torch emula CUDA → demucs acepta "cuda"
+esac
+
 # Resolve input: --input-from-step overrides positional arg
 if [ -n "$INPUT_FROM_STEP" ]; then
     INPUT="$INPUT_FROM_STEP"
