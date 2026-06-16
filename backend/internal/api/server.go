@@ -414,7 +414,7 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Step name mapping and ordering
-	stepOrder := map[string]int{"viperx": 1, "demucs": 2, "rubberband": 3}
+	stepOrder := map[string]int{"vocal": 1, "viperx": 1, "demucs": 2, "rubberband": 3}
 
 	var jobList []*JobState
 	for _, j := range s.jobs {
@@ -500,8 +500,8 @@ func (s *Server) handleQueueCancel(w http.ResponseWriter, r *http.Request) {
 // capitalizeStep returns a display-friendly step name.
 func capitalizeStep(step string) string {
 	switch step {
-	case "viperx":
-		return "ViperX"
+	case "vocal", "viperx":
+		return "Vocal"
 	case "demucs":
 		return "Demucs"
 	case "rubberband":
@@ -701,8 +701,8 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 // stepTypeDisplay returns a human-readable name for a step type.
 func stepTypeDisplay(stepType string) string {
 	switch stepType {
-	case "viperx":
-		return "ViperX"
+	case "vocal", "viperx":
+		return "Vocal"
 	case "demucs":
 		return "Demucs"
 	default:
@@ -725,7 +725,7 @@ func findChainedInput(outputDir string, step cli.PipelineStep) string {
 	}
 
 	// Fallback: find any .wav file that looks like an inter-step stem
-	// e.g., instrumental_viperx.wav (the conventional name)
+		// e.g., instrumental.wav (the conventional name)
 	patterns := []string{
 		filepath.Join(outputDir, "*instrumental*"),
 		filepath.Join(outputDir, "*no_vocals*"),
@@ -834,7 +834,7 @@ func buildPipelineArgs(req SeparateRequest) (song string, args []string, steps [
 	// --- BACKWARD COMPAT: old format (no steps) ---
 	if req.Viperx {
 		if req.ViperxKeep != "" {
-			args = append(args, "--viperx-keep", req.ViperxKeep)
+			args = append(args, "--vocal-keep", req.ViperxKeep)
 		}
 	}
 	if req.Demucs {
@@ -901,12 +901,13 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 	var args []string
 
 	switch step.Type {
-	case "viperx":
+case "viperx", "vocal":
+		args = append(args, "--vocal-model", "BS_Roformer_Viperx")
 		// Model
 		if step.Model != "" {
 			modelDir := resolveModelDir(step.Model)
 			if modelDir != "" {
-				args = append(args, "--viperx-model", modelDir)
+				args = append(args, "--vocal-model", modelDir)
 			}
 		}
 		// Keep setting based on stem routing
@@ -914,11 +915,11 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 			_, hasVocals := step.Stems["vocals"]
 			_, hasInst := step.Stems["instrumental"]
 			if hasVocals && hasInst {
-				args = append(args, "--viperx-keep", "both")
+				args = append(args, "--vocal-keep", "both")
 			} else if hasVocals {
-				args = append(args, "--viperx-keep", "vocals")
+				args = append(args, "--vocal-keep", "vocals")
 			} else if hasInst {
-				args = append(args, "--viperx-keep", "instrumental")
+				args = append(args, "--vocal-keep", "instrumental")
 			}
 		}
 	case "demucs":

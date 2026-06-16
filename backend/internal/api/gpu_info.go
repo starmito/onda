@@ -48,6 +48,8 @@ var vramEstimates = map[string]int{
 	"polarformer":       4800,
 	"viperx":            3800,
 	"viperx_other":      3800,
+	"vocal":             3800,
+	"vocal_other":       3800,
 	"htdemucs_ft":       2800,
 	"htdemucs_drums":    800,
 	"htdemucs_bass":     800,
@@ -224,18 +226,23 @@ func (s *Server) handleGPUInfo(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(info)
 }
 
-// isViperXOrRoformer returns true for ViperX and Roformer models that
+// isVocalOrRoformer returns true for Vocal and Roformer models that
 // are sensitive to chunk_size in their VRAM calculation.
 // Uses substring matching to recognize full model names like "BS_Roformer_Viperx".
-func isViperXOrRoformer(modelName string) bool {
+func isVocalOrRoformer(modelName string) bool {
 	lower := strings.ToLower(modelName)
-	patterns := []string{"viperx", "melband", "polarformer", "roformer"}
+	patterns := []string{"vocal", "viperx", "melband", "polarformer", "roformer"}
 	for _, p := range patterns {
 		if strings.Contains(lower, p) {
 			return true
 		}
 	}
 	return false
+}
+
+// isViperXOrRoformer is an alias for backward compatibility.
+func isViperXOrRoformer(modelName string) bool {
+	return isVocalOrRoformer(modelName)
 }
 
 // isDemucsModel returns true for Demucs-family models whose VRAM scales
@@ -344,8 +351,8 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 		// Convert to float64 for precise multiplicative adjustments.
 		estimated := float64(vramMB)
 
-		// Apply chunk_size factor for ViperX/Roformer models.
-		if chunkSize > 0 && isViperXOrRoformer(modelName) {
+		// Apply chunk_size factor for Vocal/Roformer models.
+		if chunkSize > 0 && isVocalOrRoformer(modelName) {
 			estimated *= 1.0 + float64(chunkSize)/float64(defaultChunkSize)*chunkVRAMFactor
 		}
 

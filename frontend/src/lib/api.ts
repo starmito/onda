@@ -550,7 +550,7 @@ export interface StemRoute {
 export interface PipelineStep {
   id: string;
   model: string;
-  type: string;      // 'viperx' | 'demucs'
+  type: string;      // 'vocal' | 'viperx' | 'demucs'
   enabled: boolean;
   stems: Record<string, StemRoute>;
 }

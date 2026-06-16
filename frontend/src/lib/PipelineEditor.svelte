@@ -20,7 +20,7 @@
     category: string;
   }
 
-  const viperxDefault: ModelOption[] = [
+  const vocalDefault: ModelOption[] = [
     { name: 'MelBand_Karaoke', display_name: 'MelBand Karaoke', category: 'Roformer' },
     { name: 'BS_Roformer_Viperx', display_name: 'BS Roformer ViperX', category: 'Roformer' },
     { name: 'BS_PolarFormer', display_name: 'BS PolarFormer', category: 'VR_Arch' },
@@ -33,7 +33,7 @@
   ];
 
   // ── Types ──
-  type StepType = 'viperx' | 'demucs';
+  type StepType = 'vocal' | 'viperx' | 'demucs';
   type StemAction = 'route' | 'save' | 'discard';
 
   interface StemConfig {
@@ -51,12 +51,14 @@
 
   // ── Available stems per type ──
   const STEMS_BY_TYPE: Record<StepType, string[]> = {
+    vocal: ['vocals', 'instrumental'],
     viperx: ['vocals', 'instrumental'],
     demucs: ['drums', 'bass', 'other', 'vocals'],
   };
 
   // ── State ──
-  let viperxModels = $state<ModelOption[]>(viperxDefault);
+  let vocalModels = $state<ModelOption[]>(vocalDefault);
+  let viperxModels = $state<ModelOption[]>(vocalDefault);
   let demucsModels = $state<ModelOption[]>(demucsDefault);
   let modelsLoaded = $state(false);
 
@@ -97,6 +99,7 @@
             )
             .map((m: LocalModel) => ({ name: m.name, display_name: m.display_name || m.name, category: m.category }));
           if (vxModels.length > 0) {
+            vocalModels = vxModels;
             viperxModels = vxModels;
           }
 
@@ -127,6 +130,7 @@
     return map;
   }
 
+  const vocalGroups = $derived(groupByCategory(vocalModels));
   const viperxGroups = $derived(groupByCategory(viperxModels));
   const demucsGroups = $derived(groupByCategory(demucsModels));
 
@@ -158,8 +162,8 @@
   // ── Step management ──
   function addStep() {
     const existingTypes = steps.map(s => s.type);
-    let newType: StepType = 'viperx';
-    if (existingTypes.includes('viperx')) {
+    let newType: StepType = 'vocal';
+    if (existingTypes.includes('vocal') || existingTypes.includes('viperx')) {
       newType = 'demucs';
     }
 
@@ -171,7 +175,7 @@
     steps = [...steps, {
       id: `step-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       type: newType,
-      model: newType === 'viperx' ? 'BS_Roformer_Viperx' : 'htdemucs_ft',
+      model: (newType === 'vocal' || newType === 'viperx') ? 'BS_Roformer_Viperx' : 'htdemucs_ft',
       enabled: true,
       stems,
     }];
@@ -194,7 +198,7 @@
     for (const s of STEMS_BY_TYPE[type]) {
       stems[s] = { action: 'save' };
     }
-    const defaultModel = type === 'viperx' ? 'BS_Roformer_Viperx' : 'htdemucs_ft';
+    const defaultModel = (type === 'vocal' || type === 'viperx') ? 'BS_Roformer_Viperx' : 'htdemucs_ft';
     steps = steps.map(s => s.id === stepId ? { ...s, type, stems, model: defaultModel } : s);
   }
 
@@ -383,6 +387,7 @@
                     value={step.type}
                     onchange={(e) => updateStepType(step.id, (e.target as HTMLSelectElement).value as StepType)}
                   >
+                    <option value="vocal">Vocal (Vocales)</option>
                     <option value="viperx">ViperX (Vocales)</option>
                     <option value="demucs">Demucs (Stems)</option>
                   </select>
@@ -395,8 +400,8 @@
                     value={step.model}
                     onchange={(e) => updateStepModel(step.id, (e.target as HTMLSelectElement).value)}
                   >
-                    {#if step.type === 'viperx'}
-                      {#each [...viperxGroups.entries()] as [cat, models]}
+                    {#if step.type === 'vocal' || step.type === 'viperx'}
+                      {#each [...vocalGroups.entries()] as [cat, models]}
                         <optgroup label={cat}>
                           {#each models as m}
                             <option value={m.name}>{m.display_name || m.name}</option>

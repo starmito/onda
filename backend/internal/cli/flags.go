@@ -26,7 +26,7 @@ type StemRoute struct {
 type PipelineStep struct {
 	ID      string                `json:"id"`                // "viperx-1", "demucs-2", etc.
 	Model   string                `json:"model"`             // nombre del modelo o ruta
-	Type    string                `json:"type"`              // "viperx" | "demucs"
+	Type    string                `json:"type"`              // "vocal" | "viperx" | "demucs"
 	Enabled bool                  `json:"enabled"`
 	Stems   map[string]StemRoute  `json:"stems"`             // stem_name → routing
 }
@@ -175,9 +175,9 @@ func Help() string {
 	b.WriteString("  --input-from-step string Use this existing stem file as input (for chaining)\n")
 	b.WriteString("  --help                   Show this help\n\n")
 	b.WriteString("Presets (v2.8.0):\n")
-	b.WriteString("  Voces Total       1 paso: ViperX separa voces + instrumental\n")
-	b.WriteString("  Eliminador de Voz 1 paso: ViperX elimina voces, solo instrumental\n")
-	b.WriteString("  Separador Completo 2 pasos: ViperX → Demucs (drums, bass, other, vocals)\n")
+	b.WriteString("  Voces Total       1 paso: Vocal separa voces + instrumental\n")
+	b.WriteString("  Eliminador de Voz 1 paso: Vocal elimina voces, solo instrumental\n")
+	b.WriteString("  Separador Completo 2 pasos: Vocal → Demucs (drums, bass, other, vocals)\n")
 	b.WriteString("  Solo Instrumentos 1 paso: Demucs stems sin voces\n")
 
 	return b.String()
