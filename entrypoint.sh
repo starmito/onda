@@ -35,7 +35,7 @@ export NUMBA_CACHE_DIR=/tmp/numba_cache
 export XDG_CACHE_HOME=/tmp/xdg_cache
 export HF_HOME=/tmp/hf_cache
 
-echo "🚀 Starting Onda v3.1.1 ($GPU mode)..."
+echo "🚀 Starting Onda v3.1.2 ($GPU mode)..."
 onda-backend serve --addr 0.0.0.0:3001 &
 
 exec nginx -g "daemon off;"

@@ -1,4 +1,14 @@
 # Changelog
+## [3.1.2] - 2026-06-16
+### Fixed
+- **B2**: device reporting consistente — GPU_TYPE real en status JSON (rocm/cuda/cpu)
+- **B3**: eliminado entrypoint.sh huérfano de onda-gui (no usado desde v3.1.0)
+- **B5**: progreso de descarga de modelos con polling + barra de porcentaje en la UI
+- **L2**: PYTHONPATH incluye /app/lib_v5/ para imports de inference_universal.py
+- **L3**: sincronizadas versiones de torch/torchaudio/torchvision (CPU, CUDA y ROCm)
+### Refactor
+- **L1**: renombrado viperx→vocal como tipo de step interno, con retrocompatibilidad total
+
 ## [3.1.1] - 2026-06-16
 ### Fixed
 - **detect_gpu.sh**: detección ROCm simplificada a solo `/dev/kfd` (sin lspci).
