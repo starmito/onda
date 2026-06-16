@@ -1,5 +1,10 @@
 # Changelog
-## [3.1.0] - 2026-06-16
+## [3.1.1] - 2026-06-16
+### Fixed
+- **detect_gpu.sh**: detección ROCm ahora usa `/dev/kfd` + `lspci` como fallback para
+  sistemas donde `rocm-smi` no está instalado (Ubuntu 26.04 instala ROCm pero
+  `rocm-smi` es paquete separado). El script verifica que exista un AMD GPU
+  real mediante `lspci` para evitar falsos positivos en LXC sin passthrough.
 ### Added
 - **Arquitectura unificada**: un solo contenedor con Go backend + Nginx + Frontend Svelte + Python inference
 - **Auto-detección de hardware**: entrypoint detecta GPU (CUDA → ROCm → CPU) e instala solo el backend de PyTorch necesario
