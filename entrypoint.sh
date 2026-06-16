@@ -17,7 +17,7 @@ if [ "$GPU" != "cpu" ]; then
         mkdir -p "$CACHE_DIR"
         case $GPU in
             cuda)
-                pip install --target "$CACHE_DIR" torch==2.12.0 torchaudio==2.12.0 torchvision==0.27.0 onnxruntime-gpu==1.26.0
+                pip install --target "$CACHE_DIR" torch==2.11.0 torchaudio==2.11.0 torchvision==0.16.0 onnxruntime-gpu==1.26.0
                 ;;
             rocm)
                 pip install --target "$CACHE_DIR" torch==2.11.0+rocm7.2 torchaudio==2.11.0+rocm7.2 torchvision==0.16.0+rocm7.2 onnxruntime --extra-index-url https://download.pytorch.org/whl/rocm7.2
