@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -160,11 +161,14 @@ type DownloadRequest struct {
 
 // DownloadStatus tracks the progress of an async model download.
 type DownloadStatus struct {
-	Status   string `json:"status"`   // "downloading", "done", "error"
-	Repo     string `json:"repo"`
-	Target   string `json:"target,omitempty"`
-	Progress string `json:"progress,omitempty"`
-	Error    string `json:"error,omitempty"`
+	Status          string `json:"status"`   // "downloading", "done", "error"
+	Repo            string `json:"repo"`
+	Target          string `json:"target,omitempty"`
+	Progress        int    `json:"progress"`        // 0-100
+	DownloadedBytes int64  `json:"downloaded_bytes"`
+	TotalBytes      int64  `json:"total_bytes"`
+	Speed           string `json:"speed,omitempty"` // e.g., "5.2 MB/s"
+	Error           string `json:"error,omitempty"`
 }
 
 // downloadTracker holds in-flight download statuses keyed by repo name.
@@ -500,6 +504,105 @@ func (s *Server) handleModelsDownloadStatus(w http.ResponseWriter, r *http.Reque
 	json.NewEncoder(w).Encode(job)
 }
 
+
+// getContentLength performs an HTTP HEAD request to determine the file size for progress tracking.
+func getContentLength(url string) int64 {
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Head(url)
+	if err != nil {
+		return 0
+	}
+	defer resp.Body.Close()
+	if resp.ContentLength > 0 {
+		return resp.ContentLength
+	}
+	// Try to read Content-Length header manually
+	if cl := resp.Header.Get("Content-Length"); cl != "" {
+		if n, err := strconv.ParseInt(cl, 10, 64); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 0
+}
+
+// formatBytes converts a byte rate to a human-readable string (e.g., "5.2 MB/s").
+func formatBytes(bytesPerSec float64) string {
+	switch {
+	case bytesPerSec >= 1<<30:
+		return fmt.Sprintf("%.1f GB/s", bytesPerSec/float64(1<<30))
+	case bytesPerSec >= 1<<20:
+		return fmt.Sprintf("%.1f MB/s", bytesPerSec/float64(1<<20))
+	case bytesPerSec >= 1<<10:
+		return fmt.Sprintf("%.1f KB/s", bytesPerSec/float64(1<<10))
+	default:
+		return fmt.Sprintf("%.0f B/s", bytesPerSec)
+	}
+}
+
+// startProgressPoller starts a goroutine that polls the size of a file on disk
+// and updates the download job status with real progress. Returns a cancel function.
+func startProgressPoller(key string, destPath string, totalBytes int64, interval time.Duration) func() {
+	stop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		var prevBytes int64
+		var prevTime time.Time
+		for {
+			select {
+			case <-stop:
+				return
+			case t := <-ticker.C:
+				fi, err := os.Stat(destPath)
+				if err != nil {
+					continue
+				}
+				currentBytes := fi.Size()
+				elapsed := 0.0
+				if !prevTime.IsZero() {
+					elapsed = t.Sub(prevTime).Seconds()
+				}
+				downloadMu.Lock()
+				// Try primary key, then composite key (filename@url)
+				status, ok := downloadJobs[key]
+				if !ok {
+					// Maybe it's a composite key — try matching by suffix
+					for k, v := range downloadJobs {
+						if strings.HasSuffix(k, key) || strings.HasSuffix(key, k) {
+							status = v
+							ok = true
+							break
+						}
+					}
+				}
+				if ok && status != nil {
+					status.DownloadedBytes = currentBytes
+					if totalBytes > 0 {
+						pct := int((currentBytes * 100) / totalBytes)
+						if pct > 99 {
+							pct = 99 // keep at 99 until complete
+						}
+						if pct < 0 {
+							pct = 0
+						}
+						status.Progress = pct
+					}
+					if prevBytes > 0 && elapsed > 0 {
+						bps := float64(currentBytes-prevBytes) / elapsed
+						if bps >= 0 {
+							status.Speed = formatBytes(bps)
+						}
+					}
+				}
+				downloadMu.Unlock()
+				prevBytes = currentBytes
+				prevTime = t
+			}
+		}
+	}()
+	return func() { close(stop) }
+}
+
 // runHuggingFaceDownload executes the huggingface_hub snapshot_download in a background goroutine.
 func runHuggingFaceDownload(repo, targetDir string) {
 	// Escape single quotes to prevent Python code injection.
@@ -514,6 +617,13 @@ func runHuggingFaceDownload(repo, targetDir string) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Second)
 	defer cancel()
+
+	// Get initial directory size for HF progress tracking
+	initialSize := getDirSize(targetDir)
+
+	// Start progress poller for directory-based downloads
+	stopPoller := startHFDirProgressPoller(repo, targetDir, initialSize, 2*time.Second)
+	defer stopPoller()
 
 	// Try with python3 first
 	cmd := exec.CommandContext(ctx, "python3", "-c", script)
@@ -548,7 +658,7 @@ func runHuggingFaceDownload(repo, targetDir string) {
 	status := downloadJobs[repo]
 	if err != nil {
 		status.Status = "error"
-		status.Progress = "Download failed"
+		status.Progress = 0
 		errStr := err.Error()
 		if len(output) > 0 {
 			errStr = string(output)
@@ -557,9 +667,81 @@ func runHuggingFaceDownload(repo, targetDir string) {
 		log.Printf("[models] download error for %s: %s", repo, errStr)
 	} else {
 		status.Status = "done"
-		status.Progress = "Download complete"
+		status.Progress = 100
+		status.DownloadedBytes = getDirSize(targetDir) - initialSize
+		if status.DownloadedBytes < 0 {
+			status.DownloadedBytes = 0
+		}
+		status.Speed = ""
 		log.Printf("[models] download complete for %s", repo)
 	}
+}
+
+// getDirSize recursively computes the total size of all files in a directory.
+func getDirSize(dir string) int64 {
+	var total int64
+	_ = filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if !info.IsDir() {
+			total += info.Size()
+		}
+		return nil
+	})
+	return total
+}
+
+// startHFDirProgressPoller polls the total size of a target directory to estimate
+// HuggingFace snapshot download progress. It compares current size with initial size.
+func startHFDirProgressPoller(key string, targetDir string, initialSize int64, interval time.Duration) func() {
+	stop := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		var prevBytes int64
+		var prevTime time.Time
+		for {
+			select {
+			case <-stop:
+				return
+			case t := <-ticker.C:
+				currentBytes := getDirSize(targetDir) - initialSize
+				if currentBytes < 0 {
+					currentBytes = 0
+				}
+				elapsed := 0.0
+				if !prevTime.IsZero() {
+					elapsed = t.Sub(prevTime).Seconds()
+				}
+				downloadMu.Lock()
+				if status, ok := downloadJobs[key]; ok {
+					status.DownloadedBytes = currentBytes
+					// Set a rough progress: if total_bytes > 0, use ratio; else show downloaded_bytes
+					if status.TotalBytes > 0 {
+						pct := int((currentBytes * 100) / status.TotalBytes)
+						if pct > 99 {
+							pct = 99
+						}
+						if pct < 0 {
+							pct = 0
+						}
+						status.Progress = pct
+					}
+					if prevBytes > 0 && elapsed > 0 {
+						bps := float64(currentBytes-prevBytes) / elapsed
+						if bps >= 0 {
+							status.Speed = formatBytes(bps)
+						}
+					}
+				}
+				downloadMu.Unlock()
+				prevBytes = currentBytes
+				prevTime = t
+			}
+		}
+	}()
+	return func() { close(stop) }
 }
 
 // detectCategoryFromFilename determines the model category directory from the
@@ -713,8 +895,25 @@ func runDirectDownload(url, filename, targetDir string) {
 	destPath := filepath.Join(targetDir, filename)
 	log.Printf("[models] downloading %s → %s", url, destPath)
 
+	// Get total bytes for progress tracking via HEAD request
+	totalBytes := getContentLength(url)
+
+	// Update the job status with total_bytes immediately
+	downloadMu.Lock()
+	for _, key := range []string{filename + "@" + url, url} {
+		if status, ok := downloadJobs[key]; ok {
+			status.TotalBytes = totalBytes
+			break
+		}
+	}
+	downloadMu.Unlock()
+
 	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Second)
 	defer cancel()
+
+	// Start progress polling goroutine (polls file size every 2 seconds)
+	stopPoller := startProgressPoller(url, destPath, totalBytes, 2*time.Second)
+	defer stopPoller()
 
 	// Use wget with progress output to stderr
 	cmd := exec.CommandContext(ctx, "wget", "-q", "--show-progress", "-O", destPath, url)
@@ -735,7 +934,7 @@ func runDirectDownload(url, filename, targetDir string) {
 	}
 	if err != nil {
 		status.Status = "error"
-		status.Progress = "Download failed"
+		status.Progress = 0
 		errStr := err.Error()
 		if len(output) > 0 {
 			errStr = string(output)
@@ -744,7 +943,12 @@ func runDirectDownload(url, filename, targetDir string) {
 		log.Printf("[models] direct download error for %s: %s", url, errStr)
 	} else {
 		status.Status = "done"
-		status.Progress = "Download complete"
+		status.Progress = 100
+		// Get final file size
+		if fi, fiErr := os.Stat(destPath); fiErr == nil {
+			status.DownloadedBytes = fi.Size()
+		}
+		status.Speed = ""
 		log.Printf("[models] direct download complete for %s → %s", url, destPath)
 	}
 }
