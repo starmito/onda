@@ -169,7 +169,6 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	containerStatus, _ := checkDockerContainer()
 	gpuAvailable, gpuInfo, _ := checkGPU()
 	gpuType := detectGPUType()
 
@@ -204,17 +203,11 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	// ── Overall status ──
 	status := "ok"
-	backendOK := containerStatus == "running"
-	if !backendOK || (!gpuAvailable && gpuType != "rocm") || len(mismatches) > 0 {
+	if (!gpuAvailable && gpuType != "rocm") || len(mismatches) > 0 {
 		status = "degraded"
 	}
 
 	// ── Build components ──
-	backendDetail := "onda container " + containerStatus
-	if containerStatus == "" {
-		backendDetail = "onda container not found"
-	}
-
 	var gpuObj map[string]interface{}
 	if gpuAvailable || gpuType == "rocm" {
 		gpuObj = map[string]interface{}{"ok": true, "type": gpuType, "detail": gpuInfo}
@@ -255,15 +248,14 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"status":  status,
 		"version": Version,
 		"backend": map[string]interface{}{
-			"ok":      backendOK,
-			"detail":  backendDetail,
+			"ok":      true,
+			"detail":  "unified container running",
 			"version": Version,
 		},
 		"frontend":         frontendObj,
 		"pipeline":         pipelineObj,
 		"gpu":              gpuObj,
 		"disk":             checkDisk(),
-		"docker":           checkDocker(),
 		"version_mismatch": mismatchObj,
 	}
 
@@ -471,9 +463,8 @@ func (s *Server) handleQueueClear(w http.ResponseWriter, r *http.Request) {
 		s.currentCmd = nil
 	}
 
-	// Kill processes inside container
-	// Kill processes inside container (onda container has pidof, use that instead of pkill)
-	exec.Command("docker", "exec", "onda", "sh", "-c", "kill $(pidof python3) $(pidof python) 2>/dev/null; kill $(pidof bash) 2>/dev/null; exit 0").Run()
+	// Kill processes directly (same container)
+	exec.Command("sh", "-c", "kill $(pidof python3) $(pidof python) 2>/dev/null; kill $(pidof bash) 2>/dev/null; exit 0").Run()
 
 	// Clear all jobs
 	s.jobs = make(map[string]*JobState)
@@ -496,9 +487,8 @@ func (s *Server) handleQueueCancel(w http.ResponseWriter, r *http.Request) {
 		s.currentCmd = nil
 	}
 
-	// Kill processes inside container
-	// Kill processes inside container (onda container has pidof, use that instead of pkill)
-	exec.Command("docker", "exec", "onda", "sh", "-c", "kill $(pidof python3) $(pidof python) 2>/dev/null; kill $(pidof bash) 2>/dev/null; exit 0").Run()
+	// Kill processes directly (same container)
+	exec.Command("sh", "-c", "kill $(pidof python3) $(pidof python) 2>/dev/null; kill $(pidof bash) 2>/dev/null; exit 0").Run()
 
 	// Remove all jobs — cancel means "stop everything and start fresh"
 	s.jobs = make(map[string]*JobState)
@@ -557,8 +547,8 @@ func (s *Server) worker() {
 // runSinglePipeline executes a single pipeline.sh invocation.
 func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	ctx, cancel := context.WithCancel(context.Background())
-	dockerArgs := append([]string{"exec", "onda", "bash", "/pipeline.sh"}, job.Args...)
-	cmd := exec.CommandContext(ctx, "docker", dockerArgs...)
+	args := append([]string{"/pipeline.sh"}, job.Args...)
+	cmd := exec.CommandContext(ctx, "bash", args...)
 
 	s.jobsMu.Lock()
 	s.currentCancel = cancel
@@ -634,8 +624,8 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 
 		// Execute this step
 		ctx, cancel := context.WithCancel(context.Background())
-		dockerArgs := append([]string{"exec", "onda", "bash", "/pipeline.sh"}, stepArgs...)
-		cmd := exec.CommandContext(ctx, "docker", dockerArgs...)
+		pipelineArgs := append([]string{"/pipeline.sh"}, stepArgs...)
+		cmd := exec.CommandContext(ctx, "bash", pipelineArgs...)
 
 		s.jobsMu.Lock()
 		s.currentCancel = cancel
@@ -1677,84 +1667,33 @@ func (s *Server) handleFileServe(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, absPath)
 }
 
-// handleBackendStart starts the Onda Docker container.
+// handleBackendStart is a no-op in unified container mode.
 func (s *Server) handleBackendStart(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "docker", "start", dockerContainer)
-	out, err := cmd.CombinedOutput()
-
 	w.Header().Set("Content-Type", "application/json")
-	if err != nil {
-		detail := err.Error()
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			detail = fmt.Sprintf("exit code %d: %s", exitErr.ExitCode(), strings.TrimSpace(string(out)))
-		}
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"detail":  detail,
-		})
-		return
-	}
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
-		"detail":  "Backend started",
+		"detail":  "Backend is already running (unified container)",
 	})
 }
 
-// handleBackendStop stops the Onda Docker container.
+// handleBackendStop is a no-op in unified container mode.
 func (s *Server) handleBackendStop(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "docker", "stop", dockerContainer)
-	out, err := cmd.CombinedOutput()
-
 	w.Header().Set("Content-Type", "application/json")
-	if err != nil {
-		detail := err.Error()
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			detail = fmt.Sprintf("exit code %d: %s", exitErr.ExitCode(), strings.TrimSpace(string(out)))
-		}
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"detail":  detail,
-		})
-		return
-	}
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
-		"detail":  "Backend stopped",
+		"detail":  "Stop not applicable in unified container",
 	})
 }
 
-// handleBackendRestart restarts the Onda Docker container.
+// handleBackendRestart is a no-op in unified container mode.
 func (s *Server) handleBackendRestart(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "docker", "restart", dockerContainer)
-	out, err := cmd.CombinedOutput()
-
 	w.Header().Set("Content-Type", "application/json")
-	if err != nil {
-		detail := err.Error()
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			detail = fmt.Sprintf("exit code %d: %s", exitErr.ExitCode(), strings.TrimSpace(string(out)))
-		}
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": false,
-			"detail":  detail,
-		})
-		return
-	}
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{
 		"success": true,
-		"detail":  "Backend restarted",
+		"detail":  "Restart not applicable in unified container",
 	})
 }
 

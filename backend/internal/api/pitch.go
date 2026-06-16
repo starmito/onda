@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
@@ -90,15 +89,11 @@ func (s *Server) handlePitchShift(w http.ResponseWriter, r *http.Request) {
 	pitchSuffix := fmt.Sprintf("_pitch%+d", req.Pitch)
 	outDir := filepath.Join(songDir, req.Song+pitchSuffix)
 
-	// Create output directory INSIDE the onda container (as uid 1000),
-	// so it's writable by rubberband (also uid 1000 in onda).
-	// Bind-mount ZFS prevents chmod from working across container boundaries.
-	containerOutDir := "/output/" + req.Song + "/" + req.Song + pitchSuffix
-	mkdirCmd := exec.Command("docker", "exec", "onda", "mkdir", "-p", containerOutDir)
-	if out, err := mkdirCmd.CombinedOutput(); err != nil {
+	// Create output directory locally (same container)
+	if err := os.MkdirAll(outDir, 0755); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to create output dir: %v (output: %s)", err, string(out))})
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to create output dir: %v", err)})
 		return
 	}
 
@@ -152,13 +147,9 @@ func (s *Server) handlePitchShift(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		} else {
-			// Apply rubberband pitch shift INSIDE the onda container.
-			// rubberband runs via docker exec, so paths must be container paths,
-			// not host paths. The container bind-mounts /output/ from the host.
-			containerInputPath := "/output/" + req.Song + "/" + name
-			containerOutputPath := containerOutDir + "/" + outputName
-			Log("pipeline", "debug", fmt.Sprintf("Rubberband command: docker exec onda rubberband -p %d %s %s", req.Pitch, containerInputPath, containerOutputPath))
-			if err := audio.RubberbandPitch(req.Pitch, containerInputPath, containerOutputPath); err != nil {
+			// Apply rubberband pitch shift directly (same container).
+			Log("pipeline", "debug", fmt.Sprintf("Rubberband command: rubberband -p %d %s %s", req.Pitch, inputPath, outputPath))
+			if err := audio.RubberbandPitch(req.Pitch, inputPath, outputPath); err != nil {
 				Log("pipeline", "error", fmt.Sprintf("rubberband FAILED for stem %q: %v", name, err))
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusInternalServerError)

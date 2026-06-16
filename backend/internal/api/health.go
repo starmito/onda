@@ -11,35 +11,18 @@ import (
 	"time"
 )
 
-const dockerContainer = "onda"
-
-
 // GPUPresenceResponse es la respuesta del endpoint /api/gpu.
 type GPUPresenceResponse struct {
 	Available bool   `json:"available"`
 	Info      string `json:"info"`
 }
 
-// checkDockerContainer verifica si el contenedor está corriendo.
-func checkDockerContainer() (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "docker", "inspect", "-f", "{{.State.Status}}", dockerContainer)
-	out, err := cmd.Output()
-	if err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(out)), nil
-}
-
-// checkGPU verifica si el contenedor tiene acceso a GPU NVIDIA vía PyTorch.
-// El contenedor onda no tiene nvidia-smi, así que usamos torch.cuda.
+// checkGPU verifica si hay GPU NVIDIA vía PyTorch.
 func checkGPU() (bool, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	script := "import torch; d=torch.cuda.get_device_properties(0) if torch.cuda.is_available() else None; print(f'{d.name}, {torch.cuda.memory_allocated(0)//1024//1024} MiB, {torch.cuda.get_device_properties(0).total_memory//1024//1024} MiB' if d else 'CUDA not available')"
-	cmd := exec.CommandContext(ctx, "docker", "exec", dockerContainer,
-		"python3", "-c", script)
+	cmd := exec.CommandContext(ctx, "python3", "-c", script)
 	out, err := cmd.Output()
 	if err != nil {
 		return false, "", err
@@ -49,12 +32,12 @@ func checkGPU() (bool, string, error) {
 	return available, info, nil
 }
 
-// detectGPUType ejecuta detect_gpu.sh dentro del contenedor onda.
+// detectGPUType ejecuta detect_gpu.sh directamente.
 // Devuelve "cuda", "rocm", o "cpu".
 func detectGPUType() string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "docker", "exec", dockerContainer, "bash", "/app/detect_gpu.sh")
+	cmd := exec.CommandContext(ctx, "bash", "/usr/local/bin/detect_gpu.sh")
 	out, err := cmd.Output()
 	if err != nil {
 		return "cpu" // fallback safe
@@ -96,31 +79,5 @@ func checkDisk() map[string]interface{} {
 	return map[string]interface{}{
 		"ok":     true,
 		"detail": fmt.Sprintf("%.1f GB free", freeGB),
-	}
-}
-
-// checkDocker returns docker socket health.
-// ok=true if /var/run/docker.sock is accessible and is a socket; otherwise ok=false with code "E6".
-func checkDocker() map[string]interface{} {
-	info, err := os.Stat("/var/run/docker.sock")
-	if err != nil {
-		return map[string]interface{}{
-			"ok":     false,
-			"code":   "E6",
-			"detail": "docker socket not accessible",
-		}
-	}
-
-	if info.Mode()&os.ModeSocket == 0 {
-		return map[string]interface{}{
-			"ok":     false,
-			"code":   "E6",
-			"detail": "docker socket exists but is not a socket",
-		}
-	}
-
-	return map[string]interface{}{
-		"ok":     true,
-		"detail": "docker socket accessible",
 	}
 }

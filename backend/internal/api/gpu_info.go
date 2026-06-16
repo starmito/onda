@@ -148,8 +148,7 @@ else:
         result["temp_c"] = -1
     print(json.dumps(result))`
 
-	cmd := exec.CommandContext(ctx, "docker", "exec", dockerContainer,
-		"python3", "-c", script)
+	cmd := exec.CommandContext(ctx, "python3", "-c", script)
 	out, err := cmd.Output()
 	if err != nil {
 		return GPUInfoResponse{
@@ -198,7 +197,7 @@ else:
 		VRAMFreeMB:        result.FreeMB,
 		UtilizationGPUPct: utilization,
 		TemperatureC:      temperature,
-		Runtime:           "docker",
+		Runtime:           "pytorch",
 		OK:                true,
 	}
 }
