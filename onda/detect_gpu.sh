@@ -15,7 +15,7 @@ if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
     echo 'cuda'
 elif command -v rocm-smi &>/dev/null && rocm-smi &>/dev/null; then
     echo 'rocm'
-elif [ -c /dev/kfd ] && command -v lspci &>/dev/null && lspci -nn 2>/dev/null | grep -qiE '(amd|ati).*(vga|display|3d|gpu)'; then
+elif [ -c /dev/kfd ] && command -v lspci &>/dev/null && lspci -nn 2>/dev/null | grep -qiE '(amd|ati).*(vga|display|3d|gpu)|(vga|display|3d|gpu).*(amd|ati)'; then
     echo 'rocm'
 else
     echo 'cpu'
