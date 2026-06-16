@@ -74,6 +74,9 @@ COPY onda-gui/nginx.conf /etc/nginx/nginx.conf
 COPY pipeline.sh /pipeline.sh
 RUN chmod +x /pipeline.sh
 
+# ViperX inference
+COPY inference_universal.py /app/inference_universal.py
+
 # GPU detection
 COPY onda/detect_gpu.sh /usr/local/bin/detect_gpu.sh
 RUN chmod +x /usr/local/bin/detect_gpu.sh
