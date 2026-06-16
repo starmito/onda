@@ -1,4 +1,4 @@
-# Onda v3.1.0 — Contenedor unificado (Python + Go + Nginx + Svelte)
+# Onda v3.1.1 — Contenedor unificado (Python + Go + Nginx + Svelte)
 # GPU auto-detect en runtime via entrypoint.sh
 # Build: docker compose build
 # Deploy: docker compose up -d  (o bash deploy.sh para auto-detectar GPU)
