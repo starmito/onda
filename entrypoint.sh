@@ -28,7 +28,7 @@ if [ ! -f "$CACHE_DIR/torch/__init__.py" ]; then
     pip install --target "$CACHE_DIR" \
         diffq pytorch_lightning ml_collections onnx2pytorch \
         rotary_embedding_torch segmentation_models_pytorch \
-        transformers timm torchmetrics spafe \
+        transformers timm torchmetrics spafe julius \
         torch_audiomentations asteroid openunmix dora-search
 
     echo "✅ $GPU backend + torch deps installed"

@@ -10,6 +10,5 @@ resampy==0.4.3
 omegaconf==2.3.0
 onnx==1.21.0
 beartype==0.22.9
-julius==0.2.7
 samplerate==0.2.4
 lameenc>=1.2
