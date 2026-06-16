@@ -5,8 +5,8 @@ GPU=$(detect_gpu.sh)
 echo "🎯 GPU detected: $GPU"
 CACHE_DIR="/opt/pytorch-backends/$GPU"
 
-# Añadir cache al PYTHONPATH
-export PYTHONPATH="$CACHE_DIR:$PYTHONPATH"
+# Añadir cache al PYTHONPATH (inicializar si no existe)
+export PYTHONPATH="${PYTHONPATH:-}:$CACHE_DIR"
 
 # Si no está cacheado, instalar backend completo
 if [ ! -f "$CACHE_DIR/torch/__init__.py" ]; then

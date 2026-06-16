@@ -212,12 +212,12 @@ func listModels() ModelsListResponse {
 				return nil
 			}
 
-			// Build path relative to /models/ for Docker access
+			// Build path relative to /models/
 			rel, err := filepath.Rel(modelsBasePath, path)
 			if err != nil {
 				rel = filepath.Join(subdir, info.Name())
 			}
-			dockerPath := "/models/" + filepath.ToSlash(rel)
+			modelPath := "/models/" + filepath.ToSlash(rel)
 
 			name := strings.TrimSuffix(info.Name(), ext)
 			category := detectCategory(subdir, rel)
@@ -227,7 +227,7 @@ func listModels() ModelsListResponse {
 				Name:           name,
 				DisplayName:    displayName,
 				Category:       category,
-				Path:           dockerPath,
+				Path:           modelPath,
 				SizeMB:         info.Size() / (1024 * 1024),
 				VramEstimateMB: estimateVRAM(name, category, info.Size()/(1024*1024)),
 			})

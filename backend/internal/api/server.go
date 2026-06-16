@@ -1667,33 +1667,33 @@ func (s *Server) handleFileServe(w http.ResponseWriter, r *http.Request) {
 	http.ServeFile(w, r, absPath)
 }
 
-// handleBackendStart is a no-op in unified container mode.
+// handleBackendStart is no longer supported in unified container mode.
 func (s *Server) handleBackendStart(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusBadRequest)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"detail":  "Backend is already running (unified container)",
+		"error":  "no longer supported in unified container",
+		"detail": "Backend is already running (unified container)",
 	})
 }
 
-// handleBackendStop is a no-op in unified container mode.
+// handleBackendStop is no longer supported in unified container mode.
 func (s *Server) handleBackendStop(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusBadRequest)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"detail":  "Stop not applicable in unified container",
+		"error":  "no longer supported in unified container",
+		"detail": "Stop not applicable in unified container",
 	})
 }
 
-// handleBackendRestart is a no-op in unified container mode.
+// handleBackendRestart is no longer supported in unified container mode.
 func (s *Server) handleBackendRestart(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
+	w.WriteHeader(http.StatusBadRequest)
 	json.NewEncoder(w).Encode(map[string]interface{}{
-		"success": true,
-		"detail":  "Restart not applicable in unified container",
+		"error":  "no longer supported in unified container",
+		"detail": "Restart not applicable in unified container",
 	})
 }
 
