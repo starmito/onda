@@ -73,6 +73,7 @@ def separate(model_dir, input_path, output_dir="output", progress_file=None, num
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Device: {device}")
     
+    config['model'].pop('type', None)
     model = model_cls(**config['model'])
     ckpt = torch.load(os.path.join(model_dir, ckpt_name), map_location='cpu', weights_only=True)
     model.load_state_dict(ckpt, strict=False)
