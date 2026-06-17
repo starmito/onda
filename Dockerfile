@@ -115,6 +115,10 @@ RUN mkdir -p /input /output /input_rubberband /config /var/cache/nginx /var/run 
 # Symlink para el backend Go (espera /pipeline.sh)
 RUN ln -sf /app/pipeline.sh /pipeline.sh
 
+# Symlink para modelos: docker-compose monta ./models en /app/models,
+# pero el backend y pipeline.sh usan /models como ruta base.
+RUN ln -sf /app/models /models
+
 WORKDIR /app
 EXPOSE 3000
 
