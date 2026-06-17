@@ -2,17 +2,17 @@
 import subprocess
 import os
 
-CONTAINER = "onda"
+CONTAINER = os.environ.get('CONTAINER_NAME', 'onda')
 SCRIPT = "inference/inference_mdx.py"
-FIXTURE_DIR = "/app/tests/integration/fixtures"
+FIXTURE_DIR = os.environ.get('FIXTURE_DIR', '/app/tests/integration/fixtures')
 OUTPUT = "/tmp/onda-test-mdx"
-MODEL_PATH = "/app/models/MDX_Net_Models/Kim_Vocal_2.onnx"
+MODEL_PATH = os.environ.get('MDX_MODEL_PATH', '/app/models/MDX_Net_Models/Kim_Vocal_2.onnx')
 
 def run_mdx(input_file, output_dir=None):
     """Run MDX-Net inside container."""
     out = output_dir or f"{OUTPUT}"
     cmd = [
-        "ssh", ".87", "docker", "exec", CONTAINER,
+        "docker", "exec", CONTAINER,
         "python3", SCRIPT,
         MODEL_PATH,
         f"{FIXTURE_DIR}/{input_file}",
