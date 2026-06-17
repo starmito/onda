@@ -1,7 +1,6 @@
 #!/bin/bash
-# deploy-test-common.sh — Lógica compartida para validar despliegues GPU de Onda.
-# Uso: sourcear desde deploy-test-cuda.sh / deploy-test-rocm.sh después de definir
-#   REPO_DIR, BACKEND, COMPOSE_FILE.
+# deploy-test-common.sh — Lógica compartida para validar despliegues de Onda.
+# Uso: sourcear desde deploy-test.sh después de definir REPO_DIR y BACKEND.
 #
 # Variables opcionales:
 #   CONTAINER — nombre del contenedor (default: onda)
@@ -11,7 +10,6 @@ set -u
 
 : "${REPO_DIR:?REPO_DIR no definido}"
 : "${BACKEND:?BACKEND no definido}"
-: "${COMPOSE_FILE:?COMPOSE_FILE no definido}"
 
 CONTAINER="${CONTAINER:-onda}"
 OUTPUT_ROOT="$REPO_DIR/output"
@@ -35,32 +33,15 @@ run_step() {
     fi
 }
 
-do_cd() {
-    cd "$REPO_DIR"
-}
-
-do_git_pull() {
-    git pull
-}
-
-do_build() {
-    docker compose -f docker-compose.yml -f "$COMPOSE_FILE" build --no-cache
-}
-
-do_up() {
-    docker compose -f docker-compose.yml -f "$COMPOSE_FILE" up -d --force-recreate
-}
-
-do_wait() {
-    sleep 3
-}
-
-do_check_gpu_log() {
-    docker logs "$CONTAINER" 2>&1 | grep -q "GPU detected: ${BACKEND}"
-}
-
-_find_input_flac() {
-    find "$REPO_DIR/input" -maxdepth 1 -type f -iname "*.flac" | head -1
+_find_test_audio() {
+    local wav
+    wav="$REPO_DIR/input/test_sound.wav"
+    if [ ! -f "$wav" ]; then
+        echo "   ⚠️  No se encontró test_sound.wav; generándolo..."
+        python3 "$REPO_DIR/scripts/gen-test-audio.py"
+        cp "$REPO_DIR/test_sound.wav" "$REPO_DIR/input/"
+    fi
+    echo "$wav"
 }
 
 _pythonpath() {
@@ -72,13 +53,13 @@ _pythonpath() {
 }
 
 do_test_viperx() {
-    local flac model_dir out_dir
-    flac="$(_find_input_flac)"
-    if [ -z "$flac" ]; then
-        echo "   ❌ No se encontró ningún archivo .flac en $REPO_DIR/input"
+    local wav model_dir out_dir
+    wav="$(_find_test_audio)"
+    if [ -z "$wav" ] || [ ! -f "$wav" ]; then
+        echo "   ❌ No se encontró test_sound.wav en $REPO_DIR/input"
         return 1
     fi
-    echo "   🎵 FLAC de entrada: $(basename "$flac")"
+    echo "   🎵 Audio de entrada: $(basename "$wav")"
 
     model_dir="/app/models/VR_Models/BS_Roformer_Viperx"
     if ! docker exec "$CONTAINER" test -d "$model_dir"; then
@@ -93,24 +74,24 @@ do_test_viperx() {
 
     docker exec ${EXTRA_DOCKER_ENV:-} -e PYTHONPATH="$(_pythonpath)" "$CONTAINER" \
         python3 /app/inference_universal.py \
-        "$model_dir" "/input/$(basename "$flac")" "$out_dir" 4
+        "$model_dir" "/input/$(basename "$wav")" "$out_dir" 4
 }
 
 do_test_demucs() {
-    local flac out_dir
-    flac="$(_find_input_flac)"
-    if [ -z "$flac" ]; then
-        echo "   ❌ No se encontró ningún archivo .flac en $REPO_DIR/input"
+    local wav out_dir
+    wav="$(_find_test_audio)"
+    if [ -z "$wav" ] || [ ! -f "$wav" ]; then
+        echo "   ❌ No se encontró test_sound.wav en $REPO_DIR/input"
         return 1
     fi
-    echo "   🎵 FLAC de entrada: $(basename "$flac")"
+    echo "   🎵 Audio de entrada: $(basename "$wav")"
 
     out_dir="/output/test-${BACKEND}-demucs"
     rm -rf "${OUTPUT_BASE}-demucs"
     mkdir -p "${OUTPUT_BASE}-demucs"
 
     docker exec ${EXTRA_DOCKER_ENV:-} -e PYTHONPATH="$(_pythonpath)" "$CONTAINER" \
-        demucs -n htdemucs_ft --device cuda -o "$out_dir" "/input/$(basename "$flac")"
+        demucs -n htdemucs_ft --device cuda -o "$out_dir" "/input/$(basename "$wav")"
 }
 
 do_verify_outputs() {
@@ -151,15 +132,9 @@ do_verify_outputs() {
 }
 
 run_all_steps() {
-    run_step "a) cd al repositorio" do_cd
-    run_step "b) git pull" do_git_pull
-    run_step "c) docker compose build --no-cache" do_build
-    run_step "d) docker compose up -d --force-recreate" do_up
-    run_step "e) esperar 3s" do_wait
-    run_step "f) verificar log 'GPU detected: ${BACKEND}'" do_check_gpu_log
-    run_step "g) probar BS-Roformer (inference_universal.py)" do_test_viperx
-    run_step "h) probar Demucs htdemucs_ft" do_test_demucs
-    run_step "i) verificar tamaño y duración de outputs" do_verify_outputs
+    run_step "a) probar BS-Roformer (inference_universal.py)" do_test_viperx
+    run_step "b) probar Demucs htdemucs_ft" do_test_demucs
+    run_step "c) verificar tamaño y duración de outputs" do_verify_outputs
 
     echo ""
     echo "════════════════════════════════════════════════════"

@@ -18,6 +18,7 @@ models/
 output/
 output_*/
 /tmp/onda_test/
+test_sound.wav
 
 # Model configs (per-model, data not code)
 model_config.json
