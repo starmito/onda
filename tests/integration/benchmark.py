@@ -5,19 +5,19 @@ import time
 import json
 import os
 
-CONTAINER = "onda"
-FIXTURE = "/app/tests/integration/fixtures/chirp_5s.flac"
+CONTAINER = os.environ.get('CONTAINER_NAME', 'onda')
+FIXTURE = os.environ.get('FIXTURE_DIR', '/app/tests/integration/fixtures') + '/chirp_5s.flac'
 DURATION = 5.0
-MDX_MODEL = "/mnt/almacen/onda/models/MDX_Net_Models/Kim_Vocal_2.onnx"
+MDX_MODEL = os.environ.get('MDX_MODEL_PATH', '/app/models/MDX_Net_Models/Kim_Vocal_2.onnx')
 
 BENCHMARKS = {
     "mdx-net": [
-        "ssh", ".87", "docker", "exec", CONTAINER, "python3",
+        "docker", "exec", CONTAINER, "python3",
         "inference/inference_mdx.py", MDX_MODEL, FIXTURE,
         "/tmp/bench-mdx/"
     ],
     "demucs-pytorch": [
-        "ssh", ".87", "docker", "exec", CONTAINER, "demucs",
+        "docker", "exec", CONTAINER, "demucs",
         "-n", "htdemucs_ft", "--two-stems", "vocals",
         "-o", "/tmp/bench-demucs-pt/", FIXTURE
     ],
