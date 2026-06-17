@@ -53,7 +53,7 @@ fi
 case "${1:-}" in
     pipeline)
         shift
-        docker exec -i onda bash /app/pipeline.sh "$@"
+        docker exec -i "${CONTAINER_NAME:-onda}" bash /app/pipeline.sh "$@"
         ;;
     shell)
         docker exec -it onda bash
@@ -76,6 +76,6 @@ case "${1:-}" in
         echo "  Config: ${SCRIPT_DIR}/docker-compose.yml"
         ;;
     *)
-        docker exec -i onda "$@"
+        docker exec -i "${CONTAINER_NAME:-onda}" "$@"
         ;;
 esac
