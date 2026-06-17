@@ -31,8 +31,8 @@ if [ "$(id -u)" = "0" ]; then
         fi
     fi
 
-    # Crear directorios
-    mkdir -p /input /output /input_rubberband /config /tmp/numba_cache /tmp/torch_cache /tmp/xdg_cache /tmp/hf_cache
+    # Crear directorios de montaje
+    mkdir -p /input /output /input_rubberband /config
 
     export TORCH_HOME=/tmp/torch_cache
     export NUMBA_CACHE_DIR=/tmp/numba_cache
@@ -45,6 +45,9 @@ fi
 
 # --- A partir de aquí vamos como appuser ---
 GPU="${GPU:-cpu}"
+
+# Crear directorios temporales como appuser
+mkdir -p /tmp/numba_cache /tmp/torch_cache /tmp/xdg_cache /tmp/hf_cache
 
 echo "🚀 Starting Onda v3.1.2 ($GPU mode)..."
 onda-backend serve --addr 0.0.0.0:3001 &
