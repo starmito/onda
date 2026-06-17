@@ -1102,16 +1102,19 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Check if song is already in the queue
+	// Check if song is already in the queue. Allow re-queuing if the previous
+	// job is in a terminal state (done or error) so retries don't get stuck.
 	s.jobsMu.Lock()
-	if _, exists := s.jobs[song]; exists {
-		s.jobsMu.Unlock()
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusConflict)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "song already queued",
-		})
-		return
+	if existing, exists := s.jobs[song]; exists {
+		if existing.Status != "done" && existing.Status != "error" {
+			s.jobsMu.Unlock()
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error": "song already queued",
+			})
+			return
+		}
 	}
 
 	s.jobs[song] = &JobState{Song: song, Status: "waiting", Index: s.nextIndex, TotalSteps: totalSteps}
