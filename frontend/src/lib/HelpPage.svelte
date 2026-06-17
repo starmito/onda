@@ -32,7 +32,7 @@
         const gpuDetail = d.gpu?.detail || '';
         const gpuName = gpuDetail.split(',')[0] || '—';
         const diskDetail = d.disk?.detail || '?';
-        const runtime = d.gpu?.ok ? 'CUDA (NVIDIA)' : 'CPU';
+        const runtime = d.gpu?.type === 'rocm' ? 'ROCm (AMD)' : d.gpu?.type === 'cuda' ? 'CUDA (NVIDIA)' : d.gpu?.ok ? 'CUDA (NVIDIA)' : 'CPU';
         
         services = services.map(s => {
           if (s.name === 'Backend') 
