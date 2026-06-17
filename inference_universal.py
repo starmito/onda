@@ -60,6 +60,10 @@ def separate(model_dir, input_path, output_dir="output", progress_file=None, num
     with open(os.path.join(model_dir, yaml_name)) as f:
         config = yaml.full_load(f)
     
+    # Convertir list→tuple para beartype (BSRoformer espera Tuple[int, ...])
+    if 'freqs_per_bands' in config.get('model', {}):
+        config['model']['freqs_per_bands'] = tuple(config['model']['freqs_per_bands'])
+    
     # Detect model type
     if 'num_bands' in config['model']:
         model_cls, model_type = MelBandRoformer, "MelBandRoformer"
