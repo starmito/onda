@@ -122,7 +122,7 @@ do_verify_outputs() {
             local size basename_wav container_wav dur
             size=$(stat -c%s "$wav")
             basename_wav=$(basename "$wav")
-            container_wav=$(echo "$wav" | sed "s|${REPO_DIR}/output|/output|")
+            container_wav="/output${wav#$REPO_DIR/output}"
 
             if [ "$size" -lt 102400 ]; then
                 echo "   ❌ $basename_wav pesa solo ${size}B (< 100KB)"
