@@ -30,7 +30,6 @@ services:
       - ./output:/output
       - ./input_rubberband:/input_rubberband
       - ./config:/config
-      - ./tests/integration/fixtures:/app/tests/integration/fixtures:ro
       - pytorch-cache:/opt/pytorch-backends
     environment:
       - NUMBA_CACHE_DIR=/tmp/numba_cache
