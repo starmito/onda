@@ -26,7 +26,7 @@ import wave
 
 import pytest
 
-API = "http://192.168.1.87:3000"
+API = os.environ.get("ONDA_API_URL", "http://localhost:3000")
 PRESETS_VALID = ["turbo", "quality", "balanced", "fast"]
 POLL_INTERVAL = 2  # seconds
 MAX_WAIT = 120      # seconds
