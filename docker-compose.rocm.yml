@@ -11,6 +11,7 @@ services:
     group_add:
       - video
     environment:
-      # HSA_OVERRIDE_GFX_VERSION=11.0.2
-      # Descomentar (quitar el #) si usas AMD APU con Radeon 780M/760M/740M (gfx1103).
-      # Sin esto, ROCm rechaza la GPU por no estar en la lista de soporte oficial.
+      # HSA_OVERRIDE_GFX_VERSION - necesario para AMD APU Radeon 780M/760M/740M (gfx1103).
+      # Para activarlo, crea un archivo .env en el project root con:
+      # HSA_OVERRIDE_GFX_VERSION=11.0.0
+      - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-}
