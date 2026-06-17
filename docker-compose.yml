@@ -22,7 +22,7 @@ services:
     ports:
       - "${ONDA_PORT:-3000}:3000"
     volumes:
-      - ${MODEL_DIR:-./models}:/models:rw
+      - ${MODEL_DIR:-./models}:/app/models:rw
       - ./input:/input
       - ./output:/output
       - ./input_rubberband:/input_rubberband
