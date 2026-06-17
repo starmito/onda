@@ -1,5 +1,5 @@
 <script>
-	import { IconMenu, IconUser, IconTone, IconBPM, IconDAW, IconHelp, IconSettings, IconFolder } from './icons';
+	import { IconMenu, IconUser, IconTone, IconBPM, IconDAW, IconHelp, IconSettings } from './icons';
 
 	/**
 	 * Sidebar.svelte — Sidebar vertical colapsable al estilo vocalremover.org
@@ -22,7 +22,6 @@
 
 	const staticItems = [
 		{ id: 'pitch',    name: 'Cambiar Tono',        icon: IconTone },
-		{ id: 'results',  name: 'Resultados',          icon: IconFolder },
 		{ id: 'bpm',      name: 'Detectar velocidad',  icon: IconBPM },
 		{ id: 'daw',      name: 'DAW',                  icon: IconDAW },
 	];
