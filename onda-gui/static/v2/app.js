@@ -1245,7 +1245,7 @@
     E2: ["Backend container stopped", "Click Start Backend or run: docker start onda"],
     E3: ["NVIDIA GPU not available", "Check nvidia-smi on host. Install nvidia-container-toolkit"],
     E4: ["GPU out of memory", "Close other GPU processes or reduce batch size"],
-    E5: ["Low disk space on /output", "Free up space in /home/starmito/projects/onda/output"],
+    E5: ["Low disk space on /output", "Free up space in the output directory"],
     E6: ["Docker socket not accessible", "Check /var/run/docker.sock permissions"]
   };
 
