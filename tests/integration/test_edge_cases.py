@@ -1,15 +1,15 @@
 """Edge case tests for separation methods."""
+import os
 import subprocess
-import pytest
 
-CONTAINER = "onda"
-FIXTURE_DIR = "/app/tests/integration/fixtures"
+CONTAINER = os.environ.get("CONTAINER_NAME", "onda")
+FIXTURE_DIR = os.environ.get("FIXTURE_DIR", "/app/tests/integration/fixtures")
 
 
 def run_demucs(input_file, output_dir, stems="vocals", timeout=120):
     """Run Demucs PyTorch inside container."""
     cmd = [
-        "ssh", ".87", "docker", "exec", CONTAINER,
+        "docker", "exec", CONTAINER,
         "demucs", "-n", "htdemucs_ft",
         "--two-stems", stems,
         "-o", output_dir,
@@ -44,7 +44,7 @@ def test_nonexistent_file():
 def test_mdx_short_audio():
     """MDX-Net with short audio should not crash."""
     cmd = [
-        "ssh", ".87", "docker", "exec", CONTAINER, "python3",
+        "docker", "exec", CONTAINER, "python3",
         "inference/inference_mdx.py",
         f"{FIXTURE_DIR}/short_05s.flac",
         "/tmp/onda-test-edge-mdx-short/",
