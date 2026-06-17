@@ -20,7 +20,7 @@ if [ "$GPU" != "cpu" ]; then
                 pip install --target "$CACHE_DIR" torch==2.11.0 torchaudio==2.11.0 torchvision==0.26.0 onnxruntime-gpu==1.26.0
                 ;;
             rocm)
-                pip install --target "$CACHE_DIR" torch==2.11.0+rocm7.2 torchaudio==2.11.0+rocm7.2 torchvision==0.26.0+rocm7.2 onnxruntime --extra-index-url https://download.pytorch.org/whl/rocm7.2
+                pip install --target "$CACHE_DIR" torch==2.11.0+rocm7.1 torchaudio==2.11.0+rocm7.1 torchvision==0.26.0+rocm7.1 onnxruntime --extra-index-url https://download.pytorch.org/whl/rocm7.1
                 ;;
         esac
         echo "✅ $GPU backend installed"
