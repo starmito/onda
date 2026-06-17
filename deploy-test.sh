@@ -110,7 +110,7 @@ cp test_sound.wav input/
 if [ "$BACKEND" = "rocm" ]; then
     export EXTRA_DOCKER_ENV="-e HSA_OVERRIDE_GFX_VERSION=11.0.0"
     export VIPERX_OVERLAP=2
-    export DEMUCS_EXTRA="--segment 5"
+    export DEMUCS_EXTRA="-n htdemucs --segment 1 --jobs 1"
 fi
 
 # l) Sourcear deploy-test-common.sh y llamar run_all_steps
