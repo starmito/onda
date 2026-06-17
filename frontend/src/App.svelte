@@ -6,7 +6,6 @@
   import SettingsPanel from './lib/SettingsPanel.svelte';
   import PlaceholderPage from './lib/PlaceholderPage.svelte';
   import HelpPage from './lib/HelpPage.svelte';
-  import ResultsPanel from './lib/ResultsPanel.svelte';
   import PresetsPanel from './lib/PresetsPanel.svelte';
   import type { ResultStem } from './lib/types';
   import { detectStemType } from './lib/types';
@@ -659,19 +658,6 @@
     }
   }
 
-  // ---- ResultsPanel delete callbacks ---- 
-  function handleStemDeleted(_song: string, _name: string, path: string) {
-    results = results.filter(s => s.path !== path);
-  }
-
-  function handleGroupDeleted(song: string) {
-    results = results.filter(s => s.song !== song);
-    // If no results left, reset pipeline status
-    if (results.length === 0) {
-      pipelineStatus = 'idle';
-    }
-  }
-
   // ---- DropZone + FileQueue helpers ----
   function handleDropZoneDragOver(e: DragEvent) {
     e.preventDefault();
@@ -790,7 +776,7 @@
             onStart={handlePipelineStart}
             onCancel={handleCancel}
             onRemoveFile={handleRemoveQueueFile}
-            onViewResult={() => activeTab = 'results'}
+            onViewResult={() => activeTab = 'pitch'}
           />
         {:else if activeTab === 'personalizado'}
           <!-- Personalizado: with preset selector -->
@@ -813,17 +799,12 @@
             onStart={handlePipelineStart}
             onCancel={handleCancel}
             onRemoveFile={handleRemoveQueueFile}
-            onViewResult={() => activeTab = 'results'}
+            onViewResult={() => activeTab = 'pitch'}
           />
         {:else if activeTab === 'pitch'}
           <PitchPage results={results} onResultsChange={handleRefreshResults} />
         {:else if ['bpm', 'daw'].includes(activeTab)}
           <PlaceholderPage tabId={activeTab} />
-        {:else if activeTab === 'results'}
-          <!-- ResultsPanel -->
-          <section class="results">
-            <ResultsPanel files={results} onstemdeleted={handleStemDeleted} ongroupdeleted={handleGroupDeleted} />
-          </section>
         {:else}
           <!-- PipelineView con el preset -->
           <PipelineView
@@ -842,7 +823,7 @@
             onStart={handlePipelineStart}
             onCancel={handleCancel}
             onRemoveFile={handleRemoveQueueFile}
-            onViewResult={() => activeTab = 'results'}
+            onViewResult={() => activeTab = 'pitch'}
           />
         {/if}
       </div>
