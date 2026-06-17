@@ -125,7 +125,7 @@ test: ## Prueba el pipeline con el audio e2e_test.wav
 		echo "  Pon un archivo de audio en $(INPUT_DIR)/e2e_test.wav"; \
 		exit 1; \
 	fi
-	docker exec onda /app/pipeline.sh --viperx /input/e2e_test.wav
+	docker exec ${CONTAINER_NAME:-onda} /app/pipeline.sh --viperx /input/e2e_test.wav
 	@echo "$(GREEN)✅ Test completado — revisa $(OUTPUT_DIR)/e2e_test/$(NC)"
 
 download-models: ## Descarga los modelos desde HuggingFace	@bash scripts/download-models.sh all
