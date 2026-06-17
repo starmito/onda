@@ -304,6 +304,7 @@ class OndaAPI(BaseHTTPRequestHandler):
         return {"files": files}
 
     def _separate(self, body):
+        CONTAINER_NAME = os.getenv('CONTAINER_NAME', 'onda')
         data = urllib.parse.parse_qs(body.decode())
         input_file = data.get("input_file", [""])[0]
         viperx = data.get("viperx", ["false"])[0] in ("true", "on")
@@ -330,7 +331,7 @@ class OndaAPI(BaseHTTPRequestHandler):
                 args += ["--demucs-keep", demucs_keep]
         args.append(input_path)
 
-        cmd = ["docker", "exec", "onda", "/app/pipeline.sh"] + args
+        cmd = ["docker", "exec", CONTAINER_NAME, "/app/pipeline.sh"] + args
 
         try:
             subprocess.Popen(
