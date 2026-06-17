@@ -50,12 +50,17 @@ RUN pip install --no-cache-dir \
 # ── Stage 4: Imagen final ────────────────────────────────
 FROM python:3.12-slim AS runtime
 
+ARG USER_UID=1000
+ARG USER_GID=1000
+
 # Solo lo necesario para PRODUCCIÓN (sin build-essential)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libsndfile1 \
     rubberband-cli \
     ffmpeg \
     nginx \
+    libcap2-bin \
+    gosu \
     && rm -rf /var/lib/apt/lists/*
 
 # Python deps (desde python-base)
@@ -96,12 +101,17 @@ RUN cp /VERSION /usr/share/nginx/html/VERSION
 COPY uvr_models.json /app/uvr_models.json
 COPY hf_models.json /app/hf_models.json
 
-# Nginx logs a /tmp/ (world-writable, evita problemas de permisos)
-RUN mkdir -p /var/cache/nginx /var/run && \
-    chmod 777 /var/cache/nginx
+# Crear usuario no privilegiado (mismo UID/GID que el instalador host)
+RUN groupadd -g ${USER_GID} appgroup && \
+    useradd -m -u ${USER_UID} -g appgroup -d /app -s /bin/bash appuser
 
-# Directorios runtime (bind mounts del host)
-RUN mkdir -p /input /output /input_rubberband /config
+# Permitir que nginx haga bind a puertos privilegiados sin ser root
+RUN setcap cap_net_bind_service+ep /usr/sbin/nginx
+
+# Directorios runtime (bind mounts del host) propiedad del usuario
+RUN mkdir -p /input /output /input_rubberband /config /var/cache/nginx /var/run && \
+    chown -R ${USER_UID}:${USER_GID} /input /output /input_rubberband /config /app && \
+    chmod 777 /var/cache/nginx /var/run
 
 WORKDIR /app
 EXPOSE 3000
