@@ -1,10 +1,11 @@
 """End-to-end tests for the Go pipeline via HTTP API."""
+import os
 import subprocess
 import pytest
 import urllib.request
 import json
 
-API = "http://192.168.1.87:3000"
+API = os.environ.get("ONDA_API_URL", "http://localhost:3000")
 
 def api_get(path):
     url = f"{API}{path}"
