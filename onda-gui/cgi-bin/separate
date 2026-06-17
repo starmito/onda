@@ -60,6 +60,6 @@ ARGS+=("$INPUT_PATH")
 
 # Run async in background — write output to log
 LOGFILE="/tmp/pipeline_$(date +%s).log"
-nohup docker exec onda /app/pipeline.sh "${ARGS[@]}" > "$LOGFILE" 2>&1 &
+nohup docker exec "${CONTAINER_NAME:-onda}" /app/pipeline.sh "${ARGS[@]}" > "$LOGFILE" 2>&1 &
 
 echo "{\"success\":true,\"message\":\"Pipeline started\",\"log\":\"$LOGFILE\"}"
