@@ -5,6 +5,7 @@
 #
 # Variables opcionales:
 #   CONTAINER — nombre del contenedor (default: onda)
+#   EXTRA_DOCKER_ENV — flags extra para `docker exec` (p. ej. `-e VAR=val`)
 
 set -u
 
@@ -90,7 +91,7 @@ do_test_viperx() {
     rm -rf "${OUTPUT_BASE}-viperx"
     mkdir -p "${OUTPUT_BASE}-viperx"
 
-    docker exec -e PYTHONPATH="$(_pythonpath)" "$CONTAINER" \
+    docker exec ${EXTRA_DOCKER_ENV:-} -e PYTHONPATH="$(_pythonpath)" "$CONTAINER" \
         python3 /app/inference_universal.py \
         "$model_dir" "/input/$(basename "$flac")" "$out_dir" 4
 }
@@ -108,7 +109,7 @@ do_test_demucs() {
     rm -rf "${OUTPUT_BASE}-demucs"
     mkdir -p "${OUTPUT_BASE}-demucs"
 
-    docker exec -e PYTHONPATH="$(_pythonpath)" "$CONTAINER" \
+    docker exec ${EXTRA_DOCKER_ENV:-} -e PYTHONPATH="$(_pythonpath)" "$CONTAINER" \
         demucs -n htdemucs_ft --device cuda -o "$out_dir" "/input/$(basename "$flac")"
 }
 
