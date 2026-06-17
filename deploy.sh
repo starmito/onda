@@ -7,6 +7,13 @@ echo "🔍 Detectando hardware..."
 GPU=$(bash onda/detect_gpu.sh)
 echo "🎯 Hardware detectado: $GPU"
 
+mkdir -p output input
+# Ensure dirs are not root-owned from previous runs
+if [ -d "output" ] && [ "$(stat -c '%u' output 2>/dev/null || echo 0)" != "$(id -u)" ]; then
+    sudo rm -rf output input 2>/dev/null || true
+    mkdir -p output input
+fi
+
 case $GPU in
   cuda)
     echo "🚀 Desplegando con aceleración NVIDIA CUDA..."

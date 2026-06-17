@@ -5,6 +5,12 @@
 # Requirements: bash, curl
 set -uo pipefail
 
+# Generate test audio in ./input/ mounted as /input/ in container
+TEST_AUDIO="$(dirname "$0")/../input/test_api_valid.wav"
+if [ ! -f "$TEST_AUDIO" ]; then
+    ffmpeg -y -f lavfi -i "sine=f=440:r=44100:d=10" -ac 2 "$TEST_AUDIO" 2>/dev/null
+fi
+
 BASE_URL="${BASE_URL:-http://localhost:3000}"
 
 PASS=0
