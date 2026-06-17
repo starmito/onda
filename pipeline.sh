@@ -124,6 +124,7 @@ report_progress "running" "starting" 0
 # Runs in a subshell loop, updating elapsed and eta every second
 # while a long-running docker exec is in progress.
 update_elapsed_loop() {
+    local LOOP_LAST_ETA=""
     while true; do
         sleep 1
         if [ -f "$STATUS_FILE" ]; then
@@ -895,10 +896,10 @@ if $VOCAL || $VIPERX; then
     echo "   ✅ Vocal model done"
 
     # Find instrumental (for demucs)
-    INSTRUMENTAL=$(find "${TMP_VOCAL}" -maxdepth 1 \( -iname "*instrumental*" -o -iname "*no_vocals*" \) | head -1)
+    INSTRUMENTAL=$(find "${TMP_VOCAL}" -maxdepth 1 -type f \( -iname "*instrumental*" -o -iname "*no_vocals*" \) | head -1)
 
     # Copy based on --vocal-keep flag
-    VOCAL_VOCAL=$(find "${TMP_VOCAL}" -maxdepth 1 -iname "*vocal*" ! -iname "*instrumental*" | head -1)
+    VOCAL_VOCAL=$(find "${TMP_VOCAL}" -maxdepth 1 -type f -iname "*vocal*" ! -iname "*instrumental*" | head -1)
     KEEP_VOCALS=false; KEEP_INST=false
     case "${VOCAL_KEEP:-${VIPERX_KEEP}}" in
         both)           KEEP_VOCALS=true; KEEP_INST=true ;;
