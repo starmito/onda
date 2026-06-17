@@ -20,6 +20,9 @@ RUN npm run build
 
 # ── Stage 3: Dependencias Python (torch CPU en build time) ─
 FROM python:3.12-slim AS python-base
+ENV PIP_ROOT_USER_ACTION=ignore
+ENV PIP_NO_PYTHON_VERSION_WARNING=1
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     && rm -rf /var/lib/apt/lists/*
