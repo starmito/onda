@@ -47,7 +47,7 @@ RUN mkdir -p /var/log/nginx /var/cache/nginx /var/run && \
     chown -R 1000:1000 /var/log/nginx /var/cache/nginx && \
     chmod 755 /var/log/nginx /var/cache/nginx
 
-# User 1000 (starmito) para nginx no-root
-RUN adduser -u 1000 -D starmito
+# User 1000 (appuser) para nginx no-root
+RUN adduser -u 1000 -D appuser
 
 ENTRYPOINT ["/entrypoint.sh"]
