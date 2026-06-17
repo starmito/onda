@@ -26,6 +26,7 @@ detect_gpu() {
 }
 
 GPU_TYPE="${GPU_TYPE:-$(detect_gpu)}"
+CONTAINER_NAME="${CONTAINER_NAME:-onda}"
 
 case "$GPU_TYPE" in
     nvidia)
@@ -43,7 +44,7 @@ case "$GPU_TYPE" in
 esac
 
 # ── Ensure container is running ──────────────────────
-if ! docker ps --format '{{.Names}}' | grep -qx onda 2>/dev/null; then
+if ! docker ps --format '{{.Names}}' | grep -qx "${CONTAINER_NAME}" 2>/dev/null; then
     echo "🚀 Starting Onda (${GPU_TYPE})..."
     GPU_TYPE="${GPU_TYPE}" GPU_DOCKERFILE="${GPU_DOCKERFILE}" \
         docker compose -f "${SCRIPT_DIR}/docker-compose.yml" up -d onda 2>&1 | tail -3
@@ -53,10 +54,10 @@ fi
 case "${1:-}" in
     pipeline)
         shift
-        docker exec -i onda bash /app/pipeline.sh "$@"
+        docker exec -i "${CONTAINER_NAME}" bash /app/pipeline.sh "$@"
         ;;
     shell)
-        docker exec -it onda bash
+        docker exec -it "${CONTAINER_NAME}" bash
         ;;
     --help|-h|"")
         echo "🎵 Onda — Audio stem separation"
@@ -76,6 +77,6 @@ case "${1:-}" in
         echo "  Config: ${SCRIPT_DIR}/docker-compose.yml"
         ;;
     *)
-        docker exec -i onda "$@"
+        docker exec -i "${CONTAINER_NAME}" "$@"
         ;;
 esac
