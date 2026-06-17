@@ -10,4 +10,7 @@ services:
       - /dev/dri
     group_add:
       - video
-    environment: {}
+    environment:
+      # HSA_OVERRIDE_GFX_VERSION=11.0.2
+      # Descomentar (quitar el #) si usas AMD APU con Radeon 780M/760M/740M (gfx1103).
+      # Sin esto, ROCm rechaza la GPU por no estar en la lista de soporte oficial.
