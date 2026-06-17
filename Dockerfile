@@ -70,8 +70,8 @@ COPY --from=frontend-builder /src/dist/ /usr/share/nginx/html/
 COPY onda-gui/nginx.conf /etc/nginx/nginx.conf
 
 # Pipeline script
-COPY pipeline.sh /pipeline.sh
-RUN chmod +x /pipeline.sh
+COPY pipeline.sh /app/pipeline.sh
+RUN chmod +x /app/pipeline.sh
 
 # ViperX inference
 COPY inference_universal.py /app/inference_universal.py
