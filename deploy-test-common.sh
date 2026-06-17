@@ -74,7 +74,7 @@ do_test_viperx() {
 
     docker exec ${EXTRA_DOCKER_ENV:-} -e PYTHONPATH="$(_pythonpath)" "$CONTAINER" \
         python3 /app/inference_universal.py \
-        "$model_dir" "/input/$(basename "$wav")" "$out_dir" 4
+        "$model_dir" "/input/$(basename "$wav")" "$out_dir" "${VIPERX_OVERLAP:-4}"
 }
 
 do_test_demucs() {
@@ -91,7 +91,7 @@ do_test_demucs() {
     mkdir -p "${OUTPUT_BASE}-demucs"
 
     docker exec ${EXTRA_DOCKER_ENV:-} -e PYTHONPATH="$(_pythonpath)" "$CONTAINER" \
-        demucs -n htdemucs_ft --device cuda -o "$out_dir" "/input/$(basename "$wav")"
+        demucs -n htdemucs_ft --device cuda ${DEMUCS_EXTRA:-} -o "$out_dir" "/input/$(basename "$wav")"
 }
 
 do_verify_outputs() {
