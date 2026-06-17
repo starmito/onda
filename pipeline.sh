@@ -36,6 +36,25 @@
 
 set -euo pipefail
 
+# PYTHONPATH para docker exec (entrypoint no se ejecuta)
+export PYTHONPATH="${PYTHONPATH:-}:/app/lib_v5"
+
+# Detectar GPU y añadir backend si existe
+DETECT_GPU=$(command -v detect_gpu.sh || echo '')
+if [ -n "$DETECT_GPU" ]; then
+    GPU_BACKEND=$($DETECT_GPU 2>/dev/null || echo 'cpu')
+elif [ -f /app/detect_gpu.sh ]; then
+    GPU_BACKEND=$(/app/detect_gpu.sh 2>/dev/null || echo 'cpu')
+elif [ -f ./onda/detect_gpu.sh ]; then
+    GPU_BACKEND=$(./onda/detect_gpu.sh 2>/dev/null || echo 'cpu')
+else
+    GPU_BACKEND='cpu'
+fi
+
+if [ "$GPU_BACKEND" != 'cpu' ] && [ -d "/opt/pytorch-backends/$GPU_BACKEND" ]; then
+    export PYTHONPATH="$PYTHONPATH:/opt/pytorch-backends/$GPU_BACKEND"
+fi
+
 # ── Docker container ────────────────────────────
 ONDA_CONTAINER="onda"
 
