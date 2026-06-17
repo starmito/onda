@@ -1,15 +1,16 @@
 """End-to-end tests for Demucs PyTorch separation."""
+import os
 import subprocess
 import pytest
 
-CONTAINER = "onda"
-FIXTURE_DIR = "/app/tests/integration/fixtures"
+CONTAINER = os.environ.get('CONTAINER_NAME', 'onda')
+FIXTURE_DIR = os.environ.get('FIXTURE_DIR', '/app/tests/integration/fixtures')
 
 
 def run_demucs(input_file, output_dir, stems="vocals", timeout=120):
     """Run Demucs PyTorch inside container."""
     cmd = [
-        "ssh", ".87", "docker", "exec", CONTAINER,
+        "docker", "exec", CONTAINER,
         "demucs", "-n", "htdemucs_ft",
         "--two-stems", stems,
         "-o", output_dir,
@@ -25,7 +26,7 @@ def test_demucs_sine_vocals():
     assert result.returncode == 0, f"Demucs failed: {result.stderr}"
     # Verify output file exists
     check = subprocess.run(
-        ["ssh", ".87", "docker", "exec", CONTAINER,
+        ["docker", "exec", CONTAINER,
          "find", out, "-name", "vocals.wav"],
         capture_output=True, text=True, timeout=10
     )
@@ -46,7 +47,7 @@ def test_demucs_output_structure():
     assert result.returncode == 0
     # Demucs output: <out>/htdemucs_ft/<track_name>/vocals.wav, no_vocals.wav
     check = subprocess.run(
-        ["ssh", ".87", "docker", "exec", CONTAINER,
+        ["docker", "exec", CONTAINER,
          "find", out, "-name", "*.wav", "-type", "f"],
         capture_output=True, text=True, timeout=10
     )
