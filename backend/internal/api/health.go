@@ -53,7 +53,7 @@ func checkDisk() map[string]interface{} {
 
 	// Ensure the directory exists for Statfs; create if missing.
 	if _, err := os.Stat(outputDir); os.IsNotExist(err) {
-		os.MkdirAll(outputDir, 0755)
+		os.MkdirAll(outputDir, 0o755)
 	}
 
 	var stat syscall.Statfs_t

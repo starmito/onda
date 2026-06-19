@@ -90,7 +90,7 @@ func (s *Server) handlePitchShift(w http.ResponseWriter, r *http.Request) {
 	outDir := filepath.Join(songDir, req.Song+pitchSuffix)
 
 	// Create output directory locally (same container)
-	if err := os.MkdirAll(outDir, 0755); err != nil {
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to create output dir: %v", err)})
