@@ -23,7 +23,7 @@ func main() {
 	switch os.Args[1] {
 	case "serve":
 		serveFlags := flag.NewFlagSet("serve", flag.ExitOnError)
-		addr := serveFlags.String("addr", ":3001", "Listen address")
+		addr := serveFlags.String("addr", ":3000", "Listen address")
 		serveFlags.Parse(os.Args[2:])
 
 		srv := api.NewServer(*addr)

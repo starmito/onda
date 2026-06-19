@@ -2,9 +2,11 @@ package api
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -20,6 +22,21 @@ import (
 	"github.com/starmito/onda/internal/cli"
 	"gopkg.in/yaml.v3"
 )
+
+//go:embed dist/index.html
+//go:embed dist/icon.png
+//go:embed dist/assets/*
+var frontendAssets embed.FS
+
+var frontendFS fs.FS
+
+func init() {
+	var err error
+	frontendFS, err = fs.Sub(frontendAssets, "dist")
+	if err != nil {
+		panic("failed to create frontend sub-FS: " + err.Error())
+	}
+}
 
 // FileEntry describes a generated stem file.
 type FileEntry struct {
@@ -134,7 +151,13 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("DELETE /api/models/{name}", s.handleDeleteModel)
 	s.mux.HandleFunc("DELETE /api/inputs/{name}", s.handleDeleteInput)
 	s.mux.HandleFunc("DELETE /api/uploads/pitch/{name}", s.handleDeletePitchUpload)
-	// Frontend is served by Vite dev server separately; no static handler needed.
+
+	// Servir archivos estaticos de audio
+	s.mux.Handle("GET /output/", http.StripPrefix("/output/", http.FileServer(http.Dir("/output"))))
+	s.mux.Handle("GET /input_rubberband/", http.StripPrefix("/input_rubberband/", http.FileServer(http.Dir("/input_rubberband"))))
+
+	// Servir frontend Svelte embebido (catch-all — debe ir al final)
+	s.mux.Handle("/", http.FileServer(http.FS(frontendFS)))
 
 	go s.worker()
 
