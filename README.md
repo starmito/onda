@@ -279,7 +279,7 @@ Desde **Ajustes → Interfaz**:
 
 | Fase | Versión | Descripción | Estado |
 |------|:-------:|-------------|:------:|
-| **Fase 10** | **v3.2.0** | **DAW ligero integrado**: waveform interactivo, detección/modificación de tempo (global y por compases), trim/cut/fades, importar stems, undo/redo | 🆕 Planificada |
+| **Fase 10** | **v3.2.0** | **DAW ligero integrado**: ~~T1 waveform~~ ✅, ~~T2 BPM~~ ✅, ~~T3 tempo global~~ ✅, **T0** eliminar nginx (embed Go) 🆕, T4 tempo por compases, T5 trim/cut/fade, T6 import stems, T7 UI | 🆕 En desarrollo |
 | **Fase 11** | v3.x | Empaquetado desktop: Tauri, .deb/.AppImage/.msi, Flatpak, auto-updater | Pendiente |
 | **Fase 12** | v3.x | Plugin VST3/AU: investigación frameworks (JUCE, DPF, iPlug2) | Pendiente |
 
