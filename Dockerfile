@@ -58,6 +58,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libsndfile1 \
     rubberband-cli \
     ffmpeg \
+    aubio-tools \
     nginx \
     libcap2-bin \
     gosu \
