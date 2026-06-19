@@ -1,5 +1,25 @@
 # Changelog
-## [3.1.2] - 2026-06-16
+## [3.1.4] - 2026-06-19
+### Fixed
+- **PYTHONPATH**: prepend GPU backend path for correct torch priority — evita que el CPU backend tenga preferencia sobre ROCm/CUDA
+- **freqs_per_bands**: convertido de lista a tupla para compatibilidad con beartype en inference_universal.py
+- **Config type**: eliminado campo `type` del config antes de instanciar modelo (fix error de parámetro inesperado)
+- **HelpPage**: GPU type dinámico en frontend (rocm/cuda/cpu) en vez de CUDA hardcodeado
+- **ResultsPanel**: eliminado completamente del frontend (tab + ruta + componente)
+- **pipeline.sh**: LOOP_LAST_ETA inicializado, fix `find -type f`, symlink /models
+- **Docker**: appuser genérico (no hardcoded starmito), pipeline.sh copiado a /app/ para docker exec, test fixtures montados
+- **ROCm**: HSA_OVERRIDE_GFX_VERSION pasado correctamente a docker exec, torch wheels alineados con ROCm host 7.1, overlap/segment ajustados para BACKEND=rocm
+### Docs
+- **README**: reescrito completo — requisitos, despliegue CUDA/ROCm/CPU, advertencias de seguridad HSA_OVERRIDE, arquitectura single-container, roadmap actualizado
+- **docker-compose.rocm.yml**: advertencias extensas sobre HSA_OVERRIDE (no soportado oficialmente, riesgos conocidos)
+- **.env.example**: sección ROCm con advertencias
+
+## [3.1.3] - 2026-06-17
+### Added
+- **infer_model_arch.py**: script de fallback para detectar arquitectura del modelo desde el checkpoint
+- **post-download hooks**: verificación de integridad tras descarga de modelos
+### Fixed
+- **fallback arquitectura**: si no se especifica, detecta automáticamente desde el archivo .ckpt
 ### Fixed
 - **B2**: device reporting consistente — GPU_TYPE real en status JSON (rocm/cuda/cpu)
 - **B3**: eliminado entrypoint.sh huérfano de onda-gui (no usado desde v3.1.0)
