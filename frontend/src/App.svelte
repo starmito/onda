@@ -5,6 +5,7 @@
   import PitchPage from './lib/PitchPage.svelte';
   import SettingsPanel from './lib/SettingsPanel.svelte';
   import PlaceholderPage from './lib/PlaceholderPage.svelte';
+  import DAWPage from './lib/DAWPage.svelte';
   import HelpPage from './lib/HelpPage.svelte';
   import PresetsPanel from './lib/PresetsPanel.svelte';
   import type { ResultStem } from './lib/types';
@@ -803,7 +804,9 @@
           />
         {:else if activeTab === 'pitch'}
           <PitchPage results={results} onResultsChange={handleRefreshResults} />
-        {:else if ['bpm', 'daw'].includes(activeTab)}
+        {:else if activeTab === 'daw'}
+          <DAWPage />
+        {:else if activeTab === 'bpm'}
           <PlaceholderPage tabId={activeTab} />
         {:else}
           <!-- PipelineView con el preset -->
