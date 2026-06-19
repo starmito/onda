@@ -152,9 +152,14 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("DELETE /api/inputs/{name}", s.handleDeleteInput)
 	s.mux.HandleFunc("DELETE /api/uploads/pitch/{name}", s.handleDeletePitchUpload)
 
-	// Servir archivos estaticos de audio
-	s.mux.Handle("GET /output/", http.StripPrefix("/output/", http.FileServer(http.Dir("/output"))))
-	s.mux.Handle("GET /input_rubberband/", http.StripPrefix("/input_rubberband/", http.FileServer(http.Dir("/input_rubberband"))))
+	// Servir archivos estaticos de audio (relativos al project root para no depender de rutas de contenedor)
+	projectRoot := findProjectRoot()
+	outputDir := filepath.Join(projectRoot, "output")
+	inputRubberbandDir := filepath.Join(projectRoot, "input_rubberband")
+	os.MkdirAll(outputDir, 0755)
+	os.MkdirAll(inputRubberbandDir, 0755)
+	s.mux.Handle("GET /output/", http.StripPrefix("/output/", http.FileServer(http.Dir(outputDir))))
+	s.mux.Handle("GET /input_rubberband/", http.StripPrefix("/input_rubberband/", http.FileServer(http.Dir(inputRubberbandDir))))
 
 	// Servir frontend Svelte embebido (catch-all — debe ir al final)
 	s.mux.Handle("/", http.FileServer(http.FS(frontendFS)))
