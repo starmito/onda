@@ -7,9 +7,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
+
+// bpmRe matches the first floating point number in a line of text.
+var bpmRe = regexp.MustCompile(`([0-9]+\.[0-9]+)`)
 
 // TempoResponse is the JSON response for the BPM detection endpoint.
 type TempoResponse struct {
@@ -85,7 +89,8 @@ func (s *Server) handleTempo(w http.ResponseWriter, r *http.Request) {
 }
 
 // detectBPM runs `aubio tempo` and returns the detected BPM.
-// Expected output format: "BPM: 120.0".
+// It extracts the first floating point number from the output, supporting
+// formats like "120.00 bpm", "112.75 bpm (uncertain)", and "BPM: 120.0".
 func detectBPM(inputPath string) (float64, error) {
 	out, err := exec.Command("aubio", "tempo", inputPath).CombinedOutput()
 	if err != nil {
@@ -93,12 +98,14 @@ func detectBPM(inputPath string) (float64, error) {
 	}
 
 	line := strings.TrimSpace(string(out))
-	line = strings.TrimPrefix(line, "BPM:")
-	line = strings.TrimSpace(line)
+	matches := bpmRe.FindStringSubmatch(line)
+	if len(matches) < 2 {
+		return 0, fmt.Errorf("could not find BPM value in output: %s", line)
+	}
 
-	bpm, err := strconv.ParseFloat(line, 64)
+	bpm, err := strconv.ParseFloat(matches[1], 64)
 	if err != nil {
-		return 0, fmt.Errorf("failed to parse BPM from %q: %w", line, err)
+		return 0, fmt.Errorf("failed to parse BPM from %q: %w", matches[1], err)
 	}
 	return bpm, nil
 }
