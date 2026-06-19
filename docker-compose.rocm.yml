@@ -2,6 +2,43 @@
 # Añade los devices AMD ROCm (/dev/kfd, /dev/dri) necesarios para GPU
 #
 # Uso: docker compose -f docker-compose.yml -f docker-compose.rocm.yml up -d --build
+#
+# ⚠️ ⚠️ ⚠️  ADVERTENCIA: HSA_OVERRIDE_GFX_VERSION  ⚠️ ⚠️ ⚠️
+#
+# HSA_OVERRIDE_GFX_VERSION es una variable de DEPURACIÓN (DEBUG) 
+# NO soportada oficialmente por AMD.
+#
+# Fuerza a ROCm a cargar kernels de una arquitectura diferente a la real 
+# de tu GPU. Esto NO es seguro y puede causar:
+#
+#   - GPU Hang que congela el sistema completo (requiere reinicio forzado)
+#   - Pérdida de datos de VRAM durante el GPU reset
+#   - CRTC flip_done timeout (pantalla congelada)
+#   - MES scheduler en estado irrecuperable
+#   - Resultados incorrectos en operaciones edge-case
+#
+# NO usar en entornos de producción. Usar bajo tu propio riesgo.
+#
+# Documentado en múltiples issues de ROCm/llama.cpp:
+#   https://github.com/ROCm/rocm-libraries/issues/6320
+#   https://github.com/ggml-org/llama.cpp/issues/20839
+#
+# Valores probados en AMD Radeon 780M (gfx1103):
+#   11.0.0 (gfx1100): funcionalidad básica, kernels ROCBLAS limitados
+#   11.0.2 (gfx1102): mayor compatibilidad, estable para carga ligera
+#
+# Para mejorar estabilidad en APUs:
+#   1. Cerrar aplicaciones que usen la iGPU durante inferencia
+#   2. Añadir amdgpu.dcdebugmask=0x10 a GRUB_CMDLINE_LINUX_DEFAULT
+#      (desactiva Panel Self Refresh — workaround para bug CRTC timeout)
+#      ⚠️ Tampoco es un parámetro oficialmente soportado
+#   3. Usar --batch-size 1 y --dim-t 256 para reducir carga
+#
+# Limitaciones conocidas de ROCm en APUs:
+#   - iGPU compartida: display y compute compiten por el mismo hardware
+#   - Resoluciones altas (4K) agravan la inestabilidad
+#   - Carga sostenida (>6-7 chunks) puede causar GPU Hang
+#   - AMD no ofrece soporte oficial para iGPUs en workloads AI/ML
 
 services:
   onda:
@@ -10,8 +47,10 @@ services:
       - /dev/dri
     group_add:
       - video
+      - "991"
     environment:
-      # HSA_OVERRIDE_GFX_VERSION - necesario para AMD APU Radeon 780M/760M/740M (gfx1103).
-      # Para activarlo, crea un archivo .env en el project root con:
-      # HSA_OVERRIDE_GFX_VERSION=11.0.0
+      # HSA_OVERRIDE_GFX_VERSION - DEBUG ONLY. No soportado oficialmente.
+      # ⚠️ Ver advertencias arriba antes de activar.
+      # Para activarlo, crea un archivo .env en el project root:
+      #   HSA_OVERRIDE_GFX_VERSION=11.0.2
       - HSA_OVERRIDE_GFX_VERSION=${HSA_OVERRIDE_GFX_VERSION:-}
