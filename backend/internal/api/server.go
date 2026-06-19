@@ -156,8 +156,8 @@ func NewServer(addr string) *http.Server {
 	projectRoot := findProjectRoot()
 	outputDir := filepath.Join(projectRoot, "output")
 	inputRubberbandDir := filepath.Join(projectRoot, "input_rubberband")
-	os.MkdirAll(outputDir, 0755)
-	os.MkdirAll(inputRubberbandDir, 0755)
+	os.MkdirAll(outputDir, 0o755)
+	os.MkdirAll(inputRubberbandDir, 0o755)
 	s.mux.Handle("GET /output/", http.StripPrefix("/output/", http.FileServer(http.Dir(outputDir))))
 	s.mux.Handle("GET /input_rubberband/", http.StripPrefix("/input_rubberband/", http.FileServer(http.Dir(inputRubberbandDir))))
 
@@ -619,7 +619,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 	outputDir := filepath.Join(projectRoot, "output", song)
 
 	// Ensure output directory exists
-	os.MkdirAll(outputDir, 0755)
+	os.MkdirAll(outputDir, 0o755)
 
 	currentInput := job.Config.Input
 	allStems := make([]FileEntry, 0)
@@ -1452,7 +1452,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	projectRoot := findProjectRoot()
 	inputDir := filepath.Join(projectRoot, "input")
 	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
-		os.MkdirAll(inputDir, 0755)
+		os.MkdirAll(inputDir, 0o755)
 	}
 	// Fix permissions so container user (1000:1000) can write
 	os.Chmod(inputDir, 0777)
@@ -1516,7 +1516,7 @@ func (s *Server) handleUploadPitch(w http.ResponseWriter, r *http.Request) {
 	projectRoot := findProjectRoot()
 	inputDir := filepath.Join(projectRoot, "input_rubberband")
 	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
-		os.MkdirAll(inputDir, 0755)
+		os.MkdirAll(inputDir, 0o755)
 	}
 	// Fix permissions so container user (1000:1000) can write
 	os.Chmod(inputDir, 0777)
