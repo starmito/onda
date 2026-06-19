@@ -110,8 +110,8 @@ RUN groupadd -g ${USER_GID} appgroup && \
 RUN setcap cap_net_bind_service+ep /usr/sbin/nginx
 
 # Directorios runtime (bind mounts del host) propiedad del usuario
-RUN mkdir -p /input /output /input_rubberband /config /var/cache/nginx /var/run /var/lib/nginx /opt/pytorch-backends && \
-    chown -R ${USER_UID}:${USER_GID} /input /output /input_rubberband /config /app /var/cache/nginx /var/run /var/lib/nginx /opt/pytorch-backends
+RUN mkdir -p /input /output /input_rubberband /config /daw-data /var/cache/nginx /var/run /var/lib/nginx /opt/pytorch-backends && \
+    chown -R ${USER_UID}:${USER_GID} /input /output /input_rubberband /config /daw-data /app /var/cache/nginx /var/run /var/lib/nginx /opt/pytorch-backends
 
 # Symlink para el backend Go (espera /pipeline.sh)
 RUN ln -sf /app/pipeline.sh /pipeline.sh
