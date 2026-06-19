@@ -277,11 +277,13 @@ Desde **Ajustes → Interfaz**:
 
 ### 🔜 Próximas fases
 
-| Fase | Descripción | Estado |
-|------|-------------|--------|
-| **Fase 10** | DAW ligero: waveform, selección de rango, cortes, fades, exportar, undo/redo | Pendiente |
-| **Fase 11** | Empaquetado desktop: Tauri, instaladores .deb/.AppImage/.msi, Flatpak, auto-updater | Pendiente |
-| **Fase 12** | Plugin VST3/AU: investigación frameworks (JUCE, DPF, iPlug2), test en DAWs | Pendiente |
+| Fase | Versión | Descripción | Estado |
+|------|:-------:|-------------|:------:|
+| **Fase 10** | **v3.2.0** | **DAW ligero integrado**: waveform interactivo, detección/modificación de tempo (global y por compases), trim/cut/fades, importar stems, undo/redo | 🆕 Planificada |
+| **Fase 11** | v3.x | Empaquetado desktop: Tauri, .deb/.AppImage/.msi, Flatpak, auto-updater | Pendiente |
+| **Fase 12** | v3.x | Plugin VST3/AU: investigación frameworks (JUCE, DPF, iPlug2) | Pendiente |
+
+> 💡 **Fase 10 stack:** Go backend + Svelte 5 frontend + CLI tools (aubio, rubberband). **Nada de Python.**
 
 ---
 
