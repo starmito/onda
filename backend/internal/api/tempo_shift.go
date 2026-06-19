@@ -58,7 +58,10 @@ func (s *Server) handleTempoShift(w http.ResponseWriter, r *http.Request) {
 
 	// Prevent path traversal by using only the base name.
 	safeName := filepath.Base(req.File)
-	inputPath := filepath.Join("/input", safeName)
+	projectRoot := findProjectRoot()
+	inputBase := filepath.Join(projectRoot, "input")
+	dawBase := filepath.Join(projectRoot, "daw-data")
+	inputPath := filepath.Join(inputBase, safeName)
 
 	if _, err := os.Stat(inputPath); os.IsNotExist(err) {
 		w.Header().Set("Content-Type", "application/json")
@@ -67,19 +70,25 @@ func (s *Server) handleTempoShift(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Ensure output directory exists.
-	if err := os.MkdirAll("/output", 0755); err != nil {
+	// Ensure DAW data directory exists.
+	if err := os.MkdirAll(dawBase, 0o755); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to create output dir: %v", err)})
+		return
+	}
+	if err := os.MkdirAll(filepath.Join(dawBase, "tmp"), 0o755); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to create tmp dir: %v", err)})
 		return
 	}
 
 	baseName := safeName[:len(safeName)-len(filepath.Ext(safeName))]
 	ext := filepath.Ext(safeName)
 	outputName := baseName + "_tempo" + ext
-	tmpPath := filepath.Join("/tmp", outputName)
-	outputPath := filepath.Join("/output", outputName)
+	tmpPath := filepath.Join(dawBase, "tmp", outputName)
+	outputPath := filepath.Join(dawBase, outputName)
 
 	cmd := exec.Command("rubberband", "--tempo", fmt.Sprintf("%f", req.Ratio), inputPath, tmpPath)
 	out, err := cmd.CombinedOutput()
