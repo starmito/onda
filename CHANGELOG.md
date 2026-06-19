@@ -1,4 +1,22 @@
 # Changelog
+
+## [v3.2.0] - 2026-06-19
+### Added
+- DAW light integration: waveform interactivo con wavesurfer.js (T1)
+- BPM detection endpoint GET /api/audio/tempo (T2)
+- Global tempo shift endpoint POST /api/audio/tempo (T3)
+- DAW data directory (daw-data/) with volume mapping
+
+### Changed
+- Replaced nginx with Go embed for frontend serving (T0)
+- Static files /output/ and /input_rubberband/ served directly by Go
+- All os.MkdirAll 0755 changed to 0o755 octal notation
+- Hardcoded paths replaced with findProjectRoot() + daw-data directory
+
+### Fixed
+- BPM parsing: regex instead of TrimPrefix for variable aubio output format
+- Docker compose volume mapping for daw-data persistence
+
 ## [3.1.4] - 2026-06-19
 ### Fixed
 - **PYTHONPATH**: prepend GPU backend path for correct torch priority — evita que el CPU backend tenga preferencia sobre ROCm/CUDA
