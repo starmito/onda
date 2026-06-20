@@ -10,7 +10,9 @@
     listStems,
     importStem,
     uploadAudioDAW,
+    getTempoGrid,
   } from './api';
+  import type { TempoGridResponse } from './api';
 
   type RegionLike = { start: number; end: number };
   type DAWState = {
@@ -28,6 +30,8 @@
     ws: WaveSurfer | null;
     regionsPlugin: ReturnType<typeof RegionsPlugin.create> | null;
     timelinePlugin: ReturnType<typeof TimelinePlugin.create> | null;
+    grid: TempoGridResponse | null;
+    gridCanvas: HTMLCanvasElement | null;
     isReady: boolean;
     isPlaying: boolean;
     volume: number;
@@ -80,12 +84,99 @@
   });
 
   function destroyTrack(track: Track) {
+    if (track.gridCanvas && track.gridCanvas.parentElement) {
+      track.gridCanvas.remove();
+    }
+    track.gridCanvas = null;
     if (track.ws) {
       track.ws.destroy();
       track.ws = null;
     }
     track.regionsPlugin = null;
     track.timelinePlugin = null;
+    track.grid = null;
+  }
+
+  async function loadTempoGrid(fileName: string, trackId: string) {
+    try {
+      const data = await getTempoGrid(fileName);
+      const track = tracks.find((t) => t.id === trackId);
+      if (!track) return;
+      track.grid = data;
+      if (track.ws && track.isReady) {
+        setupGridOverlay(track);
+        drawGrid(track);
+      }
+    } catch {
+      // Grid data is optional; ignore errors silently.
+    }
+  }
+
+  function setupGridOverlay(track: Track) {
+    if (!track.ws || !track.grid) return;
+    const wrapper = track.ws.getWrapper();
+    if (!wrapper) return;
+    if (!track.gridCanvas) {
+      const canvas = document.createElement('canvas');
+      canvas.className = 'tempo-grid-overlay';
+      canvas.style.position = 'absolute';
+      canvas.style.top = '0';
+      canvas.style.left = '0';
+      canvas.style.pointerEvents = 'none';
+      canvas.style.zIndex = '10';
+      if (!wrapper.style.position) {
+        wrapper.style.position = 'relative';
+      }
+      wrapper.appendChild(canvas);
+      track.gridCanvas = canvas;
+    }
+  }
+
+  function drawGrid(track: Track) {
+    if (!track.ws || !track.grid || !track.gridCanvas) return;
+    const ws = track.ws;
+    const grid = track.grid;
+    const canvas = track.gridCanvas;
+    requestAnimationFrame(() => {
+      const wrapper = ws.getWrapper();
+      if (!wrapper || !canvas.isConnected) return;
+      const duration = ws.getDuration();
+      const width = duration * zoom;
+      const height = wrapper.clientHeight;
+      if (width <= 0 || height <= 0) return;
+      const dpr = window.devicePixelRatio || 1;
+      canvas.width = Math.max(1, Math.ceil(width * dpr));
+      canvas.height = Math.max(1, Math.ceil(height * dpr));
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, width, height);
+      // Beat lines
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+      ctx.lineWidth = 1;
+      for (const t of grid.beats) {
+        const x = t * zoom;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, height);
+        ctx.stroke();
+      }
+      // Bar lines and labels
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.55)';
+      ctx.lineWidth = 2;
+      ctx.fillStyle = 'rgba(255, 255, 255, 0.75)';
+      ctx.font = '11px sans-serif';
+      for (const bar of grid.bars) {
+        const x = bar.start * zoom;
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, height);
+        ctx.stroke();
+        ctx.fillText(String(bar.bar), x + 4, 14);
+      }
+    });
   }
 
   function generateId(): string {
@@ -130,7 +221,14 @@
       ws.zoom(zoom);
       updateStatus();
       applyTrackAudioState(track);
+      if (track.grid) {
+        setupGridOverlay(track);
+        drawGrid(track);
+      }
     });
+
+    ws.on('zoom', () => drawGrid(track));
+    ws.on('redraw', () => drawGrid(track));
 
     ws.on('play', () => {
       track.isPlaying = true;
@@ -179,7 +277,7 @@
     status = `${active.name} listo · ${formatTime(duration)} · ${tracks.length} pista${tracks.length === 1 ? '' : 's'}`;
   }
 
-  function addTrack(fileName: string, source: string, size: number) {
+  function addTrack(fileName: string, source: string, size: number): Track {
     const id = generateId();
     const track: Track = {
       id,
@@ -190,6 +288,8 @@
       ws: null,
       regionsPlugin: null,
       timelinePlugin: null,
+      grid: null,
+      gridCanvas: null,
       isReady: false,
       isPlaying: false,
       volume: 1,
@@ -199,12 +299,16 @@
     tracks = [...tracks, track];
     activeTrackId = id;
     updateStatus();
+    return track;
   }
 
   function handleFileSelect(e: Event) {
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
-    if (file) addTrack(file.name, URL.createObjectURL(file), file.size);
+    if (file) {
+      const track = addTrack(file.name, URL.createObjectURL(file), file.size);
+      loadTempoGrid(file.name, track.id);
+    }
     input.value = '';
   }
 
@@ -319,7 +423,10 @@
   function handleZoom(e: Event) {
     zoom = parseInt((e.target as HTMLInputElement).value, 10);
     for (const t of tracks) {
-      if (t.ws && t.isReady) t.ws.zoom(zoom);
+      if (t.ws && t.isReady) {
+        t.ws.zoom(zoom);
+        drawGrid(t);
+      }
     }
   }
 
@@ -465,7 +572,8 @@
     try {
       const resp = await uploadAudioDAW(file);
       uploadResult = { file: resp.file, size: resp.size };
-      addTrack(resp.file, `/daw-data/${resp.file}`, resp.size);
+      const track = addTrack(resp.file, `/daw-data/${resp.file}`, resp.size);
+      loadTempoGrid(resp.file, track.id);
       status = `Subido: ${resp.file}`;
     } catch (err) {
       status = `Error al subir: ${err instanceof Error ? err.message : String(err)}`;
@@ -480,7 +588,8 @@
     status = 'Importando...';
     try {
       const resp = await importStem('output', song, stem);
-      addTrack(resp.file, `/daw-data/${resp.file}`, resp.size);
+      const track = addTrack(resp.file, `/daw-data/${resp.file}`, resp.size);
+      loadTempoGrid(resp.file, track.id);
       status = `Importado: ${resp.file}`;
     } catch (err) {
       status = `Error al importar: ${err instanceof Error ? err.message : String(err)}`;
@@ -494,7 +603,8 @@
     status = 'Importando pitch...';
     try {
       const resp = await importStem('pitch', undefined, stem);
-      addTrack(resp.file, `/daw-data/${resp.file}`, resp.size);
+      const track = addTrack(resp.file, `/daw-data/${resp.file}`, resp.size);
+      loadTempoGrid(resp.file, track.id);
       status = `Importado: ${resp.file}`;
     } catch (err) {
       status = `Error al importar: ${err instanceof Error ? err.message : String(err)}`;
@@ -1149,5 +1259,9 @@
     font-size: 0.85rem;
     color: var(--text-primary);
     word-break: break-all;
+  }
+
+  :global(.tempo-grid-overlay) {
+    pointer-events: none;
   }
 </style>
