@@ -7,11 +7,23 @@ echo "🔍 Detectando hardware..."
 GPU=$(bash onda/detect_gpu.sh)
 echo "🎯 Hardware detectado: $GPU"
 
-mkdir -p output input
+# Directorios montados como bind volumes (deben pertenecer al usuario host)
+BIND_DIRS="output input input_rubberband daw-data config"
+
+mkdir -p $BIND_DIRS
+
 # Ensure dirs are not root-owned from previous runs
-if [ -d "output" ] && [ "$(stat -c '%u' output 2>/dev/null || echo 0)" != "$(id -u)" ]; then
-    sudo rm -rf output input 2>/dev/null || true
-    mkdir -p output input
+NEED_RESET=0
+for dir in $BIND_DIRS; do
+    if [ -d "$dir" ] && [ "$(stat -c '%u' "$dir" 2>/dev/null || echo 0)" != "$(id -u)" ]; then
+        NEED_RESET=1
+        break
+    fi
+done
+
+if [ "$NEED_RESET" -eq 1 ]; then
+    sudo rm -rf $BIND_DIRS 2>/dev/null || true
+    mkdir -p $BIND_DIRS
 fi
 
 case $GPU in
