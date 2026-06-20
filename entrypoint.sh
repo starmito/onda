@@ -11,7 +11,7 @@ export PYTHONPATH="${PYTHONPATH:-}:/app/lib_v5"
 # Para CPU: torch ya está en la imagen, no hacer nada extra
 if [ "$GPU" != "cpu" ]; then
     CACHE_DIR="/opt/pytorch-backends/$GPU"
-    export PYTHONPATH="$CACHE_DIR:${PYTHONPATH:-}"
+    export PYTHONPATH="${PYTHONPATH:-}:$CACHE_DIR"
 
     if [ ! -f "$CACHE_DIR/torch/__init__.py" ]; then
         echo "📦 Installing $GPU backend..."
