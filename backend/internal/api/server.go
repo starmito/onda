@@ -136,6 +136,7 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("POST /api/pitch", s.handlePitchShift)
 	s.mux.HandleFunc("GET /api/audio/tempo", s.handleTempo)
 	s.mux.HandleFunc("POST /api/audio/tempo", s.handleTempoShift)
+	s.mux.HandleFunc("POST /api/audio/tempo-per-bar", s.handleTempoPerBar)
 	s.mux.HandleFunc("GET /api/pitch/{song}", s.handleListPitchSubgroups)
 	s.mux.HandleFunc("DELETE /api/pitch/{song}/{pitch}", s.handleDeletePitchSubgroup)
 	s.mux.HandleFunc("DELETE /api/pitch/{song}/{pitch}/{file}", s.handleDeletePitchStem)
