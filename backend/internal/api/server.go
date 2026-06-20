@@ -140,6 +140,9 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("POST /api/audio/trim", s.handleTrim)
 	s.mux.HandleFunc("POST /api/audio/fade", s.handleFade)
 	s.mux.HandleFunc("POST /api/audio/export", s.handleExport)
+	s.mux.HandleFunc("GET /api/daw/stems", s.handleListStems)
+	s.mux.HandleFunc("POST /api/daw/import", s.handleImportStem)
+	s.mux.HandleFunc("POST /api/daw/upload", s.handleUploadAudio)
 	s.mux.HandleFunc("GET /api/pitch/{song}", s.handleListPitchSubgroups)
 	s.mux.HandleFunc("DELETE /api/pitch/{song}/{pitch}", s.handleDeletePitchSubgroup)
 	s.mux.HandleFunc("DELETE /api/pitch/{song}/{pitch}/{file}", s.handleDeletePitchStem)
@@ -762,7 +765,7 @@ func findChainedInput(outputDir string, step cli.PipelineStep) string {
 	}
 
 	// Fallback: find any .wav file that looks like an inter-step stem
-		// e.g., instrumental.wav (the conventional name)
+	// e.g., instrumental.wav (the conventional name)
 	patterns := []string{
 		filepath.Join(outputDir, "*instrumental*"),
 		filepath.Join(outputDir, "*no_vocals*"),
@@ -938,7 +941,7 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 	var args []string
 
 	switch step.Type {
-case "viperx", "vocal":
+	case "viperx", "vocal":
 		args = append(args, "--vocal-model", "BS_Roformer_Viperx")
 		// Model
 		if step.Model != "" {
@@ -1046,14 +1049,14 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 
 // SeparateRequest is the JSON body for POST /api/separate.
 type SeparateRequest struct {
-	Preset     string `json:"preset"`
-	Input      string `json:"input"`
-	Output     string `json:"output,omitempty"`
-	VocalModel string `json:"vocal_model,omitempty"`
+	Preset      string `json:"preset"`
+	Input       string `json:"input"`
+	Output      string `json:"output,omitempty"`
+	VocalModel  string `json:"vocal_model,omitempty"`
 	ViperxModel string `json:"viperx_model,omitempty"` // alias for VocalModel
 	StemModel   string `json:"stem_model,omitempty"`
 	DemucsModel string `json:"demucs_model,omitempty"` // alias for StemModel
-	Pitch      int    `json:"pitch,omitempty"`
+	Pitch       int    `json:"pitch,omitempty"`
 
 	Viperx     bool     `json:"viperx"`
 	ViperxKeep string   `json:"viperx_keep,omitempty"`

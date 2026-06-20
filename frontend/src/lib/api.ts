@@ -698,6 +698,54 @@ export async function exportAudio(file: string, format: string): Promise<ExportR
   return (await res.json()) as ExportResponse;
 }
 
+// ---- DAW stem import ----
+export interface StemsResponse {
+  output: Record<string, string[]>;
+  pitch: string[];
+}
+
+export interface DAWImportResponse {
+  file: string;
+  path: string;
+  size: number;
+}
+
+export async function listStems(): Promise<StemsResponse> {
+  const res = await fetch(`${API_BASE}/api/daw/stems`);
+  if (!res.ok) {
+    throw new Error(`List stems failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as StemsResponse;
+}
+
+export async function importStem(source: string, song?: string, stem?: string): Promise<DAWImportResponse> {
+  const body: Record<string, unknown> = { source };
+  if (song !== undefined) body.song = song;
+  if (stem !== undefined) body.stem = stem;
+  const res = await fetch(`${API_BASE}/api/daw/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(`Import failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as DAWImportResponse;
+}
+
+export async function uploadAudioDAW(file: File): Promise<DAWImportResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${API_BASE}/api/daw/upload`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) {
+    throw new Error(`DAW upload failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as DAWImportResponse;
+}
+
 // ---- VRAM Calculator ----
 export interface VRAMModelEntry {
   name: string;
