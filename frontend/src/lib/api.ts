@@ -642,6 +642,29 @@ export async function deletePitchStem(song: string, pitch: number, fileName: str
   if (!res.ok) throw new Error(`Failed to delete pitch stem: ${res.status}`);
 }
 
+export interface TempoGridBar {
+  bar: number;
+  start: number;
+  end: number;
+}
+
+export interface TempoGridResponse {
+  bpm: number;
+  beats: number[];
+  bars: TempoGridBar[];
+  duration: number;
+}
+
+export async function getTempoGrid(file: string): Promise<TempoGridResponse> {
+  const res = await fetch(
+    `${API_BASE}/api/audio/tempo-grid?file=${encodeURIComponent(file)}`,
+  );
+  if (!res.ok) {
+    throw new Error(`Tempo grid failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as TempoGridResponse;
+}
+
 // ---- DAW audio operations ----
 export interface TrimResponse {
   file: string;
