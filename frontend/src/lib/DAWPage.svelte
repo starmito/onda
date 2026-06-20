@@ -3,19 +3,33 @@
   import WaveSurfer from 'wavesurfer.js';
   import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.js';
   import TimelinePlugin from 'wavesurfer.js/dist/plugins/timeline.js';
+  import { fadeAudio, exportAudio, trimAudio } from './api';
+
+  type RegionLike = { start: number; end: number };
+  type DAWState = {
+    fileName: string;
+    source: string;
+    regions: RegionLike[];
+  };
 
   let waveformContainer: HTMLDivElement | null = $state(null);
   let fileInput: HTMLInputElement | null = $state(null);
+  let formatSelect: HTMLSelectElement | null = $state(null);
 
   let ws: WaveSurfer | null = null;
   let regionsPlugin: ReturnType<typeof RegionsPlugin.create> | null = null;
   let timelinePlugin: ReturnType<typeof TimelinePlugin.create> | null = null;
 
   let currentFileName = $state('');
+  let currentSource = $state('');
   let isReady = $state(false);
   let isPlaying = $state(false);
   let zoom = $state(100);
   let status = $state('Carga un archivo de audio para empezar');
+  let isProcessing = $state(false);
+
+  let history: DAWState[] = $state([]);
+  let historyIndex = $state(-1);
 
   onMount(() => {
     createWaveSurfer();
@@ -50,7 +64,6 @@
     ws.on('ready', () => {
       isReady = true;
       status = `${currentFileName || 'Audio'} listo · ${formatTime(ws!.getDuration())}`;
-      addDefaultRegion();
       ws!.zoom(zoom);
     });
 
@@ -66,6 +79,12 @@
       status = `Error: ${err?.message || err || 'desconocido'}`;
       isReady = false;
     });
+
+    if (regionsPlugin) {
+      regionsPlugin.on('region-created', () => {
+        // Ensure at least the default region exists; user can still create more.
+      });
+    }
   }
 
   function destroyWaveSurfer() {
@@ -75,6 +94,26 @@
     }
     regionsPlugin = null;
     timelinePlugin = null;
+  }
+
+  function getCurrentRegions(): RegionLike[] {
+    if (!regionsPlugin) return [];
+    return regionsPlugin.getRegions().map((r) => ({ start: r.start, end: r.end }));
+  }
+
+  function setRegions(regions: RegionLike[]) {
+    if (!regionsPlugin || !ws) return;
+    regionsPlugin.clearRegions();
+    for (const r of regions) {
+      regionsPlugin.addRegion({
+        start: r.start,
+        end: r.end,
+        color: 'rgba(108, 92, 231, 0.28)',
+        borderColor: 'rgba(108, 92, 231, 0.6)',
+        drag: true,
+        resize: true,
+      });
+    }
   }
 
   function addDefaultRegion() {
@@ -99,12 +138,81 @@
   }
 
   function loadFile(file: File) {
+    const source = URL.createObjectURL(file);
+    loadSource(file.name, source, true);
+  }
+
+  function loadSource(fileName: string, source: string, addRegionFlag: boolean) {
     if (!ws) return;
-    currentFileName = file.name;
+    currentFileName = fileName;
+    currentSource = source;
     isReady = false;
     status = 'Generando waveform...';
     ws.empty();
-    ws.loadBlob(file);
+    ws.load(source);
+    if (addRegionFlag) {
+      // Defer default region until ready, then store initial history state.
+      const once = () => {
+        addDefaultRegion();
+        pushHistory(fileName, source, getCurrentRegions());
+        ws?.un('ready', once);
+      };
+      ws.on('ready', once);
+    }
+  }
+
+  function pushHistory(fileName: string, source: string, regions: RegionLike[]) {
+    if (historyIndex < history.length - 1) {
+      history = history.slice(0, historyIndex + 1);
+    }
+    history = [...history, { fileName, source, regions }];
+    historyIndex = history.length - 1;
+  }
+
+  function restoreHistory(index: number) {
+    const state = history[index];
+    if (!state || !ws) return;
+    historyIndex = index;
+    currentFileName = state.fileName;
+    currentSource = state.source;
+    isReady = false;
+    status = 'Generando waveform...';
+    ws.empty();
+    ws.load(state.source);
+    const once = () => {
+      setRegions(state.regions);
+      ws?.zoom(zoom);
+      status = `${currentFileName || 'Audio'} listo · ${formatTime(ws!.getDuration())}`;
+      ws?.un('ready', once);
+    };
+    ws.on('ready', once);
+  }
+
+  function undo() {
+    if (historyIndex > 0) {
+      restoreHistory(historyIndex - 1);
+    }
+  }
+
+  function redo() {
+    if (historyIndex >= 0 && historyIndex < history.length - 1) {
+      restoreHistory(historyIndex + 1);
+    }
+  }
+
+  function getSelectedRegion() {
+    if (!regionsPlugin) return null;
+    const regions = regionsPlugin.getRegions();
+    return regions[0] ?? null;
+  }
+
+  function requireRegion(): { start: number; end: number } | null {
+    const region = getSelectedRegion();
+    if (!region) {
+      status = 'Selecciona un rango en el waveform';
+      return null;
+    }
+    return { start: region.start, end: region.end };
   }
 
   function handleZoom(e: Event) {
@@ -139,11 +247,73 @@
     regionsPlugin?.clearRegions();
   }
 
+  async function handleTrim() {
+    const region = requireRegion();
+    if (!region || !currentFileName) return;
+    isProcessing = true;
+    status = 'Recortando...';
+    try {
+      const resp = await trimAudio(currentFileName, region.start, region.end);
+      const source = `/daw-data/${resp.file}`;
+      const newRegions: RegionLike[] = [{ start: 0, end: region.end - region.start }];
+      pushHistory(resp.file, source, newRegions);
+      loadSource(resp.file, source, false);
+      setTimeout(() => setRegions(newRegions), 0);
+      status = `Recortado: ${resp.file}`;
+    } catch (err) {
+      status = `Error al recortar: ${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      isProcessing = false;
+    }
+  }
+
+  async function handleFade(type: 'in' | 'out') {
+    const region = requireRegion();
+    if (!region || !currentFileName) return;
+    isProcessing = true;
+    status = `Aplicando fade ${type}...`;
+    try {
+      const duration = region.end - region.start;
+      const resp = await fadeAudio(currentFileName, type, region.start, duration);
+      const source = `/daw-data/${resp.file}`;
+      const newRegions: RegionLike[] = [{ start: region.start, end: region.end }];
+      pushHistory(resp.file, source, newRegions);
+      loadSource(resp.file, source, false);
+      setTimeout(() => setRegions(newRegions), 0);
+      status = `Fade ${type}: ${resp.file}`;
+    } catch (err) {
+      status = `Error al aplicar fade: ${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      isProcessing = false;
+    }
+  }
+
+  async function handleExport() {
+    if (!currentFileName) return;
+    isProcessing = true;
+    status = 'Exportando...';
+    const format = formatSelect?.value || 'wav';
+    try {
+      const resp = await exportAudio(currentFileName, format);
+      status = `Exportado: ${resp.file} (${resp.format}, ${formatBytes(resp.size)})`;
+    } catch (err) {
+      status = `Error al exportar: ${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      isProcessing = false;
+    }
+  }
+
   function formatTime(seconds: number): string {
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
     const cs = Math.floor((seconds % 1) * 100);
     return `${m}:${s.toString().padStart(2, '0')}.${cs.toString().padStart(2, '0')}`;
+  }
+
+  function formatBytes(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 </script>
 
@@ -166,6 +336,36 @@
     <button class="btn" onclick={clearRegions} disabled={!isReady}>
       Limpiar regiones
     </button>
+
+    <div class="toolbar-group">
+      <button class="btn" onclick={handleTrim} disabled={!isReady || isProcessing}>
+        Trim
+      </button>
+      <button class="btn" onclick={() => handleFade('in')} disabled={!isReady || isProcessing}>
+        Fade In
+      </button>
+      <button class="btn" onclick={() => handleFade('out')} disabled={!isReady || isProcessing}>
+        Fade Out
+      </button>
+    </div>
+
+    <div class="toolbar-group export-group">
+      <select class="format-select" bind:this={formatSelect} disabled={!isReady || isProcessing}>
+        <option value="wav">WAV</option>
+      </select>
+      <button class="btn" onclick={handleExport} disabled={!isReady || isProcessing}>
+        Export
+      </button>
+    </div>
+
+    <div class="toolbar-group history-group">
+      <button class="btn" onclick={undo} disabled={historyIndex <= 0 || isProcessing}>
+        Undo
+      </button>
+      <button class="btn" onclick={redo} disabled={historyIndex < 0 || historyIndex >= history.length - 1 || isProcessing}>
+        Redo
+      </button>
+    </div>
 
     <label class="zoom-control">
       Zoom
@@ -234,6 +434,27 @@
     align-items: center;
     flex-wrap: wrap;
     gap: 0.6rem;
+  }
+
+  .toolbar-group {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding-left: 0.6rem;
+    border-left: 1px solid var(--border);
+  }
+
+  .export-group {
+    gap: 0.3rem;
+  }
+
+  .format-select {
+    padding: 0.45rem 0.5rem;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    font-size: 0.85rem;
   }
 
   .btn,
