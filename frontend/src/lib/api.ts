@@ -642,6 +642,62 @@ export async function deletePitchStem(song: string, pitch: number, fileName: str
   if (!res.ok) throw new Error(`Failed to delete pitch stem: ${res.status}`);
 }
 
+// ---- DAW audio operations ----
+export interface TrimResponse {
+  file: string;
+}
+
+export async function trimAudio(file: string, start: number, end: number): Promise<TrimResponse> {
+  const res = await fetch(`${API_BASE}/api/audio/trim`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file, start, end }),
+  });
+  if (!res.ok) {
+    throw new Error(`Trim failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as TrimResponse;
+}
+
+export interface FadeResponse {
+  file: string;
+}
+
+export async function fadeAudio(
+  file: string,
+  type: 'in' | 'out',
+  start: number,
+  duration: number,
+): Promise<FadeResponse> {
+  const res = await fetch(`${API_BASE}/api/audio/fade`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file, type, start, duration }),
+  });
+  if (!res.ok) {
+    throw new Error(`Fade failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as FadeResponse;
+}
+
+export interface ExportResponse {
+  file: string;
+  format: string;
+  size: number;
+}
+
+export async function exportAudio(file: string, format: string): Promise<ExportResponse> {
+  const res = await fetch(`${API_BASE}/api/audio/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file, format }),
+  });
+  if (!res.ok) {
+    throw new Error(`Export failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as ExportResponse;
+}
+
 // ---- VRAM Calculator ----
 export interface VRAMModelEntry {
   name: string;
