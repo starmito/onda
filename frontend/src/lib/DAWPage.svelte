@@ -39,8 +39,9 @@
     solo: boolean;
   };
 
-  let formatSelect: HTMLSelectElement | null = $state(null);
   let fileInput: HTMLInputElement | null = $state(null);
+  let exportFormat = $state<'wav' | 'mp3' | 'flac'>('wav');
+  let exportBitrate = $state<'128k' | '192k' | '320k'>('192k');
   let importUploadInput: HTMLInputElement | null = $state(null);
 
   let tracks: Track[] = $state([]);
@@ -536,9 +537,9 @@
     if (!track || !track.fileName) return;
     isProcessing = true;
     status = 'Exportando...';
-    const format = formatSelect?.value || 'wav';
+    const bitrate = exportFormat === 'mp3' ? exportBitrate : undefined;
     try {
-      const resp = await exportAudio(track.fileName, format);
+      const resp = await exportAudio(track.fileName, exportFormat, bitrate);
       status = `Exportado: ${resp.file} (${resp.format}, ${formatBytes(resp.size)})`;
     } catch (err) {
       status = `Error al exportar: ${err instanceof Error ? err.message : String(err)}`;
@@ -669,11 +670,23 @@
       </div>
 
       <div class="toolbar-group export-group">
-        <select class="format-select" bind:this={formatSelect} disabled={!isReady || isProcessing}>
+        <select class="format-select" bind:value={exportFormat} disabled={!isReady || isProcessing}>
           <option value="wav">WAV</option>
+          <option value="mp3">MP3</option>
+          <option value="flac">FLAC</option>
         </select>
-        <button class="btn" onclick={handleExport} disabled={!isReady || isProcessing}>
-          Export
+        <select class="format-select" bind:value={exportBitrate} disabled={!isReady || isProcessing} title="Calidad MP3">
+          <option value="128k">128 kbps</option>
+          <option value="192k">192 kbps</option>
+          <option value="320k">320 kbps</option>
+        </select>
+        <button
+          class="btn"
+          onclick={handleExport}
+          disabled={!isReady || isProcessing}
+          title="Exportar como {exportFormat.toUpperCase()}{exportFormat === 'mp3' ? ' ' + exportBitrate : ''}"
+        >
+          Export {exportFormat.toUpperCase()}
         </button>
       </div>
 
