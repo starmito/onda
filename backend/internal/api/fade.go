@@ -12,11 +12,13 @@ import (
 )
 
 // FadeRequest is the JSON body for POST /api/audio/fade.
+// Accepts either start+duration or start+end; if both are present, duration is used.
 type FadeRequest struct {
 	File     string  `json:"file"`
 	Type     string  `json:"type"`
 	Start    float64 `json:"start"`
 	Duration float64 `json:"duration"`
+	End      float64 `json:"end"`
 }
 
 // FadeResponse is returned by POST /api/audio/fade.
@@ -62,10 +64,14 @@ func (s *Server) handleFade(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "start must be >= 0"})
 		return
 	}
+	// Support start+end as an alternative to start+duration.
+	if req.Duration <= 0 && req.End > req.Start {
+		req.Duration = req.End - req.Start
+	}
 	if req.Duration <= 0 {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "duration must be > 0"})
+		json.NewEncoder(w).Encode(map[string]string{"error": "duration or a valid end time must be provided"})
 		return
 	}
 
