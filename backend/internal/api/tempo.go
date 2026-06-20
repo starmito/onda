@@ -45,17 +45,20 @@ func (s *Server) handleTempo(w http.ResponseWriter, r *http.Request) {
 	// Prevent path traversal by using only the base name.
 	safeName := filepath.Base(file)
 	projectRoot := findProjectRoot()
-	inputBase := filepath.Join(projectRoot, "input")
-	inputPath := filepath.Join(inputBase, safeName)
 
-	if _, err := os.Stat(inputPath); os.IsNotExist(err) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "file not found"})
-		return
+	sourcePath := filepath.Join(projectRoot, "input", safeName)
+	if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
+		dawPath := filepath.Join(projectRoot, "daw-data", safeName)
+		if _, err := os.Stat(dawPath); os.IsNotExist(err) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "file not found"})
+			return
+		}
+		sourcePath = dawPath
 	}
 
-	bpm, err := detectBPM(inputPath)
+	bpm, err := detectBPM(sourcePath)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -63,7 +66,7 @@ func (s *Server) handleTempo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	beats, err := detectBeats(inputPath)
+	beats, err := detectBeats(sourcePath)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -71,7 +74,7 @@ func (s *Server) handleTempo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	duration, err := detectDuration(inputPath)
+	duration, err := detectDuration(sourcePath)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
