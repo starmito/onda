@@ -88,11 +88,26 @@ func (s *Server) handleTempo(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// aubioEnv returns the current environment with PYTHONPATH removed so that
+// aubio (system Python 3.13) does not pick up the CUDA cache numpy compiled
+// for Python 3.12.
+func aubioEnv() []string {
+	var env []string
+	for _, e := range os.Environ() {
+		if !strings.HasPrefix(e, "PYTHONPATH=") {
+			env = append(env, e)
+		}
+	}
+	return env
+}
+
 // detectBPM runs `aubio tempo` and returns the detected BPM.
 // It extracts the first floating point number from the output, supporting
 // formats like "120.00 bpm", "112.75 bpm (uncertain)", and "BPM: 120.0".
 func detectBPM(inputPath string) (float64, error) {
-	out, err := exec.Command("aubio", "tempo", inputPath).CombinedOutput()
+	cmd := exec.Command("aubio", "tempo", inputPath)
+	cmd.Env = aubioEnv()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return 0, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}
@@ -112,7 +127,9 @@ func detectBPM(inputPath string) (float64, error) {
 
 // detectBeats runs `aubio beat` and returns the detected beat timestamps.
 func detectBeats(inputPath string) ([]float64, error) {
-	out, err := exec.Command("aubio", "beat", inputPath).CombinedOutput()
+	cmd := exec.Command("aubio", "beat", inputPath)
+	cmd.Env = aubioEnv()
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
 	}
