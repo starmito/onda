@@ -709,11 +709,19 @@ export interface ExportResponse {
   size: number;
 }
 
-export async function exportAudio(file: string, format: string): Promise<ExportResponse> {
+export async function exportAudio(
+  file: string,
+  format: string,
+  bitrate?: string,
+): Promise<ExportResponse> {
+  const body: Record<string, string> = { file, format };
+  if (bitrate) {
+    body.bitrate = bitrate;
+  }
   const res = await fetch(`${API_BASE}/api/audio/export`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ file, format }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     throw new Error(`Export failed with status ${res.status}: ${res.statusText}`);

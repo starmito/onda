@@ -5,13 +5,16 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // ExportRequest is the JSON body for POST /api/audio/export.
 type ExportRequest struct {
-	File   string `json:"file"`
-	Format string `json:"format"`
+	File    string `json:"file"`
+	Format  string `json:"format"`
+	Bitrate string `json:"bitrate,omitempty"`
 }
 
 // ExportResponse is returned by POST /api/audio/export.
@@ -21,7 +24,8 @@ type ExportResponse struct {
 	Size   int64  `json:"size"`
 }
 
-// handleExport verifies that a WAV file exists and returns its metadata.
+// handleExport returns the requested audio file (WAV metadata) or converts it
+// to MP3/FLAC using ffmpeg. Supported formats: "wav", "mp3" and "flac".
 // POST /api/audio/export
 func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -47,10 +51,22 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "file is required"})
 		return
 	}
-	if req.Format != "wav" {
+	format := strings.ToLower(req.Format)
+	if format != "wav" && format != "mp3" && format != "flac" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "format must be 'wav'"})
+		json.NewEncoder(w).Encode(map[string]string{"error": "format must be 'wav', 'mp3' or 'flac'"})
+		return
+	}
+
+	bitrate := req.Bitrate
+	if bitrate == "" {
+		bitrate = "192k"
+	}
+	if format == "mp3" && bitrate != "128k" && bitrate != "192k" && bitrate != "320k" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "bitrate must be 128k, 192k or 320k"})
 		return
 	}
 
@@ -87,11 +103,74 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if format == "wav" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(ExportResponse{
+			File:   safeName,
+			Format: format,
+			Size:   info.Size(),
+		})
+		return
+	}
+
+	// FLAC/MP3 export: convert the source file with ffmpeg and write it to daw-data.
+	var outputExt, codec string
+	var extraArgs []string
+	switch format {
+	case "flac":
+		outputExt = ".flac"
+		codec = "flac"
+	case "mp3":
+		outputExt = ".mp3"
+		codec = "libmp3lame"
+		extraArgs = []string{"-b:a", bitrate}
+	}
+
+	dawBase := filepath.Join(projectRoot, "daw-data")
+	if err := os.MkdirAll(dawBase, 0o755); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to create daw-data directory"})
+		return
+	}
+
+	base := strings.TrimSuffix(safeName, filepath.Ext(safeName))
+	outputName := "export_" + base + outputExt
+	outputPath := filepath.Join(dawBase, outputName)
+
+	args := []string{
+		"-y",
+		"-i", filePath,
+		"-codec:a", codec,
+	}
+	args = append(args, extraArgs...)
+	args = append(args, outputPath)
+
+	cmd := exec.Command("ffmpeg", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "ffmpeg conversion failed: " + strings.TrimSpace(string(out)),
+		})
+		return
+	}
+
+	outInfo, err := os.Stat(outputPath)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to stat exported file"})
+		return
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(ExportResponse{
-		File:   safeName,
-		Format: req.Format,
-		Size:   info.Size(),
+		File:   outputName,
+		Format: format,
+		Size:   outInfo.Size(),
 	})
 }
