@@ -58,6 +58,13 @@
   let expandedSongs = $state<Record<string, boolean>>({});
   let uploadResult = $state<{ file: string; size: number } | null>(null);
 
+  $effect(() => {
+    // Ensure stems are loaded whenever the import panel is open on a stems tab.
+    if (importOpen && importTab !== 'upload') {
+      loadStems();
+    }
+  });
+
   let zoom = $state(100);
   let status = $state('Carga o importa pistas de audio para empezar');
   let isProcessing = $state(false);
@@ -108,8 +115,9 @@
         setupGridOverlay(track);
         drawGrid(track);
       }
-    } catch {
-      // Grid data is optional; ignore errors silently.
+    } catch (err) {
+      // Grid data is optional, but log failures so they are not silently lost.
+      console.error(`Failed to load tempo grid for ${fileName}:`, err);
     }
   }
 
@@ -226,6 +234,8 @@
         setupGridOverlay(track);
         drawGrid(track);
       }
+      // Load the tempo grid once the waveform is ready so the overlay can be drawn immediately.
+      loadTempoGrid(track.fileName, track.id);
     });
 
     ws.on('zoom', () => drawGrid(track));
@@ -307,8 +317,7 @@
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
     if (file) {
-      const track = addTrack(file.name, URL.createObjectURL(file), file.size);
-      loadTempoGrid(file.name, track.id);
+      addTrack(file.name, URL.createObjectURL(file), file.size);
     }
     input.value = '';
   }
@@ -573,8 +582,7 @@
     try {
       const resp = await uploadAudioDAW(file);
       uploadResult = { file: resp.file, size: resp.size };
-      const track = addTrack(resp.file, `/daw-data/${resp.file}`, resp.size);
-      loadTempoGrid(resp.file, track.id);
+      addTrack(resp.file, `/daw-data/${resp.file}`, resp.size);
       status = `Subido: ${resp.file}`;
     } catch (err) {
       status = `Error al subir: ${err instanceof Error ? err.message : String(err)}`;
@@ -589,8 +597,7 @@
     status = 'Importando...';
     try {
       const resp = await importStem('output', song, stem);
-      const track = addTrack(resp.file, `/daw-data/${resp.file}`, resp.size);
-      loadTempoGrid(resp.file, track.id);
+      addTrack(resp.file, `/daw-data/${resp.file}`, resp.size);
       status = `Importado: ${resp.file}`;
     } catch (err) {
       status = `Error al importar: ${err instanceof Error ? err.message : String(err)}`;
@@ -604,8 +611,7 @@
     status = 'Importando pitch...';
     try {
       const resp = await importStem('pitch', undefined, stem);
-      const track = addTrack(resp.file, `/daw-data/${resp.file}`, resp.size);
-      loadTempoGrid(resp.file, track.id);
+      addTrack(resp.file, `/daw-data/${resp.file}`, resp.size);
       status = `Importado: ${resp.file}`;
     } catch (err) {
       status = `Error al importar: ${err instanceof Error ? err.message : String(err)}`;
