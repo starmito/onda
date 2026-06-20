@@ -59,15 +59,18 @@ func (s *Server) handleTempoShift(w http.ResponseWriter, r *http.Request) {
 	// Prevent path traversal by using only the base name.
 	safeName := filepath.Base(req.File)
 	projectRoot := findProjectRoot()
-	inputBase := filepath.Join(projectRoot, "input")
 	dawBase := filepath.Join(projectRoot, "daw-data")
-	inputPath := filepath.Join(inputBase, safeName)
 
-	if _, err := os.Stat(inputPath); os.IsNotExist(err) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "file not found"})
-		return
+	sourcePath := filepath.Join(projectRoot, "input", safeName)
+	if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
+		dawPath := filepath.Join(dawBase, safeName)
+		if _, err := os.Stat(dawPath); os.IsNotExist(err) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "file not found"})
+			return
+		}
+		sourcePath = dawPath
 	}
 
 	// Ensure DAW data directory exists.
@@ -90,7 +93,7 @@ func (s *Server) handleTempoShift(w http.ResponseWriter, r *http.Request) {
 	tmpPath := filepath.Join(dawBase, "tmp", outputName)
 	outputPath := filepath.Join(dawBase, outputName)
 
-	cmd := exec.Command("rubberband", "--tempo", fmt.Sprintf("%f", req.Ratio), inputPath, tmpPath)
+	cmd := exec.Command("rubberband", "--tempo", fmt.Sprintf("%f", req.Ratio), sourcePath, tmpPath)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")

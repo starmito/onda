@@ -100,15 +100,18 @@ func (s *Server) handleTempoPerBar(w http.ResponseWriter, r *http.Request) {
 
 	safeName := filepath.Base(req.File)
 	projectRoot := findProjectRoot()
-	inputBase := filepath.Join(projectRoot, "input")
 	dawBase := filepath.Join(projectRoot, "daw-data")
-	inputPath := filepath.Join(inputBase, safeName)
 
-	if _, err := os.Stat(inputPath); os.IsNotExist(err) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "file not found"})
-		return
+	sourcePath := filepath.Join(projectRoot, "input", safeName)
+	if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
+		dawPath := filepath.Join(dawBase, safeName)
+		if _, err := os.Stat(dawPath); os.IsNotExist(err) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "file not found"})
+			return
+		}
+		sourcePath = dawPath
 	}
 
 	if err := os.MkdirAll(dawBase, 0o755); err != nil {
@@ -125,7 +128,7 @@ func (s *Server) handleTempoPerBar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	beats, err := detectBeats(inputPath)
+	beats, err := detectBeats(sourcePath)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -139,7 +142,7 @@ func (s *Server) handleTempoPerBar(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	duration, err := detectDuration(inputPath)
+	duration, err := detectDuration(sourcePath)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -167,7 +170,7 @@ func (s *Server) handleTempoPerBar(w http.ResponseWriter, r *http.Request) {
 		ratioMap[br.Bar] = br.Ratio
 	}
 
-	inputBuf, inputFmt, err := readWAV(inputPath)
+	inputBuf, inputFmt, err := readWAV(sourcePath)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)

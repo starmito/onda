@@ -16,7 +16,20 @@ type StemsResponse struct {
 	Pitch  []string            `json:"pitch"`
 }
 
-// handleListStems returns all .wav stems under output/ and input_rubberband/.
+var stemAudioExts = map[string]bool{
+	".wav":  true,
+	".mp3":  true,
+	".flac": true,
+	".ogg":  true,
+	".m4a":  true,
+	".aiff": true,
+}
+
+func isAudioStem(name string) bool {
+	return stemAudioExts[strings.ToLower(filepath.Ext(name))]
+}
+
+// handleListStems returns all audio stems under output/ and input_rubberband/.
 // GET /api/daw/stems
 func (s *Server) handleListStems(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -56,7 +69,7 @@ func (s *Server) handleListStems(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				name := filepath.Base(stemEntry.Name())
-				if strings.ToLower(filepath.Ext(name)) != ".wav" {
+				if !isAudioStem(name) {
 					continue
 				}
 				stems = append(stems, name)
@@ -76,7 +89,7 @@ func (s *Server) handleListStems(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			name := filepath.Base(entry.Name())
-			if strings.ToLower(filepath.Ext(name)) != ".wav" {
+			if !isAudioStem(name) {
 				continue
 			}
 			resp.Pitch = append(resp.Pitch, name)

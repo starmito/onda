@@ -63,18 +63,22 @@ func (s *Server) handleTrim(w http.ResponseWriter, r *http.Request) {
 
 	safeName := filepath.Base(req.File)
 	projectRoot := findProjectRoot()
-	inputBase := filepath.Join(projectRoot, "input")
+	inputPath := filepath.Join(projectRoot, "input", safeName)
 	dawBase := filepath.Join(projectRoot, "daw-data")
-	inputPath := filepath.Join(inputBase, safeName)
+	dawPath := filepath.Join(dawBase, safeName)
 
-	if _, err := os.Stat(inputPath); os.IsNotExist(err) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "file not found"})
-		return
+	sourcePath := inputPath
+	if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
+		if _, err := os.Stat(dawPath); os.IsNotExist(err) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "file not found"})
+			return
+		}
+		sourcePath = dawPath
 	}
 
-	buf, fmtInfo, err := readWAV(inputPath)
+	buf, fmtInfo, err := readWAV(sourcePath)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
