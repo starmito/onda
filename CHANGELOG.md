@@ -1,5 +1,18 @@
 # Changelog
 
+## [v3.2.2] - 2026-06-22
+### Added
+- **EQ paramétrico**: endpoint `POST /api/daw/eq` con 7 tipos de filtro (lowpass, highpass, bandpass, notch, peak, lowshelf, highshelf) usando go-equalizer (biquad RBJ)
+- **8 efectos DSP**: endpoints con SoX CLI
+  - `POST /api/daw/compressor` — compresor dinámico via sox compand
+  - `POST /api/daw/reverb` — reverberación via sox reverb
+  - `POST /api/daw/delay` — delay/echo via sox echo
+  - `POST /api/daw/chorus` — chorus via sox chorus
+  - `POST /api/daw/flanger` — flanger via sox flanger
+  - `POST /api/daw/phaser` — phaser via sox phaser
+  - `POST /api/daw/tremolo` — tremolo via sox tremolo
+  - `POST /api/daw/noisegate` — noise gate via sox compand
+
 ## [v3.2.1] - 2026-06-22
 ### Added
 - **SoX CLI**: installed in Docker image for audio effects processing
