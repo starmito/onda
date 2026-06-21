@@ -2,9 +2,11 @@ package api
 
 import (
 	"context"
+	"embed"
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -20,6 +22,21 @@ import (
 	"github.com/starmito/onda/internal/cli"
 	"gopkg.in/yaml.v3"
 )
+
+//go:embed dist/index.html
+//go:embed dist/icon.png
+//go:embed dist/assets/*
+var frontendAssets embed.FS
+
+var frontendFS fs.FS
+
+func init() {
+	var err error
+	frontendFS, err = fs.Sub(frontendAssets, "dist")
+	if err != nil {
+		panic("failed to create frontend sub-FS: " + err.Error())
+	}
+}
 
 // FileEntry describes a generated stem file.
 type FileEntry struct {
@@ -117,6 +134,16 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)
 	s.mux.HandleFunc("/api/separate", s.handleSeparate)
 	s.mux.HandleFunc("POST /api/pitch", s.handlePitchShift)
+	s.mux.HandleFunc("GET /api/audio/tempo", s.handleTempo)
+	s.mux.HandleFunc("GET /api/audio/tempo-grid", s.handleTempoGrid)
+	s.mux.HandleFunc("POST /api/audio/tempo", s.handleTempoShift)
+	s.mux.HandleFunc("POST /api/audio/tempo-per-bar", s.handleTempoPerBar)
+	s.mux.HandleFunc("POST /api/audio/trim", s.handleTrim)
+	s.mux.HandleFunc("POST /api/audio/fade", s.handleFade)
+	s.mux.HandleFunc("POST /api/audio/export", s.handleExport)
+	s.mux.HandleFunc("GET /api/daw/stems", s.handleListStems)
+	s.mux.HandleFunc("POST /api/daw/import", s.handleImportStem)
+	s.mux.HandleFunc("POST /api/daw/upload", s.handleUploadAudio)
 	s.mux.HandleFunc("GET /api/pitch/{song}", s.handleListPitchSubgroups)
 	s.mux.HandleFunc("DELETE /api/pitch/{song}/{pitch}", s.handleDeletePitchSubgroup)
 	s.mux.HandleFunc("DELETE /api/pitch/{song}/{pitch}/{file}", s.handleDeletePitchStem)
@@ -132,7 +159,21 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("DELETE /api/models/{name}", s.handleDeleteModel)
 	s.mux.HandleFunc("DELETE /api/inputs/{name}", s.handleDeleteInput)
 	s.mux.HandleFunc("DELETE /api/uploads/pitch/{name}", s.handleDeletePitchUpload)
-	// Frontend is served by Vite dev server separately; no static handler needed.
+
+	// Servir archivos estaticos de audio (relativos al project root para no depender de rutas de contenedor)
+	projectRoot := findProjectRoot()
+	outputDir := filepath.Join(projectRoot, "output")
+	inputRubberbandDir := filepath.Join(projectRoot, "input_rubberband")
+	dawDataDir := filepath.Join(projectRoot, "daw-data")
+	os.MkdirAll(outputDir, 0o755)
+	os.MkdirAll(inputRubberbandDir, 0o755)
+	os.MkdirAll(dawDataDir, 0o755)
+	s.mux.Handle("GET /output/", http.StripPrefix("/output/", http.FileServer(http.Dir(outputDir))))
+	s.mux.Handle("GET /input_rubberband/", http.StripPrefix("/input_rubberband/", http.FileServer(http.Dir(inputRubberbandDir))))
+	s.mux.Handle("GET /daw-data/", http.StripPrefix("/daw-data/", http.FileServer(http.Dir(dawDataDir))))
+
+	// Servir frontend Svelte embebido (catch-all — debe ir al final)
+	s.mux.Handle("/", http.FileServer(http.FS(frontendFS)))
 
 	go s.worker()
 
@@ -589,7 +630,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 	outputDir := filepath.Join(projectRoot, "output", song)
 
 	// Ensure output directory exists
-	os.MkdirAll(outputDir, 0755)
+	os.MkdirAll(outputDir, 0o755)
 
 	currentInput := job.Config.Input
 	allStems := make([]FileEntry, 0)
@@ -725,7 +766,7 @@ func findChainedInput(outputDir string, step cli.PipelineStep) string {
 	}
 
 	// Fallback: find any .wav file that looks like an inter-step stem
-		// e.g., instrumental.wav (the conventional name)
+	// e.g., instrumental.wav (the conventional name)
 	patterns := []string{
 		filepath.Join(outputDir, "*instrumental*"),
 		filepath.Join(outputDir, "*no_vocals*"),
@@ -901,7 +942,7 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 	var args []string
 
 	switch step.Type {
-case "viperx", "vocal":
+	case "viperx", "vocal":
 		args = append(args, "--vocal-model", "BS_Roformer_Viperx")
 		// Model
 		if step.Model != "" {
@@ -1009,14 +1050,14 @@ func (s *Server) handleModels(w http.ResponseWriter, r *http.Request) {
 
 // SeparateRequest is the JSON body for POST /api/separate.
 type SeparateRequest struct {
-	Preset     string `json:"preset"`
-	Input      string `json:"input"`
-	Output     string `json:"output,omitempty"`
-	VocalModel string `json:"vocal_model,omitempty"`
+	Preset      string `json:"preset"`
+	Input       string `json:"input"`
+	Output      string `json:"output,omitempty"`
+	VocalModel  string `json:"vocal_model,omitempty"`
 	ViperxModel string `json:"viperx_model,omitempty"` // alias for VocalModel
 	StemModel   string `json:"stem_model,omitempty"`
 	DemucsModel string `json:"demucs_model,omitempty"` // alias for StemModel
-	Pitch      int    `json:"pitch,omitempty"`
+	Pitch       int    `json:"pitch,omitempty"`
 
 	Viperx     bool     `json:"viperx"`
 	ViperxKeep string   `json:"viperx_keep,omitempty"`
@@ -1422,7 +1463,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	projectRoot := findProjectRoot()
 	inputDir := filepath.Join(projectRoot, "input")
 	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
-		os.MkdirAll(inputDir, 0755)
+		os.MkdirAll(inputDir, 0o755)
 	}
 	// Fix permissions so container user (1000:1000) can write
 	os.Chmod(inputDir, 0777)
@@ -1486,7 +1527,7 @@ func (s *Server) handleUploadPitch(w http.ResponseWriter, r *http.Request) {
 	projectRoot := findProjectRoot()
 	inputDir := filepath.Join(projectRoot, "input_rubberband")
 	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
-		os.MkdirAll(inputDir, 0755)
+		os.MkdirAll(inputDir, 0o755)
 	}
 	// Fix permissions so container user (1000:1000) can write
 	os.Chmod(inputDir, 0777)

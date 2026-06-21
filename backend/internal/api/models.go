@@ -945,7 +945,7 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 // parsing --show-progress output line-by-line for real-time progress updates.
 func runDirectDownload(url, filename, targetDir string) {
 	// Ensure the target directory exists
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
+	if err := os.MkdirAll(targetDir, 0o755); err != nil {
 		log.Printf("[models] failed to create target dir %s: %v", targetDir, err)
 		downloadMu.Lock()
 		// Try composite key (filename@url) first, then plain URL as fallback.

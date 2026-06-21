@@ -29,6 +29,7 @@ services:
       - ./input:/input
       - ./output:/output
       - ./input_rubberband:/input_rubberband
+      - ./daw-data:/daw-data
       - ./config:/config
       - pytorch-cache:/opt/pytorch-backends
     environment:
