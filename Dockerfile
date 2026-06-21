@@ -72,6 +72,9 @@ COPY --from=python-base /usr/local/bin/demucs /usr/local/bin/demucs
 COPY --from=go-builder /onda-backend /app/backend/onda-backend
 RUN chmod +x /app/backend/onda-backend
 
+# Frontend static assets
+COPY --from=frontend-builder /src/dist/ /app/frontend/dist/
+
 # Pipeline script
 COPY pipeline.sh /app/pipeline.sh
 RUN chmod +x /app/pipeline.sh
