@@ -61,6 +61,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     rubberband-cli \
     ffmpeg \
     aubio-tools \
+    sox \
     && rm -rf /var/lib/apt/lists/*
 
 # Python deps (desde python-base)
