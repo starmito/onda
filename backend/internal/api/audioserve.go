@@ -7,7 +7,7 @@ import (
 )
 
 func (s *Server) handleServeAudio(w http.ResponseWriter, r *http.Request) {
-	filename := r.PathValue("filename")
+	filename := r.URL.Query().Get("file")
 	if filename == "" {
 		http.Error(w, "filename required", http.StatusBadRequest)
 		return
