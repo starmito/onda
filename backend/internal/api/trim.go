@@ -6,8 +6,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-
-	"github.com/go-audio/audio"
 )
 
 // TrimRequest is the JSON body for POST /api/audio/trim.
@@ -78,41 +76,21 @@ func (s *Server) handleTrim(w http.ResponseWriter, r *http.Request) {
 		sourcePath = dawPath
 	}
 
-	buf, fmtInfo, err := readWAV(sourcePath)
+	duration, err := detectDuration(sourcePath)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to read input WAV: " + err.Error()})
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to read duration: " + err.Error()})
 		return
 	}
 
-	samplesPerSecond := float64(fmtInfo.SampleRate * fmtInfo.NumChannels)
-	totalDuration := float64(len(buf.Data)) / samplesPerSecond
-
-	if req.End > totalDuration {
+	if req.End > duration {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{
-			"error": fmt.Sprintf("end (%.3f) exceeds duration (%.3f)", req.End, totalDuration),
+			"error": fmt.Sprintf("end (%.3f) exceeds duration (%.3f)", req.End, duration),
 		})
 		return
-	}
-
-	startSample := int(req.Start * samplesPerSecond)
-	endSample := int(req.End * samplesPerSecond)
-	if startSample < 0 {
-		startSample = 0
-	}
-	if endSample > len(buf.Data) {
-		endSample = len(buf.Data)
-	}
-	if startSample > endSample {
-		startSample = endSample
-	}
-
-	trimmed := &audio.IntBuffer{
-		Data:   buf.Data[startSample:endSample],
-		Format: buf.Format,
 	}
 
 	if err := os.MkdirAll(dawBase, 0o755); err != nil {
@@ -125,10 +103,12 @@ func (s *Server) handleTrim(w http.ResponseWriter, r *http.Request) {
 	outputName := "trim_" + safeName
 	outputPath := filepath.Join(dawBase, outputName)
 
-	if err := writeWAV(outputPath, trimmed, fmtInfo); err != nil {
+	if err := ApplySox(sourcePath, outputPath, []SoxEffect{
+		{Name: "trim", Params: []string{fmt.Sprintf("%f", req.Start), "=" + fmt.Sprintf("%f", req.End)}},
+	}); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to write output WAV: " + err.Error()})
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to trim audio: " + err.Error()})
 		return
 	}
 

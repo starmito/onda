@@ -3,12 +3,13 @@ package api
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
-
-	"github.com/go-audio/audio"
+	"strconv"
+	"strings"
+	"time"
 )
 
 // FadeRequest is the JSON body for POST /api/audio/fade.
@@ -26,7 +27,9 @@ type FadeResponse struct {
 	File string `json:"file"`
 }
 
-// handleFade applies a linear fade-in or fade-out envelope to a WAV file segment.
+// handleFade applies a linear fade-in or fade-out envelope to a WAV file segment
+// using SoX, by extracting the segment, fading it, and recombining it with the
+// unchanged prefix and suffix.
 // POST /api/audio/fade
 func (s *Server) handleFade(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -92,65 +95,22 @@ func (s *Server) handleFade(w http.ResponseWriter, r *http.Request) {
 		sourcePath = dawPath
 	}
 
-	buf, fmtInfo, err := readWAV(sourcePath)
+	duration, err := detectDuration(sourcePath)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to read input WAV: " + err.Error()})
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to read duration: " + err.Error()})
 		return
 	}
 
-	samplesPerSecond := float64(fmtInfo.SampleRate * fmtInfo.NumChannels)
-	totalDuration := float64(len(buf.Data)) / samplesPerSecond
-
 	endTime := req.Start + req.Duration
-	if endTime > totalDuration {
+	if endTime > duration {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{
-			"error": fmt.Sprintf("start+duration (%.3f) exceeds duration (%.3f)", endTime, totalDuration),
+			"error": fmt.Sprintf("start+duration (%.3f) exceeds duration (%.3f)", endTime, duration),
 		})
 		return
-	}
-
-	startSample := int(req.Start * samplesPerSecond)
-	endSample := int(endTime * samplesPerSecond)
-	if startSample < 0 {
-		startSample = 0
-	}
-	if endSample > len(buf.Data) {
-		endSample = len(buf.Data)
-	}
-	if startSample > endSample {
-		startSample = endSample
-	}
-
-	// Clone the original data so we only modify the requested segment.
-	outputData := make([]int, len(buf.Data))
-	copy(outputData, buf.Data)
-
-	fadeSamples := endSample - startSample
-	for i := 0; i < fadeSamples; i++ {
-		var gain float64
-		if req.Type == "in" {
-			gain = float64(i) / float64(fadeSamples)
-		} else {
-			gain = 1.0 - (float64(i) / float64(fadeSamples))
-		}
-		// Clamp gain to [0,1] to avoid tiny negative values at the end.
-		if gain < 0 {
-			gain = 0
-		}
-		if gain > 1 {
-			gain = 1
-		}
-		idx := startSample + i
-		outputData[idx] = int(math.Round(float64(outputData[idx]) * gain))
-	}
-
-	faded := &audio.IntBuffer{
-		Data:   outputData,
-		Format: buf.Format,
 	}
 
 	if err := os.MkdirAll(dawBase, 0o755); err != nil {
@@ -160,17 +120,122 @@ func (s *Server) handleFade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	tmpDir := filepath.Join(dawBase, "tmp")
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to create tmp dir: %v", err)})
+		return
+	}
+
+	tag := strconv.FormatInt(time.Now().UnixNano(), 10)
+	prefixPath := filepath.Join(tmpDir, "fade_"+tag+"_prefix.wav")
+	segmentPath := filepath.Join(tmpDir, "fade_"+tag+"_segment.wav")
+	fadedPath := filepath.Join(tmpDir, "fade_"+tag+"_faded.wav")
+	suffixPath := filepath.Join(tmpDir, "fade_"+tag+"_suffix.wav")
+
+	cleanup := func() {
+		_ = os.Remove(prefixPath)
+		_ = os.Remove(segmentPath)
+		_ = os.Remove(fadedPath)
+		_ = os.Remove(suffixPath)
+	}
+	defer cleanup()
+
+	startStr := fmt.Sprintf("%f", req.Start)
+	durationStr := fmt.Sprintf("%f", req.Duration)
+	endStr := fmt.Sprintf("%f", endTime)
+
+	// Extract the unchanged prefix [0, start).
+	if req.Start > 0 {
+		if err := ApplySox(sourcePath, prefixPath, []SoxEffect{
+			{Name: "trim", Params: []string{"0", startStr}},
+		}); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "failed to extract prefix: " + err.Error()})
+			return
+		}
+	}
+
+	// Extract the segment to fade.
+	if err := ApplySox(sourcePath, segmentPath, []SoxEffect{
+		{Name: "trim", Params: []string{startStr, durationStr}},
+	}); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to extract segment: " + err.Error()})
+		return
+	}
+
+	// Apply fade across the whole segment.
+	var fadeParams []string
+	if req.Type == "in" {
+		fadeParams = []string{"t", durationStr, "0", "0"}
+	} else {
+		fadeParams = []string{"t", "0", "0", durationStr}
+	}
+	if err := ApplySox(segmentPath, fadedPath, []SoxEffect{
+		{Name: "fade", Params: fadeParams},
+	}); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to apply fade: " + err.Error()})
+		return
+	}
+
+	// Extract the unchanged suffix [end, duration).
+	if endTime < duration {
+		if err := ApplySox(sourcePath, suffixPath, []SoxEffect{
+			{Name: "trim", Params: []string{"=" + endStr}},
+		}); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "failed to extract suffix: " + err.Error()})
+			return
+		}
+	}
+
+	// Build the input list for concatenation.
 	outputName := "fade_" + req.Type + "_" + safeName
 	outputPath := filepath.Join(dawBase, outputName)
 
-	if err := writeWAV(outputPath, faded, fmtInfo); err != nil {
+	var concatInputs []string
+	if req.Start > 0 {
+		concatInputs = append(concatInputs, prefixPath)
+	}
+	concatInputs = append(concatInputs, fadedPath)
+	if endTime < duration {
+		concatInputs = append(concatInputs, suffixPath)
+	}
+
+	if err := concatSox(concatInputs, outputPath); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to write output WAV: " + err.Error()})
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to concatenate audio: " + err.Error()})
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(FadeResponse{File: outputName})
+}
+
+// concatSox concatenates multiple WAV files (with identical format) into one
+// output file using SoX: `sox input1 input2 ... output`.
+func concatSox(inputs []string, outputPath string) error {
+	if len(inputs) == 0 {
+		return fmt.Errorf("no inputs to concatenate")
+	}
+	if len(inputs) == 1 {
+		return ApplySox(inputs[0], outputPath, nil)
+	}
+
+	args := append([]string{}, inputs...)
+	args = append(args, outputPath)
+	out, err := exec.Command("sox", args...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("sox concat failed: %w (output: %s)", err, strings.TrimSpace(string(out)))
+	}
+	return nil
 }
