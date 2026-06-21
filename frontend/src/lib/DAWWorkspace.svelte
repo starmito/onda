@@ -2,9 +2,13 @@
   import DAWPage from './DAWPage.svelte';
   import BasicEffectsPanel from './BasicEffectsPanel.svelte';
   import BasicEQPanel from './BasicEQPanel.svelte';
+  import MIDIPage from './MIDIPage.svelte';
+  import SpectrogramPage from './SpectrogramPage.svelte';
+  import { IconSliders, IconPiano, IconSpectrogram } from './icons';
 
   let viewMode = $state<'basic' | 'medium' | 'full'>('basic');
   let activeFile = $state<string | null>(null);
+  let activeTab = $state<'effects' | 'midi' | 'spectrogram'>('effects');
 
   function handleActiveTrackChange(fileName: string | null) {
     activeFile = fileName;
@@ -40,7 +44,50 @@
         <BasicEQPanel activeFile={activeFile} />
       </div>
     {:else if viewMode === 'medium'}
-      <div class="placeholder">Medio - próximamente</div>
+      <div class="medium-panel">
+        <div class="tab-bar">
+          <button
+            class="tab-button"
+            class:active={activeTab === 'effects'}
+            onclick={() => (activeTab = 'effects')}
+            type="button"
+          >
+            <span class="tab-icon">{@html IconSliders}</span>
+            <span>Efectos + EQ</span>
+          </button>
+          <button
+            class="tab-button"
+            class:active={activeTab === 'midi'}
+            onclick={() => (activeTab = 'midi')}
+            type="button"
+          >
+            <span class="tab-icon">{@html IconPiano}</span>
+            <span>Piano Roll</span>
+          </button>
+          <button
+            class="tab-button"
+            class:active={activeTab === 'spectrogram'}
+            onclick={() => (activeTab = 'spectrogram')}
+            type="button"
+          >
+            <span class="tab-icon">{@html IconSpectrogram}</span>
+            <span>Espectrograma</span>
+          </button>
+        </div>
+
+        <div class="tab-content">
+          {#if activeTab === 'effects'}
+            <div class="basic-grid">
+              <BasicEffectsPanel activeFile={activeFile} />
+              <BasicEQPanel activeFile={activeFile} />
+            </div>
+          {:else if activeTab === 'midi'}
+            <MIDIPage />
+          {:else if activeTab === 'spectrogram'}
+            <SpectrogramPage />
+          {/if}
+        </div>
+      </div>
     {:else}
       <div class="placeholder">Completo - próximamente</div>
     {/if}
@@ -142,5 +189,71 @@
     color: var(--text-secondary);
     font-size: 1rem;
     font-weight: 600;
+  }
+
+  .medium-panel {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    min-height: 0;
+    gap: 0.75rem;
+  }
+
+  .tab-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.4rem;
+    background: #1a1a2e;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    flex-shrink: 0;
+  }
+
+  .tab-button {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.9rem;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  }
+
+  .tab-button:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: var(--text-primary);
+  }
+
+  .tab-button.active {
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--accent, #7c5cff);
+    box-shadow: inset 0 -2px 0 0 var(--accent, #7c5cff);
+  }
+
+  .tab-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.1rem;
+    height: 1.1rem;
+  }
+
+  .tab-icon :global(svg) {
+    width: 100%;
+    height: 100%;
+  }
+
+  .tab-content {
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
   }
 </style>
