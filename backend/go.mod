@@ -11,4 +11,5 @@ require (
 require (
 	github.com/go-audio/riff v1.0.0 // indirect
 	github.com/moutend/go-equalizer v0.1.0 // indirect
+	gitlab.com/gomidi/midi/v2 v2.3.24 // indirect
 )
