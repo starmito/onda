@@ -1,5 +1,5 @@
 <script>
-	import { IconMenu, IconUser, IconTone, IconBPM, IconDAW, IconMIDI, IconHelp, IconSettings } from './icons';
+	import { IconMenu, IconUser, IconTone, IconBPM, IconDAW, IconMIDI, IconSpectrogram, IconHelp, IconSettings } from './icons';
 
 	/**
 	 * Sidebar.svelte — Sidebar vertical colapsable al estilo vocalremover.org
@@ -21,10 +21,11 @@
 	const customItem = { id: 'personalizado', name: 'Personalizado', icon: IconUser };
 
 	const staticItems = [
-		{ id: 'pitch',    name: 'Cambiar Tono',        icon: IconTone },
-		{ id: 'bpm',      name: 'Detectar velocidad',  icon: IconBPM },
-		{ id: 'daw',      name: 'DAW',                  icon: IconDAW },
-		{ id: 'midi',     name: 'Piano Roll',           icon: IconMIDI },
+		{ id: 'pitch',       name: 'Cambiar Tono',        icon: IconTone },
+		{ id: 'bpm',         name: 'Detectar velocidad',  icon: IconBPM },
+		{ id: 'daw',         name: 'DAW',                 icon: IconDAW },
+		{ id: 'midi',        name: 'Piano Roll',          icon: IconMIDI },
+		{ id: 'spectrogram', name: 'Espectrograma',       icon: IconSpectrogram },
 	];
 
 	const bottomItems = [
