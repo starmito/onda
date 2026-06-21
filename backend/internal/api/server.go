@@ -213,8 +213,24 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		next.ServeHTTP(w, r)
+		// Wrap response writer to catch 404s
+		lw := &loggingResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+		next.ServeHTTP(lw, r)
+		if lw.statusCode == http.StatusNotFound {
+			Log("backend", "warn", fmt.Sprintf("404: %s %s (from: %s)", r.Method, r.URL.String(), r.UserAgent()))
+		}
 	})
+}
+
+// loggingResponseWriter wraps http.ResponseWriter to capture the status code.
+type loggingResponseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (lw *loggingResponseWriter) WriteHeader(code int) {
+	lw.statusCode = code
+	lw.ResponseWriter.WriteHeader(code)
 }
 
 // handleHealth returns the health status of the Onda service.
