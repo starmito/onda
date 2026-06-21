@@ -642,6 +642,141 @@ export async function deletePitchStem(song: string, pitch: number, fileName: str
   if (!res.ok) throw new Error(`Failed to delete pitch stem: ${res.status}`);
 }
 
+export interface TempoGridBar {
+  bar: number;
+  start: number;
+  end: number;
+}
+
+export interface TempoGridResponse {
+  bpm: number;
+  beats: number[];
+  bars: TempoGridBar[];
+  duration: number;
+}
+
+export async function getTempoGrid(file: string): Promise<TempoGridResponse> {
+  const res = await fetch(
+    `${API_BASE}/api/audio/tempo-grid?file=${encodeURIComponent(file)}`,
+  );
+  if (!res.ok) {
+    throw new Error(`Tempo grid failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as TempoGridResponse;
+}
+
+// ---- DAW audio operations ----
+export interface TrimResponse {
+  file: string;
+}
+
+export async function trimAudio(file: string, start: number, end: number): Promise<TrimResponse> {
+  const res = await fetch(`${API_BASE}/api/audio/trim`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file, start, end }),
+  });
+  if (!res.ok) {
+    throw new Error(`Trim failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as TrimResponse;
+}
+
+export interface FadeResponse {
+  file: string;
+}
+
+export async function fadeAudio(
+  file: string,
+  type: 'in' | 'out',
+  start: number,
+  duration: number,
+): Promise<FadeResponse> {
+  const res = await fetch(`${API_BASE}/api/audio/fade`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file, type, start, duration }),
+  });
+  if (!res.ok) {
+    throw new Error(`Fade failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as FadeResponse;
+}
+
+export interface ExportResponse {
+  file: string;
+  format: string;
+  size: number;
+}
+
+export async function exportAudio(
+  file: string,
+  format: string,
+  bitrate?: string,
+): Promise<ExportResponse> {
+  const body: Record<string, string> = { file, format };
+  if (bitrate) {
+    body.bitrate = bitrate;
+  }
+  const res = await fetch(`${API_BASE}/api/audio/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(`Export failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as ExportResponse;
+}
+
+// ---- DAW stem import ----
+export interface StemsResponse {
+  output: Record<string, string[]>;
+  pitch: string[];
+}
+
+export interface DAWImportResponse {
+  file: string;
+  path: string;
+  size: number;
+}
+
+export async function listStems(): Promise<StemsResponse> {
+  const res = await fetch(`${API_BASE}/api/daw/stems`);
+  if (!res.ok) {
+    throw new Error(`List stems failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as StemsResponse;
+}
+
+export async function importStem(source: string, song?: string, stem?: string): Promise<DAWImportResponse> {
+  const body: Record<string, unknown> = { source };
+  if (song !== undefined) body.song = song;
+  if (stem !== undefined) body.stem = stem;
+  const res = await fetch(`${API_BASE}/api/daw/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(`Import failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as DAWImportResponse;
+}
+
+export async function uploadAudioDAW(file: File): Promise<DAWImportResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${API_BASE}/api/daw/upload`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) {
+    throw new Error(`DAW upload failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as DAWImportResponse;
+}
+
 // ---- VRAM Calculator ----
 export interface VRAMModelEntry {
   name: string;
