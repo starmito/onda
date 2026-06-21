@@ -40,4 +40,4 @@ export HF_HOME=/tmp/hf_cache
 mkdir -p /tmp/numba_cache /tmp/torch_cache /tmp/xdg_cache /tmp/hf_cache
 
 echo "🚀 Starting Onda v3.1.2 ($GPU mode)..."
-exec onda-backend serve --addr 0.0.0.0:3000
+exec /app/backend/onda-backend serve --addr 0.0.0.0:3000

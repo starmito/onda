@@ -2,11 +2,9 @@ package api
 
 import (
 	"context"
-	"embed"
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -23,19 +21,19 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-//go:embed dist/index.html
-//go:embed dist/icon.png
-//go:embed dist/assets/*
-var frontendAssets embed.FS
-
-var frontendFS fs.FS
-
-func init() {
-	var err error
-	frontendFS, err = fs.Sub(frontendAssets, "dist")
+// resolveProjectRoot returns the project root directory by resolving the
+// executable's location. Expected layout:
+//   <project-root>/
+//     backend/<binary>
+//     frontend/dist/
+func resolveProjectRoot() string {
+	exe, err := os.Executable()
 	if err != nil {
-		panic("failed to create frontend sub-FS: " + err.Error())
+		Log("backend", "warn", "Cannot resolve executable path, using CWD: "+err.Error())
+		wd, _ := os.Getwd()
+		return wd
 	}
+	return filepath.Dir(filepath.Dir(exe))
 }
 
 // FileEntry describes a generated stem file.
@@ -174,7 +172,8 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("DELETE /api/uploads/pitch/{name}", s.handleDeletePitchUpload)
 
 	// Servir archivos estaticos de audio (relativos al project root para no depender de rutas de contenedor)
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
+	frontendDir := filepath.Join(projectRoot, "frontend", "dist")
 	outputDir := filepath.Join(projectRoot, "output")
 	inputRubberbandDir := filepath.Join(projectRoot, "input_rubberband")
 	dawDataDir := filepath.Join(projectRoot, "daw-data")
@@ -185,8 +184,8 @@ func NewServer(addr string) *http.Server {
 	s.mux.Handle("GET /input_rubberband/", http.StripPrefix("/input_rubberband/", http.FileServer(http.Dir(inputRubberbandDir))))
 	s.mux.Handle("GET /daw-data/", http.StripPrefix("/daw-data/", http.FileServer(http.Dir(dawDataDir))))
 
-	// Servir frontend Svelte embebido (catch-all — debe ir al final)
-	s.mux.Handle("/", http.FileServer(http.FS(frontendFS)))
+	// Servir frontend Svelte desde disco (catch-all — debe ir al final)
+	s.mux.Handle("/", http.FileServer(http.Dir(frontendDir)))
 
 	go s.worker()
 
@@ -226,15 +225,18 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	gpuAvailable, gpuInfo, _ := checkGPU()
 	gpuType := detectGPUType()
 
+	projectRoot := resolveProjectRoot()
+	frontendDir := filepath.Join(projectRoot, "frontend", "dist")
+
 	// ── Read frontend version ──
 	frontendVersion := ""
-	if data, err := os.ReadFile("/usr/share/nginx/html/VERSION"); err == nil {
+	if data, err := os.ReadFile(filepath.Join(frontendDir, "VERSION")); err == nil {
 		frontendVersion = strings.TrimSpace(string(data))
 	}
 
 	// ── Read pipeline version ──
 	pipelineVersion := ""
-	if data, err := os.ReadFile("/VERSION"); err == nil {
+	if data, err := os.ReadFile(filepath.Join(projectRoot, "VERSION")); err == nil {
 		pipelineVersion = strings.TrimSpace(string(data))
 	}
 

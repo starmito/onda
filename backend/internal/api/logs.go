@@ -159,17 +159,5 @@ func (s *Server) handleGetServiceLogs(w http.ResponseWriter, r *http.Request) {
 
 	var allLogs []LogEntry
 
-	// Read nginx access log
-	accessEntries, err := readLocalFileLogs("/tmp/nginx-access.log", 50)
-	if err == nil {
-		allLogs = append(allLogs, accessEntries...)
-	}
-
-	// Read nginx error log
-	errorEntries, err := readLocalFileLogs("/tmp/nginx-error.log", 50)
-	if err == nil {
-		allLogs = append(allLogs, errorEntries...)
-	}
-
 	json.NewEncoder(w).Encode(allLogs)
 }
