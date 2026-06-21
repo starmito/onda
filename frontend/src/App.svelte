@@ -6,6 +6,7 @@
   import SettingsPanel from './lib/SettingsPanel.svelte';
   import PlaceholderPage from './lib/PlaceholderPage.svelte';
   import DAWPage from './lib/DAWPage.svelte';
+  import MIDIPage from './lib/MIDIPage.svelte';
   import HelpPage from './lib/HelpPage.svelte';
   import PresetsPanel from './lib/PresetsPanel.svelte';
   import type { ResultStem } from './lib/types';
@@ -806,6 +807,8 @@
           <PitchPage results={results} onResultsChange={handleRefreshResults} />
         {:else if activeTab === 'daw'}
           <DAWPage />
+        {:else if activeTab === 'midi'}
+          <MIDIPage />
         {:else if activeTab === 'bpm'}
           <PlaceholderPage tabId={activeTab} />
         {:else}

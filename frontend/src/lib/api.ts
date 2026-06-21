@@ -824,6 +824,59 @@ export async function getVRAMCalculator(params: {
   return (await res.json()) as VRAMCalculatorResponse;
 }
 
+// ---- MIDI Types ----
+export interface MidiNote {
+  track: number;
+  channel: number;
+  key: number;
+  velocity: number;
+  start_ms: number;
+  end_ms: number;
+}
+
+export interface MidiTrack {
+  index: number;
+  name: string;
+  notes: MidiNote[];
+}
+
+export interface MidiParseResponse {
+  tracks: MidiTrack[];
+  bpm: number;
+}
+
+export interface MidiDevice {
+  name: string;
+  port: number;
+  is_output: boolean;
+}
+
+export async function midiParse(file: string): Promise<MidiParseResponse> {
+  const res = await fetch(`${API_BASE}/api/daw/midi/parse`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file }),
+  });
+  if (!res.ok) throw new Error(`MIDI parse failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as MidiParseResponse;
+}
+
+export async function midiExport(tracks: MidiTrack[], bpm: number): Promise<Blob> {
+  const res = await fetch(`${API_BASE}/api/daw/midi/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tracks, bpm }),
+  });
+  if (!res.ok) throw new Error(`MIDI export failed: ${res.status} ${res.statusText}`);
+  return await res.blob();
+}
+
+export async function midiDevices(): Promise<MidiDevice[]> {
+  const res = await fetch(`${API_BASE}/api/daw/midi/devices`);
+  if (!res.ok) return [];
+  return (await res.json()) as MidiDevice[];
+}
+
 // ---- UI Settings (accent, theme, fontSize, scale) ----
 export interface UISettings {
   accent: string;
