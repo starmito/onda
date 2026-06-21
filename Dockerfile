@@ -15,7 +15,7 @@ RUN npm run build
 FROM golang:1.26-alpine AS go-builder
 WORKDIR /src
 COPY backend/ ./backend/
-COPY --from=frontend-builder /src/dist/ ./backend/internal/api/dist/
+COPY --from=frontend-builder /src/dist/ /app/frontend/dist/
 COPY VERSION ./
 RUN cd backend && GOTOOLCHAIN=go1.26.0 go mod tidy && CGO_ENABLED=0 GOOS=linux go build -o /onda-backend ./cmd/onda/
 RUN chmod +x /onda-backend
@@ -69,8 +69,8 @@ COPY --from=python-base /usr/local/lib/python3.12/site-packages/ /usr/local/lib/
 COPY --from=python-base /usr/local/bin/demucs /usr/local/bin/demucs
 
 # Go backend
-COPY --from=go-builder /onda-backend /usr/local/bin/onda-backend
-RUN chmod +x /usr/local/bin/onda-backend
+COPY --from=go-builder /onda-backend /app/backend/onda-backend
+RUN chmod +x /app/backend/onda-backend
 
 # Pipeline script
 COPY pipeline.sh /app/pipeline.sh
@@ -90,7 +90,7 @@ RUN chmod +x /entrypoint.sh
 
 # VERSION file
 COPY VERSION /VERSION
-RUN mkdir -p /usr/share/nginx/html && cp /VERSION /usr/share/nginx/html/VERSION
+COPY VERSION /app/frontend/dist/VERSION
 
 # UVR model catalog
 COPY uvr_models.json /app/uvr_models.json
