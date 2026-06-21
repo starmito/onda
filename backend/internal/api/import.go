@@ -50,7 +50,7 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	var srcPath, destFile string
 
 	switch req.Source {

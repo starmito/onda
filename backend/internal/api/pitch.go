@@ -57,7 +57,7 @@ func (s *Server) handlePitchShift(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	outputBase := filepath.Join(projectRoot, "output")
 
 	// Source directory: /output/{song}/
@@ -191,7 +191,7 @@ func (s *Server) handleListPitchSubgroups(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	outputBase := filepath.Join(projectRoot, "output")
 	songDir := filepath.Join(outputBase, song)
 
@@ -287,7 +287,7 @@ func (s *Server) handleDeletePitchSubgroup(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	outputBase := filepath.Join(projectRoot, "output")
 	pitchDir := filepath.Join(outputBase, song, song+"_pitch"+pitchStr)
 
@@ -330,7 +330,7 @@ func (s *Server) handleDeletePitchStem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	outputBase := filepath.Join(projectRoot, "output")
 	filePath := filepath.Join(outputBase, song, song+"_pitch"+pitchStr, file)
 

@@ -11,14 +11,14 @@
 #
 # Flags:
 #   --steps JSON          Chained mode: JSON array of step objects
-#   --vocal-model PATH    Vocal model path (default: /models/VR_Models/BS_Roformer_Viperx)
+#   --vocal-model PATH    Vocal model path (default: /app/models/VR_Models/BS_Roformer_Viperx)
 #   --vocal-keep WHAT     What to save: instrumental | vocals | both (default) (alias: --viperx-keep)
 #   --viperx-model PATH   Same as --vocal-model (deprecated)
 #   --viperx-keep WHAT    Same as --vocal-keep (deprecated)
 #   --demucs-keep LIST    Stems to keep: drums,bass,other,vocals or all (default)
 #   --stem-model NAME     Demucs stem model name (default: htdemucs_ft)
 #   --pitch N             Semitones for rubberband (default: 0)
-#   --output DIR          Output directory (default: /output/<song_name>)
+#   --output DIR          Output directory (default: /app/output/<song_name>)
 #   --device NAME         Inference device: cpu | cuda (default: cuda)
 #   --shifts N            Demucs shift-averaging passes (default: 1)
 #   --demucs-segment N    Demucs segment duration in seconds (default: 0 = auto)
@@ -61,7 +61,7 @@ ONDA_CONTAINER="onda"
 # ── Path conversion for Docker ──────────────────
 # pipeline.sh runs on the HOST and receives host paths (e.g. /home/.../onda/input/file.wav).
 # Docker exec commands run INSIDE the container and need container paths
-# because the bind mounts are: ./input -> /input, ./output -> /output.
+# because the bind mounts are: ./input -> /app/input, ./output -> /app/output.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 to_container() {
     local p="$1"
@@ -69,9 +69,9 @@ to_container() {
     [[ "$p" != /* ]] && p="${SCRIPT_DIR}/${p}"
     # Strip the host input dir prefix
     if [[ "$p" == "${SCRIPT_DIR}/input/"* ]]; then
-        echo "/input/${p#${SCRIPT_DIR}/input/}"
+        echo "/app/input/${p#${SCRIPT_DIR}/input/}"
     elif [[ "$p" == "${SCRIPT_DIR}/output/"* ]]; then
-        echo "/output/${p#${SCRIPT_DIR}/output/}"
+        echo "/app/output/${p#${SCRIPT_DIR}/output/}"
     else
         echo "$p"
     fi
@@ -80,7 +80,7 @@ to_container() {
 # ── Progress reporting ──────────────────────────
 START_TIME=$(date +%s)
 LAST_ETA=""  # cap ETA so it never increases between steps
-STATUS_FILE="${PIPELINE_STATUS_FILE:-/output/pipeline_status.json}"
+STATUS_FILE="${PIPELINE_STATUS_FILE:-/app/output/pipeline_status.json}"
 rm -f "$STATUS_FILE"
 CURRENT_STEP=""
 
@@ -424,8 +424,8 @@ VOCAL=false             # auto-detected: true when vocal-specific flags are pass
 VIPERX=false            # alias for backward compatibility
 VOCAL_KEEP="both"
 VIPERX_KEEP="both"      # alias for backward compatibility
-VOCAL_MODEL="/models/VR_Models/BS_Roformer_Viperx"
-VIPERX_MODEL="/models/VR_Models/BS_Roformer_Viperx"  # alias for backward compatibility
+VOCAL_MODEL="/app/models/VR_Models/BS_Roformer_Viperx"
+VIPERX_MODEL="/app/models/VR_Models/BS_Roformer_Viperx"  # alias for backward compatibility
 DEMUCS=false           # auto-detected: true when demucs-specific flags are passed
 DEMUCS_KEEP="all"
 DEMUCS_MODEL="htdemucs_ft"
@@ -489,7 +489,7 @@ if [ ! -f "$INPUT" ]; then
 fi
 
 SONG=$(basename "${INPUT%.*}")
-OUTPUT="${OUTPUT:-/output/${SONG}}"
+OUTPUT="${OUTPUT:-/app/output/${SONG}}"
 
 # ── Auto-detect steps: if no step was explicitly requested and not in --steps mode,
 #    enable all steps for backward compatibility (full pipeline).
@@ -615,7 +615,7 @@ print('ENDSTEMS')
         step_rc=0
         case "$STEP_TYPE" in
             viperx|vocal)
-                run_vocal_step "${STEP_MODEL:-/models/VR_Models/BS_Roformer_Viperx}" "${CURRENT_INPUT}" "${STEP_TMP}"
+                run_vocal_step "${STEP_MODEL:-/app/models/VR_Models/BS_Roformer_Viperx}" "${CURRENT_INPUT}" "${STEP_TMP}"
                 echo "   ✅ ${STEP_TYPE} done"
                 ;;
             demucs)

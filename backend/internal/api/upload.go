@@ -40,7 +40,7 @@ func (s *Server) handleUploadAudio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	uploadDir := filepath.Join(projectRoot, "daw-data")
 	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
 		w.Header().Set("Content-Type", "application/json")

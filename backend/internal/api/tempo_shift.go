@@ -58,7 +58,7 @@ func (s *Server) handleTempoShift(w http.ResponseWriter, r *http.Request) {
 
 	// Prevent path traversal by using only the base name.
 	safeName := filepath.Base(req.File)
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	dawBase := filepath.Join(projectRoot, "daw-data")
 
 	sourcePath := filepath.Join(projectRoot, "input", safeName)

@@ -17,7 +17,7 @@ import (
 )
 
 // setupFase10TestRoot creates a temporary project root and sets ONDA_ROOT so
-// findProjectRoot() resolves to it during the test.
+// resolveProjectRoot() resolves to it during the test.
 func setupFase10TestRoot(t *testing.T) string {
 	t.Helper()
 	root, err := os.MkdirTemp(".", "fase10-test-")

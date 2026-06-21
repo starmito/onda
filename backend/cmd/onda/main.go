@@ -33,7 +33,7 @@ func main() {
 			os.Exit(1)
 		}
 	case "pipeline":
-		cmd := exec.Command("bash", append([]string{"/pipeline.sh"}, os.Args[2:]...)...)
+		cmd := exec.Command("bash", append([]string{"/app/pipeline.sh"}, os.Args[2:]...)...)
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
 		if err := cmd.Run(); err != nil {

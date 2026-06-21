@@ -10,7 +10,7 @@ var Version string = "unknown"
 func init() {
 	data, err := os.ReadFile("VERSION")
 	if err != nil {
-		data, err = os.ReadFile("/VERSION")
+		data, err = os.ReadFile("/app/VERSION")
 		if err != nil {
 			return
 		}

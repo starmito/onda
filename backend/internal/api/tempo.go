@@ -44,7 +44,7 @@ func (s *Server) handleTempo(w http.ResponseWriter, r *http.Request) {
 
 	// Prevent path traversal by using only the base name.
 	safeName := filepath.Base(file)
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 
 	sourcePath := filepath.Join(projectRoot, "input", safeName)
 	if _, err := os.Stat(sourcePath); os.IsNotExist(err) {

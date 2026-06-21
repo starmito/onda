@@ -85,7 +85,7 @@ type NoiseGateRequest struct {
 // first in input/ and then in daw-data/. It returns an empty string if not found.
 func locateEffectInput(file string) string {
 	safeName := filepath.Base(file)
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	inputPath := filepath.Join(projectRoot, "input", safeName)
 	if _, err := os.Stat(inputPath); err == nil {
 		return inputPath
@@ -100,7 +100,7 @@ func locateEffectInput(file string) string {
 // resolveEffectOutput returns the absolute output path in daw-data/ and the
 // generated file name with the given effect prefix.
 func resolveEffectOutput(prefix, safeName string) (string, string, error) {
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	dawBase := filepath.Join(projectRoot, "daw-data")
 	if err := os.MkdirAll(dawBase, 0o755); err != nil {
 		return "", "", err

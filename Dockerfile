@@ -92,7 +92,7 @@ COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
 # VERSION file
-COPY VERSION /VERSION
+COPY VERSION /app/VERSION
 COPY VERSION /app/frontend/dist/VERSION
 
 # UVR model catalog
@@ -104,15 +104,8 @@ RUN groupadd -g ${USER_GID} appgroup && \
     useradd -m -u ${USER_UID} -g appgroup -d /app -s /bin/bash appuser
 
 # Directorios runtime (bind mounts del host) propiedad del usuario
-RUN mkdir -p /input /output /input_rubberband /config /daw-data /opt/pytorch-backends && \
-    chown -R ${USER_UID}:${USER_GID} /input /output /input_rubberband /config /daw-data /app /opt/pytorch-backends
-
-# Symlink para el backend Go (espera /pipeline.sh)
-RUN ln -sf /app/pipeline.sh /pipeline.sh
-
-# Symlink para modelos: docker-compose monta ./models en /app/models,
-# pero el backend y pipeline.sh usan /models como ruta base.
-RUN ln -sf /app/models /models
+RUN mkdir -p /app/input /app/output /app/input_rubberband /app/config /app/daw-data /opt/pytorch-backends && \
+    chown -R ${USER_UID}:${USER_GID} /app/input /app/output /app/input_rubberband /app/config /app/daw-data /app /opt/pytorch-backends
 
 WORKDIR /app
 EXPOSE 3000

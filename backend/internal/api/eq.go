@@ -108,7 +108,7 @@ func (s *Server) handleEQ(w http.ResponseWriter, r *http.Request) {
 	}
 
 	safeName := filepath.Base(req.File)
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	dawBase := filepath.Join(projectRoot, "daw-data")
 
 	sourcePath := filepath.Join(projectRoot, "input", safeName)

@@ -60,7 +60,7 @@ func (s *Server) handleMidiParse(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err == nil && req.File != "" {
 		safeName := filepath.Base(req.File)
-		projectRoot := findProjectRoot()
+		projectRoot := resolveProjectRoot()
 		midiPath := filepath.Join(projectRoot, "input", safeName)
 		if _, statErr := os.Stat(midiPath); os.IsNotExist(statErr) {
 			midiPath = filepath.Join(projectRoot, "daw-data", safeName)

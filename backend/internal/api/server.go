@@ -21,12 +21,18 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// resolveProjectRoot returns the project root directory by resolving the
-// executable's location. Expected layout:
+// resolveProjectRoot returns the project root directory. It first honours the
+// ONDA_ROOT environment variable, then resolves the executable's location.
+// Expected layout:
 //   <project-root>/
 //     backend/<binary>
 //     frontend/dist/
 func resolveProjectRoot() string {
+	if root := os.Getenv("ONDA_ROOT"); root != "" {
+		if info, err := os.Stat(root); err == nil && info.IsDir() {
+			return root
+		}
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		Log("backend", "warn", "Cannot resolve executable path, using CWD: "+err.Error())
@@ -173,7 +179,7 @@ func NewServer(addr string) *http.Server {
 
 	// Servir archivos estaticos de audio (relativos al project root para no depender de rutas de contenedor)
 	frontendDir := filepath.Join(resolveProjectRoot(), "frontend", "dist")
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	outputDir := filepath.Join(projectRoot, "output")
 	inputRubberbandDir := filepath.Join(projectRoot, "input_rubberband")
 	dawDataDir := filepath.Join(projectRoot, "daw-data")
@@ -236,7 +242,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	// ── Read pipeline version ──
 	pipelineVersion := ""
-	if data, err := os.ReadFile(filepath.Join(findProjectRoot(), "VERSION")); err == nil {
+	if data, err := os.ReadFile(filepath.Join(resolveProjectRoot(), "VERSION")); err == nil {
 		pipelineVersion = strings.TrimSpace(string(data))
 	}
 
@@ -338,7 +344,7 @@ func (s *Server) handleResults(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	outputDir := filepath.Join(projectRoot, "output")
 	entries, err := os.ReadDir(outputDir)
 	if err != nil {
@@ -406,7 +412,7 @@ func (s *Server) handleInputs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	inputDir := filepath.Join(projectRoot, "input")
 	entries, err := os.ReadDir(inputDir)
 	if err != nil {
@@ -428,7 +434,7 @@ func (s *Server) handleInputs(w http.ResponseWriter, r *http.Request) {
 		}
 		inputs = append(inputs, InputEntry{
 			Name: name,
-			Path: "/input/" + name,
+			Path: "/app/input/" + name,
 		})
 	}
 	sort.Slice(inputs, func(i, j int) bool {
@@ -463,7 +469,7 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 		Device   string  `json:"device"`
 	}
 	var pipelineStatus PipelineStatusJSON
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	statusPath := filepath.Join(projectRoot, "output", "pipeline_status.json")
 	if data, err := os.ReadFile(statusPath); err == nil {
 		json.Unmarshal(data, &pipelineStatus)
@@ -583,7 +589,7 @@ func (s *Server) worker() {
 		s.jobsMu.Unlock()
 
 		// Reset pipeline_status.json so stale progress from a cancelled job doesn't bleed in
-		if projectRoot := findProjectRoot(); projectRoot != "" {
+		if projectRoot := resolveProjectRoot(); projectRoot != "" {
 			statusPath := filepath.Join(projectRoot, "output", "pipeline_status.json")
 			os.WriteFile(statusPath, []byte(`{}`), 0644)
 		}
@@ -603,7 +609,7 @@ func (s *Server) worker() {
 // runSinglePipeline executes a single pipeline.sh invocation.
 func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	ctx, cancel := context.WithCancel(context.Background())
-	args := append([]string{"/pipeline.sh"}, job.Args...)
+	args := append([]string{"/app/pipeline.sh"}, job.Args...)
 	cmd := exec.CommandContext(ctx, "bash", args...)
 
 	s.jobsMu.Lock()
@@ -640,7 +646,7 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 // runMultiStepPipeline executes multiple pipeline.sh invocations, one per step,
 // chaining outputs from each step to the next.
 func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, state *JobState) {
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	song := job.Song
 	outputDir := filepath.Join(projectRoot, "output", song)
 
@@ -667,7 +673,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		Log("pipeline", "info", fmt.Sprintf("Step %d/%d: %s (%s)", i+1, len(steps), step.ID, step.Type))
 
 		// Build args for this specific step
-		containerOutput := "/output/" + song
+		containerOutput := "/app/output/" + song
 		stepArgs := buildStepPipelineArgs(step, currentInput, containerOutput, job.Config.Device)
 		stepArgs = append(stepArgs, "--output", containerOutput)
 
@@ -680,7 +686,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 
 		// Execute this step
 		ctx, cancel := context.WithCancel(context.Background())
-		pipelineArgs := append([]string{"/pipeline.sh"}, stepArgs...)
+		pipelineArgs := append([]string{"/app/pipeline.sh"}, stepArgs...)
 		cmd := exec.CommandContext(ctx, "bash", pipelineArgs...)
 
 		s.jobsMu.Lock()
@@ -798,16 +804,16 @@ func findChainedInput(outputDir string, step cli.PipelineStep) string {
 
 // toInternalContainerPath converts a host path to a container-relative path.
 func toInternalContainerPath(hostPath string) string {
-	// Convert host output dir to container /output/
-	projectRoot := findProjectRoot()
+	// Convert host output dir to container /app/output/
+	projectRoot := resolveProjectRoot()
 	if projectRoot != "" && strings.HasPrefix(hostPath, filepath.Join(projectRoot, "output")) {
 		rel := strings.TrimPrefix(hostPath, filepath.Join(projectRoot, "output"))
-		return "/output" + rel
+		return "/app/output" + rel
 	}
-	// Convert host input dir to container /input/
+	// Convert host input dir to container /app/input/
 	if projectRoot != "" && strings.HasPrefix(hostPath, filepath.Join(projectRoot, "input")) {
 		rel := strings.TrimPrefix(hostPath, filepath.Join(projectRoot, "input"))
-		return "/input" + rel
+		return "/app/input" + rel
 	}
 	return hostPath
 }
@@ -827,7 +833,7 @@ func logPipelineOutput(output string) {
 
 // listStems reads the output directory for a song and returns the generated files.
 func listStems(song string) []FileEntry {
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	outputDir := filepath.Join(projectRoot, "output", song)
 	entries, err := os.ReadDir(outputDir)
 	if err != nil {
@@ -852,7 +858,7 @@ func listStems(song string) []FileEntry {
 // Returns: song name, pipeline args, list of steps for chaining (if any).
 func buildPipelineArgs(req SeparateRequest) (song string, args []string, steps []cli.PipelineStep) {
 	song = strings.TrimSuffix(filepath.Base(req.Input), filepath.Ext(req.Input))
-	containerOutput := "/output/" + song
+	containerOutput := "/app/output/" + song
 
 	// --- Resolve preset steps if a named preset is provided ---
 	if req.Preset != "" {
@@ -1475,7 +1481,7 @@ func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	// Determine input directory: prefer project root /input,
 	// fall back to a temp dir if it doesn't exist.
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	inputDir := filepath.Join(projectRoot, "input")
 	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
 		os.MkdirAll(inputDir, 0o755)
@@ -1530,8 +1536,8 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	Log("backend", "success", "Uploaded: "+safeName)
 
-	// The path inside the container is /input/filename
-	containerPath := "/input/" + safeName
+	// The path inside the container is /app/input/filename
+	containerPath := "/app/input/" + safeName
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"path": containerPath})
@@ -1539,7 +1545,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 // handleUploadPitch accepts a multipart file upload and saves it to input_rubberband/.
 func (s *Server) handleUploadPitch(w http.ResponseWriter, r *http.Request) {
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	inputDir := filepath.Join(projectRoot, "input_rubberband")
 	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
 		os.MkdirAll(inputDir, 0o755)
@@ -1591,7 +1597,7 @@ func (s *Server) handleUploadPitch(w http.ResponseWriter, r *http.Request) {
 
 	Log("backend", "success", "Pitch upload: "+safeName)
 
-	containerPath := "/input_rubberband/" + safeName
+	containerPath := "/app/input_rubberband/" + safeName
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"path": containerPath})
@@ -1613,7 +1619,7 @@ func (s *Server) handleModelsCatalog(w http.ResponseWriter, r *http.Request) {
 	// Try the container path first, then fall back to the project root
 	data, err := os.ReadFile("/app/uvr_models.json")
 	if err != nil {
-		projectRoot := findProjectRoot()
+		projectRoot := resolveProjectRoot()
 		data, err = os.ReadFile(filepath.Join(projectRoot, "uvr_models.json"))
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
@@ -1686,7 +1692,7 @@ func (s *Server) handlePitchFileServe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	outputBase := filepath.Join(projectRoot, "output")
 
 	// Build path: /output/{song}/{song}_pitch{pitch}/{file}
@@ -1711,7 +1717,7 @@ func (s *Server) handleFileServe(w http.ResponseWriter, r *http.Request) {
 	song = filepath.Clean(song)
 	file = filepath.Clean(file)
 
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	filePath := filepath.Join(projectRoot, "output", song, file)
 
 	// Verify the file is inside the output directory
@@ -1760,7 +1766,7 @@ func (s *Server) handleDeleteSong(w http.ResponseWriter, r *http.Request) {
 	song := r.PathValue("song")
 	song = filepath.Clean(song)
 
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	dirPath := filepath.Join(projectRoot, "output", song)
 
 	// Verify inside output/
@@ -1815,7 +1821,7 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	filePath := filepath.Join(projectRoot, "output", file)
 
 	// Verify inside output/
@@ -1854,7 +1860,7 @@ func (s *Server) handleDeleteInput(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	name = filepath.Clean(name)
 
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	filePath := filepath.Join(projectRoot, "input", name)
 
 	// Verify inside input/
@@ -1892,7 +1898,7 @@ func (s *Server) handleDeletePitchUpload(w http.ResponseWriter, r *http.Request)
 	name := r.PathValue("name")
 	name = filepath.Clean(name)
 
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	filePath := filepath.Join(projectRoot, "input_rubberband", name)
 
 	// Verify inside input_rubberband/
@@ -1924,28 +1930,4 @@ func (s *Server) handleDeletePitchUpload(w http.ResponseWriter, r *http.Request)
 	json.NewEncoder(w).Encode(map[string]interface{}{"deleted": true, "file": name})
 }
 
-// findProjectRoot walks up from the current directory until it finds a VERSION file,
-// then returns that directory. If ONDA_ROOT is set, it uses that directly.
-// Returns "." if not found.
-func findProjectRoot() string {
-	if root := os.Getenv("ONDA_ROOT"); root != "" {
-		if info, err := os.Stat(root); err == nil && info.IsDir() {
-			return root
-		}
-	}
-	dir, err := os.Getwd()
-	if err != nil {
-		return "."
-	}
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "VERSION")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			break
-		}
-		dir = parent
-	}
-	return "."
-}
+
