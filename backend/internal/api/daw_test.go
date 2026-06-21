@@ -36,6 +36,7 @@ func newDAWTestServer(t *testing.T) *Server {
 	s.mux.HandleFunc("GET /api/daw/stems", s.handleListStems)
 	s.mux.HandleFunc("POST /api/daw/import", s.handleImportStem)
 	s.mux.HandleFunc("POST /api/daw/upload", s.handleUploadAudio)
+	s.mux.HandleFunc("GET /api/daw/audio", s.handleServeAudio)
 	return s
 }
 
@@ -208,6 +209,37 @@ func TestHandleUploadAudio(t *testing.T) {
 	}
 	if resp.Size != int64(len(content)) {
 		t.Fatalf("expected size %d, got %d", len(content), resp.Size)
+	}
+}
+
+func TestHandleServeAudio(t *testing.T) {
+	root := setupDAWTestRoot(t)
+	content := []byte("daw-audio-content")
+	writeTestFile(t, filepath.Join(root, "daw-data", "stem.wav"), content)
+
+	srv := newDAWTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/daw/audio?file=stem.wav", nil)
+	rr := httptest.NewRecorder()
+	srv.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if got := rr.Body.String(); got != string(content) {
+		t.Fatalf("expected body %q, got %q", string(content), got)
+	}
+}
+
+func TestHandleServeAudio_MissingFileParam(t *testing.T) {
+	setupDAWTestRoot(t)
+	srv := newDAWTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/daw/audio", nil)
+	rr := httptest.NewRecorder()
+	srv.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
 	}
 }
 
