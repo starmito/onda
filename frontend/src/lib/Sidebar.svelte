@@ -1,5 +1,5 @@
 <script>
-	import { IconMenu, IconUser, IconTone, IconBPM, IconDAW, IconHelp, IconSettings } from './icons';
+	import { IconMenu, IconUser, IconTone, IconBPM, IconDAW, IconMIDI, IconHelp, IconSettings } from './icons';
 
 	/**
 	 * Sidebar.svelte — Sidebar vertical colapsable al estilo vocalremover.org
@@ -24,6 +24,7 @@
 		{ id: 'pitch',    name: 'Cambiar Tono',        icon: IconTone },
 		{ id: 'bpm',      name: 'Detectar velocidad',  icon: IconBPM },
 		{ id: 'daw',      name: 'DAW',                  icon: IconDAW },
+		{ id: 'midi',     name: 'Piano Roll',           icon: IconMIDI },
 	];
 
 	const bottomItems = [
