@@ -172,8 +172,8 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("DELETE /api/uploads/pitch/{name}", s.handleDeletePitchUpload)
 
 	// Servir archivos estaticos de audio (relativos al project root para no depender de rutas de contenedor)
-	projectRoot := resolveProjectRoot()
-	frontendDir := filepath.Join(projectRoot, "frontend", "dist")
+	frontendDir := filepath.Join(resolveProjectRoot(), "frontend", "dist")
+	projectRoot := findProjectRoot()
 	outputDir := filepath.Join(projectRoot, "output")
 	inputRubberbandDir := filepath.Join(projectRoot, "input_rubberband")
 	dawDataDir := filepath.Join(projectRoot, "daw-data")
@@ -236,7 +236,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	// ── Read pipeline version ──
 	pipelineVersion := ""
-	if data, err := os.ReadFile(filepath.Join(projectRoot, "VERSION")); err == nil {
+	if data, err := os.ReadFile(filepath.Join(findProjectRoot(), "VERSION")); err == nil {
 		pipelineVersion = strings.TrimSpace(string(data))
 	}
 

@@ -93,7 +93,6 @@ RUN chmod +x /entrypoint.sh
 
 # VERSION file
 COPY VERSION /VERSION
-COPY VERSION /app/VERSION
 COPY VERSION /app/frontend/dist/VERSION
 
 # UVR model catalog
