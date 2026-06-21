@@ -1,5 +1,19 @@
 # Changelog
 
+## [v3.2.1] - 2026-06-22
+### Added
+- **SoX CLI**: installed in Docker image for audio effects processing
+- **sox.go**: wrapper Go con struct SoxEffect y función ApplySox para ejecutar efectos SoX desde Go
+
+### Changed
+- **trim/fade**: reemplazada implementación Go con go-audio/wav por SoX CLI
+  - trim: `sox input output trim start =end` — más robusto, misma API
+  - fade: pipeline SoX de 3 pasos (extract → fade → concat) para fades en cualquier posición
+  - concatSox helper para concatenación de múltiples segmentos con SoX
+
+### Removed
+- Dependencia go-audio/wav eliminada de trim.go y fade.go (se mantiene en tempo_per_bar.go)
+
 ## [v3.2.0] - 2026-06-19
 ### Added
 - DAW light integration: waveform interactivo con wavesurfer.js (T1)
