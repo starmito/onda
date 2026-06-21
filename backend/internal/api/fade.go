@@ -79,7 +79,7 @@ func (s *Server) handleFade(w http.ResponseWriter, r *http.Request) {
 	}
 
 	safeName := filepath.Base(req.File)
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	inputPath := filepath.Join(projectRoot, "input", safeName)
 	dawBase := filepath.Join(projectRoot, "daw-data")
 	dawPath := filepath.Join(dawBase, safeName)

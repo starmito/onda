@@ -71,7 +71,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	safeName := filepath.Base(req.File)
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 
 	// Search in daw-data first, then fall back to input.
 	searchDirs := []string{

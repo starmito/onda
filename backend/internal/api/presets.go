@@ -10,8 +10,8 @@ import (
 	"github.com/starmito/onda/internal/cli"
 )
 
-const userPresetsFile = "/config/presets_user.json"
-const defaultPresetFile = "/config/default_preset.json"
+const userPresetsFile = "/app/config/presets_user.json"
+const defaultPresetFile = "/app/config/default_preset.json"
 
 var (
 	userPresets      map[string]cli.Preset

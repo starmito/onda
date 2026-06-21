@@ -13,7 +13,7 @@ func (s *Server) handleServeAudio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	safe := filepath.Base(filename)
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	paths := []string{
 		filepath.Join(projectRoot, "daw-data", safe),
 		filepath.Join(projectRoot, "input", safe),

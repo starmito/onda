@@ -46,7 +46,7 @@ expect_status "GET /api/queue/status" GET /api/queue/status 200
 expect_status "GET /api/nonexistent" GET /api/nonexistent 404
 expect_status "POST /api/separate with valid JSON" POST /api/separate 202 \
     -H "Content-Type: application/json" \
-    -d '{"input":"/input/test_api_valid.wav","viperx":true}'
+    -d '{"input":"/app/input/test_api_valid.wav","viperx":true}'
 expect_status "GET /api/separate" GET /api/separate 405
 
 echo ""

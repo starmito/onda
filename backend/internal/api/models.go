@@ -19,8 +19,8 @@ import (
 )
 
 // modelsBasePath is the root directory where models live inside the container.
-// Both onda and onda-gui use /models (bind-mounted from host).
-const modelsBasePath = "/models"
+// Both onda and onda-gui use /app/models (bind-mounted from host).
+const modelsBasePath = "/app/models"
 
 // modelSubdirs lists the known model subdirectories to scan.
 var modelSubdirs = []string{
@@ -221,12 +221,12 @@ func listModels() ModelsListResponse {
 				return nil
 			}
 
-			// Build path relative to /models/
+			// Build path relative to /app/models/
 			rel, err := filepath.Rel(modelsBasePath, path)
 			if err != nil {
 				rel = filepath.Join(subdir, info.Name())
 			}
-			modelPath := "/models/" + filepath.ToSlash(rel)
+			modelPath := "/app/models/" + filepath.ToSlash(rel)
 
 			name := strings.TrimSuffix(info.Name(), ext)
 			category := detectCategory(subdir, rel)
@@ -378,7 +378,7 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 		status := &DownloadStatus{
 			Status:   "downloading",
 			Repo:     req.Repo,
-			Target:   "/models/" + targetSubdir,
+			Target:   "/app/models/" + targetSubdir,
 			Source:   "huggingface",
 		}
 		downloadMu.Lock()
@@ -419,7 +419,7 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 		status := &DownloadStatus{
 			Status:   "downloading",
 			Repo:     req.URL,
-			Target:   "/models/" + category,
+			Target:   "/app/models/" + category,
 			Filename: req.Filename,
 			Source:   "direct",
 		}
@@ -448,7 +448,7 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 				depStatus := &DownloadStatus{
 					Status:   "downloading",
 					Repo:     depKey,
-					Target:   "/models/" + depCategory,
+					Target:   "/app/models/" + depCategory,
 					Filename: dep.Filename,
 					Source:   "direct",
 				}

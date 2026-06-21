@@ -45,7 +45,7 @@ func (s *Server) handleTempoGrid(w http.ResponseWriter, r *http.Request) {
 
 	// Prevent path traversal by using only the base name.
 	safeName := filepath.Base(file)
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 
 	// Look for the file in input/ first, then fall back to daw-data/.
 	inputPath := filepath.Join(projectRoot, "input", safeName)

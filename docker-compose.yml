@@ -26,11 +26,11 @@ services:
       - "${ONDA_PORT:-3000}:3000"
     volumes:
       - ${MODEL_DIR:-./models}:/app/models:rw
-      - ./input:/input
-      - ./output:/output
-      - ./input_rubberband:/input_rubberband
-      - ./daw-data:/daw-data
-      - ./config:/config
+      - ./input:/app/input
+      - ./output:/app/output
+      - ./input_rubberband:/app/input_rubberband
+      - ./daw-data:/app/daw-data
+      - ./config:/app/config
       - pytorch-cache:/opt/pytorch-backends
     environment:
       - NUMBA_CACHE_DIR=/tmp/numba_cache

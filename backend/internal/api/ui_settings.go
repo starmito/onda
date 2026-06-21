@@ -8,7 +8,7 @@ import (
 	"sync"
 )
 
-const uiSettingsFile = "/config/ui_settings.json"
+const uiSettingsFile = "/app/config/ui_settings.json"
 
 // UISettings holds persisted UI configuration (accent, theme, font size, scale).
 type UISettings struct {

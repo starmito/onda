@@ -29,7 +29,7 @@ if [ "$GPU" != "cpu" ]; then
 fi
 
 # Crear directorios de montaje
-mkdir -p /input /output /input_rubberband /config
+mkdir -p /app/input /app/output /app/input_rubberband /app/config
 
 export TORCH_HOME=/tmp/torch_cache
 export NUMBA_CACHE_DIR=/tmp/numba_cache

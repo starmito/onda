@@ -41,7 +41,7 @@ func (s *Server) handleListStems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	outputDir := filepath.Join(projectRoot, "output")
 	pitchDir := filepath.Join(projectRoot, "input_rubberband")
 

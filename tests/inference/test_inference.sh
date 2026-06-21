@@ -118,7 +118,7 @@ echo ""
 echo "Test 1: BS-Roformer (viperx)"
 resp=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/api/separate" \
     -H "Content-Type: application/json" \
-    -d "{\"input\":\"/input/${VIPERX_NAME}\",\"viperx\":true,\"viperx_keep\":\"both\"}")
+    -d "{\"input\":\"/app/input/${VIPERX_NAME}\",\"viperx\":true,\"viperx_keep\":\"both\"}")
 code=$(echo "$resp" | tail -1)
 body=$(echo "$resp" | sed '$d')
 echo "  HTTP $code"
@@ -138,7 +138,7 @@ echo ""
 echo "Test 2: Demucs"
 resp=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/api/separate" \
     -H "Content-Type: application/json" \
-    -d "{\"input\":\"/input/${DEMUCS_NAME}\",\"demucs\":true,\"stem_model\":\"htdemucs\",\"demucs_segment\":5,\"jobs\":1}")
+    -d "{\"input\":\"/app/input/${DEMUCS_NAME}\",\"demucs\":true,\"stem_model\":\"htdemucs\",\"demucs_segment\":5,\"jobs\":1}")
 code=$(echo "$resp" | tail -1)
 body=$(echo "$resp" | sed '$d')
 echo "  HTTP $code"
