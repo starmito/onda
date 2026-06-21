@@ -906,3 +906,175 @@ export async function saveUISettings(settings: UISettings): Promise<void> {
     // Silently fail — localStorage is the fallback
   }
 }
+
+// ---- DAW Effects ----
+export interface EffectResponse {
+  file: string;
+  parameters?: Record<string, number>;
+}
+
+export interface CompressorRequest {
+  file: string;
+  threshold: number;
+  ratio: number;
+  attack: number;
+  release: number;
+  makeup: number;
+}
+
+export interface ReverbRequest {
+  file: string;
+  room_size: number;
+  decay: number;
+  wet_dry: number;
+}
+
+export interface DelayRequest {
+  file: string;
+  delay_time: number;
+  feedback: number;
+  wet_dry: number;
+}
+
+export interface ChorusRequest {
+  file: string;
+  depth: number;
+  rate: number;
+  delay_ms: number;
+  wet_dry: number;
+}
+
+export interface FlangerRequest {
+  file: string;
+  depth: number;
+  rate: number;
+  wet_dry: number;
+}
+
+export interface PhaserRequest {
+  file: string;
+  depth: number;
+  rate: number;
+  wet_dry: number;
+}
+
+export interface TremoloRequest {
+  file: string;
+  speed: number;
+  depth: number;
+}
+
+export interface NoiseGateRequest {
+  file: string;
+  threshold: number;
+  attack: number;
+  release: number;
+}
+
+export async function applyCompressor(req: CompressorRequest): Promise<EffectResponse> {
+  const res = await fetch(`${API_BASE}/api/daw/compressor`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(`Compressor failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as EffectResponse;
+}
+
+export async function applyReverb(req: ReverbRequest): Promise<EffectResponse> {
+  const res = await fetch(`${API_BASE}/api/daw/reverb`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(`Reverb failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as EffectResponse;
+}
+
+export async function applyDelay(req: DelayRequest): Promise<EffectResponse> {
+  const res = await fetch(`${API_BASE}/api/daw/delay`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(`Delay failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as EffectResponse;
+}
+
+export async function applyChorus(req: ChorusRequest): Promise<EffectResponse> {
+  const res = await fetch(`${API_BASE}/api/daw/chorus`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(`Chorus failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as EffectResponse;
+}
+
+export async function applyFlanger(req: FlangerRequest): Promise<EffectResponse> {
+  const res = await fetch(`${API_BASE}/api/daw/flanger`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(`Flanger failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as EffectResponse;
+}
+
+export async function applyPhaser(req: PhaserRequest): Promise<EffectResponse> {
+  const res = await fetch(`${API_BASE}/api/daw/phaser`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(`Phaser failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as EffectResponse;
+}
+
+export async function applyTremolo(req: TremoloRequest): Promise<EffectResponse> {
+  const res = await fetch(`${API_BASE}/api/daw/tremolo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(`Tremolo failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as EffectResponse;
+}
+
+export async function applyNoiseGate(req: NoiseGateRequest): Promise<EffectResponse> {
+  const res = await fetch(`${API_BASE}/api/daw/noisegate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(`Noise gate failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as EffectResponse;
+}
+
+// ---- DAW EQ ----
+export interface EqFilter {
+  type: 'peak' | 'lowshelf' | 'highshelf' | 'lowpass' | 'highpass';
+  freq: number;
+  gain: number;
+  q: number;
+}
+
+export interface EqRequest {
+  file: string;
+  filters: EqFilter[];
+}
+
+export interface EqResponse {
+  file: string;
+  filters_applied: number;
+}
+
+export async function applyEQ(req: EqRequest): Promise<EqResponse> {
+  const res = await fetch(`${API_BASE}/api/daw/eq`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(`EQ failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as EqResponse;
+}

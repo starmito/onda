@@ -5,7 +5,7 @@
   import PitchPage from './lib/PitchPage.svelte';
   import SettingsPanel from './lib/SettingsPanel.svelte';
   import PlaceholderPage from './lib/PlaceholderPage.svelte';
-  import DAWPage from './lib/DAWPage.svelte';
+  import DAWWorkspace from './lib/DAWWorkspace.svelte';
   import MIDIPage from './lib/MIDIPage.svelte';
   import SpectrogramPage from './lib/SpectrogramPage.svelte';
   import HelpPage from './lib/HelpPage.svelte';
@@ -807,7 +807,7 @@
         {:else if activeTab === 'pitch'}
           <PitchPage results={results} onResultsChange={handleRefreshResults} />
         {:else if activeTab === 'daw'}
-          <DAWPage />
+          <DAWWorkspace />
         {:else if activeTab === 'midi'}
           <MIDIPage />
         {:else if activeTab === 'spectrogram'}

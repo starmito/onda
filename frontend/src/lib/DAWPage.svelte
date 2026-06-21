@@ -39,6 +39,12 @@
     solo: boolean;
   };
 
+  interface Props {
+    onActiveTrackChange?: (fileName: string | null) => void;
+  }
+
+  let { onActiveTrackChange }: Props = $props();
+
   let fileInput: HTMLInputElement | null = $state(null);
   let exportFormat = $state<'wav' | 'mp3' | 'flac'>('wav');
   let exportBitrate = $state<'128k' | '192k' | '320k'>('192k');
@@ -75,6 +81,11 @@
 
   const isReady = $derived(tracks.some((t) => t.isReady));
   const isPlaying = $derived(tracks.some((t) => t.isPlaying));
+  const activeFile = $derived(getActiveTrack()?.fileName ?? null);
+
+  $effect(() => {
+    onActiveTrackChange?.(activeFile);
+  });
 
   $effect(() => {
     for (const track of tracks) {
