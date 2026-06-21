@@ -511,23 +511,18 @@ func (s *Server) handleFlanger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	delayMs := req.WetDry / 5.0
-	if delayMs < 1 {
-		delayMs = 1
-	}
-	if delayMs > 20 {
-		delayMs = 20
-	}
 	effects := []SoxEffect{
 		{
 			Name: "flanger",
 			Params: []string{
-				"-t",
-				"0",
-				fmt.Sprintf("%f", delayMs),
-				fmt.Sprintf("%f", req.Depth),
-				"0",
-				fmt.Sprintf("%f", req.Rate),
+				"0",                       // delay base (0ms)
+				fmt.Sprintf("%f", req.Depth),  // depth (swept delay)
+				"0",                       // regen (sin feedback)
+				"71",                      // width (default)
+				fmt.Sprintf("%f", req.Rate),   // speed
+				"sine",                    // shape
+				"25",                      // phase
+				"linear",                  // interpolation
 			},
 		},
 	}
@@ -596,23 +591,24 @@ func (s *Server) handlePhaser(w http.ResponseWriter, r *http.Request) {
 
 	gainIn := req.WetDry / 100.0
 	gainOut := req.WetDry / 100.0
-	delay := req.WetDry / 100.0
-	if delay < 0.1 {
-		delay = 0.1
+	decay := req.Depth / 10.0
+	if decay > 0.99 {
+		decay = 0.99
 	}
-	if delay > 5 {
-		delay = 5
+	speed := req.Rate
+	if speed > 2 {
+		speed = 2
 	}
 	effects := []SoxEffect{
 		{
 			Name: "phaser",
 			Params: []string{
-				fmt.Sprintf("%f", gainIn),
-				fmt.Sprintf("%f", gainOut),
-				fmt.Sprintf("%f", delay),
-				fmt.Sprintf("%f", req.Rate),
-				fmt.Sprintf("%f", req.Depth),
-				"-t",
+				fmt.Sprintf("%f", gainIn),  // gain-in
+				fmt.Sprintf("%f", gainOut), // gain-out
+				"3",                        // delay (ms)
+				fmt.Sprintf("%f", decay),   // decay
+				fmt.Sprintf("%f", speed),   // speed
+				"-t",                       // triangular
 			},
 		},
 	}
