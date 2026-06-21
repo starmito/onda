@@ -67,7 +67,7 @@
       id: 'delay',
       name: 'Delay',
       params: [
-        { key: 'delay_time', label: 'Delay time', min: 20, max: 2000, step: 10, default: 300, unit: 'ms' },
+        { key: 'delay_time', label: 'Delay time', min: 0.01, max: 5, step: 0.01, default: 0.3, unit: 's' },
         { key: 'feedback', label: 'Feedback', min: 0, max: 100, step: 1, default: 30, unit: '%' },
         { key: 'wet_dry', label: 'Wet/Dry', min: 0, max: 100, step: 1, default: 50, unit: '%' },
       ],
@@ -85,7 +85,7 @@
       id: 'chorus',
       name: 'Chorus',
       params: [
-        { key: 'depth', label: 'Depth', min: 0, max: 100, step: 1, default: 30, unit: '%' },
+        { key: 'depth', label: 'Depth', min: 0, max: 10, step: 0.5, default: 5, unit: '' },
         { key: 'rate', label: 'Rate', min: 0.1, max: 10, step: 0.1, default: 1.5, unit: 'Hz' },
         { key: 'delay_ms', label: 'Delay', min: 10, max: 100, step: 1, default: 25, unit: 'ms' },
         { key: 'wet_dry', label: 'Wet/Dry', min: 0, max: 100, step: 1, default: 50, unit: '%' },
@@ -105,7 +105,7 @@
       id: 'flanger',
       name: 'Flanger',
       params: [
-        { key: 'depth', label: 'Depth', min: 0, max: 100, step: 1, default: 30, unit: '%' },
+        { key: 'depth', label: 'Depth', min: 0, max: 10, step: 0.5, default: 5, unit: '' },
         { key: 'rate', label: 'Rate', min: 0.1, max: 10, step: 0.1, default: 1.5, unit: 'Hz' },
         { key: 'wet_dry', label: 'Wet/Dry', min: 0, max: 100, step: 1, default: 50, unit: '%' },
       ],
@@ -123,7 +123,7 @@
       id: 'phaser',
       name: 'Phaser',
       params: [
-        { key: 'depth', label: 'Depth', min: 0, max: 100, step: 1, default: 50, unit: '%' },
+        { key: 'depth', label: 'Depth', min: 0, max: 10, step: 0.5, default: 5, unit: '' },
         { key: 'rate', label: 'Rate', min: 0.1, max: 10, step: 0.1, default: 1.5, unit: 'Hz' },
         { key: 'wet_dry', label: 'Wet/Dry', min: 0, max: 100, step: 1, default: 50, unit: '%' },
       ],
