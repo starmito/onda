@@ -17,6 +17,8 @@ var allowedUploadExts = map[string]bool{
 	".ogg":  true,
 	".m4a":  true,
 	".aiff": true,
+	".mid":  true,
+	".midi": true,
 }
 
 // UploadResponse is returned by POST /api/daw/upload.
