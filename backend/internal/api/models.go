@@ -19,7 +19,7 @@ import (
 )
 
 // modelsBasePath is the root directory where models live inside the container.
-// Both onda and onda-gui use /app/models (bind-mounted from host).
+// The onda service uses /app/models (bind-mounted from host).
 // It is a variable so tests can override it without touching the real /app/models.
 var modelsBasePath = "/app/models"
 

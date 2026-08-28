@@ -25,4 +25,4 @@ Reglas OBLIGATORIAS para cualquier agente que trabaje en este repositorio. Incum
 
 - **Onda**: separador de fuentes musicales (Demucs/UVR) + DAW ligero. Backend Go (`backend/`), frontend Svelte (`frontend/`), pipeline Python (`onda/`).
 - La API real usa rutas `/app/input/` (NO `/input/` — las referencias viejas a `/input/` son drift obsoleto).
-- `onda-gui/` es legacy y se eliminará: no añadir cambios nuevos ahí salvo que se pida explícitamente.
+- `onda-gui/` fue eliminado en v3.2.0: no existe ya como directorio ni como servicio.

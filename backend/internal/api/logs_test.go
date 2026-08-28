@@ -18,7 +18,7 @@ func TestHandleGetServiceLogs_ReturnsOndaServiceLogs(t *testing.T) {
 	Log("backend", "info", "backend message")
 	Log("pipeline", "info", "pipeline message")
 	Log("nginx", "error", "legacy nginx log")
-	Log("onda-gui", "error", "legacy onda-gui log")
+	Log("legacy", "error", "legacy service log")
 
 	s := &Server{mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /api/logs/services", s.handleGetServiceLogs)
@@ -47,7 +47,7 @@ func TestHandleGetServiceLogs_ReturnsOndaServiceLogs(t *testing.T) {
 	if !seen["backend"] || !seen["pipeline"] {
 		t.Errorf("expected backend and pipeline logs, got %v", seen)
 	}
-	if seen["nginx"] || seen["onda-gui"] {
+	if seen["nginx"] || seen["legacy"] {
 		t.Errorf("legacy services must be excluded, got %v", seen)
 	}
 }

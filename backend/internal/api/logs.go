@@ -68,7 +68,7 @@ func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 // ondaServices are the service names whose logs belong in the Services tab.
-// Legacy services such as nginx and onda-gui are intentionally excluded.
+// Legacy services such as nginx are intentionally excluded.
 var ondaServices = map[string]bool{
 	"backend":   true,
 	"pipeline":  true,
