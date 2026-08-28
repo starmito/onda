@@ -176,6 +176,81 @@ func TestHandleQueueStatus_Ordering(t *testing.T) {
 	}
 }
 
+func TestHandleQueueStatus_PipelineProgress(t *testing.T) {
+	root := setupQueueTestRoot(t)
+	s := newQueueTestServer(t)
+
+	statusPath := filepath.Join(root, "output", "pipeline_status.json")
+	status := `{"status":"running","step":"demucs","progress":0.42,"device":"cuda"}`
+	if err := os.WriteFile(statusPath, []byte(status), 0o644); err != nil {
+		t.Fatalf("failed to write pipeline status: %v", err)
+	}
+
+	s.jobsMu.Lock()
+	s.jobs["processing-song"] = &JobState{Song: "processing-song", Status: "processing", Index: 0, TotalSteps: 2}
+	s.jobsMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/queue/status", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		Jobs []*JobState `json:"jobs"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(resp.Jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(resp.Jobs))
+	}
+	job := resp.Jobs[0]
+	if job.Progress != 42 {
+		t.Errorf("expected progress 42, got %d", job.Progress)
+	}
+	if job.StepName != "Demucs" {
+		t.Errorf("expected step name Demucs, got %q", job.StepName)
+	}
+	if job.Device != "cuda" {
+		t.Errorf("expected device cuda, got %q", job.Device)
+	}
+}
+
+func TestHandleQueueStatus_OverallProgressFallback(t *testing.T) {
+	root := setupQueueTestRoot(t)
+	s := newQueueTestServer(t)
+
+	statusPath := filepath.Join(root, "output", "pipeline_status.json")
+	status := `{"status":"running","step":"vocal","overall_progress":0.25,"device":"cpu"}`
+	if err := os.WriteFile(statusPath, []byte(status), 0o644); err != nil {
+		t.Fatalf("failed to write pipeline status: %v", err)
+	}
+
+	s.jobsMu.Lock()
+	s.jobs["processing-song"] = &JobState{Song: "processing-song", Status: "processing", Index: 0, TotalSteps: 2}
+	s.jobsMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/queue/status", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	var resp struct {
+		Jobs []*JobState `json:"jobs"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(resp.Jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(resp.Jobs))
+	}
+	if resp.Jobs[0].Progress != 25 {
+		t.Errorf("expected progress 25 from overall_progress, got %d", resp.Jobs[0].Progress)
+	}
+}
+
 func TestHandleQueueClear(t *testing.T) {
 	setupQueueTestRoot(t)
 	s := newQueueTestServer(t)

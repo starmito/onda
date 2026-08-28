@@ -376,35 +376,55 @@ run_viperx_step() {
     run_vocal_step "$@"
 }
 
-# Run a Demucs step in chaining mode
-# Args: model_name, input_file, output_dir, [expected_stems_count]
+# Run a Demucs step (chaining or legacy mode).
+# Args: model_name, input_file, output_dir, [expected_stems_count], [step_index]
+# If step_index is empty the legacy report_progress path is used; otherwise
+# multi_step_progress is updated with real progress parsed from demucs stderr.
 run_demucs_step() {
     local model_name="$1"
     local input_file="$2"
     local output_dir="$3"
     local expected_stems="${4:-4}"
+    local step_idx="${5:-}"
 
     local demucs_args=(-n "${model_name}" --device "${DEVICE}" -o "${output_dir}")
     [ "${SHIFTS:-1}" -gt 0 ] && demucs_args+=(--shifts "${SHIFTS:-1}")
     [ "${DEMUCS_SEGMENT:-0}" -gt 0 ] && demucs_args+=(--segment "${DEMUCS_SEGMENT:-0}")
     [ "${JOBS:-0}" -gt 0 ] && demucs_args+=(-j "${JOBS:-0}")
 
+    mkdir -p "${output_dir}"
+    local progress_log="${output_dir}/.demucs_progress.log"
+    rm -f "${progress_log}"
+
     update_elapsed_loop &
     local elapsed_pid=$!
-    demucs "${demucs_args[@]}" "${input_file}" &
+    # demucs writes its tqdm progress bars to stderr.  Line-buffer stderr so
+    # updates are available immediately in the log file instead of being fully
+    # buffered until the process ends.  Fall back to plain demucs if stdbuf is
+    # not available (progress will be less granular but still functional).
+    if command -v stdbuf >/dev/null 2>&1; then
+        stdbuf -eL demucs "${demucs_args[@]}" "${input_file}" 2> "${progress_log}" &
+    else
+        demucs "${demucs_args[@]}" "${input_file}" 2> "${progress_log}" &
+    fi
     local demucs_pid=$!
 
-    # Poll for stems appearing in output directory
+    # Poll the demucs stderr log for real progress percentages.
     while kill -0 $demucs_pid 2>/dev/null; do
-        if [ -d "${output_dir}" ]; then
-            local found
-            found=$(find "${output_dir}" -type f -name "*.wav" 2>/dev/null | wc -l)
-            if [ "$found" -gt 0 ] && [ "$expected_stems" -gt 0 ]; then
-                local step_pct=$(( found * 100 / expected_stems ))
-                [ "$step_pct" -gt 100 ] && step_pct=100
-                # Also update multi-step progress if in chained mode
-                if [ -n "${STEPS_STATE_FILE:-}" ] && [ -f "$STEPS_STATE_FILE" ]; then
-                    multi_step_progress "processing" "$CURRENT_STEP_INDEX" "$step_pct"
+        if [ -s "${progress_log}" ]; then
+            local pct_line pct
+            pct_line=$(tail -c 4096 "${progress_log}" | tr '\r' '\n' | grep -aE '^ *[0-9]+%' | tail -1)
+            if [ -n "${pct_line}" ]; then
+                pct=$(echo "${pct_line}" | LC_ALL=C sed -E 's/^ *([0-9]+)%.*/\1/')
+                if [ -n "${pct}" ] && [ "${pct}" -gt 0 ] 2>/dev/null; then
+                    if [ -n "${step_idx}" ]; then
+                        multi_step_progress "processing" "${step_idx}" "${pct}"
+                    else
+                        local global_pct=$(( DEMUCS_START + (pct * (DEMUCS_END - DEMUCS_START) / 100) ))
+                        [ "${global_pct}" -gt "${DEMUCS_END}" ] && global_pct=${DEMUCS_END}
+                        [ "${global_pct}" -lt "${DEMUCS_START}" ] && global_pct=${DEMUCS_START}
+                        report_progress "running" "demucs" "${global_pct}"
+                    fi
                 fi
             fi
         fi
@@ -414,6 +434,7 @@ run_demucs_step() {
     local demucs_rc=$?
     kill $elapsed_pid 2>/dev/null || true
     wait $elapsed_pid 2>/dev/null || true
+    rm -f "${progress_log}"
 
     return $demucs_rc
 }
@@ -629,7 +650,7 @@ stems = [k for k, v in s.get('stems', {}).items() if v.get('action') != 'discard
 print(len(stems))
 " 2>/dev/null || echo 4)
 
-                run_demucs_step "${STEP_MODEL:-htdemucs_ft}" "${CURRENT_INPUT}" "${STEP_TMP}" "$STEM_COUNT"
+                run_demucs_step "${STEP_MODEL:-htdemucs_ft}" "${CURRENT_INPUT}" "${STEP_TMP}" "$STEM_COUNT" "$STEP_IDX"
                 step_rc=$?
                 if [ $step_rc -ne 0 ]; then
                     echo "❌ Demucs failed with exit code $step_rc" >&2
@@ -953,30 +974,10 @@ if $DEMUCS; then
 
     report_progress "running" "demucs" $DEMUCS_START
 
-    # Launch elapsed updater and demucs in background; track stem count as progress
-    update_elapsed_loop &
-    ELAPSED_PID=$!
-    demucs "${DEMUCS_ARGS[@]}" "${DEMUCS_INPUT}" &
-    DEMUCS_PID=$!
-
-    # Poll for stems appearing in output directory
-    while kill -0 $DEMUCS_PID 2>/dev/null; do
-        if [ -d "${TMP_DEM}" ]; then
-            found=$(find "${TMP_DEM}" -type f -name "*.wav" 2>/dev/null | wc -l)
-            if [ "$found" -gt 0 ] && [ "$DEMUCS_EXPECTED" -gt 0 ]; then
-                step_pct=$(( found * 100 / DEMUCS_EXPECTED ))
-                [ "$step_pct" -gt 100 ] && step_pct=100
-                global_pct=$(( DEMUCS_START + (step_pct * (DEMUCS_END - DEMUCS_START) / 100) ))
-                report_progress "running" "demucs" $global_pct
-            fi
-        fi
-        sleep 2
-    done
-    wait $DEMUCS_PID
+    # Run Demucs and report real progress parsed from its stderr output
+    # instead of counting output WAV files, which caused jumpy progress.
+    run_demucs_step "$DEMUCS_MODEL" "${DEMUCS_INPUT}" "${TMP_DEM}" "$DEMUCS_EXPECTED"
     DEMUCS_RC=$?
-    kill $ELAPSED_PID 2>/dev/null || true
-    wait $ELAPSED_PID 2>/dev/null || true
-
     if [ $DEMUCS_RC -ne 0 ]; then
         echo "❌ Demucs failed with exit code $DEMUCS_RC" >&2
         exit $DEMUCS_RC

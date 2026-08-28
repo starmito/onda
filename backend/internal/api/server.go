@@ -290,7 +290,12 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 		lw := &loggingResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 		next.ServeHTTP(lw, r)
 		if lw.statusCode == http.StatusNotFound {
-			Log("backend", "warn", fmt.Sprintf("404: %s %s (from: %s)", r.Method, r.URL.String(), r.UserAgent()))
+			// Distinguish missing API routes from missing static assets so the log is actionable.
+			kind := "static"
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				kind = "api"
+			}
+			Log("backend", "warn", fmt.Sprintf("404 %s: %s %s (from: %s)", kind, r.Method, r.URL.String(), r.UserAgent()))
 		}
 	})
 }
@@ -552,16 +557,24 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 
 	// Read pipeline status file for live step/progress info
 	type PipelineStatusJSON struct {
-		Status   string  `json:"status"`
-		Step     string  `json:"step"`
-		Progress float64 `json:"progress"`
-		Device   string  `json:"device"`
+		Status          string  `json:"status"`
+		Step            string  `json:"step"`
+		Progress        float64 `json:"progress"`
+		OverallProgress float64 `json:"overall_progress"`
+		Device          string  `json:"device"`
 	}
 	var pipelineStatus PipelineStatusJSON
 	projectRoot := resolveProjectRoot()
 	statusPath := filepath.Join(projectRoot, "output", "pipeline_status.json")
 	if data, err := os.ReadFile(statusPath); err == nil {
 		json.Unmarshal(data, &pipelineStatus)
+	}
+
+	// Prefer the per-step progress field; fall back to the multi-step overall
+	// progress reported by chained pipelines.
+	liveProgress := pipelineStatus.Progress
+	if liveProgress == 0 && pipelineStatus.OverallProgress > 0 {
+		liveProgress = pipelineStatus.OverallProgress
 	}
 
 	// Step name mapping and ordering
@@ -576,7 +589,7 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 			if j.CurrentStep == 0 {
 				j.CurrentStep = 1
 			}
-			j.Progress = int(pipelineStatus.Progress * 100)
+			j.Progress = int(liveProgress * 100)
 			j.Device = pipelineStatus.Device
 			// Ensure total_steps is at least current_step
 			if j.TotalSteps < j.CurrentStep {
