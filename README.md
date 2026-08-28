@@ -2,7 +2,7 @@
 
 Interfaz web para separar voces e instrumentos de cualquier canción usando modelos deep learning (Demucs, ViperX) con aceleración GPU (NVIDIA CUDA / AMD ROCm) o CPU.
 
-![Version](https://img.shields.io/badge/version-v3.1.2-blue)
+![Version](https://img.shields.io/badge/version-desde%20tags%20git-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ---
@@ -83,31 +83,30 @@ Abre **http://localhost:3000** en tu navegador.
 ┌──────────────────────────────────────────┐
 │          Contenedor onda (single)         │
 │                                          │
-│  ┌─────────┐   ┌──────────┐   ┌──────┐  │
-│  │  Nginx   │──▶│ Go API   │──▶│Python│  │
-│  │ (:3000)  │   │ backend  │   │ infer│  │
-│  └────┬────┘   └──────────┘   └──┬───┘  │
-│       │                          │      │
-│  ┌────┴────┐              ┌──────┴───┐  │
-│  │ Svelte  │              │ PyTorch  │  │
-│  │frontend │              │CUDA/ROCm │  │
-│  └─────────┘              └──────────┘  │
+│  ┌──────────────┐   ┌─────────────────┐  │
+│  │ Go API       │──▶│ Python inference│  │
+│  │ + frontend   │   │ (Demucs/ViperX) │  │
+│  │   estático   │   │                 │  │
+│  └──────┬───────┘   └────────┬────────┘  │
+│         │                    │           │
+│  ┌──────┴────────────────────┴───────┐   │
+│  │         PyTorch / CUDA / ROCm      │   │
+│  └────────────────────────────────────┘   │
 │                                          │
 └──────────────────────────────────────────┘
          │           │            │
     ┌────┴───┐ ┌────┴───┐  ┌────┴────┐
-    │ /input/ │ │ /output│  │ /config/ │
+    │/app/input│ │/app/output│ │/app/config│
     │  (bind) │ │ (bind) │  │  (bind)  │
     └────────┘ └────────┘  └─────────┘
 ```
 
 El contenedor unificado incluye:
-- **Nginx**: sirve el frontend y hace proxy inverso a la API
-- **Go backend**: API REST, cola de procesamiento, gestión de presets
+- **Go backend**: sirve el frontend estático, expone la API REST, gestiona la cola de procesamiento y los presets
 - **Python inference**: Demucs, ViperX, pitch shift
 - **Svelte frontend**: interfaz de usuario compilada
 
-Los directorios `/input/`, `/output/` y `/config/` son bind mounts al host para persistencia.
+Los directorios `/app/input/`, `/app/output/` y `/app/config/` son bind mounts al host para persistencia.
 
 ---
 
@@ -226,7 +225,7 @@ sudo update-grub
 | 👤 Personalizado | Preset seleccionable (elige del desplegable) |
 | 🎵 Cambiar Tono | Resultados + pitch shift + dropzone independiente |
 | 🎵 Detectar velocidad | *Próximamente* |
-| 🎛️ DAW | *Próximamente* |
+| 🎛️ DAW | Editor con waveform, tempo, effects, piano roll MIDI y mixer |
 | ❓ Ayuda | Estado de servicios, versión |
 | ⚙️ Ajustes | Modelos, Descargas, Presets, Logs, Interfaz |
 
@@ -266,6 +265,7 @@ Desde **Ajustes → Interfaz**:
 
 | Versión | Hitos |
 |---------|-------|
+| **v3.2.x** | DAW ligero integrado (waveform, BPM, tempo, effects, piano roll MIDI, mixer), seguridad API (CORS, sanitización, path traversal), versionado por tags de git |
 | **v3.1.x** | Fixes ROCm, auto-detección GPU dinámica (HelpPage), single-container unificado, PYTHONPATH fix, GPU type-aware, Removed ResultsPanel |
 | **v3.0.0** | Multi-platform: CUDA, ROCm y CPU en un solo contenedor |
 | **v2.9.x** | Pitch shift con rubberband, persistencia UI settings, routing de stems por preset |
@@ -279,17 +279,20 @@ Desde **Ajustes → Interfaz**:
 
 | Fase | Versión | Descripción | Estado |
 |------|:-------:|-------------|:------:|
-| **Fase 10** | **v3.2.0** | **DAW ligero integrado**: ~~T1 waveform~~ ✅, ~~T2 BPM~~ ✅, ~~T3 tempo global~~ ✅, **T0** eliminar nginx (embed Go) 🆕, T4 tempo por compases, T5 trim/cut/fade, T6 import stems, T7 UI | 🆕 En desarrollo |
 | **Fase 11** | v3.x | Empaquetado desktop: Tauri, .deb/.AppImage/.msi, Flatpak, auto-updater | Pendiente |
 | **Fase 12** | v3.x | Plugin VST3/AU: investigación frameworks (JUCE, DPF, iPlug2) | Pendiente |
-
-> 💡 **Fase 10 stack:** Go backend + Svelte 5 frontend + CLI tools (aubio, rubberband). **Nada de Python.**
 
 ---
 
 ## 🏷️ Versionado
 
 Versionado semántico (MAJOR.MINOR.PATCH). Prefijo `v` consistente, etiqueta `-alpha` para desarrollo activo.
+
+Las versiones de cada servicio se resuelven en tiempo de build desde los tags de git:
+- `onda-vX.Y.Z` → backend Go + pipeline Python
+- `gui-vX.Y.Z`  → frontend Svelte
+
+No se hardcodean versiones en el código; `build.sh` y `deploy.sh` leen los tags y las inyectan como `ARG` en Docker y como variables de entorno en el build nativo.
 
 [CHANGELOG completo →](CHANGELOG.md)
 
@@ -304,15 +307,17 @@ onda/
 ├── frontend/           # Svelte 5 frontend
 │   └── src/
 │       └── lib/        # Componentes (Sidebar, PipelineView, SettingsPanel, etc.)
-├── inference/          # Python inference (Demucs, ViperX)
+├── onda/               # Python inference (Demucs, ViperX) + CLI
 ├── scripts/            # Scripts auxiliares (test, deploy, validación)
+├── tests/              # Tests Python, Go, API, e2e e integración
 ├── Dockerfile          # Imagen unificada
 ├── docker-compose.yml  # Orquestación (CPU)
 ├── docker-compose.cuda.yml    # Override CUDA
 ├── docker-compose.rocm.yml    # Override ROCm
 ├── pipeline.sh         # Script de pipeline de separación
+├── build.sh            # Build nativo/Docker con versiones desde tags
 ├── deploy.sh           # Script de despliegue con auto-detección
-├── VERSION             # Versión centralizada
+├── VERSION             # Versión centralizada (generada por build.sh)
 └── CHANGELOG.md        # Historial de cambios
 ```
 

@@ -53,3 +53,6 @@ onda-backend
 .hermes/
 backend/onda
 daw-data/
+
+# Local configuration (contains user settings, secrets, generated model configs)
+config/

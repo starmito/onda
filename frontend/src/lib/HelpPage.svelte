@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { IconOnda, IconModel, IconUpload, IconLogs, IconHelp, IconSettings } from './icons';
-  const API_BASE = '';
+  import { API_BASE } from './api';
 
   interface ServiceInfo {
     name: string;
