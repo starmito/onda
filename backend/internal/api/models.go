@@ -20,7 +20,8 @@ import (
 
 // modelsBasePath is the root directory where models live inside the container.
 // Both onda and onda-gui use /app/models (bind-mounted from host).
-const modelsBasePath = "/app/models"
+// It is a variable so tests can override it without touching the real /app/models.
+var modelsBasePath = "/app/models"
 
 // modelSubdirs lists the known model subdirectories to scan.
 var modelSubdirs = []string{
@@ -67,7 +68,7 @@ func detectCategory(subdir, relPath string) string {
 	// Under VR_Models/, detect from the model-specific subdirectory
 	parts := strings.Split(filepath.ToSlash(relPath), "/")
 	if len(parts) >= 2 {
-		modelDir := strings.ToLower(parts[1])
+		modelDir := strings.ToLower(parts[0])
 		switch {
 		case strings.Contains(modelDir, "roformer") || strings.Contains(modelDir, "viperx") || strings.Contains(modelDir, "vocal"):
 			return "Roformer"
@@ -84,9 +85,9 @@ func detectCategory(subdir, relPath string) string {
 // relative path and its parent directory structure.
 func computeDisplayName(subdir, rel, name string) string {
 	parentDir := filepath.Base(filepath.Dir(rel))
-	if parentDir == subdir {
-		// File sits directly in the category directory (no model-specific subdir).
-		// This happens for Demucs ONNX stems: htdemucs_ft_vocals → "htdemucs_ft (vocals)"
+	// File sits directly in the category directory (no model-specific subdir).
+	// This happens for Demucs ONNX stems: htdemucs_ft_vocals → "htdemucs_ft (vocals)"
+	if parentDir == subdir || parentDir == "." {
 		if subdir == "Demucs_ONNX" {
 			return demucsONNXDisplayName(name)
 		}

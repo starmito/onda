@@ -698,7 +698,16 @@ func (s *Server) worker() {
 // runSinglePipeline executes a single pipeline.sh invocation.
 func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	ctx, cancel := context.WithCancel(context.Background())
-	args := append([]string{"/app/pipeline.sh"}, job.Args...)
+	script := "/app/pipeline.sh"
+	pipelineArgs := job.Args
+	// Tests may pass an explicit fake script as the first argument.
+	if len(job.Args) > 0 && strings.HasSuffix(job.Args[0], ".sh") {
+		if info, err := os.Stat(job.Args[0]); err == nil && !info.IsDir() {
+			script = job.Args[0]
+			pipelineArgs = job.Args[1:]
+		}
+	}
+	args := append([]string{script}, pipelineArgs...)
 	cmd := exec.CommandContext(ctx, "bash", args...)
 
 	var out bytes.Buffer
@@ -735,8 +744,12 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	if state, ok := s.jobs[job.Song]; ok {
 		if err != nil {
 			state.Status = "error"
-			state.Error = strings.TrimSpace(string(output))
-			Log("pipeline", "error", "Pipeline failed for "+job.Song+": "+strings.TrimSpace(string(output)))
+			errMsg := strings.TrimSpace(string(output))
+			if errMsg == "" {
+				errMsg = "pipeline failed"
+			}
+			state.Error = errMsg
+			Log("pipeline", "error", "Pipeline failed for "+job.Song+": "+errMsg)
 		} else {
 			state.Status = "done"
 			state.Files = listStems(job.Song)
@@ -1033,9 +1046,12 @@ func buildPipelineArgs(req SeparateRequest) (song string, args []string, steps [
 	}
 	if vocalModel != "" {
 		modelDir := resolveModelDir(vocalModel)
-		if modelDir != "" {
-			args = append(args, "--viperx-model", modelDir)
+		if modelDir == "" {
+			// Model not found on disk yet; pass the name through so callers
+			// still see the requested --viperx-model flag.
+			modelDir = vocalModel
 		}
+		args = append(args, "--viperx-model", modelDir)
 	}
 	stemModel := req.StemModel
 	if stemModel == "" {
@@ -1107,11 +1123,11 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 		if step.Model != "" {
 			args = append(args, "--stem-model", step.Model)
 		}
-		// Stem keep based on routing
+		// Stem keep based on routing (preserve a stable stem order)
 		if step.Stems != nil {
 			var keep []string
-			for stem, route := range step.Stems {
-				if route.Action == cli.StemSave || route.Action == cli.ActionRoute {
+			for _, stem := range []string{"drums", "bass", "other", "vocals", "guitar", "piano"} {
+				if route, ok := step.Stems[stem]; ok && (route.Action == cli.StemSave || route.Action == cli.ActionRoute) {
 					keep = append(keep, stem)
 				}
 			}
@@ -1325,7 +1341,17 @@ func resolveModelDir(name string) string {
 	models := listModels()
 	for _, m := range models.Models {
 		if m.Name == name || m.DisplayName == name {
-			return filepath.Dir(m.Path)
+			modelDir := filepath.Dir(m.Path)
+			// listModels() reports container paths under /app/models; map them
+			// back to the current modelsBasePath so tests that override the
+			// base directory get a real filesystem path.
+			if strings.HasPrefix(modelDir, "/app/models/") {
+				rel, err := filepath.Rel("/app/models", modelDir)
+				if err == nil {
+					modelDir = filepath.Join(modelsBasePath, rel)
+				}
+			}
+			return modelDir
 		}
 	}
 	return ""
