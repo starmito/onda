@@ -1,8 +1,10 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -10,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,6 +20,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/starmito/onda/internal/audio"
 	"github.com/starmito/onda/internal/cli"
 	"gopkg.in/yaml.v3"
 )
@@ -94,6 +98,23 @@ type Server struct {
 	nextIndex     int
 	currentCancel context.CancelFunc
 	currentCmd    *exec.Cmd
+	currentPID    int
+}
+
+// killProcess sends SIGTERM to a single process. It is a variable so tests can
+// substitute a mock implementation and verify which PIDs are targeted.
+var killProcess = func(pid int) error {
+	if pid <= 0 {
+		return nil
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	if err := proc.Signal(syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return err
+	}
+	return nil
 }
 
 // NewServer creates a new http.Server with CORS middleware and routes registered.
@@ -201,15 +222,65 @@ func NewServer(addr string) *http.Server {
 	}
 }
 
+// corsOrigins returns the configured allowed CORS origins. If none are
+// configured, it returns a slice containing "*" to preserve backward
+// compatibility.
+func corsOrigins() []string {
+	env := strings.TrimSpace(os.Getenv("ONDA_CORS_ORIGINS"))
+	if env == "" {
+		return []string{"*"}
+	}
+	parts := strings.Split(env, ",")
+	origins := make([]string, 0, len(parts))
+	for _, o := range parts {
+		o = strings.TrimSpace(o)
+		if o != "" {
+			origins = append(origins, o)
+		}
+	}
+	if len(origins) == 0 {
+		return []string{"*"}
+	}
+	return origins
+}
+
 // corsMiddleware adds CORS headers and handles OPTIONS preflight.
+// Allowed origins are read from ONDA_CORS_ORIGINS (comma-separated). If the
+// variable is unset, the legacy behavior (Access-Control-Allow-Origin: *) is
+// preserved. If the request origin is not in the configured list, no CORS
+// headers are sent.
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
+	origins := corsOrigins()
+	wildcard := len(origins) == 1 && origins[0] == "*"
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		origin := r.Header.Get("Origin")
+		allowed := wildcard
+		if !wildcard {
+			for _, o := range origins {
+				if o == origin {
+					allowed = true
+					break
+				}
+			}
+		}
+
+		if allowed {
+			if wildcard {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+			} else {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+			}
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		}
 
 		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
+			if allowed {
+				w.WriteHeader(http.StatusNoContent)
+			} else {
+				w.WriteHeader(http.StatusForbidden)
+			}
 			return
 		}
 
@@ -528,21 +599,29 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"jobs": jobList})
 }
 
+// cancelCurrentJob stops the running pipeline subprocess safely. It must be
+// called with s.jobsMu held. It records that the job was cancelled and sends a
+// SIGTERM only to the tracked PID, avoiding broad pkill commands that could
+// kill unrelated container processes.
+func (s *Server) cancelCurrentJob() {
+	if s.currentCancel != nil {
+		s.currentCancel()
+	}
+	if s.currentPID != 0 {
+		killProcess(s.currentPID)
+	}
+	s.currentCancel = nil
+	s.currentCmd = nil
+	s.currentPID = 0
+}
+
 // handleQueueClear cancels the current job and removes all jobs from the queue.
 // DELETE /api/queue
 func (s *Server) handleQueueClear(w http.ResponseWriter, r *http.Request) {
 	s.jobsMu.Lock()
 	defer s.jobsMu.Unlock()
 
-	// Cancel current job if running
-	if s.currentCancel != nil {
-		s.currentCancel()
-		s.currentCancel = nil
-		s.currentCmd = nil
-	}
-
-	// Kill processes directly (same container)
-	exec.Command("sh", "-c", "kill $(pidof python3) $(pidof python) 2>/dev/null; kill $(pidof bash) 2>/dev/null; exit 0").Run()
+	s.cancelCurrentJob()
 
 	// Clear all jobs
 	s.jobs = make(map[string]*JobState)
@@ -558,15 +637,7 @@ func (s *Server) handleQueueCancel(w http.ResponseWriter, r *http.Request) {
 	s.jobsMu.Lock()
 	defer s.jobsMu.Unlock()
 
-	// Cancel current job if running
-	if s.currentCancel != nil {
-		s.currentCancel()
-		s.currentCancel = nil
-		s.currentCmd = nil
-	}
-
-	// Kill processes directly (same container)
-	exec.Command("sh", "-c", "kill $(pidof python3) $(pidof python) 2>/dev/null; kill $(pidof bash) 2>/dev/null; exit 0").Run()
+	s.cancelCurrentJob()
 
 	// Remove all jobs — cancel means "stop everything and start fresh"
 	s.jobs = make(map[string]*JobState)
@@ -628,28 +699,42 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	args := append([]string{"/app/pipeline.sh"}, job.Args...)
 	cmd := exec.CommandContext(ctx, "bash", args...)
 
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+
 	s.jobsMu.Lock()
 	s.currentCancel = cancel
 	s.currentCmd = cmd
+	var err error
+	if sErr := cmd.Start(); sErr != nil {
+		err = sErr
+	} else {
+		s.currentPID = cmd.Process.Pid
+	}
 	s.jobsMu.Unlock()
 
-	out, err := cmd.CombinedOutput()
+	if err == nil {
+		err = cmd.Wait()
+	}
 
 	s.jobsMu.Lock()
 	s.currentCancel = nil
 	s.currentCmd = nil
+	s.currentPID = 0
 	s.jobsMu.Unlock()
 	cancel()
 
+	output := out.Bytes()
 	// Log all pipeline output to ring buffer with distinct timestamps
-	logPipelineOutput(string(out))
+	logPipelineOutput(string(output))
 
 	s.jobsMu.Lock()
 	if state, ok := s.jobs[job.Song]; ok {
 		if err != nil {
 			state.Status = "error"
-			state.Error = strings.TrimSpace(string(out))
-			Log("pipeline", "error", "Pipeline failed for "+job.Song+": "+strings.TrimSpace(string(out)))
+			state.Error = strings.TrimSpace(string(output))
+			Log("pipeline", "error", "Pipeline failed for "+job.Song+": "+strings.TrimSpace(string(output)))
 		} else {
 			state.Status = "done"
 			state.Files = listStems(job.Song)
@@ -705,29 +790,43 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		pipelineArgs := append([]string{"/app/pipeline.sh"}, stepArgs...)
 		cmd := exec.CommandContext(ctx, "bash", pipelineArgs...)
 
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		cmd.Stderr = &out
+
 		s.jobsMu.Lock()
 		s.currentCancel = cancel
 		s.currentCmd = cmd
+		var err error
+		if sErr := cmd.Start(); sErr != nil {
+			err = sErr
+		} else {
+			s.currentPID = cmd.Process.Pid
+		}
 		s.jobsMu.Unlock()
 
-		out, err := cmd.CombinedOutput()
+		if err == nil {
+			err = cmd.Wait()
+		}
 
 		s.jobsMu.Lock()
 		s.currentCancel = nil
 		s.currentCmd = nil
+		s.currentPID = 0
 		s.jobsMu.Unlock()
 		cancel()
 
+		output := out.Bytes()
 		// Log pipeline output
-		logPipelineOutput(string(out))
+		logPipelineOutput(string(output))
 
 		// Check for errors
 		if err != nil {
 			s.jobsMu.Lock()
 			if state, ok := s.jobs[job.Song]; ok {
 				state.Status = "error"
-				state.Error = fmt.Sprintf("Step %d (%s) failed: %s", i+1, step.ID, strings.TrimSpace(string(out)))
-				Log("pipeline", "error", fmt.Sprintf("Pipeline step %d/%d failed for %s: %s", i+1, len(steps), job.Song, strings.TrimSpace(string(out))))
+				state.Error = fmt.Sprintf("Step %d (%s) failed: %s", i+1, step.ID, strings.TrimSpace(string(output)))
+				Log("pipeline", "error", fmt.Sprintf("Pipeline step %d/%d failed for %s: %s", i+1, len(steps), job.Song, strings.TrimSpace(string(output))))
 			}
 			s.jobsMu.Unlock()
 			return
@@ -1493,6 +1592,61 @@ func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 }
 
+// safeFilenamePattern matches names composed only of letters, digits, spaces,
+// hyphens, underscores, dots and parentheses. Anything else (including path
+// separators and control characters) is rejected.
+var safeFilenamePattern = regexp.MustCompile(`^[A-Za-z0-9\s\-_\.\(\)]+$`)
+
+// audioExtensions is the set of audio extensions considered valid for uploads.
+// It is built from audio.SupportedExtensions for a single source of truth.
+var audioExtensions = func() map[string]bool {
+	m := make(map[string]bool)
+	for _, ext := range audio.SupportedExtensions() {
+		m[strings.ToLower(ext)] = true
+	}
+	return m
+}()
+
+// validateUploadFilename validates a raw upload filename. It rejects:
+//   - empty names or names with path separators / traversal sequences
+//   - names containing characters outside a small safe set
+//   - names ending in a non-audio extension
+//   - names with consecutive audio extensions (e.g. song.mp3.flac)
+func validateUploadFilename(name string) error {
+	if name == "" {
+		return errors.New("empty filename")
+	}
+
+	// filepath.Base removes any directory prefix, but we still reject names
+	// that explicitly contain separators or traversal markers.
+	base := filepath.Base(name)
+	if base != name || strings.Contains(name, "\\") || strings.Contains(name, "/") {
+		return errors.New("path separators not allowed")
+	}
+	if strings.Contains(name, "..") {
+		return errors.New("path traversal not allowed")
+	}
+	if !safeFilenamePattern.MatchString(name) {
+		return errors.New("filename contains invalid characters")
+	}
+
+	ext := strings.ToLower(filepath.Ext(name))
+	if ext == "" {
+		return errors.New("missing file extension")
+	}
+	if !audioExtensions[ext] {
+		return errors.New("unsupported audio extension")
+	}
+
+	// Reject double audio extensions such as song.mp3.flac.
+	stem := strings.TrimSuffix(name, filepath.Ext(name))
+	if prevExt := strings.ToLower(filepath.Ext(stem)); prevExt != "" && audioExtensions[prevExt] {
+		return errors.New("consecutive audio extensions not allowed")
+	}
+
+	return nil
+}
+
 // handleUpload accepts a multipart file upload and saves it to disk.
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	// Determine input directory: prefer project root /input,
@@ -1529,7 +1683,14 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// Sanitize filename to prevent path traversal
+	// Sanitize filename to prevent path traversal and unsafe characters
+	if err := validateUploadFilename(header.Filename); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		Log("backend", "error", "Upload rejected: "+err.Error())
+		return
+	}
 	safeName := filepath.Base(header.Filename)
 	destPath := filepath.Join(inputDir, safeName)
 	dst, err := os.Create(destPath)
@@ -1591,6 +1752,13 @@ func (s *Server) handleUploadPitch(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
+	if err := validateUploadFilename(header.Filename); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		Log("backend", "error", "Pitch upload rejected: "+err.Error())
+		return
+	}
 	safeName := filepath.Base(header.Filename)
 	destPath := filepath.Join(inputDir, safeName)
 	dst, err := os.Create(destPath)
