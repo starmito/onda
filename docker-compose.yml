@@ -1,5 +1,6 @@
-# Onda v3.1.1 — Contenedor unificado (Python + Go + Nginx + Svelte)
+# Onda — Contenedor unificado (Python + Go + Nginx + Svelte)
 # GPU auto-detect en runtime. Perfiles/overrides para CUDA, ROCm, CPU.
+# Las versiones se inyectan en build time desde los tags onda-v* y gui-v*.
 #
 # Uso:
 #   docker compose up -d --build                      # CPU mode (default)
@@ -18,9 +19,11 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
+        ONDAP_VERSION: "${ONDAP_VERSION:-unknown}"
+        GUI_VERSION: "${GUI_VERSION:-unknown}"
         USER_UID: "${USER_UID:-1000}"
         USER_GID: "${USER_GID:-1000}"
-    image: onda:3.1.1
+    image: onda:${ONDAP_VERSION:-latest}
     container_name: onda
     ports:
       - "${ONDA_PORT:-3000}:3000"

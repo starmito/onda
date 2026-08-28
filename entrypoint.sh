@@ -39,5 +39,5 @@ export HF_HOME=/tmp/hf_cache
 # Crear directorios temporales como appuser
 mkdir -p /tmp/numba_cache /tmp/torch_cache /tmp/xdg_cache /tmp/hf_cache
 
-echo "🚀 Starting Onda v3.1.2 ($GPU mode)..."
+echo "🚀 Starting Onda ${ONDAP_VERSION:-unknown} ($GPU mode)..."
 exec /app/backend/onda-backend serve --addr 0.0.0.0:3000

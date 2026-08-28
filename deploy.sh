@@ -41,4 +41,4 @@ case $GPU in
     ;;
 esac
 
-echo "✅ Onda v3.1.1 desplegado en http://localhost:${ONDA_PORT:-3000}"
+echo "✅ Onda desplegado en http://localhost:${ONDA_PORT:-3000}"

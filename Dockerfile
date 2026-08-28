@@ -1,23 +1,33 @@
-# Onda v3.1.1 — Contenedor unificado (Python + Go + Svelte)
+# Onda — Contenedor unificado (Python + Go + Svelte)
 # GPU auto-detect en runtime via entrypoint.sh
+# Versiones inyectadas en build time desde tags de git:
+#   onda-vX.Y.Z → backend Go + pipeline Python
+#   gui-vX.Y.Z  → frontend Svelte
 # Build: docker compose build
 # Deploy: docker compose up -d  (o bash deploy.sh para auto-detectar GPU)
 
 # ── Stage 1: Compilar frontend Svelte ───────────────────
 FROM node:22-alpine AS frontend-builder
+ARG GUI_VERSION=unknown
 WORKDIR /src
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --silent
 COPY frontend/ ./
-RUN npm run build
+RUN VITE_ONDA_VERSION="$GUI_VERSION" npm run build
+RUN printf '%s\n' "$GUI_VERSION" > /src/dist/VERSION
 
 # ── Stage 2: Compilar backend Go ────────────────────────
 FROM golang:1.26-alpine AS go-builder
+ARG ONDAP_VERSION=unknown
 WORKDIR /src
 COPY backend/ ./backend/
+COPY onda/ ./onda/
+COPY pyproject.toml ./
 COPY --from=frontend-builder /src/dist/ /app/frontend/dist/
-COPY VERSION ./
-RUN cd backend && GOTOOLCHAIN=go1.26.0 go mod tidy && CGO_ENABLED=0 GOOS=linux go build -o /onda-backend ./cmd/onda/
+RUN printf '%s\n' "$ONDAP_VERSION" > /app/VERSION
+RUN printf '__version__ = "%s"\n' "$ONDAP_VERSION" > /src/onda/_version.py
+RUN sed -i "s/^version = \"[^\"]*\"/version = \"${ONDAP_VERSION#v}\"/" /src/pyproject.toml
+RUN cd backend && GOTOOLCHAIN=go1.26.0 go mod tidy && CGO_ENABLED=0 GOOS=linux go build -ldflags "-X github.com/starmito/onda/internal/api.Version=$ONDAP_VERSION" -o /onda-backend ./cmd/onda/
 RUN chmod +x /onda-backend
 
 # ── Stage 3: Dependencias Python (torch CPU en build time) ─
@@ -52,8 +62,12 @@ RUN pip install --no-cache-dir \
 # ── Stage 4: Imagen final ────────────────────────────────
 FROM python:3.12-slim AS runtime
 
+ARG ONDAP_VERSION=unknown
+ARG GUI_VERSION=unknown
 ARG USER_UID=1000
 ARG USER_GID=1000
+
+ENV ONDA_VERSION=${ONDAP_VERSION}
 
 # Solo lo necesario para PRODUCCIÓN (sin build-essential)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -70,6 +84,7 @@ COPY --from=python-base /usr/local/bin/demucs /usr/local/bin/demucs
 
 # Go backend
 COPY --from=go-builder /onda-backend /app/backend/onda-backend
+COPY --from=go-builder /app/VERSION /app/VERSION
 RUN chmod +x /app/backend/onda-backend
 
 # Frontend static assets
@@ -83,6 +98,9 @@ RUN chmod +x /app/pipeline.sh
 COPY inference_universal.py /app/inference_universal.py
 COPY lib_v5/ /app/lib_v5/
 
+# Python pipeline package (includes generated _version.py)
+COPY onda/ /app/onda/
+
 # GPU detection
 COPY onda/detect_gpu.sh /usr/local/bin/detect_gpu.sh
 RUN chmod +x /usr/local/bin/detect_gpu.sh
@@ -90,10 +108,6 @@ RUN chmod +x /usr/local/bin/detect_gpu.sh
 # Entrypoint
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
-
-# VERSION file
-COPY VERSION /app/VERSION
-COPY VERSION /app/frontend/dist/VERSION
 
 # UVR model catalog
 COPY uvr_models.json /app/uvr_models.json

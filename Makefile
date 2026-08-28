@@ -2,7 +2,7 @@
 # ============================================================================
 # Uso rápido:
 #   make setup     — primer inicio: detecta GPU, crea .env y directorios
-	@echo "  make download-models  Descarga los modelos (~3.2 GB)"
+#   make download-models  Descarga los modelos (~3.2 GB)
 #   make build     — construye imágenes Docker
 #   make up        — levanta los contenedores
 #   make test      — prueba el pipeline con un audio de test
@@ -11,6 +11,15 @@
 # ============================================================================
 
 .DEFAULT_GOAL := help
+
+# ── Versiones desde tags de git ─────────────────
+# Se prefiere el tag con prefijo de servicio; si no existe, se usa el tag más
+# reciente. El prefijo se elimina para que la versión inyectada sea vX.Y.Z.
+ONDAP_VERSION := $(shell git describe --tags --match 'onda-*' --abbrev=0 2>/dev/null || git describe --tags --abbrev=0 2>/dev/null || echo unknown)
+GUI_VERSION := $(shell git describe --tags --match 'gui-*' --abbrev=0 2>/dev/null || git describe --tags --abbrev=0 2>/dev/null || echo unknown)
+ONDAP_VERSION := $(ONDAP_VERSION:onda-%=%)
+GUI_VERSION := $(GUI_VERSION:gui-%=%)
+export ONDAP_VERSION GUI_VERSION
 
 # ── Detect GPU ──────────────────────────────────
 HAS_NVIDIA := $(shell command -v nvidia-smi >/dev/null 2>&1 && echo 1 || echo 0)
@@ -103,8 +112,9 @@ setup: ## Configuración inicial: detecta GPU, crea .env y directorios
 	@echo "    3. make up"
 	@echo "    4. Abre http://localhost:3000"
 
-build: ## Construye las imágenes Docker
+build: ## Construye las imágenes Docker (versiones desde tags de git)
 	@echo "$(CYAN)🔨 Construyendo imágenes...$(NC)"
+	@echo "  ONDAP_VERSION=$(ONDAP_VERSION)  GUI_VERSION=$(GUI_VERSION)"
 	docker compose $(COMPOSE_FILES) build
 	@echo "$(GREEN)✅ Build completo$(NC)"
 
