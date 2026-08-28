@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"os/exec"
@@ -1647,8 +1649,70 @@ func validateUploadFilename(name string) error {
 	return nil
 }
 
+// extractRawUploadFilename returns the raw filename parameter from the first
+// multipart file part in r without Go's path normalization. It restores r.Body
+// so that r.FormFile can still be called afterwards.
+func extractRawUploadFilename(r *http.Request) (string, error) {
+	contentType := r.Header.Get("Content-Type")
+	_, params, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return "", err
+	}
+	boundary, ok := params["boundary"]
+	if !ok {
+		return "", errors.New("missing multipart boundary")
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return "", err
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+
+	reader := multipart.NewReader(bytes.NewReader(body), boundary)
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+		if part.FormName() != "file" {
+			continue
+		}
+		disp := part.Header.Get("Content-Disposition")
+		_, dispParams, err := mime.ParseMediaType(disp)
+		if err != nil {
+			return "", err
+		}
+		if raw := dispParams["filename"]; raw != "" {
+			return raw, nil
+		}
+	}
+	return "", errors.New("no file part found")
+}
+
 // handleUpload accepts a multipart file upload and saves it to disk.
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
+	// Validate the raw filename before Go's multipart parser normalizes away
+	// path traversal markers such as "../".
+	rawName, err := extractRawUploadFilename(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "no file provided"})
+		Log("backend", "error", "Upload failed: "+err.Error())
+		return
+	}
+	if err := validateUploadFilename(rawName); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		Log("backend", "error", "Upload rejected: "+err.Error())
+		return
+	}
+
 	// Determine input directory: prefer project root /input,
 	// fall back to a temp dir if it doesn't exist.
 	projectRoot := resolveProjectRoot()
@@ -1683,14 +1747,6 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// Sanitize filename to prevent path traversal and unsafe characters
-	if err := validateUploadFilename(header.Filename); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		Log("backend", "error", "Upload rejected: "+err.Error())
-		return
-	}
 	safeName := filepath.Base(header.Filename)
 	destPath := filepath.Join(inputDir, safeName)
 	dst, err := os.Create(destPath)
@@ -1722,6 +1778,24 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 // handleUploadPitch accepts a multipart file upload and saves it to input_rubberband/.
 func (s *Server) handleUploadPitch(w http.ResponseWriter, r *http.Request) {
+	// Validate the raw filename before Go's multipart parser normalizes away
+	// path traversal markers such as "../".
+	rawName, err := extractRawUploadFilename(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "no file provided"})
+		Log("backend", "error", "Pitch upload failed: "+err.Error())
+		return
+	}
+	if err := validateUploadFilename(rawName); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		Log("backend", "error", "Pitch upload rejected: "+err.Error())
+		return
+	}
+
 	projectRoot := resolveProjectRoot()
 	inputDir := filepath.Join(projectRoot, "input_rubberband")
 	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
@@ -1752,13 +1826,6 @@ func (s *Server) handleUploadPitch(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	if err := validateUploadFilename(header.Filename); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
-		Log("backend", "error", "Pitch upload rejected: "+err.Error())
-		return
-	}
 	safeName := filepath.Base(header.Filename)
 	destPath := filepath.Join(inputDir, safeName)
 	dst, err := os.Create(destPath)

@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,6 +16,16 @@ import (
 	"github.com/go-audio/audio"
 	"github.com/go-audio/wav"
 )
+
+// skipIfMissingBinary skips the current test if the named executable is not
+// available in PATH. Integration tests that shell out to aubio/sox use this so
+// they can run cleanly on hosts without the full audio toolchain installed.
+func skipIfMissingBinary(t *testing.T, name string) {
+	t.Helper()
+	if _, err := exec.LookPath(name); err != nil {
+		t.Skipf("%s not found in PATH, skipping integration test", name)
+	}
+}
 
 // setupFase10TestRoot creates a temporary project root and sets ONDA_ROOT so
 // resolveProjectRoot() resolves to it during the test.
@@ -120,6 +131,7 @@ func writeSynthWAV(t *testing.T, path string, durationSec float64) {
 }
 
 func TestHandleTempoPerBar(t *testing.T) {
+	skipIfMissingBinary(t, "aubio")
 	root := setupFase10TestRoot(t)
 	writeSynthWAV(t, filepath.Join(root, "input", "beat.wav"), 8.0)
 
@@ -163,6 +175,7 @@ func TestHandleTempoPerBar(t *testing.T) {
 }
 
 func TestHandleTrim(t *testing.T) {
+	skipIfMissingBinary(t, "sox")
 	root := setupFase10TestRoot(t)
 	writeSynthWAV(t, filepath.Join(root, "input", "source.wav"), 2.0)
 
@@ -200,6 +213,7 @@ func TestHandleTrim(t *testing.T) {
 }
 
 func TestHandleFade(t *testing.T) {
+	skipIfMissingBinary(t, "sox")
 	root := setupFase10TestRoot(t)
 	writeSynthWAV(t, filepath.Join(root, "input", "source.wav"), 2.0)
 
@@ -426,6 +440,7 @@ func TestHandleUpload(t *testing.T) {
 }
 
 func TestHandleTempoGrid(t *testing.T) {
+	skipIfMissingBinary(t, "aubio")
 	root := setupFase10TestRoot(t)
 	writeSynthWAV(t, filepath.Join(root, "input", "beat.wav"), 8.0)
 
