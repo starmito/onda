@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import type { MidiNote } from './api';
 
   interface Props {
@@ -33,6 +33,16 @@
   const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
   const BLACK_KEYS = new Set([1, 3, 6, 8, 10]);
 
+  // ---- Playback state ----
+  let audioCtx: AudioContext | null = $state(null);
+  let isPlaying = $state(false);
+  let playheadBeat = $state(-1);
+  let playbackStartTime = 0;
+  let playbackEndTime = 0;
+  let activeNodes: { osc: OscillatorNode; gain: GainNode }[] = [];
+  let animationFrameId: number | null = null;
+  let stopTimeoutId: ReturnType<typeof setTimeout> | null = null;
+
   function noteName(key: number): string {
     const name = NOTE_NAMES[key % 12];
     const octave = Math.floor(key / 12) - 1;
@@ -52,29 +62,136 @@
     return 440 * Math.pow(2, (key - 69) / 12);
   }
 
-  function playTone(key: number) {
-    try {
+  async function ensureAudioContext(): Promise<AudioContext> {
+    if (!audioCtx) {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx();
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = frequencyForKey(key);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      const now = ctx.currentTime;
-      gain.gain.setValueAtTime(0.3, now);
-      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
-      osc.start(now);
-      osc.stop(now + 0.5);
-      setTimeout(() => ctx.close(), 600);
+      audioCtx = new AudioCtx();
+    }
+    if (audioCtx.state === 'suspended') {
+      await audioCtx.resume();
+    }
+    return audioCtx;
+  }
+
+  function playTone(key: number, duration = 0.5) {
+    try {
+      ensureAudioContext().then((ctx) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'sine';
+        osc.frequency.value = frequencyForKey(key);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        const now = ctx.currentTime;
+        gain.gain.setValueAtTime(0.3, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+        osc.start(now);
+        osc.stop(now + duration);
+        setTimeout(() => {
+          try {
+            osc.disconnect();
+            gain.disconnect();
+          } catch {
+            // ignore cleanup errors
+          }
+        }, Math.ceil((duration + 0.1) * 1000));
+      });
     } catch {
       // ignore audio errors
     }
   }
 
-  function draw(currentNotes: MidiNote[], currentBpm: number, currentStart: number, currentEnd: number) {
+  function stopPlayback() {
+    if (stopTimeoutId) {
+      clearTimeout(stopTimeoutId);
+      stopTimeoutId = null;
+    }
+    if (animationFrameId) {
+      cancelAnimationFrame(animationFrameId);
+      animationFrameId = null;
+    }
+    isPlaying = false;
+    playheadBeat = -1;
+
+    for (const node of activeNodes) {
+      try {
+        node.osc.stop();
+        node.osc.disconnect();
+        node.gain.disconnect();
+      } catch {
+        // ignore
+      }
+    }
+    activeNodes = [];
+  }
+
+  function scheduleStop() {
+    if (!audioCtx) return;
+    const remaining = Math.max(0, (playbackEndTime - audioCtx.currentTime) * 1000);
+    stopTimeoutId = setTimeout(() => {
+      stopPlayback();
+    }, remaining + 100);
+  }
+
+  function animatePlayhead() {
+    if (!isPlaying || !audioCtx) return;
+    const elapsed = audioCtx.currentTime - playbackStartTime;
+    playheadBeat = elapsed * (bpm / 60);
+
+    if (audioCtx.currentTime < playbackEndTime + 0.1) {
+      animationFrameId = requestAnimationFrame(animatePlayhead);
+    } else {
+      animationFrameId = requestAnimationFrame(() => stopPlayback());
+    }
+  }
+
+  async function playSequence() {
+    if (notes.length === 0) return;
+    stopPlayback();
+    const ctx = await ensureAudioContext();
+
+    isPlaying = true;
+    playbackStartTime = ctx.currentTime + 0.05;
+    playbackEndTime = playbackStartTime;
+    activeNodes = [];
+
+    for (const note of notes) {
+      const t0 = playbackStartTime + note.start_ms / 1000;
+      const duration = Math.max(0.05, (note.end_ms - note.start_ms) / 1000);
+      const t1 = t0 + duration;
+
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'triangle';
+      osc.frequency.value = frequencyForKey(note.key);
+
+      const velocity = Math.min(127, Math.max(0, note.velocity || 80));
+      const peakGain = 0.25 * (velocity / 127);
+
+      gain.gain.setValueAtTime(0, t0);
+      gain.gain.linearRampToValueAtTime(peakGain, t0 + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.001, t1);
+
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start(t0);
+      osc.stop(t1);
+
+      activeNodes.push({ osc, gain });
+      if (t1 > playbackEndTime) playbackEndTime = t1;
+    }
+
+    scheduleStop();
+    animatePlayhead();
+  }
+
+  function draw(
+    currentNotes: MidiNote[],
+    currentBpm: number,
+    currentStart: number,
+    currentEnd: number,
+    currentPlayheadBeat: number,
+  ) {
     if (!canvasEl) return;
     const ctx = canvasEl.getContext('2d');
     if (!ctx) return;
@@ -171,6 +288,17 @@
       ctx.lineWidth = 1;
       ctx.strokeRect(x, y, w, NOTE_HEIGHT - 2);
     }
+
+    // Playback playhead
+    if (currentPlayheadBeat >= 0 && currentPlayheadBeat <= TOTAL_BEATS) {
+      const px = KEYBOARD_WIDTH + currentPlayheadBeat * PIXELS_PER_BEAT;
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(px, 0);
+      ctx.lineTo(px, height);
+      ctx.stroke();
+    }
   }
 
   function handleClick(e: MouseEvent) {
@@ -200,16 +328,46 @@
   }
 
   onMount(() => {
-    draw(notes, bpm, startNote, endNote);
+    draw(notes, bpm, startNote, endNote, playheadBeat);
   });
 
   $effect(() => {
     // Re-run whenever notes or display parameters change
-    draw(notes, bpm, startNote, endNote);
+    draw(notes, bpm, startNote, endNote, playheadBeat);
+  });
+
+  onDestroy(() => {
+    stopPlayback();
+    if (audioCtx) {
+      audioCtx.close().catch(() => {});
+    }
   });
 </script>
 
 <div class="piano-roll-container" bind:this={containerEl}>
+  <div class="piano-roll-controls">
+    <button
+      class="btn-play"
+      onclick={playSequence}
+      disabled={readonly || notes.length === 0 || isPlaying}
+      title="Reproducir secuencia MIDI"
+    >
+      ▶ Play
+    </button>
+    <button
+      class="btn-stop"
+      onclick={stopPlayback}
+      disabled={!isPlaying}
+      title="Detener reproducción"
+    >
+      ■ Stop
+    </button>
+    <span class="play-status">
+      {#if isPlaying}Reproduciendo…{:else}{notes.length} notas{/if}
+    </span>
+    <span class="bpm-badge">BPM {bpm}</span>
+    <span class="range-badge">Rango {noteName(startNote)} – {noteName(endNote - 1)}</span>
+  </div>
   <div class="piano-roll-scroll">
     <canvas bind:this={canvasEl} onclick={handleClick}>
       Tu navegador no soporta canvas.
@@ -231,6 +389,60 @@
     border: 1px solid #2a2a4a;
     border-radius: 8px;
     overflow: hidden;
+  }
+
+  .piano-roll-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    padding: 0.5rem 0.75rem;
+    background: #1e1e2e;
+    border-bottom: 1px solid #2a2a4a;
+  }
+
+  .piano-roll-controls button {
+    padding: 0.35rem 0.7rem;
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+
+  .piano-roll-controls button:hover:not(:disabled) {
+    background: var(--bg-hover);
+    border-color: var(--accent);
+  }
+
+  .piano-roll-controls button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-play {
+    background: var(--accent) !important;
+    border-color: var(--accent) !important;
+    color: #fff !important;
+  }
+
+  .btn-play:hover:not(:disabled) {
+    background: var(--accent-dark) !important;
+  }
+
+  .play-status {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    margin-left: auto;
+  }
+
+  .bpm-badge,
+  .range-badge {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-family: monospace;
   }
 
   .piano-roll-scroll {

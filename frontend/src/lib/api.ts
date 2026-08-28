@@ -665,6 +665,22 @@ export async function getTempoGrid(file: string): Promise<TempoGridResponse> {
   return (await res.json()) as TempoGridResponse;
 }
 
+export interface TempoResponse {
+  bpm: number;
+  beats: number[];
+  duration: number;
+}
+
+export async function detectBpm(file: string): Promise<TempoResponse> {
+  const res = await fetch(
+    `${API_BASE}/api/audio/tempo?file=${encodeURIComponent(file)}`,
+  );
+  if (!res.ok) {
+    throw new Error(`BPM detection failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as TempoResponse;
+}
+
 // ---- DAW audio operations ----
 export interface TrimResponse {
   file: string;

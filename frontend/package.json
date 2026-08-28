@@ -7,16 +7,19 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "test": "vitest run",
     "tauri": "tauri"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.0.0",
     "@tauri-apps/cli": "^2.11.0",
     "@tsconfig/svelte": "^5.0.8",
+    "jsdom": "^30.0.1",
     "svelte": "^5.0.0",
     "svelte-check": "^4.0.0",
     "typescript": "^6.0.0",
-    "vite": "^8.0.0"
+    "vite": "^8.0.0",
+    "vitest": "^4.1.11"
   },
   "dependencies": {
     "essentia.js": "^0.1.3",

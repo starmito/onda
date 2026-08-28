@@ -8,6 +8,7 @@
   import DAWWorkspace from './lib/DAWWorkspace.svelte';
   import MIDIPage from './lib/MIDIPage.svelte';
   import SpectrogramPage from './lib/SpectrogramPage.svelte';
+  import BpmPage from './lib/BpmPage.svelte';
   import HelpPage from './lib/HelpPage.svelte';
   import PresetsPanel from './lib/PresetsPanel.svelte';
   import type { ResultStem } from './lib/types';
@@ -814,7 +815,7 @@
         {:else if activeTab === 'spectrogram'}
           <SpectrogramPage />
         {:else if activeTab === 'bpm'}
-          <PlaceholderPage tabId={activeTab} />
+          <BpmPage />
         {:else}
           <!-- PipelineView con el preset -->
           <PipelineView

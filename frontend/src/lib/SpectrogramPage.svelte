@@ -2,6 +2,7 @@
   import { onDestroy } from 'svelte';
   import WaveSurfer from 'wavesurfer.js';
   import Spectrogram from 'wavesurfer.js/dist/plugins/spectrogram.js';
+  import { loadEssentia } from './essentia';
 
   type DetectedKey = {
     key: string;
@@ -28,7 +29,7 @@
 
   async function getEssentia() {
     if (!window.__essentia) {
-      const { Essentia, EssentiaWASM } = await import('essentia.js');
+      const { Essentia, EssentiaWASM } = await loadEssentia();
       window.__essentia = new Essentia(EssentiaWASM);
     }
     return window.__essentia;
