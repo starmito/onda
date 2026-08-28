@@ -68,6 +68,7 @@ ARG USER_UID=1000
 ARG USER_GID=1000
 
 ENV ONDA_VERSION=${ONDAP_VERSION}
+ENV ONDAP_VERSION=${ONDAP_VERSION}
 
 # Solo lo necesario para PRODUCCIÓN (sin build-essential)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -100,6 +101,7 @@ COPY lib_v5/ /app/lib_v5/
 
 # Python pipeline package (includes generated _version.py)
 COPY onda/ /app/onda/
+RUN printf '__version__ = "%s"\n' "$ONDAP_VERSION" > /app/onda/_version.py
 
 # GPU detection
 COPY onda/detect_gpu.sh /usr/local/bin/detect_gpu.sh
