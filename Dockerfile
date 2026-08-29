@@ -95,8 +95,9 @@ COPY --from=frontend-builder /src/dist/ /app/frontend/dist/
 COPY pipeline.sh /app/pipeline.sh
 RUN chmod +x /app/pipeline.sh
 
-# ViperX inference
+# ViperX / MDX inference
 COPY inference_universal.py /app/inference_universal.py
+COPY inference_mdx.py /app/inference_mdx.py
 COPY lib_v5/ /app/lib_v5/
 
 # Python pipeline package (includes generated _version.py)

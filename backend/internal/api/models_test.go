@@ -109,6 +109,48 @@ func TestResolveModelDir(t *testing.T) {
 	}
 }
 
+func TestIsMdxModel(t *testing.T) {
+	origModels := modelsBasePath
+	tmpModels := t.TempDir()
+	modelsBasePath = tmpModels
+	defer func() { modelsBasePath = origModels }()
+
+	// Name-only detection.
+	if !isMdxModel("MDX23C_D1581") {
+		t.Errorf("isMdxModel(MDX23C_D1581) = false, want true")
+	}
+	if isMdxModel("BS_Roformer_Viperx") {
+		t.Errorf("isMdxModel(BS_Roformer_Viperx) = true, want false")
+	}
+
+	// Directory detection from checkpoint name.
+	mdxDir := filepath.Join(modelsBasePath, "VR_Models", "MDX23C_D1581")
+	if err := os.MkdirAll(mdxDir, 0o755); err != nil {
+		t.Fatalf("failed to create mdx dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(mdxDir, "MDX23C_D1581.ckpt"), []byte("ckpt"), 0o644); err != nil {
+		t.Fatalf("failed to write ckpt: %v", err)
+	}
+	if !isMdxModel("MDX23C_D1581") {
+		t.Errorf("isMdxModel(resolved MDX23C_D1581) = false, want true")
+	}
+
+	// Directory detection from YAML fields.
+	rfDir := filepath.Join(modelsBasePath, "VR_Models", "MelBand_Karaoke")
+	if err := os.MkdirAll(rfDir, 0o755); err != nil {
+		t.Fatalf("failed to create roformer dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(rfDir, "model.yaml"), []byte("model:\n  num_bands: 4\n"), 0o644); err != nil {
+		t.Fatalf("failed to write yaml: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(rfDir, "model.ckpt"), []byte("ckpt"), 0o644); err != nil {
+		t.Fatalf("failed to write ckpt: %v", err)
+	}
+	if isMdxModel("MelBand_Karaoke") {
+		t.Errorf("isMdxModel(MelBand_Karaoke) = true, want false")
+	}
+}
+
 func TestStripExtension(t *testing.T) {
 	cases := []struct {
 		filename string

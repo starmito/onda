@@ -12,6 +12,7 @@
 # Flags:
 #   --steps JSON          Chained mode: JSON array of step objects
 #   --vocal-model PATH    Vocal model path (default: /app/models/VR_Models/BS_Roformer_Viperx)
+#   --vocal-type TYPE     Vocal model type: mdx | roformer | auto (default: auto)
 #   --vocal-keep WHAT     What to save: instrumental | vocals | both (default) (alias: --viperx-keep)
 #   --viperx-model PATH   Same as --vocal-model (deprecated)
 #   --viperx-keep WHAT    Same as --vocal-keep (deprecated)
@@ -360,6 +361,53 @@ PYEOF
     done
 }
 
+# Detect whether a vocal model directory contains an MDX-C (MDX-Net) model.
+# Heuristic: explicit --vocal-type mdx, OR a YAML with MDX-C fields
+# (num_scales / num_subbands), OR the checkpoint filename contains MDX23C.
+is_mdx_model_dir() {
+    local model_path="$1"
+    local model_dir="$model_path"
+    if [ -f "$model_path" ]; then
+        model_dir="$(dirname "$model_path")"
+    fi
+
+    case "$VOCAL_TYPE" in
+        mdx) return 0 ;;
+        roformer) return 1 ;;
+    esac
+
+    # Explicit MDX checkpoint name.
+    local ckpt_name
+    ckpt_name=$(ls "${model_dir}"/*.ckpt 2>/dev/null | head -1 || true)
+    if [ -n "$ckpt_name" ]; then
+        ckpt_name="$(basename "$ckpt_name")"
+        if [[ "${ckpt_name}" =~ [Mm][Dd][Xx]23[Cc] ]]; then
+            return 0
+        fi
+    fi
+
+    # YAML with MDX-C topology fields.
+    local yaml_file
+    yaml_file=$(ls "${model_dir}"/*.yaml 2>/dev/null | head -1 || true)
+    if [ -n "$yaml_file" ]; then
+        local has_mdx
+        has_mdx=$(python3 - <<PY
+import yaml, sys
+try:
+    cfg = yaml.load(open('${yaml_file}'), Loader=yaml.FullLoader)
+    m = cfg.get('model', {})
+    if any(k in m for k in ('num_scales', 'num_subbands', 'num_blocks_per_scale')):
+        sys.exit(0)
+except Exception:
+    pass
+sys.exit(1)
+PY
+        ) && return 0
+    fi
+
+    return 1
+}
+
 # Run a Vocal model step in chaining mode
 # Args: model_path (file or dir), input_file, output_dir
 run_vocal_step() {
@@ -377,22 +425,40 @@ run_vocal_step() {
         echo "❌ Model not found: ${model_path}" >&2
         exit 2
     fi
-    if [ ! -f /app/inference_universal.py ]; then
-        echo "❌ inference_universal.py not found" >&2
-        exit 2
-    fi
 
-    # Read YAML params
-    local yaml_num_overlap="4"
-    local vocal_yaml
-    vocal_yaml=$(ls "${model_dir}"/*.yaml 2>/dev/null | head -1)
-    if [ -n "$vocal_yaml" ]; then
-        yaml_num_overlap=$(python3 -c "import yaml; print(yaml.load(open('$vocal_yaml'), Loader=yaml.FullLoader)['inference']['num_overlap'])" 2>/dev/null || echo "4")
-    fi
+    if is_mdx_model_dir "$model_dir"; then
+        if [ ! -f /app/inference_mdx.py ]; then
+            echo "❌ inference_mdx.py not found" >&2
+            exit 2
+        fi
+        echo "   ℹ️  Detected MDX-C vocal model"
+        local mdx_overlap="8"
+        local mdx_yaml
+        mdx_yaml=$(ls "${model_dir}"/*.yaml 2>/dev/null | head -1)
+        if [ -n "$mdx_yaml" ]; then
+            mdx_overlap=$(python3 -c "import yaml; print(yaml.load(open('$mdx_yaml'), Loader=yaml.FullLoader).get('inference',{}).get('num_overlap',8))" 2>/dev/null || echo "8")
+        fi
+        run_with_elapsed python3 /app/inference_mdx.py \
+            --pipeline-status "$STATUS_FILE" \
+            --device "$DEVICE" \
+            "${model_dir}" "${input_file}" "${output_dir}" "${mdx_overlap}"
+    else
+        if [ ! -f /app/inference_universal.py ]; then
+            echo "❌ inference_universal.py not found" >&2
+            exit 2
+        fi
+        # Read YAML params
+        local yaml_num_overlap="4"
+        local vocal_yaml
+        vocal_yaml=$(ls "${model_dir}"/*.yaml 2>/dev/null | head -1)
+        if [ -n "$vocal_yaml" ]; then
+            yaml_num_overlap=$(python3 -c "import yaml; print(yaml.load(open('$vocal_yaml'), Loader=yaml.FullLoader)['inference']['num_overlap'])" 2>/dev/null || echo "4")
+        fi
 
-    run_with_elapsed python3 /app/inference_universal.py \
-        --pipeline-status "$STATUS_FILE" \
-        "${model_dir}" "${input_file}" "${output_dir}" "${yaml_num_overlap}"
+        run_with_elapsed python3 /app/inference_universal.py \
+            --pipeline-status "$STATUS_FILE" \
+            "${model_dir}" "${input_file}" "${output_dir}" "${yaml_num_overlap}"
+    fi
 }
 
 # Alias for backward compatibility
@@ -484,6 +550,7 @@ VOCAL_KEEP="both"
 VIPERX_KEEP="both"      # alias for backward compatibility
 VOCAL_MODEL="/app/models/VR_Models/BS_Roformer_Viperx"
 VIPERX_MODEL="/app/models/VR_Models/BS_Roformer_Viperx"  # alias for backward compatibility
+VOCAL_TYPE="auto"       # mdx | roformer | auto
 DEMUCS=false           # auto-detected: true when demucs-specific flags are passed
 DEMUCS_KEEP="all"
 DEMUCS_MODEL="htdemucs_ft"
@@ -504,6 +571,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --steps)        STEPS_JSON="$2"; shift 2 ;;
         --vocal-model)  VOCAL_MODEL="$2"; VIPERX_MODEL="$2"; VOCAL=true; shift 2 ;;
+        --vocal-type)   VOCAL_TYPE="$2"; VOCAL=true; shift 2 ;;
         --vocal-keep)   VOCAL_KEEP="$2"; VIPERX_KEEP="$2"; VOCAL=true; shift 2 ;;
         --viperx-model) VOCAL_MODEL="$2"; VIPERX_MODEL="$2"; VOCAL=true; shift 2 ;;
         --viperx-keep)  VOCAL_KEEP="$2"; VIPERX_KEEP="$2"; VOCAL=true; shift 2 ;;
@@ -939,18 +1007,31 @@ if $VOCAL || $VIPERX; then
         echo "❌ Vocal model not found: ${VOCAL_MODEL:-${VIPERX_MODEL}}" >&2
         exit 2
     fi
-    if [ ! -f /app/inference_universal.py ]; then
-        echo "❌ inference_universal.py not found" >&2
-        exit 2
-    fi
     # Launch inference — Python writes pipeline_status.json directly on each chunk.
-    # inference_universal.py reads dim_t, num_overlap, batch_size from the model's YAML.
     # Pass num_overlap as positional arg for backward compatibility.
     VOCAL_OVERLAP_INT="${VOCAL_NUM_OVERLAP:-${VIPERX_NUM_OVERLAP:-4}}"
-    # run_with_elapsed starts the background elapsed/eta updater loop.
-    run_with_elapsed python3 /app/inference_universal.py \
-        --pipeline-status "$STATUS_FILE" \
-        "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}" ${VOCAL_OVERLAP_INT}
+
+    if is_mdx_model_dir "${vocal_model_dir}"; then
+        if [ ! -f /app/inference_mdx.py ]; then
+            echo "❌ inference_mdx.py not found" >&2
+            exit 2
+        fi
+        echo "   ℹ️  Using MDX-C inference"
+        VOCAL_OVERLAP_INT="${VOCAL_NUM_OVERLAP:-${VIPERX_NUM_OVERLAP:-8}}"
+        run_with_elapsed python3 /app/inference_mdx.py \
+            --pipeline-status "$STATUS_FILE" \
+            --device "$DEVICE" \
+            "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}" ${VOCAL_OVERLAP_INT}
+    else
+        if [ ! -f /app/inference_universal.py ]; then
+            echo "❌ inference_universal.py not found" >&2
+            exit 2
+        fi
+        echo "   ℹ️  Using RoFormer inference"
+        run_with_elapsed python3 /app/inference_universal.py \
+            --pipeline-status "$STATUS_FILE" \
+            "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}" ${VOCAL_OVERLAP_INT}
+    fi
     echo "   ✅ Vocal model done"
 
     # Find instrumental (for demucs)

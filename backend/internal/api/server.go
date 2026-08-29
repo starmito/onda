@@ -1078,6 +1078,9 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 			modelDir = vocalModel
 		}
 		args = append(args, "--viperx-model", modelDir)
+		if isMdxModel(vocalModel) {
+			args = append(args, "--vocal-type", "mdx")
+		}
 	}
 	stemModel := req.StemModel
 	if stemModel == "" {
@@ -1149,6 +1152,9 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 			modelDir := resolveModelDir(step.Model)
 			if modelDir != "" {
 				args = append(args, "--vocal-model", modelDir)
+			}
+			if isMdxModel(step.Model) {
+				args = append(args, "--vocal-type", "mdx")
 			}
 		}
 		// Keep setting based on stem routing
@@ -1395,6 +1401,9 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 // (ViperX, Roformer, MDX, etc.), the model is looked up in listModels() and
 // its /models/ path is returned directly (both containers use /models).
 func resolveModelDir(name string) string {
+	if name == "" {
+		return ""
+	}
 	if name == "htdemucs_ft" || (strings.HasPrefix(name, "htdemucs") && !strings.Contains(name, ".onnx")) {
 		return name
 	}
@@ -1415,6 +1424,64 @@ func resolveModelDir(name string) string {
 		}
 	}
 	return ""
+}
+
+// isMdxModel reports whether a model name/path refers to an MDX-C (MDX-Net)
+// checkpoint.  It first checks the name for the MDX23C marker, then inspects
+// the resolved model directory for checkpoint names or YAML topology fields
+// that identify the TFC_TDF_net architecture used by MDX-C models.
+func isMdxModel(name string) bool {
+	if name == "" {
+		return false
+	}
+	lower := strings.ToLower(name)
+	if strings.Contains(lower, "mdx23c") {
+		return true
+	}
+
+	modelDir := resolveModelDir(name)
+	if modelDir == "" || modelDir == name {
+		return false
+	}
+	entries, err := os.ReadDir(modelDir)
+	if err != nil {
+		return false
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		fn := strings.ToLower(entry.Name())
+		if strings.HasSuffix(fn, ".ckpt") && strings.Contains(fn, "mdx23c") {
+			return true
+		}
+		if strings.HasSuffix(fn, ".yaml") || strings.HasSuffix(fn, ".yml") {
+			data, err := os.ReadFile(filepath.Join(modelDir, entry.Name()))
+			if err != nil {
+				continue
+			}
+			var cfg map[string]interface{}
+			if err := yaml.Unmarshal(data, &cfg); err != nil {
+				continue
+			}
+			model, ok := cfg["model"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if _, ok := model["num_scales"]; ok {
+				return true
+			}
+			if _, ok := model["num_subbands"]; ok {
+				return true
+			}
+			if _, ok := model["num_blocks_per_scale"]; ok {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // modelConfigsDir returns the directory where per-model YAML configs are stored
