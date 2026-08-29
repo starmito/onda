@@ -141,7 +141,6 @@
     if (!configLoaded) return;
 
     // SNAPSHOT: read ALL reactive values synchronously so $effect tracks them
-    const cs = chunkSize;
     const sh = shifts;
     const ss = segmentSize;
     const ov = overlap;
@@ -154,10 +153,9 @@
       vramCalcLoading = true;
       vramCalcError = false;
       try {
-        const params: { models: string; chunk_size?: number; shifts?: number; segment_size?: number; overlap?: number; batch_size?: number; demucs_segment?: number } = {
+        const params: { models: string; shifts?: number; segment_size?: number; overlap?: number; batch_size?: number; demucs_segment?: number } = {
           models: model,
         };
-        if (cs > 0) params.chunk_size = cs;
         if (sh > 1) params.shifts = sh;
         if (ss > 0) params.segment_size = ss;
         if (ov > 0) params.overlap = ov;
@@ -304,7 +302,7 @@
               bind:value={segmentSize}
               disabled={isDemucsFamily}
             />
-            <p class="param-desc">Tamaño del segmento de audio procesado. Valores altos = mejor calidad pero más VRAM y más lento.</p>
+            <p class="param-desc">Cada unidad sube la VRAM ~6.7 MiB. Más segmento = chunks más largos (mejor contexto, menos overhead), pero con batch alto puede agotar la GPU en canciones largas.</p>
             <div class="slider-labels">
               <span class="slider-min">64 — ⚡ Fast / -VRAM</span>
               <span class="slider-max">🎵 Quality / +VRAM — 1024</span>
@@ -325,31 +323,10 @@
               bind:value={overlap}
               disabled={isDemucsFamily}
             />
-            <p class="param-desc">Solapamiento entre segmentos. Más overlap = transiciones más suaves pero más lento y más VRAM.</p>
+            <p class="param-desc">NO afecta a la VRAM. Solo suaviza las transiciones entre segmentos a costa de más tiempo de proceso.</p>
             <div class="slider-labels">
-              <span class="slider-min">0 — ⚡ Fast / -VRAM</span>
-              <span class="slider-max">🔄 Smooth / +VRAM — 0.5</span>
-            </div>
-          </div>
-
-          <!-- Chunk Size -->
-          <div class="field" class:demucs-disabled={isDemucsFamily}>
-            <label for="chunk-size">
-              Chunk Size: <strong>{chunkSize === 0 ? 'auto' : chunkSize}</strong>
-            </label>
-            <input
-              id="chunk-size"
-              type="range"
-              min="0"
-              max="4096"
-              step="256"
-              bind:value={chunkSize}
-              disabled={isDemucsFamily}
-            />
-            <p class="param-desc">Tamaño del chunk para procesamiento por lotes. 0 = automático. Valores altos = más VRAM, potencialmente más rápido. No afecta a la calidad del resultado.</p>
-            <div class="slider-labels">
-              <span class="slider-min">0 — 🤖 Auto</span>
-              <span class="slider-max">📦 Large / +VRAM — 4096</span>
+              <span class="slider-min">0 — ⚡ Fast</span>
+              <span class="slider-max">🔄 Smooth / Slow — 0.5</span>
             </div>
           </div>
 
@@ -367,7 +344,7 @@
               bind:value={batchSize}
               disabled={isDemucsFamily}
             />
-            <p class="param-desc">Número de muestras procesadas en paralelo. Valores altos = más rápido en GPU pero mucha más VRAM. 0 = automático. No afecta a la calidad del resultado.</p>
+            <p class="param-desc">MULTIPLICA la VRAM del resto de parámetros: procesa varios chunks en paralelo. Con segmentos grandes o canciones largas, un batch alto agota la GPU (ej: SS1024 + batch 2 = 15 GB).</p>
             <div class="slider-labels">
               <span class="slider-min">0 — 🤖 Auto</span>
               <span class="slider-max">⚡ GPU / ++VRAM — 32</span>
@@ -402,7 +379,7 @@
                   step="1"
                   bind:value={shifts}
                 />
-                <p class="param-desc">Número de variaciones por shift para estabilización. Más shifts = mejor calidad pero más lento. Paper original usa 10.</p>
+                <p class="param-desc">Número de variaciones por shift para estabilización. Más shifts = mejor calidad pero más lento. No afecta a la VRAM (medido). Paper original usa 10.</p>
                 <div class="slider-labels">
                   <span class="slider-min">0 — ⚡ Sin shifts / Fast</span>
                   <span class="slider-max">🎵 Paper / Slow — 20</span>
@@ -422,10 +399,10 @@
                   step="1"
                   bind:value={segment}
                 />
-                <p class="param-desc">Duración del segmento en segundos. 0 = automático. Máximo configurable 7s porque el límite interno del modelo es 7.8s y el CLI de demucs solo acepta valores enteros.</p>
+                <p class="param-desc">Duración del segmento en segundos. El valor máximo (7s) es el que MENOS VRAM usa (1.1 GB); valores 1-4 o auto usan ~1.6 GB. Máximo configurable 7s porque el límite interno del modelo es 7.8s y el CLI de demucs solo acepta valores enteros.</p>
                 <div class="slider-labels">
-                  <span class="slider-min">0 — 🤖 Auto / -VRAM</span>
-                  <span class="slider-max">📦 Large / +VRAM — 7s</span>
+                  <span class="slider-min">1-4 / auto — ~1.6 GB</span>
+                  <span class="slider-max">🎵 7s / -VRAM — 1.1 GB</span>
                 </div>
               </div>
 
@@ -442,10 +419,10 @@
                   step="1"
                   bind:value={jobs}
                 />
-                <p class="param-desc">Número de workers paralelos. 0 = automático. Más workers = más rápido pero más VRAM.</p>
+                <p class="param-desc">Número de workers paralelos. 0 = automático. No afecta a la VRAM (medido).</p>
                 <div class="slider-labels">
                   <span class="slider-min">0 — 🤖 Auto</span>
-                  <span class="slider-max">⚡ Parallel / ++VRAM — 8</span>
+                  <span class="slider-max">⚡ Parallel — 8</span>
                 </div>
               </div>
             </div>
