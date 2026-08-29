@@ -1,5 +1,32 @@
 # Changelog
 
+## [v3.2.4] - 2026-08-29
+
+### Added
+- **Soporte MDX23C (MDX-Net) y SCNet en el pipeline headless** (`inference_mdx.py`, `onda/mdx.py`, `inference_scnet.py`, `onda/scnet.py`), con detección automática por tipo de modelo.
+- **Calculadora de VRAM empírica** (`/api/gpu/vram-calculator`): fórmula real medida con audio largo — viperx `1100 + (106 + 6.72×segment_size) × batch` (el batch multiplica), demucs 1572/1106 según segmento, MDX 2476, SCNet 1828. Avisa `fits:false` cuando no cabe.
+- **Parámetro Chunk Size conectado de verdad** (divide la canción en trozos de N segundos con crossfade suave; reduce VRAM en canciones largas).
+- **Cancel de jobs fiable**: se mata el grupo de procesos completo (no deja el worker colgado).
+- **Clampeo del segmento de demucs** a 7 s entero + manejo de errores limpio.
+- **Configs de modelo guardadas y aplicadas** al procesar (segment/overlap/batch/chunk desde YAML).
+- Tests unitarios Go y Python de la auditoría (40+), seguridad de uploads (path traversal), CORS configurable.
+
+### Fixed
+- Fórmula VRAM (era aditiva con cap falso; ahora multiplicativa real).
+- Worker colgado al cancelar un job.
+- Demucs colgado con segmento >7 s.
+- Import de stems transpuestos de pitch.
+- Texto desactualizado de la UI sobre carpeta de resultados.
+- RuntimeError device mismatch en SCNet (ventana de mezcla en CPU).
+- Pipeline colgado si faltaba el wrapper de inferencia en la imagen.
+
+## [v3.2.3] - 2026-06-21
+
+### Added
+- **DAW ligero integrado**:
+  - Backend MIDI con librería `gomidi` y piano roll frontend.
+  - Endpoint `GET /api/daw/audio/{filename}` para servir audio del DAW.
+
 ## [v3.2.3] - 2026-06-21
 
 ### Added
