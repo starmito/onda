@@ -6,6 +6,10 @@
 # ── Stage 1: Compilar frontend Svelte ───────────────────
 FROM node:22-alpine AS frontend-builder
 WORKDIR /src
+
+ARG GUI_VERSION
+ENV VITE_ONDA_VERSION=$GUI_VERSION
+
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --silent
 COPY frontend/ ./
@@ -17,7 +21,9 @@ WORKDIR /src
 COPY backend/ ./backend/
 COPY --from=frontend-builder /src/dist/ ./backend/internal/api/dist/
 COPY VERSION ./
-RUN cd backend && GOTOOLCHAIN=go1.26.0 go mod tidy && CGO_ENABLED=0 GOOS=linux go build -o /onda-backend ./cmd/onda/
+
+ARG ONDAP_VERSION
+RUN cd backend && GOTOOLCHAIN=go1.26.0 go mod tidy && CGO_ENABLED=0 GOOS=linux go build -ldflags "-X github.com/starmito/onda/internal/api.Version=${ONDAP_VERSION}" -o /onda-backend ./cmd/onda/
 RUN chmod +x /onda-backend
 
 # ── Stage 3: Dependencias Python (torch CPU en build time) ─

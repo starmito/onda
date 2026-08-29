@@ -20,6 +20,8 @@ services:
       args:
         USER_UID: "${USER_UID:-1000}"
         USER_GID: "${USER_GID:-1000}"
+        ONDAP_VERSION: "${ONDAP_VERSION:-unknown}"
+        GUI_VERSION: "${GUI_VERSION:-unknown}"
     image: onda:3.1.1
     container_name: onda
     ports:
