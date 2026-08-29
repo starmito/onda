@@ -33,6 +33,11 @@ services:
       - ./input_rubberband:/input_rubberband
       - ./daw-data:/daw-data
       - ./config:/config
+      # mounts /app/ para el pipeline de feat (paths unificados bajo /app/)
+      - ./input:/app/input
+      - ./output:/app/output
+      - ./input_rubberband:/app/input_rubberband
+      - ./config:/app/config
       - pytorch-cache:/opt/pytorch-backends
     environment:
       - NUMBA_CACHE_DIR=/tmp/numba_cache
