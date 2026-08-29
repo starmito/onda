@@ -1,17 +1,23 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"log"
+	"math"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -19,6 +25,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/starmito/onda/internal/audio"
 	"github.com/starmito/onda/internal/cli"
 	"gopkg.in/yaml.v3"
 )
@@ -36,6 +43,12 @@ func init() {
 	if err != nil {
 		panic("failed to create frontend sub-FS: " + err.Error())
 	}
+}
+
+// resolveProjectRoot is an alias for findProjectRoot so health.go and the
+// pipeline fixes can use a consistent name without duplicating logic.
+func resolveProjectRoot() string {
+	return findProjectRoot()
 }
 
 // FileEntry describes a generated stem file.
@@ -65,6 +78,8 @@ type JobRequest struct {
 	// Steps for multi-step pipeline chaining (v2.8.0+)
 	Steps     []cli.PipelineStep `json:"steps,omitempty"`
 	StepIndex int                `json:"step_index"` // current step being executed (for multi-step)
+	// Extra environment variables for the pipeline subprocess (e.g. ONDA_CHUNK_SIZE).
+	Env []string `json:"env,omitempty"`
 }
 
 // JobState tracks the status of a separation job.
@@ -90,6 +105,41 @@ type Server struct {
 	nextIndex     int
 	currentCancel context.CancelFunc
 	currentCmd    *exec.Cmd
+	currentPID    int
+}
+
+// killProcess sends SIGTERM to a single process. It is a variable so tests can
+// substitute a mock implementation and verify which PIDs are targeted.
+var killProcess = func(pid int) error {
+	if pid <= 0 {
+		return nil
+	}
+	proc, err := os.FindProcess(pid)
+	if err != nil {
+		return err
+	}
+	if err := proc.Signal(syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
+		return err
+	}
+	return nil
+}
+
+// killProcessGroup sends SIGTERM followed by SIGKILL to every process in the
+// process group identified by pgid (which must be a negated PID, e.g. -pid).
+// It is a variable so tests can substitute a mock implementation and verify
+// that the group leader is targeted.
+var killProcessGroup = func(pgid int) error {
+	if pgid >= 0 {
+		return fmt.Errorf("killProcessGroup expects a negated process group ID, got %d", pgid)
+	}
+	if err := syscall.Kill(pgid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return err
+	}
+	// Brief grace period for a clean shutdown, then force-kill stragglers so
+	// cmd.Wait() returns and the worker can pick up the next job.
+	time.Sleep(300 * time.Millisecond)
+	_ = syscall.Kill(pgid, syscall.SIGKILL)
+	return nil
 }
 
 // NewServer creates a new http.Server with CORS middleware and routes registered.
@@ -173,7 +223,7 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("DELETE /api/uploads/pitch/{name}", s.handleDeletePitchUpload)
 
 	// Servir archivos estaticos de audio (relativos al project root para no depender de rutas de contenedor)
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	outputDir := filepath.Join(projectRoot, "output")
 	inputRubberbandDir := filepath.Join(projectRoot, "input_rubberband")
 	dawDataDir := filepath.Join(projectRoot, "daw-data")
@@ -195,20 +245,91 @@ func NewServer(addr string) *http.Server {
 	}
 }
 
+// corsOrigins returns the configured allowed CORS origins. If none are
+// configured, it returns a slice containing "*" to preserve backward
+// compatibility.
+func corsOrigins() []string {
+	env := strings.TrimSpace(os.Getenv("ONDA_CORS_ORIGINS"))
+	if env == "" {
+		return []string{"*"}
+	}
+	parts := strings.Split(env, ",")
+	origins := make([]string, 0, len(parts))
+	for _, o := range parts {
+		o = strings.TrimSpace(o)
+		if o != "" {
+			origins = append(origins, o)
+		}
+	}
+	if len(origins) == 0 {
+		return []string{"*"}
+	}
+	return origins
+}
+
 // corsMiddleware adds CORS headers and handles OPTIONS preflight.
+// Allowed origins are read from ONDA_CORS_ORIGINS (comma-separated). If the
+// variable is unset, the legacy behavior (Access-Control-Allow-Origin: *) is
+// preserved. If the request origin is not in the configured list, no CORS
+// headers are sent.
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
+	origins := corsOrigins()
+	wildcard := len(origins) == 1 && origins[0] == "*"
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		origin := r.Header.Get("Origin")
+		allowed := wildcard
+		if !wildcard {
+			for _, o := range origins {
+				if o == origin {
+					allowed = true
+					break
+				}
+			}
+		}
+
+		if allowed {
+			if wildcard {
+				w.Header().Set("Access-Control-Allow-Origin", "*")
+			} else {
+				w.Header().Set("Access-Control-Allow-Origin", origin)
+			}
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		}
 
 		if r.Method == http.MethodOptions {
-			w.WriteHeader(http.StatusNoContent)
+			if allowed {
+				w.WriteHeader(http.StatusNoContent)
+			} else {
+				w.WriteHeader(http.StatusForbidden)
+			}
 			return
 		}
 
-		next.ServeHTTP(w, r)
+		// Wrap response writer to catch 404s
+		lw := &loggingResponseWriter{ResponseWriter: w, statusCode: http.StatusOK}
+		next.ServeHTTP(lw, r)
+		if lw.statusCode == http.StatusNotFound {
+			// Distinguish missing API routes from missing static assets so the log is actionable.
+			kind := "static"
+			if strings.HasPrefix(r.URL.Path, "/api/") {
+				kind = "api"
+			}
+			Log("backend", "warn", fmt.Sprintf("404 %s: %s %s (from: %s)", kind, r.Method, r.URL.String(), r.UserAgent()))
+		}
 	})
+}
+
+// loggingResponseWriter wraps http.ResponseWriter to capture the status code.
+type loggingResponseWriter struct {
+	http.ResponseWriter
+	statusCode int
+}
+
+func (lw *loggingResponseWriter) WriteHeader(code int) {
+	lw.statusCode = code
+	lw.ResponseWriter.WriteHeader(code)
 }
 
 // handleHealth returns the health status of the Onda service.
@@ -425,7 +546,7 @@ func (s *Server) handleInputs(w http.ResponseWriter, r *http.Request) {
 		}
 		inputs = append(inputs, InputEntry{
 			Name: name,
-			Path: "/input/" + name,
+			Path: "/app/input/" + name,
 		})
 	}
 	sort.Slice(inputs, func(i, j int) bool {
@@ -454,16 +575,24 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 
 	// Read pipeline status file for live step/progress info
 	type PipelineStatusJSON struct {
-		Status   string  `json:"status"`
-		Step     string  `json:"step"`
-		Progress float64 `json:"progress"`
-		Device   string  `json:"device"`
+		Status          string  `json:"status"`
+		Step            string  `json:"step"`
+		Progress        float64 `json:"progress"`
+		OverallProgress float64 `json:"overall_progress"`
+		Device          string  `json:"device"`
 	}
 	var pipelineStatus PipelineStatusJSON
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	statusPath := filepath.Join(projectRoot, "output", "pipeline_status.json")
 	if data, err := os.ReadFile(statusPath); err == nil {
 		json.Unmarshal(data, &pipelineStatus)
+	}
+
+	// Prefer the per-step progress field; fall back to the multi-step overall
+	// progress reported by chained pipelines.
+	liveProgress := pipelineStatus.Progress
+	if liveProgress == 0 && pipelineStatus.OverallProgress > 0 {
+		liveProgress = pipelineStatus.OverallProgress
 	}
 
 	// Step name mapping and ordering
@@ -478,7 +607,7 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 			if j.CurrentStep == 0 {
 				j.CurrentStep = 1
 			}
-			j.Progress = int(pipelineStatus.Progress * 100)
+			j.Progress = int(liveProgress * 100)
 			j.Device = pipelineStatus.Device
 			// Ensure total_steps is at least current_step
 			if j.TotalSteps < j.CurrentStep {
@@ -503,21 +632,35 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"jobs": jobList})
 }
 
+// cancelCurrentJob stops the running pipeline subprocess and its whole process
+// group. It must be called with s.jobsMu held. It first cancels the context,
+// then kills the process group (so children such as python or sleep cannot keep
+// stdout/stderr open and block cmd.Wait()), and finally falls back to killing
+// the tracked PID alone in case Setpgid did not apply.
+func (s *Server) cancelCurrentJob() {
+	if s.currentCancel != nil {
+		s.currentCancel()
+	}
+	if s.currentPID != 0 {
+		// Kill the whole process group so children (python, sleep) that hold
+		// stdout/stderr descriptors cannot keep cmd.Wait() blocked after the
+		// bash parent exits.
+		killProcessGroup(-s.currentPID)
+		// Fallback in case Setpgid wasn't applied.
+		killProcess(s.currentPID)
+	}
+	s.currentCancel = nil
+	s.currentCmd = nil
+	s.currentPID = 0
+}
+
 // handleQueueClear cancels the current job and removes all jobs from the queue.
 // DELETE /api/queue
 func (s *Server) handleQueueClear(w http.ResponseWriter, r *http.Request) {
 	s.jobsMu.Lock()
 	defer s.jobsMu.Unlock()
 
-	// Cancel current job if running
-	if s.currentCancel != nil {
-		s.currentCancel()
-		s.currentCancel = nil
-		s.currentCmd = nil
-	}
-
-	// Kill processes directly (same container)
-	exec.Command("sh", "-c", "kill $(pidof python3) $(pidof python) 2>/dev/null; kill $(pidof bash) 2>/dev/null; exit 0").Run()
+	s.cancelCurrentJob()
 
 	// Clear all jobs
 	s.jobs = make(map[string]*JobState)
@@ -533,15 +676,7 @@ func (s *Server) handleQueueCancel(w http.ResponseWriter, r *http.Request) {
 	s.jobsMu.Lock()
 	defer s.jobsMu.Unlock()
 
-	// Cancel current job if running
-	if s.currentCancel != nil {
-		s.currentCancel()
-		s.currentCancel = nil
-		s.currentCmd = nil
-	}
-
-	// Kill processes directly (same container)
-	exec.Command("sh", "-c", "kill $(pidof python3) $(pidof python) 2>/dev/null; kill $(pidof bash) 2>/dev/null; exit 0").Run()
+	s.cancelCurrentJob()
 
 	// Remove all jobs — cancel means "stop everything and start fresh"
 	s.jobs = make(map[string]*JobState)
@@ -580,7 +715,7 @@ func (s *Server) worker() {
 		s.jobsMu.Unlock()
 
 		// Reset pipeline_status.json so stale progress from a cancelled job doesn't bleed in
-		if projectRoot := findProjectRoot(); projectRoot != "" {
+		if projectRoot := resolveProjectRoot(); projectRoot != "" {
 			statusPath := filepath.Join(projectRoot, "output", "pipeline_status.json")
 			os.WriteFile(statusPath, []byte(`{}`), 0644)
 		}
@@ -600,31 +735,62 @@ func (s *Server) worker() {
 // runSinglePipeline executes a single pipeline.sh invocation.
 func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	ctx, cancel := context.WithCancel(context.Background())
-	args := append([]string{"/pipeline.sh"}, job.Args...)
+	script := "/app/pipeline.sh"
+	pipelineArgs := job.Args
+	// Tests may pass an explicit fake script as the first argument.
+	if len(job.Args) > 0 && strings.HasSuffix(job.Args[0], ".sh") {
+		if info, err := os.Stat(job.Args[0]); err == nil && !info.IsDir() {
+			script = job.Args[0]
+			pipelineArgs = job.Args[1:]
+		}
+	}
+	args := append([]string{script}, pipelineArgs...)
 	cmd := exec.CommandContext(ctx, "bash", args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if len(job.Env) > 0 {
+		cmd.Env = append(os.Environ(), job.Env...)
+	}
+
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
 
 	s.jobsMu.Lock()
 	s.currentCancel = cancel
 	s.currentCmd = cmd
+	var err error
+	if sErr := cmd.Start(); sErr != nil {
+		err = sErr
+	} else {
+		s.currentPID = cmd.Process.Pid
+	}
 	s.jobsMu.Unlock()
 
-	out, err := cmd.CombinedOutput()
+	if err == nil {
+		err = cmd.Wait()
+	}
 
 	s.jobsMu.Lock()
 	s.currentCancel = nil
 	s.currentCmd = nil
+	s.currentPID = 0
 	s.jobsMu.Unlock()
 	cancel()
 
+	output := out.Bytes()
 	// Log all pipeline output to ring buffer with distinct timestamps
-	logPipelineOutput(string(out))
+	logPipelineOutput(string(output))
 
 	s.jobsMu.Lock()
 	if state, ok := s.jobs[job.Song]; ok {
 		if err != nil {
 			state.Status = "error"
-			state.Error = strings.TrimSpace(string(out))
-			Log("pipeline", "error", "Pipeline failed for "+job.Song+": "+strings.TrimSpace(string(out)))
+			errMsg := strings.TrimSpace(string(output))
+			if errMsg == "" {
+				errMsg = "pipeline failed"
+			}
+			state.Error = errMsg
+			Log("pipeline", "error", "Pipeline failed for "+job.Song+": "+errMsg)
 		} else {
 			state.Status = "done"
 			state.Files = listStems(job.Song)
@@ -637,7 +803,7 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 // runMultiStepPipeline executes multiple pipeline.sh invocations, one per step,
 // chaining outputs from each step to the next.
 func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, state *JobState) {
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	song := job.Song
 	outputDir := filepath.Join(projectRoot, "output", song)
 
@@ -664,8 +830,8 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		Log("pipeline", "info", fmt.Sprintf("Step %d/%d: %s (%s)", i+1, len(steps), step.ID, step.Type))
 
 		// Build args for this specific step
-		containerOutput := "/output/" + song
-		stepArgs := buildStepPipelineArgs(step, currentInput, containerOutput, job.Config.Device)
+		containerOutput := "/app/output/" + song
+		stepArgs, stepEnv := buildStepPipelineArgs(step, currentInput, containerOutput, job.Config.Device)
 		stepArgs = append(stepArgs, "--output", containerOutput)
 
 		// For steps after the first, add --no-clean to preserve previous outputs
@@ -677,32 +843,50 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 
 		// Execute this step
 		ctx, cancel := context.WithCancel(context.Background())
-		pipelineArgs := append([]string{"/pipeline.sh"}, stepArgs...)
+		pipelineArgs := append([]string{"/app/pipeline.sh"}, stepArgs...)
 		cmd := exec.CommandContext(ctx, "bash", pipelineArgs...)
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		if len(stepEnv) > 0 {
+			cmd.Env = append(os.Environ(), stepEnv...)
+		}
+
+		var out bytes.Buffer
+		cmd.Stdout = &out
+		cmd.Stderr = &out
 
 		s.jobsMu.Lock()
 		s.currentCancel = cancel
 		s.currentCmd = cmd
+		var err error
+		if sErr := cmd.Start(); sErr != nil {
+			err = sErr
+		} else {
+			s.currentPID = cmd.Process.Pid
+		}
 		s.jobsMu.Unlock()
 
-		out, err := cmd.CombinedOutput()
+		if err == nil {
+			err = cmd.Wait()
+		}
 
 		s.jobsMu.Lock()
 		s.currentCancel = nil
 		s.currentCmd = nil
+		s.currentPID = 0
 		s.jobsMu.Unlock()
 		cancel()
 
+		output := out.Bytes()
 		// Log pipeline output
-		logPipelineOutput(string(out))
+		logPipelineOutput(string(output))
 
 		// Check for errors
 		if err != nil {
 			s.jobsMu.Lock()
 			if state, ok := s.jobs[job.Song]; ok {
 				state.Status = "error"
-				state.Error = fmt.Sprintf("Step %d (%s) failed: %s", i+1, step.ID, strings.TrimSpace(string(out)))
-				Log("pipeline", "error", fmt.Sprintf("Pipeline step %d/%d failed for %s: %s", i+1, len(steps), job.Song, strings.TrimSpace(string(out))))
+				state.Error = fmt.Sprintf("Step %d (%s) failed: %s", i+1, step.ID, strings.TrimSpace(string(output)))
+				Log("pipeline", "error", fmt.Sprintf("Pipeline step %d/%d failed for %s: %s", i+1, len(steps), job.Song, strings.TrimSpace(string(output))))
 			}
 			s.jobsMu.Unlock()
 			return
@@ -795,16 +979,16 @@ func findChainedInput(outputDir string, step cli.PipelineStep) string {
 
 // toInternalContainerPath converts a host path to a container-relative path.
 func toInternalContainerPath(hostPath string) string {
-	// Convert host output dir to container /output/
-	projectRoot := findProjectRoot()
+	// Convert host output dir to container /app/output/
+	projectRoot := resolveProjectRoot()
 	if projectRoot != "" && strings.HasPrefix(hostPath, filepath.Join(projectRoot, "output")) {
 		rel := strings.TrimPrefix(hostPath, filepath.Join(projectRoot, "output"))
-		return "/output" + rel
+		return "/app/output" + rel
 	}
-	// Convert host input dir to container /input/
+	// Convert host input dir to container /app/input/
 	if projectRoot != "" && strings.HasPrefix(hostPath, filepath.Join(projectRoot, "input")) {
 		rel := strings.TrimPrefix(hostPath, filepath.Join(projectRoot, "input"))
-		return "/input" + rel
+		return "/app/input" + rel
 	}
 	return hostPath
 }
@@ -844,12 +1028,31 @@ func listStems(song string) []FileEntry {
 	return files
 }
 
+// normalizeContainerInput converts a relative filename or a bare input name into
+// the container input path /app/input/<basename>. Paths already under /app/ are
+// left untouched, and other absolute paths are preserved so the caller can pass
+// through explicit host/container paths unchanged.
+func normalizeContainerInput(input string) string {
+	if input == "" {
+		return input
+	}
+	if strings.HasPrefix(input, "/app/") {
+		return input
+	}
+	if filepath.IsAbs(input) {
+		return input
+	}
+	return "/app/input/" + filepath.Base(input)
+}
+
 // buildPipelineArgs constructs the argument list for pipeline.sh from a SeparateRequest.
 // If a preset with Steps is referenced, those steps are returned separately for multi-step chaining.
-// Returns: song name, pipeline args, list of steps for chaining (if any).
-func buildPipelineArgs(req SeparateRequest) (song string, args []string, steps []cli.PipelineStep) {
+// Returns: song name, pipeline args, list of steps for chaining (if any), and any extra
+// environment variables that must be set for the subprocess (e.g. ONDA_CHUNK_SIZE).
+func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps []cli.PipelineStep, env []string) {
+	req.Input = normalizeContainerInput(req.Input)
 	song = strings.TrimSuffix(filepath.Base(req.Input), filepath.Ext(req.Input))
-	containerOutput := "/output/" + song
+	containerOutput := "/app/output/" + song
 
 	// --- Resolve preset steps if a named preset is provided ---
 	if req.Preset != "" {
@@ -868,8 +1071,9 @@ func buildPipelineArgs(req SeparateRequest) (song string, args []string, steps [
 	if len(steps) > 0 {
 		// For multi-step presets, build args for the FIRST step only.
 		// The worker will iterate through remaining steps.
-		stepArgs := buildStepPipelineArgs(steps[0], req.Input, containerOutput, req.Device)
+		stepArgs, stepEnv := buildStepPipelineArgs(steps[0], req.Input, containerOutput, req.Device)
 		args = append(args, stepArgs...)
+		env = append(env, stepEnv...)
 		args = append(args, "--output", containerOutput)
 
 		// If it's the only step, use the input directly
@@ -881,19 +1085,13 @@ func buildPipelineArgs(req SeparateRequest) (song string, args []string, steps [
 			args = append(args, "--no-clean")
 			args = append(args, req.Input)
 		}
-		return song, args, steps
+		return song, args, steps, env
 	}
 
 	// --- BACKWARD COMPAT: old format (no steps) ---
 	if req.Viperx {
 		if req.ViperxKeep != "" {
 			args = append(args, "--vocal-keep", req.ViperxKeep)
-		}
-	}
-	if req.Demucs {
-		args = append(args, "--stem-model", "htdemucs_ft")
-		if len(req.DemucsKeep) > 0 {
-			args = append(args, "--demucs-keep", strings.Join(req.DemucsKeep, ","))
 		}
 	}
 	if req.Pitch != 0 {
@@ -907,36 +1105,59 @@ func buildPipelineArgs(req SeparateRequest) (song string, args []string, steps [
 	}
 	if vocalModel != "" {
 		modelDir := resolveModelDir(vocalModel)
-		if modelDir != "" {
-			args = append(args, "--viperx-model", modelDir)
+		if modelDir == "" {
+			// Model not found on disk yet; pass the name through so callers
+			// still see the requested --viperx-model flag.
+			modelDir = vocalModel
+		}
+		args = append(args, "--viperx-model", modelDir)
+		if isMdxModel(vocalModel) {
+			args = append(args, "--vocal-type", "mdx")
+		} else if isScnetModel(vocalModel) {
+			args = append(args, "--vocal-type", "scnet")
+		}
+		if envVar := vocalChunkSizeEnv(vocalModel); envVar != "" {
+			env = append(env, envVar)
 		}
 	}
 	stemModel := req.StemModel
 	if stemModel == "" {
 		stemModel = req.DemucsModel
 	}
-	if stemModel == "" && req.Preset != "" {
-		// Fallback: try to find models from old-format preset fields
-		preset := getAllPresets()[req.Preset]
-		// (old-format presets had StemModel directly, new ones use Steps)
-		if preset.Description != "" && len(preset.Steps) == 0 {
-			// This shouldn't happen with new format, but keep for safety
-		}
+	if stemModel == "" && req.Demucs {
+		stemModel = "htdemucs_ft"
 	}
 	if stemModel != "" {
 		args = append(args, "--stem-model", stemModel)
+		if req.Demucs && len(req.DemucsKeep) > 0 {
+			args = append(args, "--demucs-keep", strings.Join(req.DemucsKeep, ","))
+		}
 	}
 
-	// Demucs-specific flags
-	if stemModel != "" && (strings.HasPrefix(stemModel, "htdemucs") || strings.Contains(stemModel, "htdemucs")) {
-		if req.Shifts > 1 {
-			args = append(args, "--shifts", fmt.Sprintf("%d", req.Shifts))
+	// Demucs-specific flags: use saved config when the request does not override.
+	if isDemucsModel(stemModel) {
+		cfg := readModelConfigFromYaml(stemModel)
+		shifts := req.Shifts
+		if shifts <= 0 {
+			shifts = cfg.Shifts
 		}
-		if req.DemucsSegment > 0 {
-			args = append(args, "--demucs-segment", fmt.Sprintf("%d", req.DemucsSegment))
+		if shifts > 1 {
+			args = append(args, "--shifts", fmt.Sprintf("%d", shifts))
 		}
-		if req.Jobs > 0 {
-			args = append(args, "--jobs", fmt.Sprintf("%d", req.Jobs))
+		segment := req.DemucsSegment
+		if segment <= 0 {
+			segment = cfg.Segment
+		}
+		segment = clampDemucsSegment(segment)
+		if segment > 0 {
+			args = append(args, "--demucs-segment", fmt.Sprintf("%d", int(segment)))
+		}
+		jobs := req.Jobs
+		if jobs <= 0 {
+			jobs = cfg.Jobs
+		}
+		if jobs > 0 {
+			args = append(args, "--jobs", fmt.Sprintf("%d", jobs))
 		}
 	}
 	// Device override (defaults to cuda in pipeline.sh)
@@ -946,12 +1167,26 @@ func buildPipelineArgs(req SeparateRequest) (song string, args []string, steps [
 
 	args = append(args, "--output", containerOutput)
 	args = append(args, req.Input)
-	return song, args, nil
+	return song, args, nil, env
+}
+
+// vocalChunkSizeEnv returns an ONDA_CHUNK_SIZE env var when the model has a
+// positive time-based chunk size configured. Empty string means "not set".
+func vocalChunkSizeEnv(model string) string {
+	if model == "" {
+		return ""
+	}
+	cfg := readModelConfigFromYaml(model)
+	if cfg.ChunkSize > 0 {
+		return fmt.Sprintf("ONDA_CHUNK_SIZE=%d", cfg.ChunkSize)
+	}
+	return ""
 }
 
 // buildStepPipelineArgs builds pipeline.sh arguments for a single PipelineStep.
-func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device string) []string {
-	var args []string
+// The returned env slice contains any extra environment variables that must be
+// set for the step (e.g. ONDA_CHUNK_SIZE).
+func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device string) (args []string, env []string) {
 
 	switch step.Type {
 	case "viperx", "vocal":
@@ -961,6 +1196,14 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 			modelDir := resolveModelDir(step.Model)
 			if modelDir != "" {
 				args = append(args, "--vocal-model", modelDir)
+			}
+			if isMdxModel(step.Model) {
+				args = append(args, "--vocal-type", "mdx")
+			} else if isScnetModel(step.Model) {
+				args = append(args, "--vocal-type", "scnet")
+			}
+			if envVar := vocalChunkSizeEnv(step.Model); envVar != "" {
+				env = append(env, envVar)
 			}
 		}
 		// Keep setting based on stem routing
@@ -976,21 +1219,35 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 			}
 		}
 	case "demucs":
-		args = append(args, "--stem-model", "htdemucs_ft")
-		// Model
-		if step.Model != "" {
-			args = append(args, "--stem-model", step.Model)
+		stemModel := step.Model
+		if stemModel == "" {
+			stemModel = "htdemucs_ft"
 		}
-		// Stem keep based on routing
+		args = append(args, "--stem-model", stemModel)
+		// Stem keep based on routing (preserve a stable stem order)
 		if step.Stems != nil {
 			var keep []string
-			for stem, route := range step.Stems {
-				if route.Action == cli.StemSave || route.Action == cli.ActionRoute {
+			for _, stem := range []string{"drums", "bass", "other", "vocals", "guitar", "piano"} {
+				if route, ok := step.Stems[stem]; ok && (route.Action == cli.StemSave || route.Action == cli.ActionRoute) {
 					keep = append(keep, stem)
 				}
 			}
 			if len(keep) > 0 {
 				args = append(args, "--demucs-keep", strings.Join(keep, ","))
+			}
+		}
+		// Apply saved Demucs config when available.
+		if isDemucsModel(stemModel) {
+			cfg := readModelConfigFromYaml(stemModel)
+			if cfg.Shifts > 1 {
+				args = append(args, "--shifts", fmt.Sprintf("%d", cfg.Shifts))
+			}
+			segment := clampDemucsSegment(cfg.Segment)
+			if segment > 0 {
+				args = append(args, "--demucs-segment", fmt.Sprintf("%d", int(segment)))
+			}
+			if cfg.Jobs > 0 {
+				args = append(args, "--jobs", fmt.Sprintf("%d", cfg.Jobs))
 			}
 		}
 	}
@@ -1001,7 +1258,7 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 	}
 
 	args = append(args, "--output", outputDir)
-	return args
+	return args, env
 }
 
 // findRouteTargets returns a list of stem filenames that should be routed to a specific step.
@@ -1080,9 +1337,9 @@ type SeparateRequest struct {
 	Steps []cli.PipelineStep `json:"steps,omitempty"`
 
 	// Demucs-specific overrides (optional, only used when model is htdemucs*)
-	Shifts        int `json:"shifts,omitempty"`
-	DemucsSegment int `json:"demucs_segment,omitempty"`
-	Jobs          int `json:"jobs,omitempty"`
+	Shifts        int     `json:"shifts,omitempty"`
+	DemucsSegment float64 `json:"demucs_segment,omitempty"`
+	Jobs          int     `json:"jobs,omitempty"`
 	// Device override (defaults to cuda)
 	Device string `json:"device,omitempty"`
 }
@@ -1095,7 +1352,7 @@ type ModelConfigResponse struct {
 	BatchSize   int     `json:"batch_size"`
 	Device      string  `json:"device"`
 	Shifts      int     `json:"shifts"`
-	Segment     int     `json:"segment"`
+	Segment     float64 `json:"segment"`
 	Jobs        int     `json:"jobs"`
 }
 
@@ -1135,7 +1392,7 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 
 	// Build pipeline arguments and extract song name
 	// The third return value is the list of steps for multi-step chaining
-	song, pipelineArgs, steps := buildPipelineArgs(req)
+	song, pipelineArgs, steps, pipelineEnv := buildPipelineArgs(&req)
 
 	// Compute total pipeline steps
 	totalSteps := len(steps)
@@ -1175,7 +1432,7 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	s.jobsMu.Unlock()
 
 	// Enqueue the job (with steps if multi-step)
-	s.jobQueue <- JobRequest{Song: song, Args: pipelineArgs, Config: req, Steps: steps}
+	s.jobQueue <- JobRequest{Song: song, Args: pipelineArgs, Config: req, Steps: steps, Env: pipelineEnv}
 
 	Log("backend", "success", "Job queued: "+song)
 
@@ -1193,32 +1450,177 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 // (ViperX, Roformer, MDX, etc.), the model is looked up in listModels() and
 // its /models/ path is returned directly (both containers use /models).
 func resolveModelDir(name string) string {
+	if name == "" {
+		return ""
+	}
 	if name == "htdemucs_ft" || (strings.HasPrefix(name, "htdemucs") && !strings.Contains(name, ".onnx")) {
 		return name
 	}
 	models := listModels()
 	for _, m := range models.Models {
 		if m.Name == name || m.DisplayName == name {
-			return filepath.Dir(m.Path)
+			modelDir := filepath.Dir(m.Path)
+			// listModels() reports container paths under /app/models; map them
+			// back to the current modelsBasePath so tests that override the
+			// base directory get a real filesystem path.
+			if strings.HasPrefix(modelDir, "/app/models/") {
+				rel, err := filepath.Rel("/app/models", modelDir)
+				if err == nil {
+					modelDir = filepath.Join(modelsBasePath, rel)
+				}
+			}
+			return modelDir
 		}
 	}
 	return ""
 }
 
+// isMdxModel reports whether a model name/path refers to an MDX-C (MDX-Net)
+// checkpoint.  It first checks the name for the MDX23C marker, then inspects
+// the resolved model directory for checkpoint names or YAML topology fields
+// that identify the TFC_TDF_net architecture used by MDX-C models.
+func isMdxModel(name string) bool {
+	if name == "" {
+		return false
+	}
+	lower := strings.ToLower(name)
+	if strings.Contains(lower, "mdx23c") {
+		return true
+	}
+
+	modelDir := resolveModelDir(name)
+	if modelDir == "" || modelDir == name {
+		return false
+	}
+	entries, err := os.ReadDir(modelDir)
+	if err != nil {
+		return false
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		fn := strings.ToLower(entry.Name())
+		if strings.HasSuffix(fn, ".ckpt") && strings.Contains(fn, "mdx23c") {
+			return true
+		}
+		if strings.HasSuffix(fn, ".yaml") || strings.HasSuffix(fn, ".yml") {
+			data, err := os.ReadFile(filepath.Join(modelDir, entry.Name()))
+			if err != nil {
+				continue
+			}
+			var cfg map[string]interface{}
+			if err := yaml.Unmarshal(data, &cfg); err != nil {
+				continue
+			}
+			model, ok := cfg["model"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if _, ok := model["num_scales"]; ok {
+				return true
+			}
+			if _, ok := model["num_subbands"]; ok {
+				return true
+			}
+			if _, ok := model["num_blocks_per_scale"]; ok {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// isScnetModel reports whether a model name/path refers to an SCNet checkpoint.
+// It first checks the name for the scnet marker, then inspects the resolved
+// model directory for checkpoint names or YAML topology fields (band_SR,
+// band_stride, band_kernel) that identify the SCNet architecture.
+func isScnetModel(name string) bool {
+	if name == "" {
+		return false
+	}
+	lower := strings.ToLower(name)
+	if strings.Contains(lower, "scnet") {
+		return true
+	}
+
+	modelDir := resolveModelDir(name)
+	if modelDir == "" || modelDir == name {
+		return false
+	}
+	entries, err := os.ReadDir(modelDir)
+	if err != nil {
+		return false
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		fn := strings.ToLower(entry.Name())
+		if strings.HasSuffix(fn, ".ckpt") && strings.Contains(fn, "scnet") {
+			return true
+		}
+		if strings.HasSuffix(fn, ".yaml") || strings.HasSuffix(fn, ".yml") {
+			data, err := os.ReadFile(filepath.Join(modelDir, entry.Name()))
+			if err != nil {
+				continue
+			}
+			var cfg map[string]interface{}
+			if err := yaml.Unmarshal(data, &cfg); err != nil {
+				continue
+			}
+			model, ok := cfg["model"].(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if _, ok := model["band_SR"]; ok {
+				return true
+			}
+			if _, ok := model["band_stride"]; ok {
+				return true
+			}
+			if _, ok := model["band_kernel"]; ok {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+// modelConfigsDir returns the directory where per-model YAML configs are stored
+// for models that do not have an on-disk directory (e.g. built-in Demucs models).
+func modelConfigsDir() string {
+	return filepath.Join(resolveProjectRoot(), "config", "model_configs")
+}
+
+// modelConfigYamlPath returns the fallback YAML path for a model name.
+func modelConfigYamlPath(name string) string {
+	return filepath.Join(modelConfigsDir(), name+".yaml")
+}
+
 // findModelYaml returns the path to the model's YAML config file, or empty string.
 func findModelYaml(modelName string) string {
 	modelDir := resolveModelDir(modelName)
-	if modelDir == "" {
-		return ""
-	}
-	matches, err := filepath.Glob(filepath.Join(modelDir, "*.yaml"))
-	if err != nil || len(matches) == 0 {
-		matches, err = filepath.Glob(filepath.Join(modelDir, "*.yml"))
-		if err != nil || len(matches) == 0 {
-			return ""
+	if modelDir != "" {
+		if info, err := os.Stat(modelDir); err == nil && info.IsDir() {
+			for _, ext := range []string{"*.yaml", "*.yml"} {
+				matches, err := filepath.Glob(filepath.Join(modelDir, ext))
+				if err == nil && len(matches) > 0 {
+					return matches[0]
+				}
+			}
 		}
 	}
-	return matches[0]
+
+	cfgPath := modelConfigYamlPath(modelName)
+	if info, err := os.Stat(cfgPath); err == nil && !info.IsDir() {
+		return cfgPath
+	}
+	return ""
 }
 
 // findYamlChildNode finds a child node by key in a mapping node.
@@ -1270,6 +1672,7 @@ func readModelConfigFromYaml(name string) ModelConfigResponse {
 	dimT := 801
 	numOverlap := 4
 	batchSize := 1
+	chunkSize := 0
 
 	if n := findYamlChildNode(infNode, "dim_t"); n != nil {
 		if v, err := strconv.Atoi(n.Value); err == nil {
@@ -1286,6 +1689,11 @@ func readModelConfigFromYaml(name string) ModelConfigResponse {
 			batchSize = v
 		}
 	}
+	if n := findYamlChildNode(infNode, "chunk_size"); n != nil {
+		if v, err := strconv.Atoi(n.Value); err == nil {
+			chunkSize = v
+		}
+	}
 
 	segSize := (dimT - 33) / 3
 	if segSize < 1 {
@@ -1296,24 +1704,44 @@ func readModelConfigFromYaml(name string) ModelConfigResponse {
 		overlap = 1.0 / float64(numOverlap)
 	}
 
-	return ModelConfigResponse{
+	resp := ModelConfigResponse{
 		SegmentSize: segSize,
 		Overlap:     overlap,
-		ChunkSize:   0,
+		ChunkSize:   chunkSize,
 		BatchSize:   batchSize,
 		Device:      "cuda",
 		Shifts:      1,
 		Segment:     0,
 		Jobs:        0,
 	}
+
+	// Read Demucs-specific overrides if present.
+	if demNode := findYamlChildNode(doc.Content[0], "demucs"); demNode != nil && demNode.Kind == yaml.MappingNode {
+		if n := findYamlChildNode(demNode, "shifts"); n != nil {
+			if v, err := strconv.Atoi(n.Value); err == nil {
+				resp.Shifts = v
+			}
+		}
+		if n := findYamlChildNode(demNode, "segment"); n != nil {
+			if v, err := strconv.ParseFloat(n.Value, 64); err == nil {
+				resp.Segment = v
+			}
+		}
+		if n := findYamlChildNode(demNode, "jobs"); n != nil {
+			if v, err := strconv.Atoi(n.Value); err == nil {
+				resp.Jobs = v
+			}
+		}
+	}
+
+	return resp
 }
 
 // writeModelConfigToYaml writes inference parameters to a model's YAML file using Go yaml.Node.
+// If the model has no YAML on disk, it creates one at config/model_configs/<name>.yaml.
 func writeModelConfigToYaml(name string, cfg ModelConfigResponse) error {
-	yamlPath := findModelYaml(name)
-	if yamlPath == "" {
-		return fmt.Errorf("model YAML not found for %s", name)
-	}
+	// Clamp Demucs segment to the valid integer range accepted by the CLI.
+	cfg.Segment = clampDemucsSegment(cfg.Segment)
 
 	// Convert segment_size → dim_t, overlap → num_overlap
 	dimT := cfg.SegmentSize*3 + 33
@@ -1328,36 +1756,69 @@ func writeModelConfigToYaml(name string, cfg ModelConfigResponse) error {
 	if batchSize < 1 {
 		batchSize = 1
 	}
-
-	data, err := os.ReadFile(yamlPath)
-	if err != nil {
-		return fmt.Errorf("failed to read YAML: %w", err)
+	chunkSize := cfg.ChunkSize
+	if chunkSize < 0 {
+		chunkSize = 0
 	}
 
+	yamlPath := findModelYaml(name)
 	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return fmt.Errorf("failed to parse YAML: %w", err)
+	if yamlPath == "" {
+		// No YAML yet: create one in the fallback config directory.
+		yamlPath = modelConfigYamlPath(name)
+		if err := os.MkdirAll(filepath.Dir(yamlPath), 0o755); err != nil {
+			return fmt.Errorf("failed to create model config directory: %w", err)
+		}
+		raw := fmt.Sprintf("inference:\n  dim_t: %d\n  num_overlap: %d\n  batch_size: %d\n  chunk_size: %d\ndemucs:\n  shifts: %d\n  segment: %s\n  jobs: %d\n",
+			dimT, numOverlap, batchSize, chunkSize, cfg.Shifts, strconv.FormatFloat(cfg.Segment, 'f', -1, 64), cfg.Jobs)
+		if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
+			return fmt.Errorf("failed to seed YAML: %w", err)
+		}
+	} else {
+		data, err := os.ReadFile(yamlPath)
+		if err != nil {
+			return fmt.Errorf("failed to read YAML: %w", err)
+		}
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return fmt.Errorf("failed to parse YAML: %w", err)
+		}
 	}
 
 	if len(doc.Content) == 0 {
-		return fmt.Errorf("empty YAML document")
+		root := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		doc.Content = append(doc.Content, root)
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return fmt.Errorf("YAML root is not a mapping")
 	}
 
-	root := doc.Content[0]
+	// Update inference section
 	infNode := findYamlChildNode(root, "inference")
 	if infNode == nil || infNode.Kind != yaml.MappingNode {
-		// Create inference section if it doesn't exist
 		infNode = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 		root.Content = append(root.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Value: "inference"},
 			infNode,
 		)
 	}
-
-	// Set or update scalar children
 	setYamlChildInt(infNode, "dim_t", dimT)
 	setYamlChildInt(infNode, "num_overlap", numOverlap)
 	setYamlChildInt(infNode, "batch_size", batchSize)
+	setYamlChildInt(infNode, "chunk_size", chunkSize)
+
+	// Update Demucs-specific section
+	demNode := findYamlChildNode(root, "demucs")
+	if demNode == nil || demNode.Kind != yaml.MappingNode {
+		demNode = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		root.Content = append(root.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: "demucs"},
+			demNode,
+		)
+	}
+	setYamlChildInt(demNode, "shifts", cfg.Shifts)
+	setYamlChildFloat(demNode, "segment", cfg.Segment)
+	setYamlChildInt(demNode, "jobs", cfg.Jobs)
 
 	out, err := yaml.Marshal(&doc)
 	if err != nil {
@@ -1387,6 +1848,30 @@ func setYamlChildInt(node *yaml.Node, key string, value int) {
 	)
 }
 
+// setYamlChildFloat sets or adds a scalar child in a mapping node. Whole-number
+// values are written as integers so the YAML type matches what callers such as
+// the demucs CLI expect.
+func setYamlChildFloat(node *yaml.Node, key string, value float64) {
+	formatted := strconv.FormatFloat(value, 'f', -1, 64)
+	tag := "!!float"
+	if value == math.Trunc(value) {
+		tag = "!!int"
+	}
+	for i := 0; i < len(node.Content)-1; i += 2 {
+		if node.Content[i].Value == key {
+			node.Content[i+1].Value = formatted
+			node.Content[i+1].Tag = tag
+			node.Content[i+1].Style = 0
+			return
+		}
+	}
+	// Not found, append
+	node.Content = append(node.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Value: key, Tag: "!!str"},
+		&yaml.Node{Kind: yaml.ScalarNode, Value: formatted, Tag: tag},
+	)
+}
+
 // setYamlChild sets or adds a scalar child in a mapping node.
 func setYamlChild(node *yaml.Node, key, value string) {
 	for i := 0; i < len(node.Content)-1; i += 2 {
@@ -1401,6 +1886,35 @@ func setYamlChild(node *yaml.Node, key, value string) {
 		&yaml.Node{Kind: yaml.ScalarNode, Value: key, Tag: "!!str"},
 		&yaml.Node{Kind: yaml.ScalarNode, Value: value, Tag: "!!str", Style: yaml.DoubleQuotedStyle},
 	)
+}
+
+// contains reports whether slice s contains the string v.
+func contains(s []string, v string) bool {
+	for _, e := range s {
+		if e == v {
+			return true
+		}
+	}
+	return false
+}
+
+// clampDemucsSegment clamps a Demucs segment value to the valid integer range
+// accepted by the demucs CLI. The model internal limit is 7.8 seconds but the
+// CLI only accepts whole seconds, so the maximum configurable value is 7.
+// Zero means "auto" and is returned as-is; values are rounded to the nearest
+// integer and limited to [1, 7].
+func clampDemucsSegment(v float64) float64 {
+	if v <= 0 {
+		return 0
+	}
+	rounded := math.Round(v)
+	if rounded < 1 {
+		return 1
+	}
+	if rounded > 7 {
+		return 7
+	}
+	return rounded
 }
 
 // handleModelsConfig saves or retrieves per-model inference configuration.
@@ -1441,11 +1955,20 @@ func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": "overlap must be >= 0 and < 1"})
 			return
 		}
+		if cfg.ChunkSize < 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "chunk_size must be >= 0"})
+			return
+		}
 		if cfg.Device != "" && cfg.Device != "cpu" && cfg.Device != "cuda" {
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": "device must be 'cpu' or 'cuda'"})
 			return
 		}
+
+		// Demucs segment is limited to whole seconds in [0, 7]; clamp defensively
+		// so the value can never exceed what the CLI accepts.
+		cfg.Segment = clampDemucsSegment(cfg.Segment)
 
 		if err := writeModelConfigToYaml(name, cfg); err != nil {
 			log.Printf("ERROR: failed to save model config for %s: %v", name, err)
@@ -1468,11 +1991,128 @@ func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 }
 
+// safeFilenamePattern matches names composed only of letters, digits, spaces,
+// hyphens, underscores, dots and parentheses. Anything else (including path
+// separators and control characters) is rejected.
+var safeFilenamePattern = regexp.MustCompile(`^[A-Za-z0-9\s\-_\.\(\)]+$`)
+
+// audioExtensions is the set of audio extensions considered valid for uploads.
+// It is built from audio.SupportedExtensions for a single source of truth.
+var audioExtensions = func() map[string]bool {
+	m := make(map[string]bool)
+	for _, ext := range audio.SupportedExtensions() {
+		m[strings.ToLower(ext)] = true
+	}
+	return m
+}()
+
+// validateUploadFilename validates a raw upload filename. It rejects:
+//   - empty names or names with path separators / traversal sequences
+//   - names containing characters outside a small safe set
+//   - names ending in a non-audio extension
+//   - names with consecutive audio extensions (e.g. song.mp3.flac)
+func validateUploadFilename(name string) error {
+	if name == "" {
+		return errors.New("empty filename")
+	}
+
+	// filepath.Base removes any directory prefix, but we still reject names
+	// that explicitly contain separators or traversal markers.
+	base := filepath.Base(name)
+	if base != name || strings.Contains(name, "\\") || strings.Contains(name, "/") {
+		return errors.New("path separators not allowed")
+	}
+	if strings.Contains(name, "..") {
+		return errors.New("path traversal not allowed")
+	}
+	if !safeFilenamePattern.MatchString(name) {
+		return errors.New("filename contains invalid characters")
+	}
+
+	ext := strings.ToLower(filepath.Ext(name))
+	if ext == "" {
+		return errors.New("missing file extension")
+	}
+	if !audioExtensions[ext] {
+		return errors.New("unsupported audio extension")
+	}
+
+	// Reject double audio extensions such as song.mp3.flac.
+	stem := strings.TrimSuffix(name, filepath.Ext(name))
+	if prevExt := strings.ToLower(filepath.Ext(stem)); prevExt != "" && audioExtensions[prevExt] {
+		return errors.New("consecutive audio extensions not allowed")
+	}
+
+	return nil
+}
+
+// extractRawUploadFilename returns the raw filename parameter from the first
+// multipart file part in r without Go's path normalization. It restores r.Body
+// so that r.FormFile can still be called afterwards.
+func extractRawUploadFilename(r *http.Request) (string, error) {
+	contentType := r.Header.Get("Content-Type")
+	_, params, err := mime.ParseMediaType(contentType)
+	if err != nil {
+		return "", err
+	}
+	boundary, ok := params["boundary"]
+	if !ok {
+		return "", errors.New("missing multipart boundary")
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return "", err
+	}
+	r.Body = io.NopCloser(bytes.NewReader(body))
+
+	reader := multipart.NewReader(bytes.NewReader(body), boundary)
+	for {
+		part, err := reader.NextPart()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+		if part.FormName() != "file" {
+			continue
+		}
+		disp := part.Header.Get("Content-Disposition")
+		_, dispParams, err := mime.ParseMediaType(disp)
+		if err != nil {
+			return "", err
+		}
+		if raw := dispParams["filename"]; raw != "" {
+			return raw, nil
+		}
+	}
+	return "", errors.New("no file part found")
+}
+
 // handleUpload accepts a multipart file upload and saves it to disk.
 func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
+	// Validate the raw filename before Go's multipart parser normalizes away
+	// path traversal markers such as "../".
+	rawName, err := extractRawUploadFilename(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "no file provided"})
+		Log("backend", "error", "Upload failed: "+err.Error())
+		return
+	}
+	if err := validateUploadFilename(rawName); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		Log("backend", "error", "Upload rejected: "+err.Error())
+		return
+	}
+
 	// Determine input directory: prefer project root /input,
 	// fall back to a temp dir if it doesn't exist.
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	inputDir := filepath.Join(projectRoot, "input")
 	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
 		os.MkdirAll(inputDir, 0o755)
@@ -1504,7 +2144,6 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// Sanitize filename to prevent path traversal
 	safeName := filepath.Base(header.Filename)
 	destPath := filepath.Join(inputDir, safeName)
 	dst, err := os.Create(destPath)
@@ -1527,8 +2166,8 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	Log("backend", "success", "Uploaded: "+safeName)
 
-	// The path inside the container is /input/filename
-	containerPath := "/input/" + safeName
+	// The path inside the container is /app/input/filename
+	containerPath := "/app/input/" + safeName
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"path": containerPath})
@@ -1536,7 +2175,25 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 // handleUploadPitch accepts a multipart file upload and saves it to input_rubberband/.
 func (s *Server) handleUploadPitch(w http.ResponseWriter, r *http.Request) {
-	projectRoot := findProjectRoot()
+	// Validate the raw filename before Go's multipart parser normalizes away
+	// path traversal markers such as "../".
+	rawName, err := extractRawUploadFilename(r)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "no file provided"})
+		Log("backend", "error", "Pitch upload failed: "+err.Error())
+		return
+	}
+	if err := validateUploadFilename(rawName); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		Log("backend", "error", "Pitch upload rejected: "+err.Error())
+		return
+	}
+
+	projectRoot := resolveProjectRoot()
 	inputDir := filepath.Join(projectRoot, "input_rubberband")
 	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
 		os.MkdirAll(inputDir, 0o755)
@@ -1588,7 +2245,7 @@ func (s *Server) handleUploadPitch(w http.ResponseWriter, r *http.Request) {
 
 	Log("backend", "success", "Pitch upload: "+safeName)
 
-	containerPath := "/input_rubberband/" + safeName
+	containerPath := "/app/input_rubberband/" + safeName
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"path": containerPath})

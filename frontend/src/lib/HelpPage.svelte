@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { IconOnda, IconModel, IconUpload, IconLogs, IconHelp, IconSettings } from './icons';
-  const API_BASE = '';
+  import { API_BASE } from './api';
 
   interface ServiceInfo {
     name: string;
@@ -10,7 +10,7 @@
     icon: string;
   }
 
-  let version = $state('');
+  let version = $state(import.meta.env.VITE_ONDA_VERSION || '');
   let services = $state<ServiceInfo[]>([
     { name: 'Backend', version: '', status: 'loading', icon: IconSettings },
     { name: 'Frontend', version: '', status: 'loading', icon: IconUpload },
@@ -28,7 +28,7 @@
     fetch(`${API_BASE}/api/health`)
       .then(r => r.json())
       .then(d => {
-        version = d.version || '';
+        // Hero shows the frontend's own build-time version; service rows show backend-reported versions.
         const gpuDetail = d.gpu?.detail || '';
         const gpuName = gpuDetail.split(',')[0] || '—';
         const diskDetail = d.disk?.detail || '?';

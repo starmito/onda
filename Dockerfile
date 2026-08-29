@@ -76,8 +76,10 @@ RUN chmod +x /usr/local/bin/onda-backend
 COPY pipeline.sh /app/pipeline.sh
 RUN chmod +x /app/pipeline.sh
 
-# ViperX inference
+# ViperX / MDX inference
 COPY inference_universal.py /app/inference_universal.py
+COPY inference_mdx.py /app/inference_mdx.py
+COPY inference_scnet.py /app/inference_scnet.py
 COPY lib_v5/ /app/lib_v5/
 
 # GPU detection

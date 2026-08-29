@@ -29,7 +29,7 @@ if [ "$GPU" != "cpu" ]; then
 fi
 
 # Crear directorios de montaje
-mkdir -p /input /output /input_rubberband /config
+mkdir -p /app/input /app/output /app/input_rubberband /app/config
 
 export TORCH_HOME=/tmp/torch_cache
 export NUMBA_CACHE_DIR=/tmp/numba_cache
@@ -39,5 +39,5 @@ export HF_HOME=/tmp/hf_cache
 # Crear directorios temporales como appuser
 mkdir -p /tmp/numba_cache /tmp/torch_cache /tmp/xdg_cache /tmp/hf_cache
 
-echo "🚀 Starting Onda v3.1.2 ($GPU mode)..."
-exec onda-backend serve --addr 0.0.0.0:3000
+echo "🚀 Starting Onda ${ONDAP_VERSION:-unknown} ($GPU mode)..."
+exec /app/backend/onda-backend serve --addr 0.0.0.0:3000

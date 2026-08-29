@@ -59,6 +59,7 @@
 
   // ---- Health / Version from backend ----
   let healthVersion = $state('');
+  const appVersion = $state(import.meta.env.VITE_ONDA_VERSION || '');
   let gpuType = $state<'cuda' | 'rocm' | 'cpu' | ''>('');
   let gpuWarning = $state('');
 
@@ -737,7 +738,7 @@
     <div class="main-area">
       <header class="app-header">
         <h1>{@html IconOnda} Onda</h1>
-        <span class="version">{healthVersion || ''}</span>
+        <span class="version">{appVersion || healthVersion || ''}</span>
         {#if gpuType}
           <span class="gpu-label" class:cpu={gpuType === 'cpu'}>
             {#if gpuType === 'cuda'}⚡ CUDA{:else if gpuType === 'rocm'}🔥 ROCm{:else}⚠️ CPU{/if}

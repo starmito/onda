@@ -11,14 +11,15 @@
 #
 # Flags:
 #   --steps JSON          Chained mode: JSON array of step objects
-#   --vocal-model PATH    Vocal model path (default: /models/VR_Models/BS_Roformer_Viperx)
+#   --vocal-model PATH    Vocal model path (default: /app/models/VR_Models/BS_Roformer_Viperx)
+#   --vocal-type TYPE     Vocal model type: mdx | roformer | auto (default: auto)
 #   --vocal-keep WHAT     What to save: instrumental | vocals | both (default) (alias: --viperx-keep)
 #   --viperx-model PATH   Same as --vocal-model (deprecated)
 #   --viperx-keep WHAT    Same as --vocal-keep (deprecated)
 #   --demucs-keep LIST    Stems to keep: drums,bass,other,vocals or all (default)
 #   --stem-model NAME     Demucs stem model name (default: htdemucs_ft)
 #   --pitch N             Semitones for rubberband (default: 0)
-#   --output DIR          Output directory (default: /output/<song_name>)
+#   --output DIR          Output directory (default: /app/output/<song_name>)
 #   --device NAME         Inference device: cpu | cuda (default: cuda)
 #   --shifts N            Demucs shift-averaging passes (default: 1)
 #   --demucs-segment N    Demucs segment duration in seconds (default: 0 = auto)
@@ -61,7 +62,7 @@ ONDA_CONTAINER="onda"
 # ── Path conversion for Docker ──────────────────
 # pipeline.sh runs on the HOST and receives host paths (e.g. /home/.../onda/input/file.wav).
 # Docker exec commands run INSIDE the container and need container paths
-# because the bind mounts are: ./input -> /input, ./output -> /output.
+# because the bind mounts are: ./input -> /app/input, ./output -> /app/output.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 to_container() {
     local p="$1"
@@ -69,9 +70,9 @@ to_container() {
     [[ "$p" != /* ]] && p="${SCRIPT_DIR}/${p}"
     # Strip the host input dir prefix
     if [[ "$p" == "${SCRIPT_DIR}/input/"* ]]; then
-        echo "/input/${p#${SCRIPT_DIR}/input/}"
+        echo "/app/input/${p#${SCRIPT_DIR}/input/}"
     elif [[ "$p" == "${SCRIPT_DIR}/output/"* ]]; then
-        echo "/output/${p#${SCRIPT_DIR}/output/}"
+        echo "/app/output/${p#${SCRIPT_DIR}/output/}"
     else
         echo "$p"
     fi
@@ -80,7 +81,7 @@ to_container() {
 # ── Progress reporting ──────────────────────────
 START_TIME=$(date +%s)
 LAST_ETA=""  # cap ETA so it never increases between steps
-STATUS_FILE="${PIPELINE_STATUS_FILE:-/output/pipeline_status.json}"
+STATUS_FILE="${PIPELINE_STATUS_FILE:-/app/output/pipeline_status.json}"
 rm -f "$STATUS_FILE"
 CURRENT_STEP=""
 
@@ -108,7 +109,7 @@ report_progress() {
     fi
     progress_float=$(awk "BEGIN {printf \"%.2f\", $progress/100}")
     cat > "$STATUS_FILE" << JSONEOF
-{"status":"$status","step":"$step","progress":$progress_float,"song":"${SONG:-}","elapsed":$elapsed,"eta":$eta,"vocal_model":"${VOCAL_MODEL_DISPLAY:-${VIPERX_MODEL_DISPLAY:-}}","stem_model":"${DEMUCS_MODEL_DISPLAY:-}","segment_size":${VIPERX_DIM_T:-0},"overlap":${VIPERX_NUM_OVERLAP:-0},"chunk_size":0,"batch_size":${VIPERX_BATCH_SIZE:-0},"device":"${DEVICE:-cpu}","gpu_type":"${GPU_TYPE:-unknown}","shifts":${SHIFTS:-1},"demucs_segment":${DEMUCS_SEGMENT:-0},"jobs":${JOBS:-0}}
+{"status":"$status","step":"$step","progress":$progress_float,"song":"${SONG:-}","elapsed":$elapsed,"eta":$eta,"vocal_model":"${VOCAL_MODEL_DISPLAY:-${VIPERX_MODEL_DISPLAY:-}}","stem_model":"${DEMUCS_MODEL_DISPLAY:-}","segment_size":${VIPERX_DIM_T:-0},"overlap":${VIPERX_NUM_OVERLAP:-0},"chunk_size":${ONDA_CHUNK_SIZE:-0},"batch_size":${VIPERX_BATCH_SIZE:-0},"device":"${DEVICE:-cpu}","gpu_type":"${GPU_TYPE:-unknown}","shifts":${SHIFTS:-1},"demucs_segment":${DEMUCS_SEGMENT:-0},"jobs":${JOBS:-0}}
 JSONEOF
 }
 trap 'report_progress "error" "${CURRENT_STEP:-unknown}" 0' ERR
@@ -157,15 +158,39 @@ json.dump(d, open('${STATUS_FILE}.tmp','w'))
     done
 }
 
+# Helper: terminate a background PID and wait for it, with a forced kill fallback
+# to avoid hanging if the process ignores SIGTERM.
+kill_wait() {
+    local pid="${1:-}"
+    [ -n "$pid" ] || return 0
+    if ! kill -0 "$pid" 2>/dev/null; then
+        wait "$pid" 2>/dev/null || true
+        return 0
+    fi
+    kill "$pid" 2>/dev/null || true
+    local i
+    for i in $(seq 1 30); do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            wait "$pid" 2>/dev/null || true
+            return 0
+        fi
+        sleep 0.1
+    done
+    kill -9 "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+}
+
 # Helper: run a command with elapsed/eta updates in background
 # Usage: run_with_elapsed <command...>
 run_with_elapsed() {
     update_elapsed_loop &
     local elapsed_pid=$!
+    # Ensure the background loop is always cleaned up, even on failure or exit.
+    trap 'kill_wait "$elapsed_pid"' EXIT
     "$@"
     local cmd_rc=$?
-    kill $elapsed_pid 2>/dev/null || true
-    wait $elapsed_pid 2>/dev/null || true
+    kill_wait "$elapsed_pid"
+    trap - EXIT
     return $cmd_rc
 }
 
@@ -336,6 +361,104 @@ PYEOF
     done
 }
 
+# Detect whether a vocal model directory contains an MDX-C (MDX-Net) model.
+# Heuristic: explicit --vocal-type mdx, OR a YAML with MDX-C fields
+# (num_scales / num_subbands), OR the checkpoint filename contains MDX23C.
+#
+# SCNet models are detected separately by is_scnet_model_dir().
+is_mdx_model_dir() {
+    local model_path="$1"
+    local model_dir="$model_path"
+    if [ -f "$model_path" ]; then
+        model_dir="$(dirname "$model_path")"
+    fi
+
+    case "$VOCAL_TYPE" in
+        mdx) return 0 ;;
+        roformer) return 1 ;;
+    esac
+
+    # Explicit MDX checkpoint name.
+    local ckpt_name
+    ckpt_name=$(ls "${model_dir}"/*.ckpt 2>/dev/null | head -1 || true)
+    if [ -n "$ckpt_name" ]; then
+        ckpt_name="$(basename "$ckpt_name")"
+        if [[ "${ckpt_name}" =~ [Mm][Dd][Xx]23[Cc] ]]; then
+            return 0
+        fi
+    fi
+
+    # YAML with MDX-C topology fields.
+    local yaml_file
+    yaml_file=$(ls "${model_dir}"/*.yaml 2>/dev/null | head -1 || true)
+    if [ -n "$yaml_file" ]; then
+        local has_mdx
+        has_mdx=$(python3 - <<PY
+import yaml, sys
+try:
+    cfg = yaml.load(open('${yaml_file}'), Loader=yaml.FullLoader)
+    m = cfg.get('model', {})
+    if any(k in m for k in ('num_scales', 'num_subbands', 'num_blocks_per_scale')):
+        sys.exit(0)
+except Exception:
+    pass
+sys.exit(1)
+PY
+        ) && return 0
+    fi
+
+    return 1
+}
+
+# Detect whether a vocal model directory contains an SCNet model.
+# Heuristic: explicit --vocal-type scnet, OR a YAML with SCNet fields
+# (band_SR / band_stride / band_kernel), OR the checkpoint filename contains scnet.
+is_scnet_model_dir() {
+    local model_path="$1"
+    local model_dir="$model_path"
+    if [ -f "$model_path" ]; then
+        model_dir="$(dirname "$model_path")"
+    fi
+
+    case "$VOCAL_TYPE" in
+        scnet) return 0 ;;
+    esac
+
+    # Explicit SCNet checkpoint name.
+    local ckpt_name
+    ckpt_name=$(ls "${model_dir}"/*.ckpt 2>/dev/null | head -1 || true)
+    if [ -n "$ckpt_name" ]; then
+        ckpt_name="$(basename "$ckpt_name")"
+        if [[ "${ckpt_name}" =~ [Ss][Cc][Nn][Ee][Tt] ]]; then
+            return 0
+        fi
+    fi
+
+    # YAML with SCNet topology fields.
+    local yaml_file
+    yaml_file=$(ls "${model_dir}"/*.yaml 2>/dev/null | head -1 || true)
+    if [ -n "$yaml_file" ]; then
+        local has_scnet
+        has_scnet=$(python3 - <<PY
+import yaml, sys
+try:
+    cfg = yaml.load(open('${yaml_file}'), Loader=yaml.FullLoader)
+    m = cfg.get('model', {})
+    if any(k in m for k in ('band_SR', 'band_stride', 'band_kernel')):
+        sys.exit(0)
+    sources = [s.lower() for s in m.get('sources', [])]
+    if 'drums' in sources and 'bass' in sources and 'vocals' in sources:
+        sys.exit(0)
+except Exception:
+    pass
+sys.exit(1)
+PY
+        ) && return 0
+    fi
+
+    return 1
+}
+
 # Run a Vocal model step in chaining mode
 # Args: model_path (file or dir), input_file, output_dir
 run_vocal_step() {
@@ -353,22 +476,53 @@ run_vocal_step() {
         echo "❌ Model not found: ${model_path}" >&2
         exit 2
     fi
-    if [ ! -f /app/inference_universal.py ]; then
-        echo "❌ inference_universal.py not found" >&2
-        exit 2
-    fi
 
-    # Read YAML params
-    local yaml_num_overlap="4"
-    local vocal_yaml
-    vocal_yaml=$(ls "${model_dir}"/*.yaml 2>/dev/null | head -1)
-    if [ -n "$vocal_yaml" ]; then
-        yaml_num_overlap=$(python3 -c "import yaml; print(yaml.load(open('$vocal_yaml'), Loader=yaml.FullLoader)['inference']['num_overlap'])" 2>/dev/null || echo "4")
-    fi
+    if is_mdx_model_dir "$model_dir"; then
+        if [ ! -f /app/inference_mdx.py ]; then
+            echo "❌ inference_mdx.py not found" >&2
+            exit 2
+        fi
+        echo "   ℹ️  Detected MDX-C vocal model"
+        local mdx_overlap="8"
+        local mdx_yaml
+        mdx_yaml=$(ls "${model_dir}"/*.yaml 2>/dev/null | head -1)
+        if [ -n "$mdx_yaml" ]; then
+            mdx_overlap=$(python3 -c "import yaml; print(yaml.load(open('$mdx_yaml'), Loader=yaml.FullLoader).get('inference',{}).get('num_overlap',8))" 2>/dev/null || echo "8")
+        fi
+        run_with_elapsed python3 /app/inference_mdx.py \
+            --pipeline-status "$STATUS_FILE" \
+            --device "$DEVICE" \
+            "${model_dir}" "${input_file}" "${output_dir}" "${mdx_overlap}"
+    elif is_scnet_model_dir "$model_dir"; then
+        if [ ! -f /app/inference_scnet.py ]; then
+            echo "❌ inference_scnet.py not found" >&2
+            exit 2
+        fi
+        echo "   ℹ️  Detected SCNet vocal model"
+        run_with_elapsed python3 /app/inference_scnet.py \
+            --pipeline-status "$STATUS_FILE" \
+            --device "$DEVICE" \
+            "${model_dir}" "${input_file}" "${output_dir}"
+    else
+        if [ ! -f /app/inference_universal.py ]; then
+            echo "❌ inference_universal.py not found" >&2
+            exit 2
+        fi
+        # Read YAML params
+        local yaml_num_overlap="4"
+        local yaml_chunk_size="0"
+        local vocal_yaml
+        vocal_yaml=$(ls "${model_dir}"/*.yaml 2>/dev/null | head -1)
+        if [ -n "$vocal_yaml" ]; then
+            yaml_num_overlap=$(python3 -c "import yaml; print(yaml.load(open('$vocal_yaml'), Loader=yaml.FullLoader)['inference']['num_overlap'])" 2>/dev/null || echo "4")
+            yaml_chunk_size=$(python3 -c "import yaml; print(yaml.load(open('$vocal_yaml'), Loader=yaml.FullLoader).get('inference',{}).get('chunk_size',0))" 2>/dev/null || echo "0")
+        fi
 
-    run_with_elapsed python3 /app/inference_universal.py \
-        --pipeline-status "$STATUS_FILE" \
-        "${model_dir}" "${input_file}" "${output_dir}" "${yaml_num_overlap}"
+        # Pass chunk size to inference via environment (0 = whole song)
+        ONDA_CHUNK_SIZE="${yaml_chunk_size}" run_with_elapsed python3 /app/inference_universal.py \
+            --pipeline-status "$STATUS_FILE" \
+            "${model_dir}" "${input_file}" "${output_dir}" "${yaml_num_overlap}"
+    fi
 }
 
 # Alias for backward compatibility
@@ -376,44 +530,78 @@ run_viperx_step() {
     run_vocal_step "$@"
 }
 
-# Run a Demucs step in chaining mode
-# Args: model_name, input_file, output_dir, [expected_stems_count]
+# Run a Demucs step (chaining or legacy mode).
+# Args: model_name, input_file, output_dir, [expected_stems_count], [step_index]
+# If step_index is empty the legacy report_progress path is used; otherwise
+# multi_step_progress is updated with real progress parsed from demucs stderr.
 run_demucs_step() {
     local model_name="$1"
     local input_file="$2"
     local output_dir="$3"
     local expected_stems="${4:-4}"
+    local step_idx="${5:-}"
+    local demucs_pid=""
+    local elapsed_pid=""
 
     local demucs_args=(-n "${model_name}" --device "${DEVICE}" -o "${output_dir}")
     [ "${SHIFTS:-1}" -gt 0 ] && demucs_args+=(--shifts "${SHIFTS:-1}")
-    [ "${DEMUCS_SEGMENT:-0}" -gt 0 ] && demucs_args+=(--segment "${DEMUCS_SEGMENT:-0}")
+    if awk "BEGIN {exit !(${DEMUCS_SEGMENT:-0} > 0)}"; then
+        demucs_args+=(--segment "${DEMUCS_SEGMENT:-0}")
+    fi
     [ "${JOBS:-0}" -gt 0 ] && demucs_args+=(-j "${JOBS:-0}")
 
-    update_elapsed_loop &
-    local elapsed_pid=$!
-    demucs "${demucs_args[@]}" "${input_file}" &
-    local demucs_pid=$!
+    mkdir -p "${output_dir}"
+    local progress_log="${output_dir}/.demucs_progress.log"
+    rm -f "${progress_log}"
 
-    # Poll for stems appearing in output directory
-    while kill -0 $demucs_pid 2>/dev/null; do
-        if [ -d "${output_dir}" ]; then
-            local found
-            found=$(find "${output_dir}" -type f -name "*.wav" 2>/dev/null | wc -l)
-            if [ "$found" -gt 0 ] && [ "$expected_stems" -gt 0 ]; then
-                local step_pct=$(( found * 100 / expected_stems ))
-                [ "$step_pct" -gt 100 ] && step_pct=100
-                # Also update multi-step progress if in chained mode
-                if [ -n "${STEPS_STATE_FILE:-}" ] && [ -f "$STEPS_STATE_FILE" ]; then
-                    multi_step_progress "processing" "$CURRENT_STEP_INDEX" "$step_pct"
+    update_elapsed_loop &
+    elapsed_pid=$!
+
+    # demucs writes its tqdm progress bars to stderr.  Line-buffer stderr so
+    # updates are available immediately in the log file instead of being fully
+    # buffered until the process ends.  Fall back to plain demucs if stdbuf is
+    # not available (progress will be less granular but still functional).
+    if command -v stdbuf >/dev/null 2>&1; then
+        stdbuf -eL demucs "${demucs_args[@]}" "${input_file}" 2> "${progress_log}" &
+    else
+        demucs "${demucs_args[@]}" "${input_file}" 2> "${progress_log}" &
+    fi
+    demucs_pid=$!
+
+    # Always clean up both background processes when the function exits, even on
+    # error, so the pipeline never hangs on a stray background loop.
+    trap 'kill_wait "$demucs_pid"; kill_wait "$elapsed_pid"' EXIT
+
+    # Poll the demucs stderr log for real progress percentages.
+    while kill -0 "$demucs_pid" 2>/dev/null; do
+        if [ -s "${progress_log}" ]; then
+            local pct_line pct
+            pct_line=$(tail -c 4096 "${progress_log}" | tr '\r' '\n' | grep -aE '^ *[0-9]+%' | tail -1)
+            if [ -n "${pct_line}" ]; then
+                pct=$(echo "${pct_line}" | LC_ALL=C sed -E 's/^ *([0-9]+)%.*/\1/')
+                if [ -n "${pct}" ] && [ "${pct}" -gt 0 ] 2>/dev/null; then
+                    if [ -n "${step_idx}" ]; then
+                        multi_step_progress "processing" "${step_idx}" "${pct}"
+                    else
+                        local global_pct=$(( DEMUCS_START + (pct * (DEMUCS_END - DEMUCS_START) / 100) ))
+                        [ "${global_pct}" -gt "${DEMUCS_END}" ] && global_pct=${DEMUCS_END}
+                        [ "${global_pct}" -lt "${DEMUCS_START}" ] && global_pct=${DEMUCS_START}
+                        report_progress "running" "demucs" "${global_pct}"
+                    fi
                 fi
             fi
         fi
         sleep 2
     done
-    wait $demucs_pid
+
+    wait "$demucs_pid"
     local demucs_rc=$?
-    kill $elapsed_pid 2>/dev/null || true
-    wait $elapsed_pid 2>/dev/null || true
+
+    # Clean up the elapsed updater explicitly before dropping the trap, so the
+    # function can return the real demucs exit code without blocking.
+    kill_wait "$elapsed_pid"
+    trap - EXIT
+    rm -f "${progress_log}"
 
     return $demucs_rc
 }
@@ -424,8 +612,9 @@ VOCAL=false             # auto-detected: true when vocal-specific flags are pass
 VIPERX=false            # alias for backward compatibility
 VOCAL_KEEP="both"
 VIPERX_KEEP="both"      # alias for backward compatibility
-VOCAL_MODEL="/models/VR_Models/BS_Roformer_Viperx"
-VIPERX_MODEL="/models/VR_Models/BS_Roformer_Viperx"  # alias for backward compatibility
+VOCAL_MODEL="/app/models/VR_Models/BS_Roformer_Viperx"
+VIPERX_MODEL="/app/models/VR_Models/BS_Roformer_Viperx"  # alias for backward compatibility
+VOCAL_TYPE="auto"       # mdx | roformer | auto
 DEMUCS=false           # auto-detected: true when demucs-specific flags are passed
 DEMUCS_KEEP="all"
 DEMUCS_MODEL="htdemucs_ft"
@@ -446,6 +635,7 @@ while [[ $# -gt 0 ]]; do
     case "$1" in
         --steps)        STEPS_JSON="$2"; shift 2 ;;
         --vocal-model)  VOCAL_MODEL="$2"; VIPERX_MODEL="$2"; VOCAL=true; shift 2 ;;
+        --vocal-type)   VOCAL_TYPE="$2"; VOCAL=true; shift 2 ;;
         --vocal-keep)   VOCAL_KEEP="$2"; VIPERX_KEEP="$2"; VOCAL=true; shift 2 ;;
         --viperx-model) VOCAL_MODEL="$2"; VIPERX_MODEL="$2"; VOCAL=true; shift 2 ;;
         --viperx-keep)  VOCAL_KEEP="$2"; VIPERX_KEEP="$2"; VOCAL=true; shift 2 ;;
@@ -489,7 +679,7 @@ if [ ! -f "$INPUT" ]; then
 fi
 
 SONG=$(basename "${INPUT%.*}")
-OUTPUT="${OUTPUT:-/output/${SONG}}"
+OUTPUT="${OUTPUT:-/app/output/${SONG}}"
 
 # ── Auto-detect steps: if no step was explicitly requested and not in --steps mode,
 #    enable all steps for backward compatibility (full pipeline).
@@ -615,7 +805,7 @@ print('ENDSTEMS')
         step_rc=0
         case "$STEP_TYPE" in
             viperx|vocal)
-                run_vocal_step "${STEP_MODEL:-/models/VR_Models/BS_Roformer_Viperx}" "${CURRENT_INPUT}" "${STEP_TMP}"
+                run_vocal_step "${STEP_MODEL:-/app/models/VR_Models/BS_Roformer_Viperx}" "${CURRENT_INPUT}" "${STEP_TMP}"
                 echo "   ✅ ${STEP_TYPE} done"
                 ;;
             demucs)
@@ -629,7 +819,7 @@ stems = [k for k, v in s.get('stems', {}).items() if v.get('action') != 'discard
 print(len(stems))
 " 2>/dev/null || echo 4)
 
-                run_demucs_step "${STEP_MODEL:-htdemucs_ft}" "${CURRENT_INPUT}" "${STEP_TMP}" "$STEM_COUNT"
+                run_demucs_step "${STEP_MODEL:-htdemucs_ft}" "${CURRENT_INPUT}" "${STEP_TMP}" "$STEM_COUNT" "$STEP_IDX"
                 step_rc=$?
                 if [ $step_rc -ne 0 ]; then
                     echo "❌ Demucs failed with exit code $step_rc" >&2
@@ -810,9 +1000,11 @@ fi
 VOCAL_DIM_T=""
 VOCAL_NUM_OVERLAP=""
 VOCAL_BATCH_SIZE=""
+VOCAL_CHUNK_SIZE="0"
 VIPERX_DIM_T=""    # alias for backward compat
 VIPERX_NUM_OVERLAP=""
 VIPERX_BATCH_SIZE=""
+VIPERX_CHUNK_SIZE="0"
 if $VOCAL || $VIPERX; then
     MODEL_DIR="${VOCAL_MODEL}"
     [ -z "$MODEL_DIR" ] && MODEL_DIR="${VIPERX_MODEL}"
@@ -822,13 +1014,18 @@ if $VOCAL || $VIPERX; then
             VOCAL_DIM_T=$(python3 -c "import yaml; print(yaml.load(open('$VOCAL_YAML'), Loader=yaml.FullLoader)['inference']['dim_t'])" 2>/dev/null || echo "")
             VOCAL_NUM_OVERLAP=$(python3 -c "import yaml; print(yaml.load(open('$VOCAL_YAML'), Loader=yaml.FullLoader)['inference']['num_overlap'])" 2>/dev/null || echo "")
             VOCAL_BATCH_SIZE=$(python3 -c "import yaml; print(yaml.load(open('$VOCAL_YAML'), Loader=yaml.FullLoader)['inference']['batch_size'])" 2>/dev/null || echo "")
+            VOCAL_CHUNK_SIZE=$(python3 -c "import yaml; print(yaml.load(open('$VOCAL_YAML'), Loader=yaml.FullLoader).get('inference',{}).get('chunk_size',0))" 2>/dev/null || echo "0")
             VIPERX_DIM_T="${VOCAL_DIM_T}"
             VIPERX_NUM_OVERLAP="${VOCAL_NUM_OVERLAP}"
             VIPERX_BATCH_SIZE="${VOCAL_BATCH_SIZE}"
-            echo "   ℹ️  Model YAML: dim_t=${VOCAL_DIM_T}, overlap=${VOCAL_NUM_OVERLAP}, batch=${VOCAL_BATCH_SIZE}"
+            VIPERX_CHUNK_SIZE="${VOCAL_CHUNK_SIZE}"
+            echo "   ℹ️  Model YAML: dim_t=${VOCAL_DIM_T}, overlap=${VOCAL_NUM_OVERLAP}, batch=${VOCAL_BATCH_SIZE}, chunk=${VOCAL_CHUNK_SIZE}"
         fi
     fi
 fi
+
+# Export chunk size for RoFormer inference (0 = whole song)
+export ONDA_CHUNK_SIZE="${VIPERX_CHUNK_SIZE:-${VOCAL_CHUNK_SIZE:-0}}"
 
 # ── Smart defaults: Vocal model ya separa vocals, Demucs no necesita repetir ──
 if { $VOCAL || $VIPERX; } && $DEMUCS && [ "${DEMUCS_KEEP}" = "all" ]; then
@@ -881,18 +1078,41 @@ if $VOCAL || $VIPERX; then
         echo "❌ Vocal model not found: ${VOCAL_MODEL:-${VIPERX_MODEL}}" >&2
         exit 2
     fi
-    if [ ! -f /app/inference_universal.py ]; then
-        echo "❌ inference_universal.py not found" >&2
-        exit 2
-    fi
     # Launch inference — Python writes pipeline_status.json directly on each chunk.
-    # inference_universal.py reads dim_t, num_overlap, batch_size from the model's YAML.
     # Pass num_overlap as positional arg for backward compatibility.
     VOCAL_OVERLAP_INT="${VOCAL_NUM_OVERLAP:-${VIPERX_NUM_OVERLAP:-4}}"
-    # run_with_elapsed starts the background elapsed/eta updater loop.
-    run_with_elapsed python3 /app/inference_universal.py \
-        --pipeline-status "$STATUS_FILE" \
-        "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}" ${VOCAL_OVERLAP_INT}
+
+    if is_mdx_model_dir "${vocal_model_dir}"; then
+        if [ ! -f /app/inference_mdx.py ]; then
+            echo "❌ inference_mdx.py not found" >&2
+            exit 2
+        fi
+        echo "   ℹ️  Using MDX-C inference"
+        VOCAL_OVERLAP_INT="${VOCAL_NUM_OVERLAP:-${VIPERX_NUM_OVERLAP:-8}}"
+        run_with_elapsed python3 /app/inference_mdx.py \
+            --pipeline-status "$STATUS_FILE" \
+            --device "$DEVICE" \
+            "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}" ${VOCAL_OVERLAP_INT}
+    elif is_scnet_model_dir "${vocal_model_dir}"; then
+        if [ ! -f /app/inference_scnet.py ]; then
+            echo "❌ inference_scnet.py not found" >&2
+            exit 2
+        fi
+        echo "   ℹ️  Using SCNet inference"
+        run_with_elapsed python3 /app/inference_scnet.py \
+            --pipeline-status "$STATUS_FILE" \
+            --device "$DEVICE" \
+            "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}"
+    else
+        if [ ! -f /app/inference_universal.py ]; then
+            echo "❌ inference_universal.py not found" >&2
+            exit 2
+        fi
+        echo "   ℹ️  Using RoFormer inference"
+        run_with_elapsed python3 /app/inference_universal.py \
+            --pipeline-status "$STATUS_FILE" \
+            "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}" ${VOCAL_OVERLAP_INT}
+    fi
     echo "   ✅ Vocal model done"
 
     # Find instrumental (for demucs)
@@ -941,7 +1161,9 @@ if $DEMUCS; then
     # Build demucs args with optional shift/segment/jobs flags
     DEMUCS_ARGS=(-n "${DEMUCS_MODEL}" --device "${DEVICE}" -o "${TMP_DEM}")
     [ "${SHIFTS}" -gt 0 ] && DEMUCS_ARGS+=(--shifts "${SHIFTS}")
-    [ "${DEMUCS_SEGMENT}" -gt 0 ] && DEMUCS_ARGS+=(--segment "${DEMUCS_SEGMENT}")
+    if awk "BEGIN {exit !(${DEMUCS_SEGMENT:-0} > 0)}"; then
+        DEMUCS_ARGS+=(--segment "${DEMUCS_SEGMENT}")
+    fi
     [ "${JOBS}" -gt 0 ] && DEMUCS_ARGS+=(-j "${JOBS}")
 
     # Calculate expected number of stems for progress tracking
@@ -953,30 +1175,10 @@ if $DEMUCS; then
 
     report_progress "running" "demucs" $DEMUCS_START
 
-    # Launch elapsed updater and demucs in background; track stem count as progress
-    update_elapsed_loop &
-    ELAPSED_PID=$!
-    demucs "${DEMUCS_ARGS[@]}" "${DEMUCS_INPUT}" &
-    DEMUCS_PID=$!
-
-    # Poll for stems appearing in output directory
-    while kill -0 $DEMUCS_PID 2>/dev/null; do
-        if [ -d "${TMP_DEM}" ]; then
-            found=$(find "${TMP_DEM}" -type f -name "*.wav" 2>/dev/null | wc -l)
-            if [ "$found" -gt 0 ] && [ "$DEMUCS_EXPECTED" -gt 0 ]; then
-                step_pct=$(( found * 100 / DEMUCS_EXPECTED ))
-                [ "$step_pct" -gt 100 ] && step_pct=100
-                global_pct=$(( DEMUCS_START + (step_pct * (DEMUCS_END - DEMUCS_START) / 100) ))
-                report_progress "running" "demucs" $global_pct
-            fi
-        fi
-        sleep 2
-    done
-    wait $DEMUCS_PID
+    # Run Demucs and report real progress parsed from its stderr output
+    # instead of counting output WAV files, which caused jumpy progress.
+    run_demucs_step "$DEMUCS_MODEL" "${DEMUCS_INPUT}" "${TMP_DEM}" "$DEMUCS_EXPECTED"
     DEMUCS_RC=$?
-    kill $ELAPSED_PID 2>/dev/null || true
-    wait $ELAPSED_PID 2>/dev/null || true
-
     if [ $DEMUCS_RC -ne 0 ]; then
         echo "❌ Demucs failed with exit code $DEMUCS_RC" >&2
         exit $DEMUCS_RC

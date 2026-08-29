@@ -238,7 +238,7 @@ rsync -avz --delete frontend/dist/ starmito@192.168.1.87:~/projects/onda/fronten
 rsync -avz hf_models.json starmito@192.168.1.87:~/projects/onda/
 
 # Rebuild y restart en .87
-ssh starmito@192.168.1.87 'cd ~/projects/onda && docker compose up -d --build onda-gui'
+ssh starmito@192.168.1.87 'cd ~/projects/onda && docker compose up -d --build onda'
 ```
 
 ### Task 3.2: Verificar endpoints

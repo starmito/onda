@@ -1,5 +1,61 @@
 # Changelog
 
+## [v3.2.4] - 2026-08-29
+
+### Added
+- **Soporte MDX23C (MDX-Net) y SCNet en el pipeline headless** (`inference_mdx.py`, `onda/mdx.py`, `inference_scnet.py`, `onda/scnet.py`), con detección automática por tipo de modelo.
+- **Calculadora de VRAM empírica** (`/api/gpu/vram-calculator`): fórmula real medida con audio largo — viperx `1100 + (106 + 6.72×segment_size) × batch` (el batch multiplica), demucs 1572/1106 según segmento, MDX 2476, SCNet 1828. Avisa `fits:false` cuando no cabe.
+- **Parámetro Chunk Size conectado de verdad** (divide la canción en trozos de N segundos con crossfade suave; reduce VRAM en canciones largas).
+- **Cancel de jobs fiable**: se mata el grupo de procesos completo (no deja el worker colgado).
+- **Clampeo del segmento de demucs** a 7 s entero + manejo de errores limpio.
+- **Configs de modelo guardadas y aplicadas** al procesar (segment/overlap/batch/chunk desde YAML).
+- Tests unitarios Go y Python de la auditoría (40+), seguridad de uploads (path traversal), CORS configurable.
+
+### Fixed
+- Fórmula VRAM (era aditiva con cap falso; ahora multiplicativa real).
+- Worker colgado al cancelar un job.
+- Demucs colgado con segmento >7 s.
+- Import de stems transpuestos de pitch.
+- Texto desactualizado de la UI sobre carpeta de resultados.
+- RuntimeError device mismatch en SCNet (ventana de mezcla en CPU).
+- Pipeline colgado si faltaba el wrapper de inferencia en la imagen.
+
+## [v3.2.3] - 2026-06-21
+
+### Added
+- **DAW ligero integrado**:
+  - Backend MIDI con librería `gomidi` y piano roll frontend.
+  - Endpoint `GET /api/daw/audio/{filename}` para servir audio del DAW.
+
+## [v3.2.3] - 2026-06-21
+
+### Added
+- **DAW ligero integrado**:
+  - Backend MIDI con librería `gomidi` y piano roll frontend.
+  - Endpoint `GET /api/daw/audio/{filename}` para servir audio del DAW.
+  - Página de espectrograma + detección de tonalidad con `essentia.js`.
+  - `DAWWorkspace` con modos Basic (effects + EQ), Medium (+ piano roll + spectrogram) y Full (+ mixer strips con inserts).
+
+### Changed
+- **Infraestructura**:
+  - Eliminado nginx: el frontend compilado se sirve directamente desde el backend Go (desde disco en Docker + embed en build nativo).
+  - Unificación de todos los paths del contenedor bajo `/app/` (`/app/input`, `/app/output`, `/app/config`, `/app/daw-data`).
+  - `VERSION` se copia a `/app/VERSION` para compatibilidad con `resolveProjectRoot`.
+  - `findProjectRoot` usado para directorios de datos; `resolveProjectRoot` solo para el frontend.
+  - Frontend copiado a la etapa runtime en el Dockerfile.
+
+### Security
+- **API hardening**:
+  - Sanitización de uploads y rechazo de path traversal en multipart antes de la normalización de Go.
+  - Cancelación segura de la cola (`/api/queue/cancel`) y CORS configurable via `ONDA_CORS_ORIGINS`.
+  - Middleware de logging de peticiones 404.
+
+### Fixed
+- Rangos de parámetros de efectos DAW y parámetros SoX flanger/phaser corregidos.
+- Subida de archivos MIDI permitida.
+- Audio del DAW servido por query param en vez de `PathValue` para evitar problemas con caracteres especiales.
+- Depth ranges corregidos en `DAWWorkspace`.
+
 ## [v3.2.2] - 2026-06-22
 ### Added
 - **EQ paramétrico**: endpoint `POST /api/daw/eq` con 7 tipos de filtro (lowpass, highpass, bandpass, notch, peak, lowshelf, highshelf) usando go-equalizer (biquad RBJ)

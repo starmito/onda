@@ -10,10 +10,17 @@ import (
 	"strings"
 )
 
+// PitchStemEntry describes a pitch-shifted stem available for DAW import.
+type PitchStemEntry struct {
+	Song  string `json:"song"`
+	Pitch string `json:"pitch"`
+	Stem  string `json:"stem"`
+}
+
 // StemsResponse lists available stems for DAW import.
 type StemsResponse struct {
 	Output map[string][]string `json:"output"`
-	Pitch  []string            `json:"pitch"`
+	Pitch  []PitchStemEntry    `json:"pitch"`
 }
 
 var stemAudioExts = map[string]bool{
@@ -29,7 +36,7 @@ func isAudioStem(name string) bool {
 	return stemAudioExts[strings.ToLower(filepath.Ext(name))]
 }
 
-// handleListStems returns all audio stems under output/ and input_rubberband/.
+// handleListStems returns all audio stems under output/.
 // GET /api/daw/stems
 func (s *Server) handleListStems(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -41,13 +48,12 @@ func (s *Server) handleListStems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
+	projectRoot := resolveProjectRoot()
 	outputDir := filepath.Join(projectRoot, "output")
-	pitchDir := filepath.Join(projectRoot, "input_rubberband")
 
 	resp := StemsResponse{
 		Output: make(map[string][]string),
-		Pitch:  []string{},
+		Pitch:  []PitchStemEntry{},
 	}
 
 	// Walk output/<song>/ directories for .wav stems.
@@ -81,21 +87,63 @@ func (s *Server) handleListStems(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// List .wav files directly under input_rubberband/.
-	pitchEntries, err := os.ReadDir(pitchDir)
+	// Walk output/<song>/<song>_pitch<pitch>/ directories for pitch-shifted stems.
 	if err == nil {
-		for _, entry := range pitchEntries {
-			if entry.IsDir() {
+		for _, entry := range outputEntries {
+			if !entry.IsDir() {
 				continue
 			}
-			name := filepath.Base(entry.Name())
-			if !isAudioStem(name) {
+			song := filepath.Base(entry.Name())
+			songDir := filepath.Join(outputDir, song)
+			songEntries, err := os.ReadDir(songDir)
+			if err != nil {
 				continue
 			}
-			resp.Pitch = append(resp.Pitch, name)
+			for _, subEntry := range songEntries {
+				if !subEntry.IsDir() {
+					continue
+				}
+				subName := subEntry.Name()
+				prefix := song + "_pitch"
+				if !strings.HasPrefix(subName, prefix) {
+					continue
+				}
+				pitch := strings.TrimPrefix(subName, prefix)
+				if pitch == "" {
+					continue
+				}
+				pitchStemDir := filepath.Join(songDir, subName)
+				stemEntries, err := os.ReadDir(pitchStemDir)
+				if err != nil {
+					continue
+				}
+				for _, stemEntry := range stemEntries {
+					if stemEntry.IsDir() {
+						continue
+					}
+					name := filepath.Base(stemEntry.Name())
+					if !isAudioStem(name) {
+						continue
+					}
+					resp.Pitch = append(resp.Pitch, PitchStemEntry{
+						Song:  song,
+						Pitch: pitch,
+						Stem:  name,
+					})
+				}
+			}
 		}
-		sort.Strings(resp.Pitch)
 	}
+
+	sort.Slice(resp.Pitch, func(i, j int) bool {
+		if resp.Pitch[i].Song != resp.Pitch[j].Song {
+			return resp.Pitch[i].Song < resp.Pitch[j].Song
+		}
+		if resp.Pitch[i].Pitch != resp.Pitch[j].Pitch {
+			return resp.Pitch[i].Pitch < resp.Pitch[j].Pitch
+		}
+		return resp.Pitch[i].Stem < resp.Pitch[j].Stem
+	})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

@@ -7,6 +7,13 @@ echo "🔍 Detectando hardware..."
 GPU=$(bash onda/detect_gpu.sh)
 echo "🎯 Hardware detectado: $GPU"
 
+# Resolver versiones desde los tags de git (misma lógica que build.sh).
+# Es necesario exportarlas porque docker-compose.yml las inyecta como ARG
+# en build time y .dockerignore excluye .git, por lo que el contenedor no
+# puede calcularlas por sí solo.
+source ./build.sh --version
+export ONDAP_VERSION GUI_VERSION
+
 # Directorios montados como bind volumes (deben pertenecer al usuario host)
 BIND_DIRS="output input input_rubberband daw-data config"
 
@@ -41,4 +48,4 @@ case $GPU in
     ;;
 esac
 
-echo "✅ Onda v3.1.1 desplegado en http://localhost:${ONDA_PORT:-3000}"
+echo "✅ Onda desplegado en http://localhost:${ONDA_PORT:-3000}"

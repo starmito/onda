@@ -106,7 +106,7 @@ ffmpeg -y -hide_banner -loglevel error \
 
 resp=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/api/separate" \
     -H "Content-Type: application/json" \
-    -d "{\"input\":\"/input/${INPUT_NAME}\",\"viperx\":true,\"viperx_keep\":\"both\"}")
+    -d "{\"input\":\"/app/input/${INPUT_NAME}\",\"viperx\":true,\"viperx_keep\":\"both\"}")
 code=$(echo "$resp" | tail -1)
 body=$(echo "$resp" | sed '$d')
 echo "  POST /api/separate → $code"
