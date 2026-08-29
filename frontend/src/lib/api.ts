@@ -746,9 +746,15 @@ export async function exportAudio(
 }
 
 // ---- DAW stem import ----
+export interface PitchStemEntry {
+  song: string;
+  pitch: string;
+  stem: string;
+}
+
 export interface StemsResponse {
   output: Record<string, string[]>;
-  pitch: string[];
+  pitch: PitchStemEntry[];
 }
 
 export interface DAWImportResponse {
@@ -765,10 +771,16 @@ export async function listStems(): Promise<StemsResponse> {
   return (await res.json()) as StemsResponse;
 }
 
-export async function importStem(source: string, song?: string, stem?: string): Promise<DAWImportResponse> {
+export async function importStem(
+  source: string,
+  song?: string,
+  stem?: string,
+  pitch?: string,
+): Promise<DAWImportResponse> {
   const body: Record<string, unknown> = { source };
   if (song !== undefined) body.song = song;
   if (stem !== undefined) body.stem = stem;
+  if (pitch !== undefined) body.pitch = pitch;
   const res = await fetch(`${API_BASE}/api/daw/import`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

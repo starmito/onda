@@ -293,7 +293,7 @@ func TestHandleStems(t *testing.T) {
 	root := setupFase10TestRoot(t)
 	writeFase10TestFile(t, filepath.Join(root, "output", "cancion1", "vocals.wav"), []byte("vocals"))
 	writeFase10TestFile(t, filepath.Join(root, "output", "cancion1", "instrumental.wav"), []byte("instrumental"))
-	writeFase10TestFile(t, filepath.Join(root, "input_rubberband", "cancion1_pitch.wav"), []byte("pitch"))
+	writeFase10TestFile(t, filepath.Join(root, "output", "cancion1", "cancion1_pitch+2", "vocals_pitch+2.wav"), []byte("pitch"))
 
 	srv := newFase10TestServer(t)
 	resp, err := srv.Client().Get(srv.URL + "/api/daw/stems")
@@ -317,8 +317,12 @@ func TestHandleStems(t *testing.T) {
 	if got, want := sr.Output["cancion1"], []string{"instrumental.wav", "vocals.wav"}; !sliceEqual(got, want) {
 		t.Fatalf("expected stems %v, got %v", want, got)
 	}
-	if got, want := sr.Pitch, []string{"cancion1_pitch.wav"}; !sliceEqual(got, want) {
-		t.Fatalf("expected pitch %v, got %v", want, got)
+	wantPitch := []PitchStemEntry{{Song: "cancion1", Pitch: "+2", Stem: "vocals_pitch+2.wav"}}
+	if got, want := len(sr.Pitch), len(wantPitch); got != want {
+		t.Fatalf("expected %d pitch stems, got %d", want, got)
+	}
+	if sr.Pitch[0] != wantPitch[0] {
+		t.Fatalf("expected pitch %v, got %v", wantPitch, sr.Pitch)
 	}
 }
 

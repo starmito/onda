@@ -54,8 +54,8 @@ func TestHandleListStems(t *testing.T) {
 	root := setupDAWTestRoot(t)
 	writeTestFile(t, filepath.Join(root, "output", "cancion1", "vocals.wav"), []byte("vocals"))
 	writeTestFile(t, filepath.Join(root, "output", "cancion1", "instrumental.wav"), []byte("instrumental"))
-	writeTestFile(t, filepath.Join(root, "input_rubberband", "cancion1_pitch.wav"), []byte("pitch"))
-	writeTestFile(t, filepath.Join(root, "input_rubberband", "readme.txt"), []byte("ignore"))
+	writeTestFile(t, filepath.Join(root, "output", "cancion1", "cancion1_pitch+2", "vocals_pitch+2.wav"), []byte("pitch"))
+	writeTestFile(t, filepath.Join(root, "output", "cancion1", "cancion1_pitch+2", "readme.txt"), []byte("ignore"))
 
 	srv := newDAWTestServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/daw/stems", nil)
@@ -77,8 +77,45 @@ func TestHandleListStems(t *testing.T) {
 	if got, want := resp.Output["cancion1"], []string{"instrumental.wav", "vocals.wav"}; !sliceEqual(got, want) {
 		t.Fatalf("expected stems %v, got %v", want, got)
 	}
-	if got, want := resp.Pitch, []string{"cancion1_pitch.wav"}; !sliceEqual(got, want) {
-		t.Fatalf("expected pitch %v, got %v", want, got)
+	wantPitch := []PitchStemEntry{{Song: "cancion1", Pitch: "+2", Stem: "vocals_pitch+2.wav"}}
+	if got, want := len(resp.Pitch), len(wantPitch); got != want {
+		t.Fatalf("expected %d pitch stems, got %d", want, got)
+	}
+	if resp.Pitch[0] != wantPitch[0] {
+		t.Fatalf("expected pitch %v, got %v", wantPitch, resp.Pitch)
+	}
+}
+
+func TestHandleListStems_Pitch(t *testing.T) {
+	root := setupDAWTestRoot(t)
+	writeTestFile(t, filepath.Join(root, "output", "fiesta_pagana", "vocals.wav"), []byte("vocals"))
+	writeTestFile(t, filepath.Join(root, "output", "fiesta_pagana", "fiesta_pagana_pitch+2", "vocals_pitch+2.wav"), []byte("p+2"))
+	writeTestFile(t, filepath.Join(root, "output", "fiesta_pagana", "fiesta_pagana_pitch-1", "drums_pitch-1.wav"), []byte("p-1"))
+	writeTestFile(t, filepath.Join(root, "output", "otra", "otra_pitch+3", "bass_pitch+3.wav"), []byte("p+3"))
+	// Non-pitch directory should be ignored.
+	writeTestFile(t, filepath.Join(root, "output", "fiesta_pagana", "other", "ignore.wav"), []byte("ignore"))
+
+	srv := newDAWTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/daw/stems", nil)
+	rr := httptest.NewRecorder()
+	srv.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp StemsResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	want := []PitchStemEntry{
+		{Song: "fiesta_pagana", Pitch: "+2", Stem: "vocals_pitch+2.wav"},
+		{Song: "fiesta_pagana", Pitch: "-1", Stem: "drums_pitch-1.wav"},
+		{Song: "otra", Pitch: "+3", Stem: "bass_pitch+3.wav"},
+	}
+	if !pitchEntrySliceEqual(resp.Pitch, want) {
+		t.Fatalf("expected pitch %v, got %v", want, resp.Pitch)
 	}
 }
 
@@ -298,6 +335,18 @@ func TestHandleUploadAudio_InvalidExtension(t *testing.T) {
 }
 
 func sliceEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func pitchEntrySliceEqual(a, b []PitchStemEntry) bool {
 	if len(a) != len(b) {
 		return false
 	}

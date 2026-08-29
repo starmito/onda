@@ -12,7 +12,7 @@
     uploadAudioDAW,
     getTempoGrid,
   } from './api';
-  import type { TempoGridResponse } from './api';
+  import type { TempoGridResponse, PitchStemEntry } from './api';
 
   type RegionLike = { start: number; end: number };
   type DAWState = {
@@ -56,7 +56,7 @@
 
   let importOpen = $state(false);
   let importTab = $state<'upload' | 'output' | 'pitch'>('upload');
-  let stemsData = $state<{ output: Record<string, string[]>; pitch: string[] }>({
+  let stemsData = $state<{ output: Record<string, string[]>; pitch: PitchStemEntry[] }>({
     output: {},
     pitch: [],
   });
@@ -617,11 +617,11 @@
     }
   }
 
-  async function handleImportPitch(stem: string) {
+  async function handleImportPitch(entry: PitchStemEntry) {
     isProcessing = true;
     status = 'Importando pitch...';
     try {
-      const resp = await importStem('pitch', undefined, stem);
+      const resp = await importStem('pitch', entry.song, entry.stem, entry.pitch);
       addTrack(resp.file, `/daw-data/${resp.file}`, resp.size);
       status = `Importado: ${resp.file}`;
     } catch (err) {
@@ -889,12 +889,15 @@
             {:else if stemsData.pitch.length === 0}
               <div class="empty">No hay archivos de pitch disponibles.</div>
             {:else}
-              {#each stemsData.pitch as stem}
+              {#each stemsData.pitch as entry}
                 <div class="stem-item">
-                  <span class="stem-name">{stem}</span>
+                  <div class="stem-info">
+                    <span class="stem-name">{entry.stem}</span>
+                    <span class="stem-meta">{entry.song} · {entry.pitch}</span>
+                  </div>
                   <button
                     class="btn-small"
-                    onclick={() => handleImportPitch(stem)}
+                    onclick={() => handleImportPitch(entry)}
                     disabled={isProcessing}
                   >
                     Importar
@@ -1289,6 +1292,18 @@
     font-size: 0.85rem;
     color: var(--text-primary);
     word-break: break-all;
+  }
+
+  .stem-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+  }
+
+  .stem-meta {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
   }
 
   :global(.tempo-grid-overlay) {
