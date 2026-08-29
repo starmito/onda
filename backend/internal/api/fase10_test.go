@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -15,6 +16,14 @@ import (
 	"github.com/go-audio/audio"
 	"github.com/go-audio/wav"
 )
+
+// skipIfMissingBinary skips the test if the named binary is not available in PATH.
+func skipIfMissingBinary(t *testing.T, name string) {
+	t.Helper()
+	if _, err := exec.LookPath(name); err != nil {
+		t.Skipf("%s not installed, skipping", name)
+	}
+}
 
 // setupFase10TestRoot creates a temporary project root and sets ONDA_ROOT so
 // findProjectRoot() resolves to it during the test.
@@ -120,6 +129,7 @@ func writeSynthWAV(t *testing.T, path string, durationSec float64) {
 }
 
 func TestHandleTempoPerBar(t *testing.T) {
+	skipIfMissingBinary(t, "aubio")
 	root := setupFase10TestRoot(t)
 	writeSynthWAV(t, filepath.Join(root, "input", "beat.wav"), 8.0)
 
@@ -163,6 +173,7 @@ func TestHandleTempoPerBar(t *testing.T) {
 }
 
 func TestHandleTrim(t *testing.T) {
+	skipIfMissingBinary(t, "sox")
 	root := setupFase10TestRoot(t)
 	writeSynthWAV(t, filepath.Join(root, "input", "source.wav"), 2.0)
 
@@ -200,6 +211,7 @@ func TestHandleTrim(t *testing.T) {
 }
 
 func TestHandleFade(t *testing.T) {
+	skipIfMissingBinary(t, "sox")
 	root := setupFase10TestRoot(t)
 	writeSynthWAV(t, filepath.Join(root, "input", "source.wav"), 2.0)
 
@@ -303,8 +315,8 @@ func TestHandleStems(t *testing.T) {
 	if got, want := sr.Output["cancion1"], []string{"instrumental.wav", "vocals.wav"}; !sliceEqual(got, want) {
 		t.Fatalf("expected stems %v, got %v", want, got)
 	}
-	if got, want := sr.Pitch, []string{"cancion1_pitch.wav"}; !sliceEqual(got, want) {
-		t.Fatalf("expected pitch %v, got %v", want, got)
+	if len(sr.Pitch) != 0 {
+		t.Fatalf("expected no pitch entries from input_rubberband, got %v", sr.Pitch)
 	}
 }
 
@@ -347,10 +359,10 @@ func TestHandleImport_Output(t *testing.T) {
 func TestHandleImport_Pitch(t *testing.T) {
 	root := setupFase10TestRoot(t)
 	srcContent := []byte("pitch-content")
-	writeFase10TestFile(t, filepath.Join(root, "input_rubberband", "mi_pitch.wav"), srcContent)
+	writeFase10TestFile(t, filepath.Join(root, "output", "cancion1", "cancion1_pitch0", "mi_pitch.wav"), srcContent)
 
 	srv := newFase10TestServer(t)
-	body := `{"source":"pitch","stem":"mi_pitch.wav"}`
+	body := `{"source":"pitch","song":"cancion1","pitch":"0","stem":"mi_pitch.wav"}`
 	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/daw/import", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("failed to create request: %v", err)
@@ -426,6 +438,7 @@ func TestHandleUpload(t *testing.T) {
 }
 
 func TestHandleTempoGrid(t *testing.T) {
+	skipIfMissingBinary(t, "aubio")
 	root := setupFase10TestRoot(t)
 	writeSynthWAV(t, filepath.Join(root, "input", "beat.wav"), 8.0)
 

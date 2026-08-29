@@ -76,8 +76,8 @@ func TestHandleListStems(t *testing.T) {
 	if got, want := resp.Output["cancion1"], []string{"instrumental.wav", "vocals.wav"}; !sliceEqual(got, want) {
 		t.Fatalf("expected stems %v, got %v", want, got)
 	}
-	if got, want := resp.Pitch, []string{"cancion1_pitch.wav"}; !sliceEqual(got, want) {
-		t.Fatalf("expected pitch %v, got %v", want, got)
+	if len(resp.Pitch) != 0 {
+		t.Fatalf("expected no pitch entries from input_rubberband, got %v", resp.Pitch)
 	}
 }
 
@@ -128,10 +128,10 @@ func TestHandleImportStem_Output(t *testing.T) {
 func TestHandleImportStem_Pitch(t *testing.T) {
 	root := setupDAWTestRoot(t)
 	srcContent := []byte("pitch-content")
-	writeTestFile(t, filepath.Join(root, "input_rubberband", "mi_pitch.wav"), srcContent)
+	writeTestFile(t, filepath.Join(root, "output", "cancion1", "cancion1_pitch0", "mi_pitch.wav"), srcContent)
 
 	srv := newDAWTestServer(t)
-	body := `{"source":"pitch","stem":"mi_pitch.wav"}`
+	body := `{"source":"pitch","song":"cancion1","pitch":"0","stem":"mi_pitch.wav"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/daw/import", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
