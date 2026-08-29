@@ -217,9 +217,9 @@
     };
     // Include Demucs params only for htdemucs_ft
     if (isDemucs) {
-      cfg.shifts = shifts;
-      cfg.segment = segment;
-      cfg.jobs = jobs;
+      cfg.shifts = Math.round(shifts);
+      cfg.segment = Number(segment);
+      cfg.jobs = Math.round(jobs);
     }
     saving = true;
     try {

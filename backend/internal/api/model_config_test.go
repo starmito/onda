@@ -1,6 +1,10 @@
 package api
 
 import (
+	"bytes"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -66,6 +70,55 @@ func TestWriteModelConfigToYaml_CreatesFallbackForHtdemucsFt(t *testing.T) {
 		if n.Value != kv.want {
 			t.Errorf("demucs.%s = %q, want %q", kv.key, n.Value, kv.want)
 		}
+	}
+}
+
+func TestWriteModelConfigToYaml_PreservesDecimalSegment(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("ONDA_ROOT", root)
+
+	cfg := ModelConfigResponse{
+		SegmentSize: 256,
+		Overlap:     0.25,
+		BatchSize:   1,
+		Shifts:      1,
+		Segment:     7.8,
+		Jobs:        0,
+	}
+	if err := writeModelConfigToYaml("htdemucs_ft", cfg); err != nil {
+		t.Fatalf("writeModelConfigToYaml failed: %v", err)
+	}
+
+	expectedPath := filepath.Join(root, "config", "model_configs", "htdemucs_ft.yaml")
+	data, err := os.ReadFile(expectedPath)
+	if err != nil {
+		t.Fatalf("failed to read created YAML: %v", err)
+	}
+
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("created YAML is invalid: %v", err)
+	}
+
+	demNode := findYamlChildNode(doc.Content[0], "demucs")
+	if demNode == nil {
+		t.Fatal("missing demucs section in created YAML")
+	}
+	n := findYamlChildNode(demNode, "segment")
+	if n == nil {
+		t.Fatal("missing demucs.segment")
+	}
+	if n.Value != "7.8" {
+		t.Errorf("demucs.segment = %q, want 7.8", n.Value)
+	}
+	if n.Tag != "!!float" {
+		t.Errorf("demucs.segment tag = %q, want !!float", n.Tag)
+	}
+
+	// Read back must return the exact decimal value.
+	read := readModelConfigFromYaml("htdemucs_ft")
+	if read.Segment != 7.8 {
+		t.Errorf("read segment = %v, want 7.8", read.Segment)
 	}
 }
 
@@ -143,6 +196,34 @@ func TestBuildPipelineArgs_DemucsRequestOverridesConfig(t *testing.T) {
 	}
 }
 
+func TestBuildPipelineArgs_DemucsDecimalSegment(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("ONDA_ROOT", root)
+
+	cfg := ModelConfigResponse{
+		SegmentSize: 256,
+		Overlap:     0.25,
+		BatchSize:   1,
+		Shifts:      1,
+		Segment:     7.8,
+		Jobs:        0,
+	}
+	if err := writeModelConfigToYaml("htdemucs_ft", cfg); err != nil {
+		t.Fatalf("writeModelConfigToYaml failed: %v", err)
+	}
+
+	req := &SeparateRequest{
+		Input:     "/app/input/song.wav",
+		Demucs:    true,
+		StemModel: "htdemucs_ft",
+	}
+	_, args, _ := buildPipelineArgs(req)
+
+	if got := argValue(args, "--demucs-segment"); got != "7.8" {
+		t.Errorf("expected --demucs-segment 7.8, got %q", got)
+	}
+}
+
 func TestBuildStepPipelineArgs_DemucsUsesSavedConfig(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("ONDA_ROOT", root)
@@ -186,5 +267,52 @@ func argValue(args []string, flag string) string {
 		}
 	}
 	return ""
+}
+
+func TestHandleModelsConfig_DecimalSegment(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("ONDA_ROOT", root)
+
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("GET /api/models/{name}/config", s.handleModelsConfig)
+	s.mux.HandleFunc("POST /api/models/{name}/config", s.handleModelsConfig)
+	srv := httptest.NewServer(s.mux)
+	t.Cleanup(srv.Close)
+
+	cfg := ModelConfigResponse{
+		SegmentSize: 256,
+		Overlap:     0.25,
+		BatchSize:   1,
+		Device:      "cuda",
+		Shifts:      1,
+		Segment:     7.8,
+		Jobs:        0,
+	}
+	body, _ := json.Marshal(cfg)
+	resp, err := http.Post(srv.URL+"/api/models/htdemucs_ft/config", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST status = %d, want 200", resp.StatusCode)
+	}
+
+	getResp, err := http.Get(srv.URL + "/api/models/htdemucs_ft/config")
+	if err != nil {
+		t.Fatalf("GET failed: %v", err)
+	}
+	defer getResp.Body.Close()
+	if getResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET status = %d, want 200", getResp.StatusCode)
+	}
+
+	var got ModelConfigResponse
+	if err := json.NewDecoder(getResp.Body).Decode(&got); err != nil {
+		t.Fatalf("failed to decode GET response: %v", err)
+	}
+	if got.Segment != 7.8 {
+		t.Errorf("GET segment = %v, want 7.8", got.Segment)
+	}
 }
 

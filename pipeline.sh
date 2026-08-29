@@ -389,7 +389,9 @@ run_demucs_step() {
 
     local demucs_args=(-n "${model_name}" --device "${DEVICE}" -o "${output_dir}")
     [ "${SHIFTS:-1}" -gt 0 ] && demucs_args+=(--shifts "${SHIFTS:-1}")
-    [ "${DEMUCS_SEGMENT:-0}" -gt 0 ] && demucs_args+=(--segment "${DEMUCS_SEGMENT:-0}")
+    if awk "BEGIN {exit !(${DEMUCS_SEGMENT:-0} > 0)}"; then
+        demucs_args+=(--segment "${DEMUCS_SEGMENT:-0}")
+    fi
     [ "${JOBS:-0}" -gt 0 ] && demucs_args+=(-j "${JOBS:-0}")
 
     mkdir -p "${output_dir}"
@@ -962,7 +964,9 @@ if $DEMUCS; then
     # Build demucs args with optional shift/segment/jobs flags
     DEMUCS_ARGS=(-n "${DEMUCS_MODEL}" --device "${DEVICE}" -o "${TMP_DEM}")
     [ "${SHIFTS}" -gt 0 ] && DEMUCS_ARGS+=(--shifts "${SHIFTS}")
-    [ "${DEMUCS_SEGMENT}" -gt 0 ] && DEMUCS_ARGS+=(--segment "${DEMUCS_SEGMENT}")
+    if awk "BEGIN {exit !(${DEMUCS_SEGMENT:-0} > 0)}"; then
+        DEMUCS_ARGS+=(--segment "${DEMUCS_SEGMENT}")
+    fi
     [ "${JOBS}" -gt 0 ] && DEMUCS_ARGS+=(-j "${JOBS}")
 
     # Calculate expected number of stems for progress tracking

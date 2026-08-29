@@ -1115,7 +1115,7 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 			segment = cfg.Segment
 		}
 		if segment > 0 {
-			args = append(args, "--demucs-segment", fmt.Sprintf("%d", segment))
+			args = append(args, "--demucs-segment", fmt.Sprintf("%g", segment))
 		}
 		jobs := req.Jobs
 		if jobs <= 0 {
@@ -1185,9 +1185,9 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 			if cfg.Shifts > 1 {
 				args = append(args, "--shifts", fmt.Sprintf("%d", cfg.Shifts))
 			}
-			if cfg.Segment > 0 {
-				args = append(args, "--demucs-segment", fmt.Sprintf("%d", cfg.Segment))
-			}
+		if cfg.Segment > 0 {
+			args = append(args, "--demucs-segment", fmt.Sprintf("%g", cfg.Segment))
+		}
 			if cfg.Jobs > 0 {
 				args = append(args, "--jobs", fmt.Sprintf("%d", cfg.Jobs))
 			}
@@ -1279,9 +1279,9 @@ type SeparateRequest struct {
 	Steps []cli.PipelineStep `json:"steps,omitempty"`
 
 	// Demucs-specific overrides (optional, only used when model is htdemucs*)
-	Shifts        int `json:"shifts,omitempty"`
-	DemucsSegment int `json:"demucs_segment,omitempty"`
-	Jobs          int `json:"jobs,omitempty"`
+	Shifts        int     `json:"shifts,omitempty"`
+	DemucsSegment float64 `json:"demucs_segment,omitempty"`
+	Jobs          int     `json:"jobs,omitempty"`
 	// Device override (defaults to cuda)
 	Device string `json:"device,omitempty"`
 }
@@ -1294,7 +1294,7 @@ type ModelConfigResponse struct {
 	BatchSize   int     `json:"batch_size"`
 	Device      string  `json:"device"`
 	Shifts      int     `json:"shifts"`
-	Segment     int     `json:"segment"`
+	Segment     float64 `json:"segment"`
 	Jobs        int     `json:"jobs"`
 }
 
@@ -1542,7 +1542,7 @@ func readModelConfigFromYaml(name string) ModelConfigResponse {
 			}
 		}
 		if n := findYamlChildNode(demNode, "segment"); n != nil {
-			if v, err := strconv.Atoi(n.Value); err == nil {
+			if v, err := strconv.ParseFloat(n.Value, 64); err == nil {
 				resp.Segment = v
 			}
 		}
@@ -1581,8 +1581,8 @@ func writeModelConfigToYaml(name string, cfg ModelConfigResponse) error {
 		if err := os.MkdirAll(filepath.Dir(yamlPath), 0o755); err != nil {
 			return fmt.Errorf("failed to create model config directory: %w", err)
 		}
-		raw := fmt.Sprintf("inference:\n  dim_t: %d\n  num_overlap: %d\n  batch_size: %d\ndemucs:\n  shifts: %d\n  segment: %d\n  jobs: %d\n",
-			dimT, numOverlap, batchSize, cfg.Shifts, cfg.Segment, cfg.Jobs)
+		raw := fmt.Sprintf("inference:\n  dim_t: %d\n  num_overlap: %d\n  batch_size: %d\ndemucs:\n  shifts: %d\n  segment: %s\n  jobs: %d\n",
+			dimT, numOverlap, batchSize, cfg.Shifts, strconv.FormatFloat(cfg.Segment, 'f', -1, 64), cfg.Jobs)
 		if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
 			return fmt.Errorf("failed to seed YAML: %w", err)
 		}
@@ -1628,7 +1628,7 @@ func writeModelConfigToYaml(name string, cfg ModelConfigResponse) error {
 		)
 	}
 	setYamlChildInt(demNode, "shifts", cfg.Shifts)
-	setYamlChildInt(demNode, "segment", cfg.Segment)
+	setYamlChildFloat(demNode, "segment", cfg.Segment)
 	setYamlChildInt(demNode, "jobs", cfg.Jobs)
 
 	out, err := yaml.Marshal(&doc)
@@ -1656,6 +1656,23 @@ func setYamlChildInt(node *yaml.Node, key string, value int) {
 	node.Content = append(node.Content,
 		&yaml.Node{Kind: yaml.ScalarNode, Value: key, Tag: "!!str"},
 		&yaml.Node{Kind: yaml.ScalarNode, Value: strconv.Itoa(value), Tag: "!!int"},
+	)
+}
+
+// setYamlChildFloat sets or adds a float scalar child in a mapping node.
+func setYamlChildFloat(node *yaml.Node, key string, value float64) {
+	for i := 0; i < len(node.Content)-1; i += 2 {
+		if node.Content[i].Value == key {
+			node.Content[i+1].Value = strconv.FormatFloat(value, 'f', -1, 64)
+			node.Content[i+1].Tag = "!!float"
+			node.Content[i+1].Style = 0
+			return
+		}
+	}
+	// Not found, append
+	node.Content = append(node.Content,
+		&yaml.Node{Kind: yaml.ScalarNode, Value: key, Tag: "!!str"},
+		&yaml.Node{Kind: yaml.ScalarNode, Value: strconv.FormatFloat(value, 'f', -1, 64), Tag: "!!float"},
 	)
 }
 
