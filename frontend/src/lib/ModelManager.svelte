@@ -330,6 +330,27 @@
             </div>
           </div>
 
+          <!-- Chunk Size -->
+          <div class="field" class:demucs-disabled={isDemucsFamily}>
+            <label for="chunk-size">
+              Chunk Size: <strong>{chunkSize === 0 ? 'auto' : chunkSize}</strong>
+            </label>
+            <input
+              id="chunk-size"
+              type="range"
+              min="0"
+              max="4096"
+              step="1"
+              bind:value={chunkSize}
+              disabled={isDemucsFamily}
+            />
+            <p class="param-desc">Divide la canción en trozos de N segundos para procesarla por partes (0 = canción completa). Reduce el uso de VRAM en canciones largas. Los trozos se unen con solapamiento suave para evitar artefactos en las uniones.</p>
+            <div class="slider-labels">
+              <span class="slider-min">0 — 🤖 Completa</span>
+              <span class="slider-max">🧩 Por partes — 4096</span>
+            </div>
+          </div>
+
           <!-- Batch Size -->
           <div class="field" class:demucs-disabled={isDemucsFamily}>
             <label for="batch-size">

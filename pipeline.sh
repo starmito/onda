@@ -109,7 +109,7 @@ report_progress() {
     fi
     progress_float=$(awk "BEGIN {printf \"%.2f\", $progress/100}")
     cat > "$STATUS_FILE" << JSONEOF
-{"status":"$status","step":"$step","progress":$progress_float,"song":"${SONG:-}","elapsed":$elapsed,"eta":$eta,"vocal_model":"${VOCAL_MODEL_DISPLAY:-${VIPERX_MODEL_DISPLAY:-}}","stem_model":"${DEMUCS_MODEL_DISPLAY:-}","segment_size":${VIPERX_DIM_T:-0},"overlap":${VIPERX_NUM_OVERLAP:-0},"chunk_size":0,"batch_size":${VIPERX_BATCH_SIZE:-0},"device":"${DEVICE:-cpu}","gpu_type":"${GPU_TYPE:-unknown}","shifts":${SHIFTS:-1},"demucs_segment":${DEMUCS_SEGMENT:-0},"jobs":${JOBS:-0}}
+{"status":"$status","step":"$step","progress":$progress_float,"song":"${SONG:-}","elapsed":$elapsed,"eta":$eta,"vocal_model":"${VOCAL_MODEL_DISPLAY:-${VIPERX_MODEL_DISPLAY:-}}","stem_model":"${DEMUCS_MODEL_DISPLAY:-}","segment_size":${VIPERX_DIM_T:-0},"overlap":${VIPERX_NUM_OVERLAP:-0},"chunk_size":${ONDA_CHUNK_SIZE:-0},"batch_size":${VIPERX_BATCH_SIZE:-0},"device":"${DEVICE:-cpu}","gpu_type":"${GPU_TYPE:-unknown}","shifts":${SHIFTS:-1},"demucs_segment":${DEMUCS_SEGMENT:-0},"jobs":${JOBS:-0}}
 JSONEOF
 }
 trap 'report_progress "error" "${CURRENT_STEP:-unknown}" 0' ERR
@@ -510,13 +510,16 @@ run_vocal_step() {
         fi
         # Read YAML params
         local yaml_num_overlap="4"
+        local yaml_chunk_size="0"
         local vocal_yaml
         vocal_yaml=$(ls "${model_dir}"/*.yaml 2>/dev/null | head -1)
         if [ -n "$vocal_yaml" ]; then
             yaml_num_overlap=$(python3 -c "import yaml; print(yaml.load(open('$vocal_yaml'), Loader=yaml.FullLoader)['inference']['num_overlap'])" 2>/dev/null || echo "4")
+            yaml_chunk_size=$(python3 -c "import yaml; print(yaml.load(open('$vocal_yaml'), Loader=yaml.FullLoader).get('inference',{}).get('chunk_size',0))" 2>/dev/null || echo "0")
         fi
 
-        run_with_elapsed python3 /app/inference_universal.py \
+        # Pass chunk size to inference via environment (0 = whole song)
+        ONDA_CHUNK_SIZE="${yaml_chunk_size}" run_with_elapsed python3 /app/inference_universal.py \
             --pipeline-status "$STATUS_FILE" \
             "${model_dir}" "${input_file}" "${output_dir}" "${yaml_num_overlap}"
     fi
@@ -997,9 +1000,11 @@ fi
 VOCAL_DIM_T=""
 VOCAL_NUM_OVERLAP=""
 VOCAL_BATCH_SIZE=""
+VOCAL_CHUNK_SIZE="0"
 VIPERX_DIM_T=""    # alias for backward compat
 VIPERX_NUM_OVERLAP=""
 VIPERX_BATCH_SIZE=""
+VIPERX_CHUNK_SIZE="0"
 if $VOCAL || $VIPERX; then
     MODEL_DIR="${VOCAL_MODEL}"
     [ -z "$MODEL_DIR" ] && MODEL_DIR="${VIPERX_MODEL}"
@@ -1009,13 +1014,18 @@ if $VOCAL || $VIPERX; then
             VOCAL_DIM_T=$(python3 -c "import yaml; print(yaml.load(open('$VOCAL_YAML'), Loader=yaml.FullLoader)['inference']['dim_t'])" 2>/dev/null || echo "")
             VOCAL_NUM_OVERLAP=$(python3 -c "import yaml; print(yaml.load(open('$VOCAL_YAML'), Loader=yaml.FullLoader)['inference']['num_overlap'])" 2>/dev/null || echo "")
             VOCAL_BATCH_SIZE=$(python3 -c "import yaml; print(yaml.load(open('$VOCAL_YAML'), Loader=yaml.FullLoader)['inference']['batch_size'])" 2>/dev/null || echo "")
+            VOCAL_CHUNK_SIZE=$(python3 -c "import yaml; print(yaml.load(open('$VOCAL_YAML'), Loader=yaml.FullLoader).get('inference',{}).get('chunk_size',0))" 2>/dev/null || echo "0")
             VIPERX_DIM_T="${VOCAL_DIM_T}"
             VIPERX_NUM_OVERLAP="${VOCAL_NUM_OVERLAP}"
             VIPERX_BATCH_SIZE="${VOCAL_BATCH_SIZE}"
-            echo "   ℹ️  Model YAML: dim_t=${VOCAL_DIM_T}, overlap=${VOCAL_NUM_OVERLAP}, batch=${VOCAL_BATCH_SIZE}"
+            VIPERX_CHUNK_SIZE="${VOCAL_CHUNK_SIZE}"
+            echo "   ℹ️  Model YAML: dim_t=${VOCAL_DIM_T}, overlap=${VOCAL_NUM_OVERLAP}, batch=${VOCAL_BATCH_SIZE}, chunk=${VOCAL_CHUNK_SIZE}"
         fi
     fi
 fi
+
+# Export chunk size for RoFormer inference (0 = whole song)
+export ONDA_CHUNK_SIZE="${VIPERX_CHUNK_SIZE:-${VOCAL_CHUNK_SIZE:-0}}"
 
 # ── Smart defaults: Vocal model ya separa vocals, Demucs no necesita repetir ──
 if { $VOCAL || $VIPERX; } && $DEMUCS && [ "${DEMUCS_KEEP}" = "all" ]; then

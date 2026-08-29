@@ -77,6 +77,8 @@ type JobRequest struct {
 	// Steps for multi-step pipeline chaining (v2.8.0+)
 	Steps     []cli.PipelineStep `json:"steps,omitempty"`
 	StepIndex int                `json:"step_index"` // current step being executed (for multi-step)
+	// Extra environment variables for the pipeline subprocess (e.g. ONDA_CHUNK_SIZE).
+	Env []string `json:"env,omitempty"`
 }
 
 // JobState tracks the status of a separation job.
@@ -749,6 +751,9 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	args := append([]string{script}, pipelineArgs...)
 	cmd := exec.CommandContext(ctx, "bash", args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	if len(job.Env) > 0 {
+		cmd.Env = append(os.Environ(), job.Env...)
+	}
 
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -830,7 +835,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 
 		// Build args for this specific step
 		containerOutput := "/app/output/" + song
-		stepArgs := buildStepPipelineArgs(step, currentInput, containerOutput, job.Config.Device)
+		stepArgs, stepEnv := buildStepPipelineArgs(step, currentInput, containerOutput, job.Config.Device)
 		stepArgs = append(stepArgs, "--output", containerOutput)
 
 		// For steps after the first, add --no-clean to preserve previous outputs
@@ -845,6 +850,9 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		pipelineArgs := append([]string{"/app/pipeline.sh"}, stepArgs...)
 		cmd := exec.CommandContext(ctx, "bash", pipelineArgs...)
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		if len(stepEnv) > 0 {
+			cmd.Env = append(os.Environ(), stepEnv...)
+		}
 
 		var out bytes.Buffer
 		cmd.Stdout = &out
@@ -1043,8 +1051,9 @@ func normalizeContainerInput(input string) string {
 
 // buildPipelineArgs constructs the argument list for pipeline.sh from a SeparateRequest.
 // If a preset with Steps is referenced, those steps are returned separately for multi-step chaining.
-// Returns: song name, pipeline args, list of steps for chaining (if any).
-func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps []cli.PipelineStep) {
+// Returns: song name, pipeline args, list of steps for chaining (if any), and any extra
+// environment variables that must be set for the subprocess (e.g. ONDA_CHUNK_SIZE).
+func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps []cli.PipelineStep, env []string) {
 	req.Input = normalizeContainerInput(req.Input)
 	song = strings.TrimSuffix(filepath.Base(req.Input), filepath.Ext(req.Input))
 	containerOutput := "/app/output/" + song
@@ -1066,8 +1075,9 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 	if len(steps) > 0 {
 		// For multi-step presets, build args for the FIRST step only.
 		// The worker will iterate through remaining steps.
-		stepArgs := buildStepPipelineArgs(steps[0], req.Input, containerOutput, req.Device)
+		stepArgs, stepEnv := buildStepPipelineArgs(steps[0], req.Input, containerOutput, req.Device)
 		args = append(args, stepArgs...)
+		env = append(env, stepEnv...)
 		args = append(args, "--output", containerOutput)
 
 		// If it's the only step, use the input directly
@@ -1079,7 +1089,7 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 			args = append(args, "--no-clean")
 			args = append(args, req.Input)
 		}
-		return song, args, steps
+		return song, args, steps, env
 	}
 
 	// --- BACKWARD COMPAT: old format (no steps) ---
@@ -1109,6 +1119,9 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 			args = append(args, "--vocal-type", "mdx")
 		} else if isScnetModel(vocalModel) {
 			args = append(args, "--vocal-type", "scnet")
+		}
+		if envVar := vocalChunkSizeEnv(vocalModel); envVar != "" {
+			env = append(env, envVar)
 		}
 	}
 	stemModel := req.StemModel
@@ -1166,12 +1179,26 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 
 	args = append(args, "--output", containerOutput)
 	args = append(args, req.Input)
-	return song, args, nil
+	return song, args, nil, env
+}
+
+// vocalChunkSizeEnv returns an ONDA_CHUNK_SIZE env var when the model has a
+// positive time-based chunk size configured. Empty string means "not set".
+func vocalChunkSizeEnv(model string) string {
+	if model == "" {
+		return ""
+	}
+	cfg := readModelConfigFromYaml(model)
+	if cfg.ChunkSize > 0 {
+		return fmt.Sprintf("ONDA_CHUNK_SIZE=%d", cfg.ChunkSize)
+	}
+	return ""
 }
 
 // buildStepPipelineArgs builds pipeline.sh arguments for a single PipelineStep.
-func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device string) []string {
-	var args []string
+// The returned env slice contains any extra environment variables that must be
+// set for the step (e.g. ONDA_CHUNK_SIZE).
+func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device string) (args []string, env []string) {
 
 	switch step.Type {
 	case "viperx", "vocal":
@@ -1186,6 +1213,9 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 				args = append(args, "--vocal-type", "mdx")
 			} else if isScnetModel(step.Model) {
 				args = append(args, "--vocal-type", "scnet")
+			}
+			if envVar := vocalChunkSizeEnv(step.Model); envVar != "" {
+				env = append(env, envVar)
 			}
 		}
 		// Keep setting based on stem routing
@@ -1240,7 +1270,7 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 	}
 
 	args = append(args, "--output", outputDir)
-	return args
+	return args, env
 }
 
 // findRouteTargets returns a list of stem filenames that should be routed to a specific step.
@@ -1374,7 +1404,7 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 
 	// Build pipeline arguments and extract song name
 	// The third return value is the list of steps for multi-step chaining
-	song, pipelineArgs, steps := buildPipelineArgs(&req)
+	song, pipelineArgs, steps, pipelineEnv := buildPipelineArgs(&req)
 
 	// Compute total pipeline steps
 	totalSteps := len(steps)
@@ -1414,7 +1444,7 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	s.jobsMu.Unlock()
 
 	// Enqueue the job (with steps if multi-step)
-	s.jobQueue <- JobRequest{Song: song, Args: pipelineArgs, Config: req, Steps: steps}
+	s.jobQueue <- JobRequest{Song: song, Args: pipelineArgs, Config: req, Steps: steps, Env: pipelineEnv}
 
 	Log("backend", "success", "Job queued: "+song)
 
@@ -1656,6 +1686,7 @@ func readModelConfigFromYaml(name string) ModelConfigResponse {
 	dimT := 801
 	numOverlap := 4
 	batchSize := 1
+	chunkSize := 0
 
 	if n := findYamlChildNode(infNode, "dim_t"); n != nil {
 		if v, err := strconv.Atoi(n.Value); err == nil {
@@ -1672,6 +1703,11 @@ func readModelConfigFromYaml(name string) ModelConfigResponse {
 			batchSize = v
 		}
 	}
+	if n := findYamlChildNode(infNode, "chunk_size"); n != nil {
+		if v, err := strconv.Atoi(n.Value); err == nil {
+			chunkSize = v
+		}
+	}
 
 	segSize := (dimT - 33) / 3
 	if segSize < 1 {
@@ -1685,7 +1721,7 @@ func readModelConfigFromYaml(name string) ModelConfigResponse {
 	resp := ModelConfigResponse{
 		SegmentSize: segSize,
 		Overlap:     overlap,
-		ChunkSize:   0,
+		ChunkSize:   chunkSize,
 		BatchSize:   batchSize,
 		Device:      "cuda",
 		Shifts:      1,
@@ -1734,6 +1770,10 @@ func writeModelConfigToYaml(name string, cfg ModelConfigResponse) error {
 	if batchSize < 1 {
 		batchSize = 1
 	}
+	chunkSize := cfg.ChunkSize
+	if chunkSize < 0 {
+		chunkSize = 0
+	}
 
 	yamlPath := findModelYaml(name)
 	var doc yaml.Node
@@ -1743,8 +1783,8 @@ func writeModelConfigToYaml(name string, cfg ModelConfigResponse) error {
 		if err := os.MkdirAll(filepath.Dir(yamlPath), 0o755); err != nil {
 			return fmt.Errorf("failed to create model config directory: %w", err)
 		}
-		raw := fmt.Sprintf("inference:\n  dim_t: %d\n  num_overlap: %d\n  batch_size: %d\ndemucs:\n  shifts: %d\n  segment: %s\n  jobs: %d\n",
-			dimT, numOverlap, batchSize, cfg.Shifts, strconv.FormatFloat(cfg.Segment, 'f', -1, 64), cfg.Jobs)
+		raw := fmt.Sprintf("inference:\n  dim_t: %d\n  num_overlap: %d\n  batch_size: %d\n  chunk_size: %d\ndemucs:\n  shifts: %d\n  segment: %s\n  jobs: %d\n",
+			dimT, numOverlap, batchSize, chunkSize, cfg.Shifts, strconv.FormatFloat(cfg.Segment, 'f', -1, 64), cfg.Jobs)
 		if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
 			return fmt.Errorf("failed to seed YAML: %w", err)
 		}
@@ -1779,6 +1819,7 @@ func writeModelConfigToYaml(name string, cfg ModelConfigResponse) error {
 	setYamlChildInt(infNode, "dim_t", dimT)
 	setYamlChildInt(infNode, "num_overlap", numOverlap)
 	setYamlChildInt(infNode, "batch_size", batchSize)
+	setYamlChildInt(infNode, "chunk_size", chunkSize)
 
 	// Update Demucs-specific section
 	demNode := findYamlChildNode(root, "demucs")
@@ -1916,6 +1957,11 @@ func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
 		if cfg.Overlap < 0 || cfg.Overlap >= 1 {
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": "overlap must be >= 0 and < 1"})
+			return
+		}
+		if cfg.ChunkSize < 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "chunk_size must be >= 0"})
 			return
 		}
 		if cfg.Device != "" && cfg.Device != "cpu" && cfg.Device != "cuda" {

@@ -45,7 +45,7 @@ func TestBuildPipelineArgs_NormalizesRelativeInput(t *testing.T) {
 		Viperx: true,
 		Demucs: true,
 	}
-	song, args, steps := buildPipelineArgs(req)
+	song, args, steps, _ := buildPipelineArgs(req)
 	if song != "fiesta_pagana" {
 		t.Errorf("expected song fiesta_pagana, got %q", song)
 	}
@@ -65,7 +65,7 @@ func TestBuildPipelineArgs_KeepsContainerInput(t *testing.T) {
 		Input:  "/app/input/fiesta_pagana.flac",
 		Viperx: true,
 	}
-	song, args, steps := buildPipelineArgs(req)
+	song, args, steps, _ := buildPipelineArgs(req)
 	if song != "fiesta_pagana" {
 		t.Errorf("expected song fiesta_pagana, got %q", song)
 	}
@@ -83,7 +83,7 @@ func TestBuildPipelineArgs_KeepsOtherAbsoluteInput(t *testing.T) {
 		Input:  "/home/user/music/fiesta_pagana.flac",
 		Viperx: true,
 	}
-	song, args, steps := buildPipelineArgs(req)
+	song, args, steps, _ := buildPipelineArgs(req)
 	if song != "fiesta_pagana" {
 		t.Errorf("expected song fiesta_pagana, got %q", song)
 	}
@@ -104,7 +104,7 @@ func TestBuildPipelineArgs_MultiStepNormalizesInput(t *testing.T) {
 		},
 		Device: "cuda",
 	}
-	_, args, _ := buildPipelineArgs(req)
+	_, args, _, _ := buildPipelineArgs(req)
 	if !contains(args, "/app/input/fiesta_pagana.flac") {
 		t.Errorf("expected multi-step args to contain normalized input path, got %v", args)
 	}

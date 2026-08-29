@@ -94,7 +94,7 @@ func TestBuildStepPipelineArgs_Vocal(t *testing.T) {
 			"instrumental": {Action: cli.StemSave, Target: "result"},
 		},
 	}
-	args := buildStepPipelineArgs(step, "/app/input/song.wav", "/app/output/song", "cpu")
+	args, _ := buildStepPipelineArgs(step, "/app/input/song.wav", "/app/output/song", "cpu")
 	joined := " " + joinArgs(args) + " "
 	if !contains(args, "--vocal-model") {
 		t.Error("expected --vocal-model flag")
@@ -127,7 +127,7 @@ func TestBuildStepPipelineArgs_Demucs(t *testing.T) {
 			"vocals": {Action: cli.StemDiscard},
 		},
 	}
-	args := buildStepPipelineArgs(step, "/app/input/song.wav", "/app/output/song", "cuda")
+	args, _ := buildStepPipelineArgs(step, "/app/input/song.wav", "/app/output/song", "cuda")
 	if !contains(args, "--stem-model") {
 		t.Error("expected --stem-model flag")
 	}
@@ -159,7 +159,7 @@ func TestBuildPipelineArgs_OldFormat(t *testing.T) {
 		StemModel:   "htdemucs_ft",
 		Device:      "cpu",
 	}
-	song, args, steps := buildPipelineArgs(&req)
+	song, args, steps, _ := buildPipelineArgs(&req)
 	if song != "song" {
 		t.Errorf("expected song name song, got %q", song)
 	}
@@ -188,7 +188,7 @@ func TestBuildPipelineArgs_MultiStepPreset(t *testing.T) {
 		},
 		Device: "cuda",
 	}
-	song, args, steps := buildPipelineArgs(&req)
+	song, args, steps, _ := buildPipelineArgs(&req)
 	if song != "song" {
 		t.Errorf("expected song name song, got %q", song)
 	}
