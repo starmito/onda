@@ -1,5 +1,17 @@
 # Changelog
 
+## [v3.2.5] - 2026-08-29
+
+### Added
+- **UI de configuración por tipos de modelo**: Ajustes → Modelos ahora tiene pestañas Roformer / Demucs / MDX / SCNet, cada una con sus modelos y parámetros. Roformer y Demucs editan desde sliders; MDX y SCNet muestran los valores del YAML (solo lectura).
+- **Config de Demucs aplicada de verdad** al procesar (shifts / segment / jobs):
+  - El backend lee la config guardada en `config/model_configs/htdemucs_ft.yaml` cuando la petición incluye demucs.
+  - Fallback en `pipeline.sh`: si la petición no especifica demucs, el pipeline lee la config guardada igualmente.
+
+### Fixed
+- Config de Demucs guardada desde la UI pero ignorada en la inferencia (el pipeline usaba siempre shifts 1 / segment 0 / jobs 0).
+- Clasificación de modelos por categoría (`VR_Arch` agrupaba Roformer/MDX/SCNet y rompía las pestañas): ahora se clasifica por nombre del modelo.
+
 ## [v3.2.4] - 2026-08-29
 
 ### Added
