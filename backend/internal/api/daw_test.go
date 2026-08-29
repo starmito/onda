@@ -129,10 +129,10 @@ func TestHandleImportStem_Output(t *testing.T) {
 func TestHandleImportStem_Pitch(t *testing.T) {
 	root := setupDAWTestRoot(t)
 	srcContent := []byte("pitch-content")
-	writeTestFile(t, filepath.Join(root, "input_rubberband", "mi_pitch.wav"), srcContent)
+	writeTestFile(t, filepath.Join(root, "output", "fiesta_pagana", "fiesta_pagana_pitch+2", "vocals_pitch+2.wav"), srcContent)
 
 	srv := newDAWTestServer(t)
-	body := `{"source":"pitch","stem":"mi_pitch.wav"}`
+	body := `{"source":"pitch","song":"fiesta_pagana","pitch":"+2","stem":"vocals_pitch+2.wav"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/daw/import", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -146,8 +146,36 @@ func TestHandleImportStem_Pitch(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if resp.File != "import_mi_pitch.wav" {
-		t.Fatalf("expected file import_mi_pitch.wav, got %s", resp.File)
+	if resp.File != "import_vocals_pitch+2.wav" {
+		t.Fatalf("expected file import_vocals_pitch+2.wav, got %s", resp.File)
+	}
+	if resp.Size != int64(len(srcContent)) {
+		t.Fatalf("expected size %d, got %d", len(srcContent), resp.Size)
+	}
+}
+
+func TestHandleImportStem_PitchAuto(t *testing.T) {
+	root := setupDAWTestRoot(t)
+	srcContent := []byte("pitch-auto-content")
+	writeTestFile(t, filepath.Join(root, "output", "fiesta_pagana", "fiesta_pagana_pitch+2", "vocals_pitch+2.wav"), srcContent)
+
+	srv := newDAWTestServer(t)
+	body := `{"source":"pitch","song":"fiesta_pagana","stem":"vocals_pitch+2.wav"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/daw/import", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ImportResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.File != "import_vocals_pitch+2.wav" {
+		t.Fatalf("expected file import_vocals_pitch+2.wav, got %s", resp.File)
 	}
 	if resp.Size != int64(len(srcContent)) {
 		t.Fatalf("expected size %d, got %d", len(srcContent), resp.Size)
@@ -162,6 +190,7 @@ func TestHandleImportStem_Validation(t *testing.T) {
 		`{"source":"output","song":"cancion1"}`,
 		`{"source":"output","stem":"vocals.wav"}`,
 		`{"source":"pitch"}`,
+		`{"source":"pitch","stem":"vocals.wav"}`,
 		`{"source":"bad"}`,
 	}
 	for _, body := range cases {

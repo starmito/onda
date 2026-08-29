@@ -361,10 +361,10 @@ func TestHandleImport_Output(t *testing.T) {
 func TestHandleImport_Pitch(t *testing.T) {
 	root := setupFase10TestRoot(t)
 	srcContent := []byte("pitch-content")
-	writeFase10TestFile(t, filepath.Join(root, "input_rubberband", "mi_pitch.wav"), srcContent)
+	writeFase10TestFile(t, filepath.Join(root, "output", "fiesta_pagana", "fiesta_pagana_pitch+2", "vocals_pitch+2.wav"), srcContent)
 
 	srv := newFase10TestServer(t)
-	body := `{"source":"pitch","stem":"mi_pitch.wav"}`
+	body := `{"source":"pitch","song":"fiesta_pagana","pitch":"+2","stem":"vocals_pitch+2.wav"}`
 	req, err := http.NewRequest(http.MethodPost, srv.URL+"/api/daw/import", strings.NewReader(body))
 	if err != nil {
 		t.Fatalf("failed to create request: %v", err)
@@ -386,8 +386,8 @@ func TestHandleImport_Pitch(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&ir); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if ir.File != "import_mi_pitch.wav" {
-		t.Fatalf("expected import_mi_pitch.wav, got %s", ir.File)
+	if ir.File != "import_vocals_pitch+2.wav" {
+		t.Fatalf("expected import_vocals_pitch+2.wav, got %s", ir.File)
 	}
 	if ir.Size != int64(len(srcContent)) {
 		t.Fatalf("expected size %d, got %d", len(srcContent), ir.Size)

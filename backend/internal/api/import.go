@@ -14,6 +14,7 @@ type ImportRequest struct {
 	Source string `json:"source"`
 	Song   string `json:"song,omitempty"`
 	Stem   string `json:"stem,omitempty"`
+	Pitch  string `json:"pitch,omitempty"`
 }
 
 // ImportResponse is returned by POST /api/daw/import.
@@ -23,7 +24,7 @@ type ImportResponse struct {
 	Size int64  `json:"size"`
 }
 
-// handleImportStem copies a stem from output/ or input_rubberband/ into daw-data/.
+// handleImportStem copies a stem from output/ into daw-data/.
 // POST /api/daw/import
 func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -51,6 +52,14 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 	}
 
 	projectRoot := resolveProjectRoot()
+	outputBase := filepath.Join(projectRoot, "output")
+	absOutputBase, err := filepath.Abs(outputBase)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to resolve output path"})
+		return
+	}
 	var srcPath, destFile string
 
 	switch req.Source {
@@ -63,21 +72,29 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 		}
 		safeSong := filepath.Base(req.Song)
 		safeStem := filepath.Base(req.Stem)
-		srcPath = filepath.Join(projectRoot, "output", safeSong, safeStem)
+		srcPath = filepath.Join(outputBase, safeSong, safeStem)
 		ext := strings.ToLower(filepath.Ext(safeStem))
 		destFile = fmt.Sprintf("import_%s_%s", safeSong, strings.TrimSuffix(safeStem, ext))
 		if ext != "" {
 			destFile += ext
 		}
 	case "pitch":
-		if req.Stem == "" {
+		if req.Song == "" || req.Stem == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "stem is required for pitch source"})
+			json.NewEncoder(w).Encode(map[string]string{"error": "song and stem are required for pitch source"})
 			return
 		}
+		safeSong := filepath.Base(req.Song)
 		safeStem := filepath.Base(req.Stem)
-		srcPath = filepath.Join(projectRoot, "input_rubberband", safeStem)
+		resolved, err := resolvePitchSourcePath(absOutputBase, safeSong, req.Pitch, safeStem)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "source file not found"})
+			return
+		}
+		srcPath = resolved
 		ext := strings.ToLower(filepath.Ext(safeStem))
 		destFile = fmt.Sprintf("import_%s", safeStem)
 		if ext == "" {
@@ -87,6 +104,15 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("unsupported source %q", req.Source)})
+		return
+	}
+
+	// Defense in depth: verify the resolved source path stays inside output/.
+	absSrc, err := filepath.Abs(srcPath)
+	if err != nil || !strings.HasPrefix(absSrc, absOutputBase+string(filepath.Separator)) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid source path"})
 		return
 	}
 
@@ -142,4 +168,50 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 		Path: "daw-data/" + filepath.Base(destPath),
 		Size: info.Size(),
 	})
+}
+
+// resolvePitchSourcePath locates a pitch-shifted stem under output/{song}/.
+// If pitch is non-empty, it returns output/{song}/{song}_pitch{pitch}/{stem}.
+// Otherwise it scans subdirectories of output/{song} whose name contains "_pitch"
+// and returns the first one that contains the requested stem.
+// All inputs are expected to have been sanitized with filepath.Base.
+func resolvePitchSourcePath(absOutputBase, song, pitch, stem string) (string, error) {
+	songDir := filepath.Join(absOutputBase, song)
+	absSongDir, err := filepath.Abs(songDir)
+	if err != nil || !strings.HasPrefix(absSongDir, absOutputBase+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid song path")
+	}
+
+	if pitch != "" {
+		safePitch := filepath.Base(pitch)
+		pitchDir := filepath.Join(absSongDir, song+"_pitch"+safePitch)
+		absPitchDir, err := filepath.Abs(pitchDir)
+		if err != nil || !strings.HasPrefix(absPitchDir, absOutputBase+string(filepath.Separator)) {
+			return "", fmt.Errorf("invalid pitch path")
+		}
+		candidate := filepath.Join(absPitchDir, stem)
+		if _, err := os.Stat(candidate); err != nil {
+			return "", err
+		}
+		return candidate, nil
+	}
+
+	entries, err := os.ReadDir(absSongDir)
+	if err != nil {
+		return "", err
+	}
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		if !strings.Contains(name, "_pitch") {
+			continue
+		}
+		candidate := filepath.Join(absSongDir, name, stem)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate, nil
+		}
+	}
+	return "", fmt.Errorf("source file not found")
 }
