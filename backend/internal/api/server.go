@@ -1060,12 +1060,6 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 			args = append(args, "--vocal-keep", req.ViperxKeep)
 		}
 	}
-	if req.Demucs {
-		args = append(args, "--stem-model", "htdemucs_ft")
-		if len(req.DemucsKeep) > 0 {
-			args = append(args, "--demucs-keep", strings.Join(req.DemucsKeep, ","))
-		}
-	}
 	if req.Pitch != 0 {
 		args = append(args, "--pitch", fmt.Sprintf("%d", req.Pitch))
 	}
@@ -1096,20 +1090,39 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 			// This shouldn't happen with new format, but keep for safety
 		}
 	}
+	if stemModel == "" && req.Demucs {
+		stemModel = "htdemucs_ft"
+	}
 	if stemModel != "" {
 		args = append(args, "--stem-model", stemModel)
+		if req.Demucs && len(req.DemucsKeep) > 0 {
+			args = append(args, "--demucs-keep", strings.Join(req.DemucsKeep, ","))
+		}
 	}
 
-	// Demucs-specific flags
-	if stemModel != "" && (strings.HasPrefix(stemModel, "htdemucs") || strings.Contains(stemModel, "htdemucs")) {
-		if req.Shifts > 1 {
-			args = append(args, "--shifts", fmt.Sprintf("%d", req.Shifts))
+	// Demucs-specific flags: use saved config when the request does not override.
+	if isDemucsModel(stemModel) {
+		cfg := readModelConfigFromYaml(stemModel)
+		shifts := req.Shifts
+		if shifts <= 0 {
+			shifts = cfg.Shifts
 		}
-		if req.DemucsSegment > 0 {
-			args = append(args, "--demucs-segment", fmt.Sprintf("%d", req.DemucsSegment))
+		if shifts > 1 {
+			args = append(args, "--shifts", fmt.Sprintf("%d", shifts))
 		}
-		if req.Jobs > 0 {
-			args = append(args, "--jobs", fmt.Sprintf("%d", req.Jobs))
+		segment := req.DemucsSegment
+		if segment <= 0 {
+			segment = cfg.Segment
+		}
+		if segment > 0 {
+			args = append(args, "--demucs-segment", fmt.Sprintf("%d", segment))
+		}
+		jobs := req.Jobs
+		if jobs <= 0 {
+			jobs = cfg.Jobs
+		}
+		if jobs > 0 {
+			args = append(args, "--jobs", fmt.Sprintf("%d", jobs))
 		}
 	}
 	// Device override (defaults to cuda in pipeline.sh)
@@ -1149,11 +1162,11 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 			}
 		}
 	case "demucs":
-		args = append(args, "--stem-model", "htdemucs_ft")
-		// Model
-		if step.Model != "" {
-			args = append(args, "--stem-model", step.Model)
+		stemModel := step.Model
+		if stemModel == "" {
+			stemModel = "htdemucs_ft"
 		}
+		args = append(args, "--stem-model", stemModel)
 		// Stem keep based on routing (preserve a stable stem order)
 		if step.Stems != nil {
 			var keep []string
@@ -1164,6 +1177,19 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 			}
 			if len(keep) > 0 {
 				args = append(args, "--demucs-keep", strings.Join(keep, ","))
+			}
+		}
+		// Apply saved Demucs config when available.
+		if isDemucsModel(stemModel) {
+			cfg := readModelConfigFromYaml(stemModel)
+			if cfg.Shifts > 1 {
+				args = append(args, "--shifts", fmt.Sprintf("%d", cfg.Shifts))
+			}
+			if cfg.Segment > 0 {
+				args = append(args, "--demucs-segment", fmt.Sprintf("%d", cfg.Segment))
+			}
+			if cfg.Jobs > 0 {
+				args = append(args, "--jobs", fmt.Sprintf("%d", cfg.Jobs))
 			}
 		}
 	}
@@ -1388,20 +1414,38 @@ func resolveModelDir(name string) string {
 	return ""
 }
 
+// modelConfigsDir returns the directory where per-model YAML configs are stored
+// for models that do not have an on-disk directory (e.g. built-in Demucs models).
+func modelConfigsDir() string {
+	return filepath.Join(resolveProjectRoot(), "config", "model_configs")
+}
+
+// modelConfigYamlPath returns the fallback YAML path for a model name.
+func modelConfigYamlPath(name string) string {
+	return filepath.Join(modelConfigsDir(), name+".yaml")
+}
+
 // findModelYaml returns the path to the model's YAML config file, or empty string.
+// It first looks inside the model directory; if there is no YAML there, it falls
+// back to config/model_configs/<name>.yaml.
 func findModelYaml(modelName string) string {
 	modelDir := resolveModelDir(modelName)
-	if modelDir == "" {
-		return ""
-	}
-	matches, err := filepath.Glob(filepath.Join(modelDir, "*.yaml"))
-	if err != nil || len(matches) == 0 {
-		matches, err = filepath.Glob(filepath.Join(modelDir, "*.yml"))
-		if err != nil || len(matches) == 0 {
-			return ""
+	if modelDir != "" {
+		if info, err := os.Stat(modelDir); err == nil && info.IsDir() {
+			for _, ext := range []string{"*.yaml", "*.yml"} {
+				matches, err := filepath.Glob(filepath.Join(modelDir, ext))
+				if err == nil && len(matches) > 0 {
+					return matches[0]
+				}
+			}
 		}
 	}
-	return matches[0]
+
+	cfgPath := modelConfigYamlPath(modelName)
+	if info, err := os.Stat(cfgPath); err == nil && !info.IsDir() {
+		return cfgPath
+	}
+	return ""
 }
 
 // findYamlChildNode finds a child node by key in a mapping node.
@@ -1479,7 +1523,7 @@ func readModelConfigFromYaml(name string) ModelConfigResponse {
 		overlap = 1.0 / float64(numOverlap)
 	}
 
-	return ModelConfigResponse{
+	resp := ModelConfigResponse{
 		SegmentSize: segSize,
 		Overlap:     overlap,
 		ChunkSize:   0,
@@ -1489,15 +1533,32 @@ func readModelConfigFromYaml(name string) ModelConfigResponse {
 		Segment:     0,
 		Jobs:        0,
 	}
+
+	// Read Demucs-specific overrides if present.
+	if demNode := findYamlChildNode(doc.Content[0], "demucs"); demNode != nil && demNode.Kind == yaml.MappingNode {
+		if n := findYamlChildNode(demNode, "shifts"); n != nil {
+			if v, err := strconv.Atoi(n.Value); err == nil {
+				resp.Shifts = v
+			}
+		}
+		if n := findYamlChildNode(demNode, "segment"); n != nil {
+			if v, err := strconv.Atoi(n.Value); err == nil {
+				resp.Segment = v
+			}
+		}
+		if n := findYamlChildNode(demNode, "jobs"); n != nil {
+			if v, err := strconv.Atoi(n.Value); err == nil {
+				resp.Jobs = v
+			}
+		}
+	}
+
+	return resp
 }
 
 // writeModelConfigToYaml writes inference parameters to a model's YAML file using Go yaml.Node.
+// If the model has no YAML on disk, it creates one at config/model_configs/<name>.yaml.
 func writeModelConfigToYaml(name string, cfg ModelConfigResponse) error {
-	yamlPath := findModelYaml(name)
-	if yamlPath == "" {
-		return fmt.Errorf("model YAML not found for %s", name)
-	}
-
 	// Convert segment_size → dim_t, overlap → num_overlap
 	dimT := cfg.SegmentSize*3 + 33
 	numOverlap := 0
@@ -1512,35 +1573,63 @@ func writeModelConfigToYaml(name string, cfg ModelConfigResponse) error {
 		batchSize = 1
 	}
 
-	data, err := os.ReadFile(yamlPath)
-	if err != nil {
-		return fmt.Errorf("failed to read YAML: %w", err)
-	}
-
+	yamlPath := findModelYaml(name)
 	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return fmt.Errorf("failed to parse YAML: %w", err)
+	if yamlPath == "" {
+		// No YAML yet: create one in the fallback config directory.
+		yamlPath = modelConfigYamlPath(name)
+		if err := os.MkdirAll(filepath.Dir(yamlPath), 0o755); err != nil {
+			return fmt.Errorf("failed to create model config directory: %w", err)
+		}
+		raw := fmt.Sprintf("inference:\n  dim_t: %d\n  num_overlap: %d\n  batch_size: %d\ndemucs:\n  shifts: %d\n  segment: %d\n  jobs: %d\n",
+			dimT, numOverlap, batchSize, cfg.Shifts, cfg.Segment, cfg.Jobs)
+		if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
+			return fmt.Errorf("failed to seed YAML: %w", err)
+		}
+	} else {
+		data, err := os.ReadFile(yamlPath)
+		if err != nil {
+			return fmt.Errorf("failed to read YAML: %w", err)
+		}
+		if err := yaml.Unmarshal(data, &doc); err != nil {
+			return fmt.Errorf("failed to parse YAML: %w", err)
+		}
 	}
 
 	if len(doc.Content) == 0 {
-		return fmt.Errorf("empty YAML document")
+		root := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		doc.Content = append(doc.Content, root)
+	}
+	root := doc.Content[0]
+	if root.Kind != yaml.MappingNode {
+		return fmt.Errorf("YAML root is not a mapping")
 	}
 
-	root := doc.Content[0]
+	// Update inference section
 	infNode := findYamlChildNode(root, "inference")
 	if infNode == nil || infNode.Kind != yaml.MappingNode {
-		// Create inference section if it doesn't exist
 		infNode = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
 		root.Content = append(root.Content,
 			&yaml.Node{Kind: yaml.ScalarNode, Value: "inference"},
 			infNode,
 		)
 	}
-
-	// Set or update scalar children
 	setYamlChildInt(infNode, "dim_t", dimT)
 	setYamlChildInt(infNode, "num_overlap", numOverlap)
 	setYamlChildInt(infNode, "batch_size", batchSize)
+
+	// Update Demucs-specific section
+	demNode := findYamlChildNode(root, "demucs")
+	if demNode == nil || demNode.Kind != yaml.MappingNode {
+		demNode = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+		root.Content = append(root.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Value: "demucs"},
+			demNode,
+		)
+	}
+	setYamlChildInt(demNode, "shifts", cfg.Shifts)
+	setYamlChildInt(demNode, "segment", cfg.Segment)
+	setYamlChildInt(demNode, "jobs", cfg.Jobs)
 
 	out, err := yaml.Marshal(&doc)
 	if err != nil {
