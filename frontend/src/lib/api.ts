@@ -827,6 +827,7 @@ export async function getVRAMCalculator(params: {
   segment_size?: number;
   overlap?: number;
   batch_size?: number;
+  demucs_segment?: number;
 }): Promise<VRAMCalculatorResponse> {
   const qs = new URLSearchParams();
   qs.set('models', params.models);
@@ -844,6 +845,9 @@ export async function getVRAMCalculator(params: {
   }
   if (params.batch_size !== undefined && params.batch_size > 0) {
     qs.set('batch_size', String(params.batch_size));
+  }
+  if (params.demucs_segment !== undefined) {
+    qs.set('demucs_segment', String(params.demucs_segment));
   }
   const res = await fetch(`${API_BASE}/api/gpu/vram-calculator?${qs.toString()}`);
   if (!res.ok) {

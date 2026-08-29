@@ -146,6 +146,7 @@
     const ss = segmentSize;
     const ov = overlap;
     const bs = batchSize;
+    const seg = segment;
 
     // Debounce timer (avoid rapid-fire calls during slider drag)
     let cancelled = false;
@@ -153,7 +154,7 @@
       vramCalcLoading = true;
       vramCalcError = false;
       try {
-        const params: { models: string; chunk_size?: number; shifts?: number; segment_size?: number; overlap?: number; batch_size?: number } = {
+        const params: { models: string; chunk_size?: number; shifts?: number; segment_size?: number; overlap?: number; batch_size?: number; demucs_segment?: number } = {
           models: model,
         };
         if (cs > 0) params.chunk_size = cs;
@@ -161,6 +162,9 @@
         if (ss > 0) params.segment_size = ss;
         if (ov > 0) params.overlap = ov;
         if (bs > 0) params.batch_size = bs;
+        if (isDemucs) {
+          params.demucs_segment = seg;
+        }
         const result = await getVRAMCalculator(params);
         if (!cancelled) {
           vramCalcResult = result;

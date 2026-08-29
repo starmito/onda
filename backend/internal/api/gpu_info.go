@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"os/exec"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 )
 
@@ -41,80 +41,48 @@ type VRAMCalculatorResponse struct {
 	Fits            bool             `json:"fits"`
 }
 
-// vramEstimates maps model names to their approximate VRAM usage in MB.
-var vramEstimates = map[string]int{
-	"melband_kj":        3200,
-	"melband_roformer":  4200,
-	"polarformer":       4800,
-	"viperx":            3800,
-	"viperx_other":      3800,
-	"vocal":             3800,
-	"vocal_other":       3800,
-	"htdemucs_ft":       2800,
-	"htdemucs_drums":    800,
-	"htdemucs_bass":     800,
-	"htdemucs_other":    800,
-	"htdemucs_vocals":   800,
-	"mdx_kim_vocal_2":   800,
-	"mdx_uvr_main":      800,
-}
-
-// defaultVRAMMB is used when a model is not found in vramEstimates.
+// defaultVRAMMB is used when a model is not catalogued by estimateVRAMMB.
 const defaultVRAMMB = 2000
 
 // fallbackAvailableVRAMMB is used when GPU info cannot be obtained.
 const fallbackAvailableVRAMMB = 16311
 
-// modelCatalogCache holds the loaded UVR model catalog for VRAM lookups.
-var (
-	modelCatalogCache []UVRModelEntry
-	catalogOnce       sync.Once
-)
-
-// loadModelCatalog ensures the UVR catalog is loaded into the cache.
-func loadModelCatalog() {
-	catalogOnce.Do(func() {
-		data, err := readProjectFile("uvr_models.json")
-		if err == nil {
-			json.Unmarshal(data, &modelCatalogCache)
-		}
-	})
-}
-
-// lookupVRAMMB returns the VRAM estimate in MB for a model name.
-// It checks the hardcoded vramEstimates map by substring matching, then the UVR catalog.
-// Falls back to defaultVRAMMB if nothing is found.
-func lookupVRAMMB(modelName string) int {
+// estimateVRAMMB returns the empirical VRAM peak in MB for a model name.
+// It uses measured peaks for Roformer/ViperX/Vocal, Demucs, MDX and SCNet.
+// Falls back to defaultVRAMMB for unknown models.
+func estimateVRAMMB(modelName string, segmentSize, batchSize, demucsSegment int) int {
 	lower := strings.ToLower(modelName)
-	for key, vram := range vramEstimates {
-		if strings.Contains(lower, strings.ToLower(key)) {
-			return vram
+
+	// Roformer / ViperX / Vocal: measured peak = 926 + 6.69*segment_size + batch_extra.
+	if isVocalOrRoformer(lower) {
+		b := batchSize
+		if b < 1 {
+			b = 1
 		}
-	}
-	loadModelCatalog()
-	// Try exact name match in catalog.
-	for _, m := range modelCatalogCache {
-		if m.Name == modelName {
-			return int(m.SizeMB)
+		batchExtra := 0.0
+		if b == 2 {
+			batchExtra = 1790.0
+		} else if b > 2 {
+			batchExtra = 1790.0 + 896.0*float64(b-2)
 		}
+		return int(math.Round(926.0 + 6.69*float64(segmentSize) + batchExtra))
 	}
-	// Try matching by name without common extensions.
-	stem := strings.TrimSuffix(modelName, ".onnx")
-	stem = strings.TrimSuffix(stem, ".ckpt")
-	stem = strings.TrimSuffix(stem, ".pth")
-	stem = strings.TrimSuffix(stem, ".th")
-	stem = strings.TrimSuffix(stem, ".safetensors")
-	for _, m := range modelCatalogCache {
-		if m.Name == stem {
-			return int(m.SizeMB)
+
+	// Demucs / htdemucs: measured peak depends on demucs segment setting.
+	if isDemucsModel(lower) {
+		if demucsSegment >= 7 {
+			return 1106
 		}
+		return 1572
 	}
-	// Try matching by filename (without extension) in catalog.
-	for _, m := range modelCatalogCache {
-		if m.Filename == modelName {
-			return int(m.SizeMB)
-		}
+
+	if strings.Contains(lower, "mdx") {
+		return 2476
 	}
+	if strings.Contains(lower, "scnet") {
+		return 1828
+	}
+
 	return defaultVRAMMB
 }
 
@@ -226,8 +194,8 @@ func (s *Server) handleGPUInfo(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(info)
 }
 
-// isVocalOrRoformer returns true for Vocal and Roformer models that
-// are sensitive to chunk_size in their VRAM calculation.
+// isVocalOrRoformer returns true for Vocal and Roformer models whose VRAM
+// scales with segment_size and batch_size according to the empirical formula.
 // Uses substring matching to recognize full model names like "BS_Roformer_Viperx".
 func isVocalOrRoformer(modelName string) bool {
 	lower := strings.ToLower(modelName)
@@ -245,8 +213,8 @@ func isViperXOrRoformer(modelName string) bool {
 	return isVocalOrRoformer(modelName)
 }
 
-// isDemucsModel returns true for Demucs-family models whose VRAM scales
-// with the number of shift-averaging passes.
+// isDemucsModel returns true for Demucs-family models whose VRAM depends
+// on the demucs_segment parameter.
 func isDemucsModel(modelName string) bool {
 	lower := strings.ToLower(modelName)
 	return strings.Contains(lower, "htdemucs") || strings.Contains(lower, "demucs")
@@ -264,25 +232,7 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse chunk_size query parameter (affects VRAM for ViperX/Roformer models).
-	chunkSize := 0
-	chunkSizeParam := r.URL.Query().Get("chunk_size")
-	if chunkSizeParam != "" {
-		if cs, err := strconv.Atoi(chunkSizeParam); err == nil && cs > 0 {
-			chunkSize = cs
-		}
-	}
-
-	// Parse shifts query parameter (affects VRAM for Demucs models).
-	shifts := 0
-	shiftsParam := r.URL.Query().Get("shifts")
-	if shiftsParam != "" {
-		if s, err := strconv.Atoi(shiftsParam); err == nil && s > 1 {
-			shifts = s
-		}
-	}
-
-	// Parse segment_size query parameter (larger segments = more VRAM).
+	// Parse segment_size query parameter (affects VRAM for Roformer/ViperX/Vocal models).
 	segmentSize := 0
 	segmentSizeParam := r.URL.Query().Get("segment_size")
 	if segmentSizeParam != "" {
@@ -291,21 +241,21 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Parse overlap query parameter (small additive VRAM factor).
-	overlap := 0.0
-	overlapParam := r.URL.Query().Get("overlap")
-	if overlapParam != "" {
-		if o, err := strconv.ParseFloat(overlapParam, 64); err == nil && o > 0 {
-			overlap = o
-		}
-	}
-
-	// Parse batch_size query parameter (multiplies VRAM for batched processing).
+	// Parse batch_size query parameter (affects VRAM for batched Roformer/ViperX/Vocal models).
 	batchSize := 0
 	batchSizeParam := r.URL.Query().Get("batch_size")
 	if batchSizeParam != "" {
 		if bs, err := strconv.Atoi(batchSizeParam); err == nil && bs > 0 {
 			batchSize = bs
+		}
+	}
+
+	// Parse demucs_segment query parameter (affects VRAM for Demucs models).
+	demucsSegment := 0
+	demucsSegmentParam := r.URL.Query().Get("demucs_segment")
+	if demucsSegmentParam != "" {
+		if ds, err := strconv.Atoi(demucsSegmentParam); err == nil && ds >= 0 {
+			demucsSegment = ds
 		}
 	}
 
@@ -322,11 +272,6 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 
 	var models []VRAMModelEntry
 	totalVRAM := 0
-
-	// defaultChunkSize is the reference chunk_size (1024) used in the VRAM formula.
-	const defaultChunkSize = 1024
-	// chunkVRAMFactor controls how strongly chunk_size affects VRAM estimation.
-	const chunkVRAMFactor = 0.25
 
 	// Split by comma: "vocal=melband_kj,stems=htdemucs_ft"
 	pairs := strings.Split(modelsParam, ",")
@@ -346,38 +291,7 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 			modelName = strings.TrimSpace(pair[eqIdx+1:])
 		}
 
-		vramMB := lookupVRAMMB(modelName)
-
-		// Convert to float64 for precise multiplicative adjustments.
-		estimated := float64(vramMB)
-
-		// Apply chunk_size factor for Vocal/Roformer models.
-		if chunkSize > 0 && isVocalOrRoformer(modelName) {
-			estimated *= 1.0 + float64(chunkSize)/float64(defaultChunkSize)*chunkVRAMFactor
-		}
-
-		// Apply batch_size factor: batch=4 → ×2 (i.e., batch/2).
-		if batchSize > 0 {
-			estimated *= float64(batchSize) / 2.0
-		}
-
-		// Apply segment_size factor: larger segments use more memory.
-		// Reference is 256; every 1024 over that adds 50 %.
-		if segmentSize > 0 {
-			estimated *= 1.0 + (float64(segmentSize)-256.0)/1024.0*0.5
-		}
-
-		// Apply overlap factor: small additive multiplier.
-		if overlap > 0 {
-			estimated *= 1.0 + overlap*0.3
-		}
-
-		// Apply shifts factor for Demucs models: N passes ≈ N× VRAM.
-		if shifts > 1 && isDemucsModel(modelName) {
-			estimated *= float64(shifts)
-		}
-
-		vramMB = int(estimated)
+		vramMB := estimateVRAMMB(modelName, segmentSize, batchSize, demucsSegment)
 
 		models = append(models, VRAMModelEntry{
 			Name:   modelName,
