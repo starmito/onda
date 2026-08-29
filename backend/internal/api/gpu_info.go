@@ -53,19 +53,15 @@ const fallbackAvailableVRAMMB = 16311
 func estimateVRAMMB(modelName string, segmentSize, batchSize, demucsSegment int) int {
 	lower := strings.ToLower(modelName)
 
-	// Roformer / ViperX / Vocal: measured peak = 926 + 6.69*segment_size + batch_extra.
+	// Roformer / ViperX / Vocal: measured peak with real long audio:
+	// pico ≈ 1100 + (106 + 6.69*segment_size) * batch_size.
+	// batch_size is multiplicative because chunks are processed in parallel.
 	if isVocalOrRoformer(lower) {
 		b := batchSize
 		if b < 1 {
 			b = 1
 		}
-		batchExtra := 0.0
-		if b == 2 {
-			batchExtra = 1790.0
-		} else if b > 2 {
-			batchExtra = 1790.0 + 896.0*float64(b-2)
-		}
-		return int(math.Round(926.0 + 6.69*float64(segmentSize) + batchExtra))
+		return int(math.Round(1100.0 + (106.0+6.69*float64(segmentSize))*float64(b)))
 	}
 
 	// Demucs / htdemucs: measured peak depends on demucs segment setting.

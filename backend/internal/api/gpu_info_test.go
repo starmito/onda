@@ -11,10 +11,11 @@ func TestEstimateVRAMMB_Empirical(t *testing.T) {
 		demucsSegment int
 		want          int
 	}{
-		{"viperx 256 b1", "BS_Roformer_Viperx", 256, 1, 0, 2639},
-		{"viperx 1024 b1", "BS_Roformer_Viperx", 1024, 1, 0, 7777},
-		{"viperx 256 b2", "BS_Roformer_Viperx", 256, 2, 0, 4429},
-		{"viperx 256 b4", "BS_Roformer_Viperx", 256, 4, 0, 6221},
+		{"viperx 256 b1", "BS_Roformer_Viperx", 256, 1, 0, 2904},
+		{"viperx 256 b2", "BS_Roformer_Viperx", 256, 2, 0, 4724},
+		{"viperx 512 b2", "BS_Roformer_Viperx", 512, 2, 0, 8178},
+		{"viperx 1024 b1", "BS_Roformer_Viperx", 1024, 1, 0, 8140},
+		{"viperx 1024 b2", "BS_Roformer_Viperx", 1024, 2, 0, 15108},
 		{"demucs seg0", "htdemucs_ft", 0, 0, 0, 1572},
 		{"demucs seg7", "htdemucs_ft", 0, 0, 7, 1106},
 		{"mdx", "MDX23C", 0, 0, 0, 2476},
