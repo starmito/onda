@@ -13,7 +13,7 @@ import (
 
 // ── Safe queue cancellation tests ───────────────────────────────────────────
 
-func TestCancelCurrentJob_KillsOnlyTrackedPID(t *testing.T) {
+func TestCancelCurrentJob_KillsProcessGroupAndTrackedPID(t *testing.T) {
 	s := &Server{
 		mux:      http.NewServeMux(),
 		jobQueue: make(chan JobRequest, 1),
@@ -23,6 +23,14 @@ func TestCancelCurrentJob_KillsOnlyTrackedPID(t *testing.T) {
 	var cancelled bool
 	s.currentCancel = func() { cancelled = true }
 	s.currentPID = 12345
+
+	var groupPIDs []int
+	origKillGroup := killProcessGroup
+	killProcessGroup = func(pgid int) error {
+		groupPIDs = append(groupPIDs, pgid)
+		return nil
+	}
+	defer func() { killProcessGroup = origKillGroup }()
 
 	var killedPIDs []int
 	origKill := killProcess
@@ -38,6 +46,9 @@ func TestCancelCurrentJob_KillsOnlyTrackedPID(t *testing.T) {
 
 	if !cancelled {
 		t.Error("expected context cancel function to be called")
+	}
+	if len(groupPIDs) != 1 || groupPIDs[0] != -12345 {
+		t.Errorf("expected killProcessGroup to target group -12345, got %v", groupPIDs)
 	}
 	if len(killedPIDs) != 1 || killedPIDs[0] != 12345 {
 		t.Errorf("expected kill to target PID 12345, got %v", killedPIDs)
@@ -61,6 +72,14 @@ func TestCancelCurrentJob_NoProcess_DoesNothing(t *testing.T) {
 	s.currentCancel = func() { cancelled = true }
 	s.currentPID = 0
 
+	var groupPIDs []int
+	origKillGroup := killProcessGroup
+	killProcessGroup = func(pgid int) error {
+		groupPIDs = append(groupPIDs, pgid)
+		return nil
+	}
+	defer func() { killProcessGroup = origKillGroup }()
+
 	var killedPIDs []int
 	origKill := killProcess
 	killProcess = func(pid int) error {
@@ -76,6 +95,9 @@ func TestCancelCurrentJob_NoProcess_DoesNothing(t *testing.T) {
 	if !cancelled {
 		t.Error("expected context cancel function to be called")
 	}
+	if len(groupPIDs) != 0 {
+		t.Errorf("expected no group kill calls without a tracked PID, got %v", groupPIDs)
+	}
 	if len(killedPIDs) != 0 {
 		t.Errorf("expected no kill calls without a tracked PID, got %v", killedPIDs)
 	}
@@ -87,6 +109,14 @@ func TestHandleQueueCancel_WithoutRunningJob_IsSafe(t *testing.T) {
 		jobQueue: make(chan JobRequest, 1),
 		jobs:     make(map[string]*JobState),
 	}
+
+	var groupPIDs []int
+	origKillGroup := killProcessGroup
+	killProcessGroup = func(pgid int) error {
+		groupPIDs = append(groupPIDs, pgid)
+		return nil
+	}
+	defer func() { killProcessGroup = origKillGroup }()
 
 	var killedPIDs []int
 	origKill := killProcess
@@ -102,6 +132,9 @@ func TestHandleQueueCancel_WithoutRunningJob_IsSafe(t *testing.T) {
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if len(groupPIDs) != 0 {
+		t.Errorf("expected no group kill calls when no job is running, got %v", groupPIDs)
 	}
 	if len(killedPIDs) != 0 {
 		t.Errorf("expected no processes killed when no job is running, got %v", killedPIDs)
@@ -408,4 +441,3 @@ func buildUploadBody(t *testing.T, filename string, content []byte) (*bytes.Buff
 	}
 	return &body, writer.FormDataContentType()
 }
-

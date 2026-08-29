@@ -282,6 +282,14 @@ func TestHandleQueueCancel_CancelsRunningJob(t *testing.T) {
 	s.currentCancel = func() { cancelled = true }
 	s.currentPID = 9999
 
+	var groupPIDs []int
+	origKillGroup := killProcessGroup
+	killProcessGroup = func(pgid int) error {
+		groupPIDs = append(groupPIDs, pgid)
+		return nil
+	}
+	defer func() { killProcessGroup = origKillGroup }()
+
 	var killedPIDs []int
 	origKill := killProcess
 	killProcess = func(pid int) error {
@@ -303,6 +311,9 @@ func TestHandleQueueCancel_CancelsRunningJob(t *testing.T) {
 	}
 	if !cancelled {
 		t.Error("expected context cancel function to be called")
+	}
+	if len(groupPIDs) != 1 || groupPIDs[0] != -9999 {
+		t.Errorf("expected group kill PID -9999, got %v", groupPIDs)
 	}
 	if len(killedPIDs) != 1 || killedPIDs[0] != 9999 {
 		t.Errorf("expected kill PID 9999, got %v", killedPIDs)
@@ -416,7 +427,6 @@ echo "stem" > "$4/vocals.wav"
 		Song: "song",
 		Args: []string{fakePipeline, "--viperx", "/app/input/song.wav", "--output", filepath.Join(root, "output", "song")},
 	}
-
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

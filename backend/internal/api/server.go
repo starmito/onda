@@ -31,9 +31,10 @@ import (
 // resolveProjectRoot returns the project root directory. It first honours the
 // ONDA_ROOT environment variable, then resolves the executable's location.
 // Expected layout:
-//   <project-root>/
-//     backend/<binary>
-//     frontend/dist/
+//
+//	<project-root>/
+//	  backend/<binary>
+//	  frontend/dist/
 func resolveProjectRoot() string {
 	if root := os.Getenv("ONDA_ROOT"); root != "" {
 		if info, err := os.Stat(root); err == nil && info.IsDir() {
@@ -117,6 +118,24 @@ var killProcess = func(pid int) error {
 	if err := proc.Signal(syscall.SIGTERM); err != nil && !errors.Is(err, os.ErrProcessDone) {
 		return err
 	}
+	return nil
+}
+
+// killProcessGroup sends SIGTERM followed by SIGKILL to every process in the
+// process group identified by pgid (which must be a negated PID, e.g. -pid).
+// It is a variable so tests can substitute a mock implementation and verify
+// that the group leader is targeted.
+var killProcessGroup = func(pgid int) error {
+	if pgid >= 0 {
+		return fmt.Errorf("killProcessGroup expects a negated process group ID, got %d", pgid)
+	}
+	if err := syscall.Kill(pgid, syscall.SIGTERM); err != nil && !errors.Is(err, syscall.ESRCH) {
+		return err
+	}
+	// Brief grace period for a clean shutdown, then force-kill stragglers so
+	// cmd.Wait() returns and the worker can pick up the next job.
+	time.Sleep(300 * time.Millisecond)
+	_ = syscall.Kill(pgid, syscall.SIGKILL)
 	return nil
 }
 
@@ -615,15 +634,21 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]interface{}{"jobs": jobList})
 }
 
-// cancelCurrentJob stops the running pipeline subprocess safely. It must be
-// called with s.jobsMu held. It records that the job was cancelled and sends a
-// SIGTERM only to the tracked PID, avoiding broad pkill commands that could
-// kill unrelated container processes.
+// cancelCurrentJob stops the running pipeline subprocess and its whole process
+// group. It must be called with s.jobsMu held. It first cancels the context,
+// then kills the process group (so children such as python or sleep cannot keep
+// stdout/stderr open and block cmd.Wait()), and finally falls back to killing
+// the tracked PID alone in case Setpgid did not apply.
 func (s *Server) cancelCurrentJob() {
 	if s.currentCancel != nil {
 		s.currentCancel()
 	}
 	if s.currentPID != 0 {
+		// Kill the whole process group so children (python, sleep) that hold
+		// stdout/stderr descriptors cannot keep cmd.Wait() blocked after the
+		// bash parent exits.
+		killProcessGroup(-s.currentPID)
+		// Fallback in case Setpgid wasn't applied.
 		killProcess(s.currentPID)
 	}
 	s.currentCancel = nil
@@ -723,6 +748,7 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	}
 	args := append([]string{script}, pipelineArgs...)
 	cmd := exec.CommandContext(ctx, "bash", args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -818,6 +844,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		ctx, cancel := context.WithCancel(context.Background())
 		pipelineArgs := append([]string{"/app/pipeline.sh"}, stepArgs...)
 		cmd := exec.CommandContext(ctx, "bash", pipelineArgs...)
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 		var out bytes.Buffer
 		cmd.Stdout = &out
@@ -2508,5 +2535,3 @@ func (s *Server) handleDeletePitchUpload(w http.ResponseWriter, r *http.Request)
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]interface{}{"deleted": true, "file": name})
 }
-
-
