@@ -364,6 +364,8 @@ PYEOF
 # Detect whether a vocal model directory contains an MDX-C (MDX-Net) model.
 # Heuristic: explicit --vocal-type mdx, OR a YAML with MDX-C fields
 # (num_scales / num_subbands), OR the checkpoint filename contains MDX23C.
+#
+# SCNet models are detected separately by is_scnet_model_dir().
 is_mdx_model_dir() {
     local model_path="$1"
     local model_dir="$model_path"
@@ -397,6 +399,55 @@ try:
     cfg = yaml.load(open('${yaml_file}'), Loader=yaml.FullLoader)
     m = cfg.get('model', {})
     if any(k in m for k in ('num_scales', 'num_subbands', 'num_blocks_per_scale')):
+        sys.exit(0)
+except Exception:
+    pass
+sys.exit(1)
+PY
+        ) && return 0
+    fi
+
+    return 1
+}
+
+# Detect whether a vocal model directory contains an SCNet model.
+# Heuristic: explicit --vocal-type scnet, OR a YAML with SCNet fields
+# (band_SR / band_stride / band_kernel), OR the checkpoint filename contains scnet.
+is_scnet_model_dir() {
+    local model_path="$1"
+    local model_dir="$model_path"
+    if [ -f "$model_path" ]; then
+        model_dir="$(dirname "$model_path")"
+    fi
+
+    case "$VOCAL_TYPE" in
+        scnet) return 0 ;;
+    esac
+
+    # Explicit SCNet checkpoint name.
+    local ckpt_name
+    ckpt_name=$(ls "${model_dir}"/*.ckpt 2>/dev/null | head -1 || true)
+    if [ -n "$ckpt_name" ]; then
+        ckpt_name="$(basename "$ckpt_name")"
+        if [[ "${ckpt_name}" =~ [Ss][Cc][Nn][Ee][Tt] ]]; then
+            return 0
+        fi
+    fi
+
+    # YAML with SCNet topology fields.
+    local yaml_file
+    yaml_file=$(ls "${model_dir}"/*.yaml 2>/dev/null | head -1 || true)
+    if [ -n "$yaml_file" ]; then
+        local has_scnet
+        has_scnet=$(python3 - <<PY
+import yaml, sys
+try:
+    cfg = yaml.load(open('${yaml_file}'), Loader=yaml.FullLoader)
+    m = cfg.get('model', {})
+    if any(k in m for k in ('band_SR', 'band_stride', 'band_kernel')):
+        sys.exit(0)
+    sources = [s.lower() for s in m.get('sources', [])]
+    if 'drums' in sources and 'bass' in sources and 'vocals' in sources:
         sys.exit(0)
 except Exception:
     pass
@@ -442,6 +493,16 @@ run_vocal_step() {
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
             "${model_dir}" "${input_file}" "${output_dir}" "${mdx_overlap}"
+    elif is_scnet_model_dir "$model_dir"; then
+        if [ ! -f /app/inference_scnet.py ]; then
+            echo "❌ inference_scnet.py not found" >&2
+            exit 2
+        fi
+        echo "   ℹ️  Detected SCNet vocal model"
+        run_with_elapsed python3 /app/inference_scnet.py \
+            --pipeline-status "$STATUS_FILE" \
+            --device "$DEVICE" \
+            "${model_dir}" "${input_file}" "${output_dir}"
     else
         if [ ! -f /app/inference_universal.py ]; then
             echo "❌ inference_universal.py not found" >&2
@@ -1022,6 +1083,16 @@ if $VOCAL || $VIPERX; then
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
             "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}" ${VOCAL_OVERLAP_INT}
+    elif is_scnet_model_dir "${vocal_model_dir}"; then
+        if [ ! -f /app/inference_scnet.py ]; then
+            echo "❌ inference_scnet.py not found" >&2
+            exit 2
+        fi
+        echo "   ℹ️  Using SCNet inference"
+        run_with_elapsed python3 /app/inference_scnet.py \
+            --pipeline-status "$STATUS_FILE" \
+            --device "$DEVICE" \
+            "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}"
     else
         if [ ! -f /app/inference_universal.py ]; then
             echo "❌ inference_universal.py not found" >&2
