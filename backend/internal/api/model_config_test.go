@@ -161,6 +161,45 @@ func TestBuildPipelineArgs_DemucsUsesSavedConfig(t *testing.T) {
 	}
 }
 
+func TestBuildPipelineArgs_DemucsDefaultModelUsesSavedConfig(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("ONDA_ROOT", root)
+
+	cfg := ModelConfigResponse{
+		SegmentSize: 256,
+		Overlap:     0.25,
+		BatchSize:   1,
+		Shifts:      4,
+		Segment:     10,
+		Jobs:        2,
+	}
+	if err := writeModelConfigToYaml("htdemucs_ft", cfg); err != nil {
+		t.Fatalf("writeModelConfigToYaml failed: %v", err)
+	}
+
+	// Scenario from the bug report: legacy request with viperx + demucs and no
+	// explicit stem model should still pick up the saved htdemucs_ft config.
+	req := &SeparateRequest{
+		Input:  "/app/input/song.wav",
+		Viperx: true,
+		Demucs: true,
+	}
+	_, args, _, _ := buildPipelineArgs(req)
+
+	if !contains(args, "--stem-model") {
+		t.Fatal("expected --stem-model flag")
+	}
+	if got := argValue(args, "--shifts"); got != "4" {
+		t.Errorf("expected --shifts 4, got %q", got)
+	}
+	if got := argValue(args, "--demucs-segment"); got != "7" {
+		t.Errorf("expected --demucs-segment 7, got %q", got)
+	}
+	if got := argValue(args, "--jobs"); got != "2" {
+		t.Errorf("expected --jobs 2, got %q", got)
+	}
+}
+
 func TestBuildPipelineArgs_DemucsRequestOverridesConfig(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("ONDA_ROOT", root)

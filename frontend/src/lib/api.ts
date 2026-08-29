@@ -453,6 +453,9 @@ export interface ModelConfigResponse {
   shifts?: number;
   segment?: number;
   jobs?: number;
+  // Raw YAML inference values (for MDX/SCNet display)
+  dim_t?: number;
+  num_overlap?: number;
 }
 
 export async function getModelConfig(modelName: string): Promise<ModelConfigResponse> {

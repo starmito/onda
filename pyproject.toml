@@ -1,6 +1,6 @@
 [project]
 name = "onda"
-version = "3.2.3"
+version = "3.2.4"
 description = "Audio source separation pipeline: BS-Roformer → HTDemucs → Rubberband"
 requires-python = ">=3.10"
 dependencies = [

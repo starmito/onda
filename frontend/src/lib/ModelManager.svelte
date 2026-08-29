@@ -8,8 +8,22 @@
 
   let { onclose, initialModel }: Props = $props();
 
+  type ModelType = 'Roformer' | 'Demucs' | 'MDX' | 'SCNet';
+  const MODEL_TYPES: ModelType[] = ['Roformer', 'Demucs', 'MDX', 'SCNet'];
+
+  function modelTypeFromCategory(category?: string): ModelType | '' {
+    if (!category) return '';
+    const c = category.toLowerCase();
+    if (c.includes('roformer')) return 'Roformer';
+    if (c.includes('demucs')) return 'Demucs';
+    if (c.includes('mdx')) return 'MDX';
+    if (c.includes('scnet')) return 'SCNet';
+    return '';
+  }
+
   // ---- State ----
   let models = $state<LocalModel[]>([]);
+  let selectedType = $state<ModelType | ''>('');
   let selectedModel = $state('');
   let previousModel = $state('');
   let configLoaded = $state(false);
@@ -21,6 +35,8 @@
   let shifts = $state(1);
   let segment = $state(0);
   let jobs = $state(0);
+  let dimT = $state(801);
+  let numOverlap = $state(4);
   let feedback = $state('');
   let feedbackType = $state<'success' | 'error'>('success');
   let loading = $state(true);
@@ -39,31 +55,31 @@
     return (vramCalcResult.total_vram_mb / totalVramMb) * 100;
   });
 
-  // Group models by category for optgroup
-  let groupedModels = $derived.by(() => {
-    const groups: Record<string, LocalModel[]> = {};
+  // Group all models by type for quick lookup
+  let modelsByType = $derived.by(() => {
+    const map: Record<ModelType, LocalModel[]> = { Roformer: [], Demucs: [], MDX: [], SCNet: [] };
     for (const m of models) {
-      const cat = m.category || 'Other';
-      if (!groups[cat]) groups[cat] = [];
-      groups[cat].push(m);
+      const t = modelTypeFromCategory(m.category);
+      if (t) map[t].push(m);
     }
-    // Sort categories
-    const order = ['Roformer', 'Roformer/MelBand', 'MDX', 'SCnet', 'Demucs', 'VR_Arch', 'Other'];
-    const sorted: { category: string; models: LocalModel[] }[] = [];
-    for (const cat of order) {
-      if (groups[cat] && groups[cat].length > 0) {
-        sorted.push({ category: cat, models: groups[cat] });
-        delete groups[cat];
-      }
+    // Stable order: prefer the catalog order
+    for (const t of MODEL_TYPES) {
+      map[t].sort((a, b) => (a.display_name || a.name).localeCompare(b.display_name || b.name));
     }
-    for (const [cat, m] of Object.entries(groups)) {
-      sorted.push({ category: cat, models: m });
-    }
-    return sorted;
+    return map;
   });
 
-  // Narrow: solo htdemucs_ft (VRAM formula + shifts/segment/jobs section)
-  let isDemucs = $derived.by(() => selectedModel === 'htdemucs_ft');
+  // Models available for the selected type
+  let filteredModels = $derived.by(() => {
+    if (!selectedType) return [];
+    return modelsByType[selectedType] ?? [];
+  });
+
+  // Type booleans
+  let isRoformer = $derived.by(() => selectedType === 'Roformer');
+  let isDemucs = $derived.by(() => selectedType === 'Demucs');
+  let isMdx = $derived.by(() => selectedType === 'MDX');
+  let isScnet = $derived.by(() => selectedType === 'SCNet');
 
   // Display name for the selected model
   let selectedModelDisplayName = $derived.by(() => {
@@ -72,22 +88,33 @@
     return found?.display_name || found?.name || selectedModel;
   });
 
-  // Broad: todos los Demucs (para deshabilitar sliders inaplicables)
-  let isDemucsFamily = $derived.by(() => {
-    const found = models.find(m => m.name === selectedModel);
-    return found?.category?.startsWith('Demucs') ?? false;
-  });
-
   // Load model list + optionally load config for initialModel
   $effect(() => {
     async function load() {
       try {
         const res = await getLocalModels();
         models = res.models || [];
+
         if (initialModel && models.some(m => m.name === initialModel)) {
           selectedModel = initialModel;
+          selectedType = modelTypeFromCategory(models.find(m => m.name === initialModel)?.category) || '';
         }
-        // Load config if a model is selected
+
+        // If nothing pre-selected, pick the first type that has models
+        if (!selectedType) {
+          for (const t of MODEL_TYPES) {
+            if (modelsByType[t].length > 0) {
+              selectedType = t;
+              break;
+            }
+          }
+        }
+
+        // Auto-select the first model of the active type if none selected
+        if (!selectedModel && filteredModels.length > 0) {
+          selectedModel = filteredModels[0].name;
+        }
+
         if (selectedModel) {
           await loadConfig(selectedModel);
         }
@@ -118,6 +145,17 @@
       }
     }
     loadGpu();
+  });
+
+  // Keep selectedType in sync when the user changes the model directly
+  $effect(() => {
+    if (selectedModel) {
+      const found = models.find(m => m.name === selectedModel);
+      const t = modelTypeFromCategory(found?.category);
+      if (t && selectedType !== t) {
+        selectedType = t;
+      }
+    }
   });
 
   // Call backend VRAM calculator when parameters change
@@ -156,12 +194,13 @@
         const params: { models: string; shifts?: number; segment_size?: number; overlap?: number; batch_size?: number; demucs_segment?: number } = {
           models: model,
         };
-        if (sh > 1) params.shifts = sh;
-        if (ss > 0) params.segment_size = ss;
-        if (ov > 0) params.overlap = ov;
-        if (bs > 0) params.batch_size = bs;
         if (isDemucs) {
+          if (sh > 1) params.shifts = sh;
           params.demucs_segment = seg;
+        } else {
+          if (ss > 0) params.segment_size = ss;
+          if (ov > 0) params.overlap = ov;
+          if (bs > 0) params.batch_size = bs;
         }
         const result = await getVRAMCalculator(params);
         if (!cancelled) {
@@ -194,9 +233,22 @@
       shifts = cfg.shifts ?? 1;
       segment = cfg.segment ?? 0;
       jobs = cfg.jobs ?? 0;
+      dimT = cfg.dim_t ?? 801;
+      numOverlap = cfg.num_overlap ?? 4;
       configLoaded = true;
     } catch {
       // Use current values as defaults
+    }
+  }
+
+  function handleTypeSelect(t: ModelType) {
+    selectedType = t;
+    const list = modelsByType[t] ?? [];
+    selectedModel = list.length > 0 ? list[0].name : '';
+    if (selectedModel) {
+      loadConfig(selectedModel);
+    } else {
+      configLoaded = false;
     }
   }
 
@@ -217,7 +269,7 @@
       batch_size: batchSize,
       device,
     };
-    // Include Demucs params only for htdemucs_ft
+    // Include Demucs params only for Demucs type
     if (isDemucs) {
       cfg.shifts = Math.round(shifts);
       cfg.segment = Number(segment);
@@ -268,28 +320,41 @@
       <div><!-- spacer --></div>
     </div>
     <div class="fullscreen-body">
-        <!-- Model selector -->
-        <div class="field">
-          <label for="model-select">Modelo:</label>
-          <select id="model-select" value={selectedModel} onchange={handleModelSelect}>
-            <option value="">-- Seleccionar modelo --</option>
-            {#each groupedModels as group}
-              <optgroup label={group.category}>
-                {#each group.models as m}
-                  <option value={m.name}>{m.display_name || m.name}</option>
-                {/each}
-              </optgroup>
-            {/each}
-          </select>
-          {#if models.length === 0}
-            <div class="hint">No se encontraron modelos. Descarga uno primero.</div>
-          {/if}
-        </div>
+      <!-- Type tabs -->
+      <div class="type-tabs" role="tablist" aria-label="Tipo de modelo">
+        {#each MODEL_TYPES as t}
+          <button
+            type="button"
+            role="tab"
+            aria-selected={selectedType === t}
+            class="type-tab"
+            class:active={selectedType === t}
+            onclick={() => handleTypeSelect(t)}
+          >
+            {t}
+          </button>
+        {/each}
+      </div>
 
-        <!-- Sliders (disabled when no model selected) -->
-        <fieldset class="sliders" disabled={!selectedModel}>
+      <!-- Model selector -->
+      <div class="field">
+        <label for="model-select">Modelo:</label>
+        <select id="model-select" value={selectedModel} onchange={handleModelSelect} disabled={filteredModels.length === 0}>
+          <option value="">-- Seleccionar modelo --</option>
+          {#each filteredModels as m}
+            <option value={m.name}>{m.display_name || m.name}</option>
+          {/each}
+        </select>
+        {#if filteredModels.length === 0}
+          <div class="hint">No se encontraron modelos de este tipo. Descarga uno primero.</div>
+        {/if}
+      </div>
+
+      <!-- Sliders (disabled when no model selected) -->
+      <fieldset class="sliders" disabled={!selectedModel}>
+        {#if isRoformer}
           <!-- Segment Size -->
-          <div class="field" class:demucs-disabled={isDemucsFamily}>
+          <div class="field">
             <label for="seg-size">
               Segment Size: <strong>{segmentSize}</strong>
             </label>
@@ -300,7 +365,6 @@
               max="1024"
               step="64"
               bind:value={segmentSize}
-              disabled={isDemucsFamily}
             />
             <p class="param-desc">Cada unidad sube la VRAM ~6.7 MiB. Más segmento = chunks más largos (mejor contexto, menos overhead), pero con batch alto puede agotar la GPU en canciones largas.</p>
             <div class="slider-labels">
@@ -310,7 +374,7 @@
           </div>
 
           <!-- Overlap -->
-          <div class="field" class:demucs-disabled={isDemucsFamily}>
+          <div class="field">
             <label for="overlap">
               Overlap: <strong>{formatOverlap(overlap)}</strong>
             </label>
@@ -321,7 +385,6 @@
               max="0.5"
               step="0.05"
               bind:value={overlap}
-              disabled={isDemucsFamily}
             />
             <p class="param-desc">NO afecta a la VRAM. Solo suaviza las transiciones entre segmentos a costa de más tiempo de proceso.</p>
             <div class="slider-labels">
@@ -331,7 +394,7 @@
           </div>
 
           <!-- Chunk Size -->
-          <div class="field" class:demucs-disabled={isDemucsFamily}>
+          <div class="field">
             <label for="chunk-size">
               Chunk Size: <strong>{chunkSize === 0 ? 'auto' : chunkSize}</strong>
             </label>
@@ -342,7 +405,6 @@
               max="4096"
               step="1"
               bind:value={chunkSize}
-              disabled={isDemucsFamily}
             />
             <p class="param-desc">Divide la canción en trozos de N segundos para procesarla por partes (0 = canción completa). Reduce el uso de VRAM en canciones largas. Los trozos se unen con solapamiento suave para evitar artefactos en las uniones.</p>
             <div class="slider-labels">
@@ -352,7 +414,7 @@
           </div>
 
           <!-- Batch Size -->
-          <div class="field" class:demucs-disabled={isDemucsFamily}>
+          <div class="field">
             <label for="batch-size">
               Batch Size: <strong>{batchSize === 0 ? 'auto' : batchSize}</strong>
             </label>
@@ -363,7 +425,6 @@
               max="32"
               step="1"
               bind:value={batchSize}
-              disabled={isDemucsFamily}
             />
             <p class="param-desc">MULTIPLICA la VRAM del resto de parámetros: procesa varios chunks en paralelo. Con segmentos grandes o canciones largas, un batch alto agota la GPU (ej: SS1024 + batch 2 = 15 GB).</p>
             <div class="slider-labels">
@@ -371,140 +432,170 @@
               <span class="slider-max">⚡ GPU / ++VRAM — 32</span>
             </div>
           </div>
+        {/if}
 
-          <!-- Device -->
-          <div class="field">
-            <label for="device">Device:</label>
-            <select id="device" bind:value={device}>
-              <option value="cuda">cuda</option>
-              <option value="cpu">cpu</option>
-            </select>
-            <p class="param-desc">Dispositivo de inferencia. CUDA usa la GPU (más rápido, requiere VRAM). CPU es más lento pero no usa VRAM.</p>
-          </div>
-
-          <!-- Demucs PyTorch params (only for htdemucs_ft) -->
-          {#if isDemucs}
-            <div class="demucs-section">
-              <h3 class="demucs-title">🎛️ Parámetros Demucs (htdemucs_ft)</h3>
-
-              <!-- Shifts -->
-              <div class="field">
-                <label for="demucs-shifts">
-                  Shifts: <strong>{shifts}</strong>
-                </label>
-                <input
-                  id="demucs-shifts"
-                  type="range"
-                  min="0"
-                  max="20"
-                  step="1"
-                  bind:value={shifts}
-                />
-                <p class="param-desc">Número de variaciones por shift para estabilización. Más shifts = mejor calidad pero más lento. No afecta a la VRAM (medido). Paper original usa 10.</p>
-                <div class="slider-labels">
-                  <span class="slider-min">0 — ⚡ Sin shifts / Fast</span>
-                  <span class="slider-max">🎵 Paper / Slow — 20</span>
+        {#if isMdx || isScnet}
+          <div class="readonly-params">
+            <h3 class="readonly-title">📄 Parámetros del YAML</h3>
+            <div class="readonly-grid">
+              <div class="readonly-item">
+                <span class="readonly-key">dim_t</span>
+                <span class="readonly-value">{dimT}</span>
+              </div>
+              <div class="readonly-item">
+                <span class="readonly-key">num_overlap</span>
+                <span class="readonly-value">{numOverlap}</span>
+              </div>
+              {#if batchSize > 0}
+                <div class="readonly-item">
+                  <span class="readonly-key">batch_size</span>
+                  <span class="readonly-value">{batchSize}</span>
                 </div>
-              </div>
-
-              <!-- Segment -->
-              <div class="field">
-                <label for="demucs-segment">
-                  Segment: <strong>{segment === 0 ? 'auto' : segment + 's'}</strong>
-                </label>
-                <input
-                  id="demucs-segment"
-                  type="range"
-                  min="0"
-                  max="7"
-                  step="1"
-                  bind:value={segment}
-                />
-                <p class="param-desc">Duración del segmento en segundos. El valor máximo (7s) es el que MENOS VRAM usa (1.1 GB); valores 1-4 o auto usan ~1.6 GB. Máximo configurable 7s porque el límite interno del modelo es 7.8s y el CLI de demucs solo acepta valores enteros.</p>
-                <div class="slider-labels">
-                  <span class="slider-min">1-4 / auto — ~1.6 GB</span>
-                  <span class="slider-max">🎵 7s / -VRAM — 1.1 GB</span>
+              {/if}
+              {#if chunkSize > 0}
+                <div class="readonly-item">
+                  <span class="readonly-key">chunk_size</span>
+                  <span class="readonly-value">{chunkSize}</span>
                 </div>
-              </div>
-
-              <!-- Jobs -->
-              <div class="field">
-                <label for="demucs-jobs">
-                  Jobs: <strong>{jobs === 0 ? 'auto' : jobs}</strong>
-                </label>
-                <input
-                  id="demucs-jobs"
-                  type="range"
-                  min="0"
-                  max="8"
-                  step="1"
-                  bind:value={jobs}
-                />
-                <p class="param-desc">Número de workers paralelos. 0 = automático. No afecta a la VRAM (medido).</p>
-                <div class="slider-labels">
-                  <span class="slider-min">0 — 🤖 Auto</span>
-                  <span class="slider-max">⚡ Parallel — 8</span>
-                </div>
-              </div>
+              {/if}
             </div>
-          {/if}
-
-          <!-- VRAM Estimation (from backend calculator) -->
-          {#if vramCalcLoading}
-            <div class="vram-section">
-              <div class="vram-text muted">Calculando VRAM...</div>
-            </div>
-          {:else if vramCalcResult !== null}
-            <div class="vram-section">
-              <div class="vram-header">
-                <span>🧠 VRAM Estimada</span>
-                {#if vramPercent !== null}
-                  <span class="vram-pct" style="color: {vramBarColor(vramPercent)}">{vramPercent.toFixed(0)}%</span>
-                {/if}
-                {#if vramCalcResult.fits}
-                  <span class="vram-fits">✓ Cabe</span>
-                {:else}
-                  <span class="vram-fits vram-fits-no">✗ No cabe</span>
-                {/if}
-              </div>
-              <div class="vram-bar-track">
-                <div
-                  class="vram-bar-fill"
-                  style="width: {Math.min(vramPercent ?? 0, 100)}%; background: {vramBarColor(vramPercent ?? 0)}"
-                ></div>
-              </div>
-              <div class="vram-text">
-                Estimado: {formatGb(vramCalcResult.total_vram_mb)}
-                {#if totalVramMb !== null} / {formatGb(totalVramMb)}{/if}
-                {#if vramPercent !== null} ({vramPercent.toFixed(0)}%){/if}
-                {#if vramCalcResult.free_after_mb !== undefined}
-                  · Libre después: {formatGb(vramCalcResult.free_after_mb)}
-                {/if}
-              </div>
-            </div>
-          {:else if vramCalcError || vramError}
-            <div class="vram-section">
-              <div class="vram-text muted">VRAM no disponible</div>
-            </div>
-          {:else}
-            <div class="vram-section">
-              <div class="vram-text muted">Selecciona un modelo para estimar VRAM</div>
-            </div>
-          {/if}
-
-          <button class="btn-apply" onclick={handleApply} disabled={saving}>
-            {saving ? 'Guardando...' : 'Aplicar'}
-          </button>
-        </fieldset>
-
-        {#if feedback}
-          <div class="feedback" class:success={feedbackType === 'success'} class:error={feedbackType === 'error'}>
-            {feedback}
+            <p class="param-desc">Estos valores se leen directamente del YAML del modelo. El pipeline los usa tal cual; no se pueden editar desde aquí.</p>
           </div>
         {/if}
-      </div>
+
+        <!-- Device -->
+        <div class="field">
+          <label for="device">Device:</label>
+          <select id="device" bind:value={device}>
+            <option value="cuda">cuda</option>
+            <option value="cpu">cpu</option>
+          </select>
+          <p class="param-desc">Dispositivo de inferencia. CUDA usa la GPU (más rápido, requiere VRAM). CPU es más lento pero no usa VRAM.</p>
+        </div>
+
+        <!-- Demucs PyTorch params (only for Demucs type) -->
+        {#if isDemucs}
+          <div class="demucs-section">
+            <h3 class="demucs-title">🎛️ Parámetros Demucs</h3>
+
+            <!-- Shifts -->
+            <div class="field">
+              <label for="demucs-shifts">
+                Shifts: <strong>{shifts}</strong>
+              </label>
+              <input
+                id="demucs-shifts"
+                type="range"
+                min="0"
+                max="20"
+                step="1"
+                bind:value={shifts}
+              />
+              <p class="param-desc">Número de variaciones por shift para estabilización. Más shifts = mejor calidad pero más lento. No afecta a la VRAM (medido). Paper original usa 10.</p>
+              <div class="slider-labels">
+                <span class="slider-min">0 — ⚡ Sin shifts / Fast</span>
+                <span class="slider-max">🎵 Paper / Slow — 20</span>
+              </div>
+            </div>
+
+            <!-- Segment -->
+            <div class="field">
+              <label for="demucs-segment">
+                Segment: <strong>{segment === 0 ? 'auto' : segment + 's'}</strong>
+              </label>
+              <input
+                id="demucs-segment"
+                type="range"
+                min="0"
+                max="7"
+                step="1"
+                bind:value={segment}
+              />
+              <p class="param-desc">Duración del segmento en segundos. El valor máximo (7s) es el que MENOS VRAM usa (1.1 GB); valores 1-4 o auto usan ~1.6 GB. Máximo configurable 7s porque el límite interno del modelo es 7.8s y el CLI de demucs solo acepta valores enteros.</p>
+              <div class="slider-labels">
+                <span class="slider-min">1-4 / auto — ~1.6 GB</span>
+                <span class="slider-max">🎵 7s / -VRAM — 1.1 GB</span>
+              </div>
+            </div>
+
+            <!-- Jobs -->
+            <div class="field">
+              <label for="demucs-jobs">
+                Jobs: <strong>{jobs === 0 ? 'auto' : jobs}</strong>
+              </label>
+              <input
+                id="demucs-jobs"
+                type="range"
+                min="0"
+                max="8"
+                step="1"
+                bind:value={jobs}
+              />
+              <p class="param-desc">Número de workers paralelos. 0 = automático. No afecta a la VRAM (medido).</p>
+              <div class="slider-labels">
+                <span class="slider-min">0 — 🤖 Auto</span>
+                <span class="slider-max">⚡ Parallel — 8</span>
+              </div>
+            </div>
+          </div>
+        {/if}
+
+        <!-- VRAM Estimation (from backend calculator) -->
+        {#if vramCalcLoading}
+          <div class="vram-section">
+            <div class="vram-text muted">Calculando VRAM...</div>
+          </div>
+        {:else if vramCalcResult !== null}
+          <div class="vram-section">
+            <div class="vram-header">
+              <span>🧠 VRAM Estimada</span>
+              {#if vramPercent !== null}
+                <span class="vram-pct" style="color: {vramBarColor(vramPercent)}">{vramPercent.toFixed(0)}%</span>
+              {/if}
+              {#if vramCalcResult.fits}
+                <span class="vram-fits">✓ Cabe</span>
+              {:else}
+                <span class="vram-fits vram-fits-no">✗ No cabe</span>
+              {/if}
+            </div>
+            <div class="vram-bar-track">
+              <div
+                class="vram-bar-fill"
+                style="width: {Math.min(vramPercent ?? 0, 100)}%; background: {vramBarColor(vramPercent ?? 0)}"
+              ></div>
+            </div>
+            <div class="vram-text">
+              Estimado: {formatGb(vramCalcResult.total_vram_mb)}
+              {#if totalVramMb !== null} / {formatGb(totalVramMb)}{/if}
+              {#if vramPercent !== null} ({vramPercent.toFixed(0)}%){/if}
+              {#if vramCalcResult.free_after_mb !== undefined}
+                · Libre después: {formatGb(vramCalcResult.free_after_mb)}
+              {/if}
+            </div>
+          </div>
+        {:else if vramCalcError || vramError}
+          <div class="vram-section">
+            <div class="vram-text muted">VRAM no disponible</div>
+          </div>
+        {:else}
+          <div class="vram-section">
+            <div class="vram-text muted">Selecciona un modelo para estimar VRAM</div>
+          </div>
+        {/if}
+
+        <button class="btn-apply" onclick={handleApply} disabled={saving}>
+          {saving ? 'Guardando...' : 'Aplicar'}
+        </button>
+      </fieldset>
+
+      {#if feedback}
+        <div class="feedback" class:success={feedbackType === 'success'} class:error={feedbackType === 'error'}>
+          {feedback}
+        </div>
+      {/if}
     </div>
-  {/if}
+  </div>
+{/if}
 
 <style>
   .fullscreen {
@@ -579,6 +670,36 @@
     padding-top: 2rem;
   }
 
+  .type-tabs {
+    display: flex;
+    gap: 0.4rem;
+    margin-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 0.5rem;
+  }
+
+  .type-tab {
+    flex: 1;
+    padding: 0.45rem 0.2rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+  }
+  .type-tab:hover {
+    border-color: var(--accent);
+    color: var(--text-primary);
+  }
+  .type-tab.active {
+    background: linear-gradient(135deg, var(--accent), var(--accent-light));
+    border-color: transparent;
+    color: var(--text-primary);
+    font-weight: 600;
+  }
+
   .field {
     display: flex;
     flex-direction: column;
@@ -649,11 +770,6 @@
     pointer-events: none;
   }
 
-  .demucs-disabled {
-    opacity: 0.4;
-    pointer-events: none;
-  }
-
   .hint {
     font-size: 0.75rem;
     color: var(--text-muted);
@@ -677,6 +793,50 @@
   .btn-apply:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+  }
+
+  /* Read-only YAML params (MDX / SCNet) */
+  .readonly-params {
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.75rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+  }
+
+  .readonly-title {
+    margin: 0;
+    font-size: 0.85rem;
+    color: var(--accent-light);
+    font-weight: 600;
+  }
+
+  .readonly-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.5rem;
+  }
+
+  .readonly-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.8rem;
+  }
+
+  .readonly-key {
+    color: var(--text-secondary);
+  }
+
+  .readonly-value {
+    color: var(--accent-light);
+    font-weight: 600;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   }
 
   /* Demucs section */

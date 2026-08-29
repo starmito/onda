@@ -1354,6 +1354,8 @@ type ModelConfigResponse struct {
 	Shifts      int     `json:"shifts"`
 	Segment     float64 `json:"segment"`
 	Jobs        int     `json:"jobs"`
+	DimT        int     `json:"dim_t"`
+	NumOverlap  int     `json:"num_overlap"`
 }
 
 // handleSeparate validates and enqueues a separation job to the sequential queue.
@@ -1713,6 +1715,8 @@ func readModelConfigFromYaml(name string) ModelConfigResponse {
 		Shifts:      1,
 		Segment:     0,
 		Jobs:        0,
+		DimT:        dimT,
+		NumOverlap:  numOverlap,
 	}
 
 	// Read Demucs-specific overrides if present.
