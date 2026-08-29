@@ -457,7 +457,7 @@ def _demix(
     step = chunk_size // num_overlap
     border = chunk_size - step
     length_init = mix_tensor.shape[-1]
-    window = _get_windowing_array(chunk_size, fade_size).to(device)
+    window = _get_windowing_array(chunk_size, fade_size)  # stays on CPU (mixing is done on CPU)
 
     norm_params = None
     if do_normalize:
