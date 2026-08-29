@@ -414,14 +414,14 @@
                   id="demucs-segment"
                   type="range"
                   min="0"
-                  max="7.8"
-                  step="0.1"
+                  max="7"
+                  step="1"
                   bind:value={segment}
                 />
-                <p class="param-desc">Duración del segmento en segundos. 0 = automático. Máx 7.8s (límite del modelo htdemucs_ft).</p>
+                <p class="param-desc">Duración del segmento en segundos. 0 = automático. Máximo configurable 7s porque el límite interno del modelo es 7.8s y el CLI de demucs solo acepta valores enteros.</p>
                 <div class="slider-labels">
                   <span class="slider-min">0 — 🤖 Auto / -VRAM</span>
-                  <span class="slider-max">📦 Large / +VRAM — 7.8s</span>
+                  <span class="slider-max">📦 Large / +VRAM — 7s</span>
                 </div>
               </div>
 

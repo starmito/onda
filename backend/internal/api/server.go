@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"mime"
 	"mime/multipart"
 	"net/http"
@@ -1114,8 +1115,9 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 		if segment <= 0 {
 			segment = cfg.Segment
 		}
+		segment = clampDemucsSegment(segment)
 		if segment > 0 {
-			args = append(args, "--demucs-segment", fmt.Sprintf("%g", segment))
+			args = append(args, "--demucs-segment", fmt.Sprintf("%d", int(segment)))
 		}
 		jobs := req.Jobs
 		if jobs <= 0 {
@@ -1185,9 +1187,10 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 			if cfg.Shifts > 1 {
 				args = append(args, "--shifts", fmt.Sprintf("%d", cfg.Shifts))
 			}
-		if cfg.Segment > 0 {
-			args = append(args, "--demucs-segment", fmt.Sprintf("%g", cfg.Segment))
-		}
+			segment := clampDemucsSegment(cfg.Segment)
+			if segment > 0 {
+				args = append(args, "--demucs-segment", fmt.Sprintf("%d", int(segment)))
+			}
 			if cfg.Jobs > 0 {
 				args = append(args, "--jobs", fmt.Sprintf("%d", cfg.Jobs))
 			}
@@ -1559,6 +1562,9 @@ func readModelConfigFromYaml(name string) ModelConfigResponse {
 // writeModelConfigToYaml writes inference parameters to a model's YAML file using Go yaml.Node.
 // If the model has no YAML on disk, it creates one at config/model_configs/<name>.yaml.
 func writeModelConfigToYaml(name string, cfg ModelConfigResponse) error {
+	// Clamp Demucs segment to the valid integer range accepted by the CLI.
+	cfg.Segment = clampDemucsSegment(cfg.Segment)
+
 	// Convert segment_size → dim_t, overlap → num_overlap
 	dimT := cfg.SegmentSize*3 + 33
 	numOverlap := 0
@@ -1659,12 +1665,19 @@ func setYamlChildInt(node *yaml.Node, key string, value int) {
 	)
 }
 
-// setYamlChildFloat sets or adds a float scalar child in a mapping node.
+// setYamlChildFloat sets or adds a scalar child in a mapping node. Whole-number
+// values are written as integers so the YAML type matches what callers such as
+// the demucs CLI expect.
 func setYamlChildFloat(node *yaml.Node, key string, value float64) {
+	formatted := strconv.FormatFloat(value, 'f', -1, 64)
+	tag := "!!float"
+	if value == math.Trunc(value) {
+		tag = "!!int"
+	}
 	for i := 0; i < len(node.Content)-1; i += 2 {
 		if node.Content[i].Value == key {
-			node.Content[i+1].Value = strconv.FormatFloat(value, 'f', -1, 64)
-			node.Content[i+1].Tag = "!!float"
+			node.Content[i+1].Value = formatted
+			node.Content[i+1].Tag = tag
 			node.Content[i+1].Style = 0
 			return
 		}
@@ -1672,7 +1685,7 @@ func setYamlChildFloat(node *yaml.Node, key string, value float64) {
 	// Not found, append
 	node.Content = append(node.Content,
 		&yaml.Node{Kind: yaml.ScalarNode, Value: key, Tag: "!!str"},
-		&yaml.Node{Kind: yaml.ScalarNode, Value: strconv.FormatFloat(value, 'f', -1, 64), Tag: "!!float"},
+		&yaml.Node{Kind: yaml.ScalarNode, Value: formatted, Tag: tag},
 	)
 }
 
@@ -1690,6 +1703,25 @@ func setYamlChild(node *yaml.Node, key, value string) {
 		&yaml.Node{Kind: yaml.ScalarNode, Value: key, Tag: "!!str"},
 		&yaml.Node{Kind: yaml.ScalarNode, Value: value, Tag: "!!str", Style: yaml.DoubleQuotedStyle},
 	)
+}
+
+// clampDemucsSegment clamps a Demucs segment value to the valid integer range
+// accepted by the demucs CLI. The model internal limit is 7.8 seconds but the
+// CLI only accepts whole seconds, so the maximum configurable value is 7.
+// Zero means "auto" and is returned as-is; values are rounded to the nearest
+// integer and limited to [1, 7].
+func clampDemucsSegment(v float64) float64 {
+	if v <= 0 {
+		return 0
+	}
+	rounded := math.Round(v)
+	if rounded < 1 {
+		return 1
+	}
+	if rounded > 7 {
+		return 7
+	}
+	return rounded
 }
 
 // handleModelsConfig saves or retrieves per-model inference configuration.
@@ -1735,6 +1767,10 @@ func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": "device must be 'cpu' or 'cuda'"})
 			return
 		}
+
+		// Demucs segment is limited to whole seconds in [0, 7]; clamp defensively
+		// so the value can never exceed what the CLI accepts.
+		cfg.Segment = clampDemucsSegment(cfg.Segment)
 
 		if err := writeModelConfigToYaml(name, cfg); err != nil {
 			log.Printf("ERROR: failed to save model config for %s: %v", name, err)

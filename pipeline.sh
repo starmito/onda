@@ -157,15 +157,39 @@ json.dump(d, open('${STATUS_FILE}.tmp','w'))
     done
 }
 
+# Helper: terminate a background PID and wait for it, with a forced kill fallback
+# to avoid hanging if the process ignores SIGTERM.
+kill_wait() {
+    local pid="${1:-}"
+    [ -n "$pid" ] || return 0
+    if ! kill -0 "$pid" 2>/dev/null; then
+        wait "$pid" 2>/dev/null || true
+        return 0
+    fi
+    kill "$pid" 2>/dev/null || true
+    local i
+    for i in $(seq 1 30); do
+        if ! kill -0 "$pid" 2>/dev/null; then
+            wait "$pid" 2>/dev/null || true
+            return 0
+        fi
+        sleep 0.1
+    done
+    kill -9 "$pid" 2>/dev/null || true
+    wait "$pid" 2>/dev/null || true
+}
+
 # Helper: run a command with elapsed/eta updates in background
 # Usage: run_with_elapsed <command...>
 run_with_elapsed() {
     update_elapsed_loop &
     local elapsed_pid=$!
+    # Ensure the background loop is always cleaned up, even on failure or exit.
+    trap 'kill_wait "$elapsed_pid"' EXIT
     "$@"
     local cmd_rc=$?
-    kill $elapsed_pid 2>/dev/null || true
-    wait $elapsed_pid 2>/dev/null || true
+    kill_wait "$elapsed_pid"
+    trap - EXIT
     return $cmd_rc
 }
 
@@ -386,6 +410,8 @@ run_demucs_step() {
     local output_dir="$3"
     local expected_stems="${4:-4}"
     local step_idx="${5:-}"
+    local demucs_pid=""
+    local elapsed_pid=""
 
     local demucs_args=(-n "${model_name}" --device "${DEVICE}" -o "${output_dir}")
     [ "${SHIFTS:-1}" -gt 0 ] && demucs_args+=(--shifts "${SHIFTS:-1}")
@@ -399,7 +425,8 @@ run_demucs_step() {
     rm -f "${progress_log}"
 
     update_elapsed_loop &
-    local elapsed_pid=$!
+    elapsed_pid=$!
+
     # demucs writes its tqdm progress bars to stderr.  Line-buffer stderr so
     # updates are available immediately in the log file instead of being fully
     # buffered until the process ends.  Fall back to plain demucs if stdbuf is
@@ -409,10 +436,14 @@ run_demucs_step() {
     else
         demucs "${demucs_args[@]}" "${input_file}" 2> "${progress_log}" &
     fi
-    local demucs_pid=$!
+    demucs_pid=$!
+
+    # Always clean up both background processes when the function exits, even on
+    # error, so the pipeline never hangs on a stray background loop.
+    trap 'kill_wait "$demucs_pid"; kill_wait "$elapsed_pid"' EXIT
 
     # Poll the demucs stderr log for real progress percentages.
-    while kill -0 $demucs_pid 2>/dev/null; do
+    while kill -0 "$demucs_pid" 2>/dev/null; do
         if [ -s "${progress_log}" ]; then
             local pct_line pct
             pct_line=$(tail -c 4096 "${progress_log}" | tr '\r' '\n' | grep -aE '^ *[0-9]+%' | tail -1)
@@ -432,10 +463,14 @@ run_demucs_step() {
         fi
         sleep 2
     done
-    wait $demucs_pid
+
+    wait "$demucs_pid"
     local demucs_rc=$?
-    kill $elapsed_pid 2>/dev/null || true
-    wait $elapsed_pid 2>/dev/null || true
+
+    # Clean up the elapsed updater explicitly before dropping the trap, so the
+    # function can return the real demucs exit code without blocking.
+    kill_wait "$elapsed_pid"
+    trap - EXIT
     rm -f "${progress_log}"
 
     return $demucs_rc

@@ -57,9 +57,10 @@ func TestWriteModelConfigToYaml_CreatesFallbackForHtdemucsFt(t *testing.T) {
 	if demNode == nil {
 		t.Fatal("missing demucs section in created YAML")
 	}
+	// Segment above the CLI limit (7) is clamped to 7.
 	for _, kv := range []struct{ key, want string }{
 		{"shifts", "4"},
-		{"segment", "10"},
+		{"segment", "7"},
 		{"jobs", "2"},
 	} {
 		n := findYamlChildNode(demNode, kv.key)
@@ -73,7 +74,7 @@ func TestWriteModelConfigToYaml_CreatesFallbackForHtdemucsFt(t *testing.T) {
 	}
 }
 
-func TestWriteModelConfigToYaml_PreservesDecimalSegment(t *testing.T) {
+func TestWriteModelConfigToYaml_PreservesValidSegment(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("ONDA_ROOT", root)
 
@@ -82,7 +83,7 @@ func TestWriteModelConfigToYaml_PreservesDecimalSegment(t *testing.T) {
 		Overlap:     0.25,
 		BatchSize:   1,
 		Shifts:      1,
-		Segment:     7.8,
+		Segment:     5.2,
 		Jobs:        0,
 	}
 	if err := writeModelConfigToYaml("htdemucs_ft", cfg); err != nil {
@@ -108,17 +109,17 @@ func TestWriteModelConfigToYaml_PreservesDecimalSegment(t *testing.T) {
 	if n == nil {
 		t.Fatal("missing demucs.segment")
 	}
-	if n.Value != "7.8" {
-		t.Errorf("demucs.segment = %q, want 7.8", n.Value)
+	if n.Value != "5" {
+		t.Errorf("demucs.segment = %q, want 5", n.Value)
 	}
-	if n.Tag != "!!float" {
-		t.Errorf("demucs.segment tag = %q, want !!float", n.Tag)
+	if n.Tag != "!!int" {
+		t.Errorf("demucs.segment tag = %q, want !!int", n.Tag)
 	}
 
-	// Read back must return the exact decimal value.
+	// Read back must return the clamped integer value.
 	read := readModelConfigFromYaml("htdemucs_ft")
-	if read.Segment != 7.8 {
-		t.Errorf("read segment = %v, want 7.8", read.Segment)
+	if read.Segment != 5 {
+		t.Errorf("read segment = %v, want 5", read.Segment)
 	}
 }
 
@@ -151,8 +152,8 @@ func TestBuildPipelineArgs_DemucsUsesSavedConfig(t *testing.T) {
 	if got := argValue(args, "--shifts"); got != "4" {
 		t.Errorf("expected --shifts 4, got %q", got)
 	}
-	if got := argValue(args, "--demucs-segment"); got != "10" {
-		t.Errorf("expected --demucs-segment 10, got %q", got)
+	if got := argValue(args, "--demucs-segment"); got != "7" {
+		t.Errorf("expected --demucs-segment 7, got %q", got)
 	}
 	if got := argValue(args, "--jobs"); got != "2" {
 		t.Errorf("expected --jobs 2, got %q", got)
@@ -188,15 +189,15 @@ func TestBuildPipelineArgs_DemucsRequestOverridesConfig(t *testing.T) {
 	if got := argValue(args, "--shifts"); got != "2" {
 		t.Errorf("expected request --shifts 2, got %q", got)
 	}
-	if got := argValue(args, "--demucs-segment"); got != "8" {
-		t.Errorf("expected request --demucs-segment 8, got %q", got)
+	if got := argValue(args, "--demucs-segment"); got != "7" {
+		t.Errorf("expected request --demucs-segment 7, got %q", got)
 	}
 	if got := argValue(args, "--jobs"); got != "1" {
 		t.Errorf("expected request --jobs 1, got %q", got)
 	}
 }
 
-func TestBuildPipelineArgs_DemucsDecimalSegment(t *testing.T) {
+func TestBuildPipelineArgs_DemucsDecimalSegmentClamped(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("ONDA_ROOT", root)
 
@@ -219,8 +220,9 @@ func TestBuildPipelineArgs_DemucsDecimalSegment(t *testing.T) {
 	}
 	_, args, _ := buildPipelineArgs(req)
 
-	if got := argValue(args, "--demucs-segment"); got != "7.8" {
-		t.Errorf("expected --demucs-segment 7.8, got %q", got)
+	// 7.8 exceeds the integer CLI limit of 7 and is clamped.
+	if got := argValue(args, "--demucs-segment"); got != "7" {
+		t.Errorf("expected --demucs-segment 7, got %q", got)
 	}
 }
 
@@ -251,8 +253,8 @@ func TestBuildStepPipelineArgs_DemucsUsesSavedConfig(t *testing.T) {
 	if got := argValue(args, "--shifts"); got != "6" {
 		t.Errorf("expected --shifts 6, got %q", got)
 	}
-	if got := argValue(args, "--demucs-segment"); got != "12" {
-		t.Errorf("expected --demucs-segment 12, got %q", got)
+	if got := argValue(args, "--demucs-segment"); got != "7" {
+		t.Errorf("expected --demucs-segment 7, got %q", got)
 	}
 	if got := argValue(args, "--jobs"); got != "3" {
 		t.Errorf("expected --jobs 3, got %q", got)
@@ -311,8 +313,95 @@ func TestHandleModelsConfig_DecimalSegment(t *testing.T) {
 	if err := json.NewDecoder(getResp.Body).Decode(&got); err != nil {
 		t.Fatalf("failed to decode GET response: %v", err)
 	}
-	if got.Segment != 7.8 {
-		t.Errorf("GET segment = %v, want 7.8", got.Segment)
+	// POST clamps values above the CLI limit to 7.
+	if got.Segment != 7 {
+		t.Errorf("GET segment = %v, want 7", got.Segment)
+	}
+}
+
+func TestClampDemucsSegment(t *testing.T) {
+	tests := []struct {
+		name  string
+		input float64
+		want  float64
+	}{
+		{"auto zero", 0, 0},
+		{"negative auto", -1, 0},
+		{"small fraction rounds up to 1", 0.1, 1},
+		{"one stays one", 1, 1},
+		{"round down", 2.4, 2},
+		{"round up", 2.5, 3},
+		{"seven stays seven", 7, 7},
+		{"7.1 clamps to 7", 7.1, 7},
+		{"7.5 clamps to 7", 7.5, 7},
+		{"model limit 7.8 clamps to 7", 7.8, 7},
+		{"large value clamps to 7", 100, 7},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := clampDemucsSegment(tt.input)
+			if got != tt.want {
+				t.Errorf("clampDemucsSegment(%v) = %v, want %v", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestBuildPipelineArgs_DemucsSegmentRequestClamped(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("ONDA_ROOT", root)
+
+	cfg := ModelConfigResponse{
+		SegmentSize: 256,
+		Overlap:     0.25,
+		BatchSize:   1,
+		Shifts:      1,
+		Segment:     0,
+		Jobs:        0,
+	}
+	if err := writeModelConfigToYaml("htdemucs_ft", cfg); err != nil {
+		t.Fatalf("writeModelConfigToYaml failed: %v", err)
+	}
+
+	req := &SeparateRequest{
+		Input:         "/app/input/song.wav",
+		Demucs:        true,
+		StemModel:     "htdemucs_ft",
+		DemucsSegment: 7.8,
+	}
+	_, args, _ := buildPipelineArgs(req)
+
+	if got := argValue(args, "--demucs-segment"); got != "7" {
+		t.Errorf("expected --demucs-segment 7, got %q", got)
+	}
+}
+
+func TestBuildStepPipelineArgs_DemucsSegmentClamped(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("ONDA_ROOT", root)
+
+	cfg := ModelConfigResponse{
+		SegmentSize: 256,
+		Overlap:     0.25,
+		BatchSize:   1,
+		Shifts:      1,
+		Segment:     7.8,
+		Jobs:        0,
+	}
+	if err := writeModelConfigToYaml("htdemucs_ft", cfg); err != nil {
+		t.Fatalf("writeModelConfigToYaml failed: %v", err)
+	}
+
+	step := cli.PipelineStep{
+		ID:      "demucs",
+		Type:    "demucs",
+		Model:   "htdemucs_ft",
+		Enabled: true,
+	}
+	args := buildStepPipelineArgs(step, "/app/input/song.wav", "/app/output/song", "cuda")
+
+	if got := argValue(args, "--demucs-segment"); got != "7" {
+		t.Errorf("expected --demucs-segment 7, got %q", got)
 	}
 }
 
