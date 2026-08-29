@@ -5,6 +5,7 @@
   import PipelineEditor from './PipelineEditor.svelte';
   import InterfaceSettings from './InterfaceSettings.svelte';
   import { IconModel, IconDownload, IconPresets, IconLogs, IconClose, IconRefresh, IconSettings } from './icons';
+  import { API_BASE } from './api';
 
   interface Props {
     subtab?: string;
@@ -18,7 +19,6 @@
   const noop = () => {};
 
   // ---- Logs state (from App.svelte) ----
-  const API_BASE = '';
   let logs = $state<Array<{nano: number, level: string, service: string, message: string}>>([]);
   let logDetail = $state<{nano: number, level: string, service: string, message: string} | null>(null);
   let logTab = $state<'events' | 'services'>('events');

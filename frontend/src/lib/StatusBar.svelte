@@ -61,7 +61,8 @@
     health?.version_mismatch?.ok === false ? (health.version_mismatch.detail || []) : null
   );
 
-  const appVersion = $derived(health?.version || '');
+  const viteVersion = $state(import.meta.env.VITE_ONDA_VERSION || '');
+  const appVersion = $derived(viteVersion || health?.version || '');
 </script>
 
 <div class="status-bar">
