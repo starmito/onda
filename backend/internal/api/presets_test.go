@@ -159,7 +159,7 @@ func TestBuildPipelineArgs_OldFormat(t *testing.T) {
 		StemModel:   "htdemucs_ft",
 		Device:      "cpu",
 	}
-	song, args, steps := buildPipelineArgs(req)
+	song, args, steps := buildPipelineArgs(&req)
 	if song != "song" {
 		t.Errorf("expected song name song, got %q", song)
 	}
@@ -188,7 +188,7 @@ func TestBuildPipelineArgs_MultiStepPreset(t *testing.T) {
 		},
 		Device: "cuda",
 	}
-	song, args, steps := buildPipelineArgs(req)
+	song, args, steps := buildPipelineArgs(&req)
 	if song != "song" {
 		t.Errorf("expected song name song, got %q", song)
 	}

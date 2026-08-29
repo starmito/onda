@@ -996,10 +996,28 @@ func listStems(song string) []FileEntry {
 	return files
 }
 
+// normalizeContainerInput converts a relative filename or a bare input name into
+// the container input path /app/input/<basename>. Paths already under /app/ are
+// left untouched, and other absolute paths are preserved so the caller can pass
+// through explicit host/container paths unchanged.
+func normalizeContainerInput(input string) string {
+	if input == "" {
+		return input
+	}
+	if strings.HasPrefix(input, "/app/") {
+		return input
+	}
+	if filepath.IsAbs(input) {
+		return input
+	}
+	return "/app/input/" + filepath.Base(input)
+}
+
 // buildPipelineArgs constructs the argument list for pipeline.sh from a SeparateRequest.
 // If a preset with Steps is referenced, those steps are returned separately for multi-step chaining.
 // Returns: song name, pipeline args, list of steps for chaining (if any).
-func buildPipelineArgs(req SeparateRequest) (song string, args []string, steps []cli.PipelineStep) {
+func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps []cli.PipelineStep) {
+	req.Input = normalizeContainerInput(req.Input)
 	song = strings.TrimSuffix(filepath.Base(req.Input), filepath.Ext(req.Input))
 	containerOutput := "/app/output/" + song
 
@@ -1290,7 +1308,7 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 
 	// Build pipeline arguments and extract song name
 	// The third return value is the list of steps for multi-step chaining
-	song, pipelineArgs, steps := buildPipelineArgs(req)
+	song, pipelineArgs, steps := buildPipelineArgs(&req)
 
 	// Compute total pipeline steps
 	totalSteps := len(steps)
