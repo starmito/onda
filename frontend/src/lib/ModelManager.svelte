@@ -11,9 +11,14 @@
   type ModelType = 'Roformer' | 'Demucs' | 'MDX' | 'SCNet';
   const MODEL_TYPES: ModelType[] = ['Roformer', 'Demucs', 'MDX', 'SCNet'];
 
-  function modelTypeFromCategory(category?: string): ModelType | '' {
-    if (!category) return '';
-    const c = category.toLowerCase();
+  function modelTypeFromModel(name?: string, category?: string): ModelType | '' {
+    const n = (name || '').toLowerCase();
+    if (n.includes('roformer')) return 'Roformer';
+    if (n.includes('mdx')) return 'MDX';
+    if (n.includes('scnet')) return 'SCNet';
+    if (n.includes('demucs')) return 'Demucs';
+
+    const c = (category || '').toLowerCase();
     if (c.includes('roformer')) return 'Roformer';
     if (c.includes('demucs')) return 'Demucs';
     if (c.includes('mdx')) return 'MDX';
@@ -59,7 +64,7 @@
   let modelsByType = $derived.by(() => {
     const map: Record<ModelType, LocalModel[]> = { Roformer: [], Demucs: [], MDX: [], SCNet: [] };
     for (const m of models) {
-      const t = modelTypeFromCategory(m.category);
+      const t = modelTypeFromModel(m.name, m.category);
       if (t) map[t].push(m);
     }
     // Stable order: prefer the catalog order
@@ -97,7 +102,8 @@
 
         if (initialModel && models.some(m => m.name === initialModel)) {
           selectedModel = initialModel;
-          selectedType = modelTypeFromCategory(models.find(m => m.name === initialModel)?.category) || '';
+          const found = models.find(m => m.name === initialModel);
+          selectedType = modelTypeFromModel(found?.name, found?.category) || '';
         }
 
         // If nothing pre-selected, pick the first type that has models
@@ -151,7 +157,7 @@
   $effect(() => {
     if (selectedModel) {
       const found = models.find(m => m.name === selectedModel);
-      const t = modelTypeFromCategory(found?.category);
+      const t = modelTypeFromModel(found?.name, found?.category);
       if (t && selectedType !== t) {
         selectedType = t;
       }

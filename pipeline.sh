@@ -530,6 +530,36 @@ run_viperx_step() {
     run_vocal_step "$@"
 }
 
+# Apply fallback Demucs parameters from config/model_configs/<model>.yaml
+# when the caller did not explicitly pass --shifts / --demucs-segment / --jobs.
+# This keeps the pipeline aligned with values saved via the UI/API.
+apply_demucs_fallback_config() {
+    local model_name="${1:-htdemucs_ft}"
+
+    if $SHIFTS_SET_EXPLICITLY && $DEMUCS_SEGMENT_SET_EXPLICITLY && $JOBS_SET_EXPLICITLY; then
+        return 0
+    fi
+
+    local config_dir="${SCRIPT_DIR}/config/model_configs"
+    if [ ! -d "$config_dir" ]; then
+        config_dir="/app/config/model_configs"
+    fi
+    local yaml_file="${config_dir}/${model_name}.yaml"
+    if [ ! -f "$yaml_file" ]; then
+        return 0
+    fi
+
+    if ! $SHIFTS_SET_EXPLICITLY; then
+        SHIFTS=$(python3 -c "import yaml; print(yaml.load(open('$yaml_file'), Loader=yaml.FullLoader).get('demucs',{}).get('shifts',1))" 2>/dev/null || echo "1")
+    fi
+    if ! $DEMUCS_SEGMENT_SET_EXPLICITLY; then
+        DEMUCS_SEGMENT=$(python3 -c "import yaml; print(yaml.load(open('$yaml_file'), Loader=yaml.FullLoader).get('demucs',{}).get('segment',0))" 2>/dev/null || echo "0")
+    fi
+    if ! $JOBS_SET_EXPLICITLY; then
+        JOBS=$(python3 -c "import yaml; print(yaml.load(open('$yaml_file'), Loader=yaml.FullLoader).get('demucs',{}).get('jobs',0))" 2>/dev/null || echo "0")
+    fi
+}
+
 # Run a Demucs step (chaining or legacy mode).
 # Args: model_name, input_file, output_dir, [expected_stems_count], [step_index]
 # If step_index is empty the legacy report_progress path is used; otherwise
@@ -624,8 +654,11 @@ OUTPUT=""
 DEVICE="cuda"
 DEVICE_SET_EXPLICITLY=false
 SHIFTS=1
+SHIFTS_SET_EXPLICITLY=false
 DEMUCS_SEGMENT=0
+DEMUCS_SEGMENT_SET_EXPLICITLY=false
 JOBS=0
+JOBS_SET_EXPLICITLY=false
 NO_CLEAN=false        # v2.8.0: don't clean output dir between chained steps
 INPUT_FROM_STEP=""    # v2.8.0: use this existing file as input instead of original
 STEPS_JSON=""         # v2.8.0: JSON array of steps for single-invocation chaining
@@ -644,9 +677,9 @@ while [[ $# -gt 0 ]]; do
         --pitch)        PITCH="$2"; RUBBERBAND=true; shift 2 ;;
         --output)       OUTPUT="$2"; shift 2 ;;
         --device)       DEVICE="$2"; DEVICE_SET_EXPLICITLY=true; shift 2 ;;
-        --shifts)       SHIFTS="$2"; shift 2 ;;
-        --demucs-segment) DEMUCS_SEGMENT="$2"; shift 2 ;;
-        --jobs)         JOBS="$2"; shift 2 ;;
+        --shifts)       SHIFTS="$2"; SHIFTS_SET_EXPLICITLY=true; shift 2 ;;
+        --demucs-segment) DEMUCS_SEGMENT="$2"; DEMUCS_SEGMENT_SET_EXPLICITLY=true; shift 2 ;;
+        --jobs)         JOBS="$2"; JOBS_SET_EXPLICITLY=true; shift 2 ;;
         --no-clean)     NO_CLEAN=true; shift ;;
         --input-from-step) INPUT_FROM_STEP="$2"; shift 2 ;;
         -*)             echo "Unknown flag: $1"; exit 1 ;;
@@ -819,6 +852,7 @@ stems = [k for k, v in s.get('stems', {}).items() if v.get('action') != 'discard
 print(len(stems))
 " 2>/dev/null || echo 4)
 
+                apply_demucs_fallback_config "${STEP_MODEL:-htdemucs_ft}"
                 run_demucs_step "${STEP_MODEL:-htdemucs_ft}" "${CURRENT_INPUT}" "${STEP_TMP}" "$STEM_COUNT" "$STEP_IDX"
                 step_rc=$?
                 if [ $step_rc -ne 0 ]; then
@@ -1158,6 +1192,7 @@ if $DEMUCS; then
 
     TMP_DEM="${OUTPUT}/_demucs"
     CURRENT_STEP="demucs"
+    apply_demucs_fallback_config "${DEMUCS_MODEL}"
     # Build demucs args with optional shift/segment/jobs flags
     DEMUCS_ARGS=(-n "${DEMUCS_MODEL}" --device "${DEVICE}" -o "${TMP_DEM}")
     [ "${SHIFTS}" -gt 0 ] && DEMUCS_ARGS+=(--shifts "${SHIFTS}")
