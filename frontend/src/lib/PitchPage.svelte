@@ -501,6 +501,11 @@
   let pitchValues = $state<Record<string, number>>({});
   let pitchProcessing = $state<Record<string, boolean>>({});
 
+  // ── Pitch shift for uploaded files ──
+  let uploadPitchValues = $state<Record<string, number>>({});
+  let uploadPitchProcessing = $state<Record<string, boolean>>({});
+  let uploadSubgroups = $state<Record<string, Subgroup[]>>({});
+
   function getPitchValue(song: string): number {
     return pitchValues[song] ?? 0;
   }
@@ -519,6 +524,53 @@
       showToast(`Error: ${err.message || 'unknown'}`, 'error');
     } finally {
       pitchProcessing = { ...pitchProcessing, [song]: false };
+    }
+  }
+
+  function getUploadPitchValue(name: string): number {
+    return uploadPitchValues[name] ?? 0;
+  }
+
+  async function handleUploadPitch(id: string) {
+    const p = getUploadPlayer(id);
+    if (!p) return;
+    const pitch = getUploadPitchValue(p.name);
+    if (pitch === 0) return;
+    uploadPitchProcessing = { ...uploadPitchProcessing, [p.name]: true };
+    try {
+      await pitchFile(p.name, pitch);
+      showToast(`Tono cambiado: ${pitch > 0 ? '+' : ''}${pitch} semitonos`, 'success');
+      await loadUploads();
+    } catch (err: any) {
+      showToast(`Error: ${err.message || 'unknown'}`, 'error');
+    } finally {
+      uploadPitchProcessing = { ...uploadPitchProcessing, [p.name]: false };
+    }
+  }
+
+  async function loadUploads() {
+    try {
+      const uploads = await getPitchUploads();
+      for (const u of uploads) {
+        const existing = uploadPlayers.find(up => up.name === u.name);
+        if (!existing) {
+          const id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}-${u.name}`;
+          const p = newUploadPlayer(id, u.name);
+          p.status = 'ready';
+          uploadPlayers = [...uploadPlayers, p];
+        }
+        const mapped: Subgroup[] = (u.subgroups || []).map(s => ({
+          pitch: s.pitch,
+          stems: s.files.map((f: any) => ({
+            name: f.name,
+            path: f.path,
+            stemType: detectStemType(f.name),
+          })),
+        }));
+        uploadSubgroups = { ...uploadSubgroups, [u.name]: mapped };
+      }
+    } catch (err) {
+      console.error('Failed to load pitch uploads:', err);
     }
   }
 
@@ -546,6 +598,8 @@
     for (const song of groupSongs) {
       loadPitchSubgroups(song);
     }
+    // Load previously uploaded files and their pitch subgroups
+    await loadUploads();
     // Attach global mouseup for drag operations that leave the canvas
     window.addEventListener('mouseup', handleGlobalMouseUp);
     window.addEventListener('mouseup', handleSubgroupGlobalMouseUp);
@@ -929,6 +983,7 @@
     uploadPlayers = [...uploadPlayers, p];
     uploadPitchAudio(f).then(() => {
       uploadPlayers = uploadPlayers.map(up => up.id === id ? { ...up, status: 'ready' as const } : up);
+      return loadUploads();
     }).catch((err) => {
       uploadPlayers = uploadPlayers.map(up => up.id === id ? { ...up, status: 'error' as const, errorMsg: err.message } : up);
     });
@@ -1734,6 +1789,46 @@
                   <span class="vol-label">{p.volume}</span>
                 </div>
               </div>
+
+              <!-- ── Pitch shift controls for uploaded file ── -->
+              <div class="pitch-control-row">
+                <label class="pitch-label">Tono:</label>
+                <input type="range" min="-12" max="12" step="1"
+                  value={getUploadPitchValue(p.name)}
+                  oninput={(e) => { uploadPitchValues = { ...uploadPitchValues, [p.name]: parseFloat((e.target as HTMLInputElement).value) }; }}
+                  class="pitch-slider" />
+                <span class="pitch-value">{getUploadPitchValue(p.name) > 0 ? '+' : ''}{getUploadPitchValue(p.name)}</span>
+                <button class="pitch-btn" onclick={() => handleUploadPitch(p.id)}
+                  disabled={uploadPitchProcessing[p.name] || getUploadPitchValue(p.name) === 0}>
+                  {uploadPitchProcessing[p.name] ? '⏳' : '🎵 Cambiar tono'}
+                </button>
+              </div>
+
+              <!-- ── Pitch subgroups for uploaded file (read-only list) ── -->
+              {#if uploadSubgroups[p.name] && uploadSubgroups[p.name].length > 0}
+                <div class="pitch-subgroups-section">
+                  <h4 class="subgroups-title">Subgrupos de tono</h4>
+                  {#each uploadSubgroups[p.name] as subs}
+                    <div class="pitch-subgroup-card">
+                      <div class="subgroup-header">
+                        <span class="subgroup-pitch-label">Tono: {subs.pitch > 0 ? '+' : ''}{subs.pitch}</span>
+                        <span class="output-stem-count">{subs.stems.length} pistas</span>
+                      </div>
+                      <div class="output-stems">
+                        {#each subs.stems as sstem}
+                          <div class="stem-row">
+                            <span class="stem-emoji">{stemEmoji(sstem.stemType)}</span>
+                            <span class="stem-name" title={sstem.name}>{formatPitchStemName(sstem.name)}</span>
+                            <div class="stem-actions">
+                              <a class="song-btn export-btn" href={sstem.path} download={sstem.name} title="Descargar">⬇</a>
+                            </div>
+                          </div>
+                        {/each}
+                      </div>
+                    </div>
+                  {/each}
+                </div>
+              {/if}
             {/if}
           </div>
         {/each}
