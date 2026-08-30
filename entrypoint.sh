@@ -51,6 +51,18 @@ fi
 # Crear directorios de montaje
 mkdir -p /app/input /app/output /app/input_rubberband /app/config
 
+# Limpieza de subcarpetas temporales huérfanas de jobs abortados por reinicio duro.
+for job_dir in /app/output/*; do
+    if [ -d "$job_dir" ]; then
+        for orphan in _vocal _demucs; do
+            if [ -d "$job_dir/$orphan" ]; then
+                rm -rf "$job_dir/$orphan"
+                echo "🧹 Cleaned orphan temp dir: $job_dir/$orphan"
+            fi
+        done
+    fi
+done
+
 # Use persistent caches under /app so torch/hf/numba state survives restarts.
 export TORCH_HOME=/app/.cache/torch
 export NUMBA_CACHE_DIR=/app/.cache/numba
