@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { uploadPitchAudio, pitchInputDownloadUrl, deletePitchUpload, pitchStems, downloadUrl, deleteStem as deleteStemApi, getPitchSubgroups, deletePitchSubgroup, deleteSong } from './api';
+  import { uploadPitchAudio, pitchInputDownloadUrl, deletePitchUpload, pitchStems, pitchFile, downloadUrl, deleteStem as deleteStemApi, getPitchSubgroups, deletePitchSubgroup, deletePitchStem, getPitchUploads, deleteSong } from './api';
   import type { ResultStem } from './types';
   import { detectStemType, stemEmoji } from './types';
   import { IconUpload, IconSkipBack, IconSkipForward } from './icons';
@@ -839,6 +839,35 @@
     }
   }
 
+  async function handleDeleteSubgroupStem(song: string, pitch: number, fileName: string) {
+    if (!confirm(`Eliminar "${fileName}"?`)) return;
+    try {
+      await deletePitchStem(song, pitch, fileName);
+      const subs = pitchSubgroups[song];
+      if (!subs) return;
+      const idx = subs.findIndex(s => s.pitch === pitch);
+      if (idx < 0) return;
+      const remainingStems = subs[idx].stems.filter(s => s.name !== fileName);
+      if (remainingStems.length === 0) {
+        const remaining = [...subs];
+        remaining.splice(idx, 1);
+        if (remaining.length === 0) {
+          const { [song]: _, ...rest } = pitchSubgroups;
+          pitchSubgroups = rest;
+        } else {
+          pitchSubgroups = { ...pitchSubgroups, [song]: remaining };
+        }
+      } else {
+        const updated = [...subs];
+        updated[idx] = { ...updated[idx], stems: remainingStems };
+        pitchSubgroups = { ...pitchSubgroups, [song]: updated };
+      }
+      showToast('Stem eliminado', 'success');
+    } catch (err: any) {
+      showToast(`Error: ${err.message || 'unknown'}`, 'error');
+    }
+  }
+
   // ── Export / Delete group ──
   function handleExportGroup(song: string) {
     const stems = stemsForSong(song);
@@ -1617,6 +1646,7 @@
                             </div>
                             <div class="stem-actions">
                               <a class="song-btn export-btn" href={sstem.path} download={sstem.name} title="Descargar">⬇</a>
+                              <button class="song-btn delete-btn" onclick={() => handleDeleteSubgroupStem(song, subs.pitch, sstem.name)} title="Eliminar">🗑</button>
                             </div>
                           </div>
                         {/each}
