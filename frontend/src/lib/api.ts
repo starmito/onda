@@ -668,6 +668,22 @@ export async function getTempoGrid(file: string): Promise<TempoGridResponse> {
   return (await res.json()) as TempoGridResponse;
 }
 
+export interface TempoResponse {
+  bpm: number;
+  beats: number[];
+  duration: number;
+}
+
+export async function detectBpm(file: string): Promise<TempoResponse> {
+  const res = await fetch(
+    `${API_BASE}/api/audio/tempo?file=${encodeURIComponent(file)}`,
+  );
+  if (!res.ok) {
+    throw new Error(`BPM detection failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as TempoResponse;
+}
+
 // ---- DAW audio operations ----
 export interface TrimResponse {
   file: string;
@@ -733,9 +749,15 @@ export async function exportAudio(
 }
 
 // ---- DAW stem import ----
+export interface PitchStemEntry {
+  song: string;
+  pitch: string;
+  stem: string;
+}
+
 export interface StemsResponse {
   output: Record<string, string[]>;
-  pitch: string[];
+  pitch: PitchStemEntry[];
 }
 
 export interface DAWImportResponse {
@@ -752,10 +774,16 @@ export async function listStems(): Promise<StemsResponse> {
   return (await res.json()) as StemsResponse;
 }
 
-export async function importStem(source: string, song?: string, stem?: string): Promise<DAWImportResponse> {
+export async function importStem(
+  source: string,
+  song?: string,
+  stem?: string,
+  pitch?: string,
+): Promise<DAWImportResponse> {
   const body: Record<string, unknown> = { source };
   if (song !== undefined) body.song = song;
   if (stem !== undefined) body.stem = stem;
+  if (pitch !== undefined) body.pitch = pitch;
   const res = await fetch(`${API_BASE}/api/daw/import`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -859,4 +887,229 @@ export async function saveUISettings(settings: UISettings): Promise<void> {
   } catch {
     // Silently fail — localStorage is the fallback
   }
+}
+
+// ---- MIDI Types ----
+export interface MidiNote {
+  track: number;
+  channel: number;
+  key: number;
+  velocity: number;
+  start_ms: number;
+  end_ms: number;
+}
+
+export interface MidiTrack {
+  index: number;
+  name: string;
+  notes: MidiNote[];
+}
+
+export interface MidiParseResponse {
+  tracks: MidiTrack[];
+  bpm: number;
+}
+
+export interface MidiDevice {
+  name: string;
+  port: number;
+  is_output: boolean;
+}
+
+export async function midiParse(file: string): Promise<MidiParseResponse> {
+  const res = await fetch(`${API_BASE}/api/daw/midi/parse`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file }),
+  });
+  if (!res.ok) throw new Error(`MIDI parse failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as MidiParseResponse;
+}
+
+export async function midiExport(tracks: MidiTrack[], bpm: number): Promise<Blob> {
+  const res = await fetch(`${API_BASE}/api/daw/midi/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ tracks, bpm }),
+  });
+  if (!res.ok) throw new Error(`MIDI export failed: ${res.status} ${res.statusText}`);
+  return await res.blob();
+}
+
+export async function midiDevices(): Promise<MidiDevice[]> {
+  const res = await fetch(`${API_BASE}/api/daw/midi/devices`);
+  if (!res.ok) return [];
+  return (await res.json()) as MidiDevice[];
+}
+
+// ---- DAW Effects ----
+export interface EffectResponse {
+  file: string;
+  parameters?: Record<string, number>;
+}
+
+export interface CompressorRequest {
+  file: string;
+  threshold: number;
+  ratio: number;
+  attack: number;
+  release: number;
+  makeup: number;
+}
+
+export interface ReverbRequest {
+  file: string;
+  room_size: number;
+  decay: number;
+  wet_dry: number;
+}
+
+export interface DelayRequest {
+  file: string;
+  delay_time: number;
+  feedback: number;
+  wet_dry: number;
+}
+
+export interface ChorusRequest {
+  file: string;
+  depth: number;
+  rate: number;
+  delay_ms: number;
+  wet_dry: number;
+}
+
+export interface FlangerRequest {
+  file: string;
+  depth: number;
+  rate: number;
+  wet_dry: number;
+}
+
+export interface PhaserRequest {
+  file: string;
+  depth: number;
+  rate: number;
+  wet_dry: number;
+}
+
+export interface TremoloRequest {
+  file: string;
+  speed: number;
+  depth: number;
+}
+
+export interface NoiseGateRequest {
+  file: string;
+  threshold: number;
+  attack: number;
+  release: number;
+}
+
+export async function applyCompressor(req: CompressorRequest): Promise<EffectResponse> {
+  const res = await fetch(`${API_BASE}/api/daw/compressor`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(`Compressor failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as EffectResponse;
+}
+
+export async function applyReverb(req: ReverbRequest): Promise<EffectResponse> {
+  const res = await fetch(`${API_BASE}/api/daw/reverb`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(`Reverb failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as EffectResponse;
+}
+
+export async function applyDelay(req: DelayRequest): Promise<EffectResponse> {
+  const res = await fetch(`${API_BASE}/api/daw/delay`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(`Delay failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as EffectResponse;
+}
+
+export async function applyChorus(req: ChorusRequest): Promise<EffectResponse> {
+  const res = await fetch(`${API_BASE}/api/daw/chorus`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(`Chorus failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as EffectResponse;
+}
+
+export async function applyFlanger(req: FlangerRequest): Promise<EffectResponse> {
+  const res = await fetch(`${API_BASE}/api/daw/flanger`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(`Flanger failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as EffectResponse;
+}
+
+export async function applyPhaser(req: PhaserRequest): Promise<EffectResponse> {
+  const res = await fetch(`${API_BASE}/api/daw/phaser`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(`Phaser failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as EffectResponse;
+}
+
+export async function applyTremolo(req: TremoloRequest): Promise<EffectResponse> {
+  const res = await fetch(`${API_BASE}/api/daw/tremolo`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(`Tremolo failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as EffectResponse;
+}
+
+export async function applyNoiseGate(req: NoiseGateRequest): Promise<EffectResponse> {
+  const res = await fetch(`${API_BASE}/api/daw/noisegate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(`Noise gate failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as EffectResponse;
+}
+
+// ---- DAW EQ ----
+export interface EqFilter {
+  type: 'peak' | 'lowshelf' | 'highshelf' | 'lowpass' | 'highpass';
+  freq: number;
+  gain: number;
+  q: number;
+}
+
+export interface EqRequest {
+  file: string;
+  filters: EqFilter[];
+}
+
+export interface EqResponse {
+  file: string;
+  filters_applied: number;
+}
+
+export async function applyEQ(req: EqRequest): Promise<EqResponse> {
+  const res = await fetch(`${API_BASE}/api/daw/eq`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  });
+  if (!res.ok) throw new Error(`EQ failed: ${res.status} ${res.statusText}`);
+  return (await res.json()) as EqResponse;
 }

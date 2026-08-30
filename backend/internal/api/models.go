@@ -52,7 +52,7 @@ var dependencyExtensions = []string{".yaml", ".ckpt", ".pth", ".onnx", ".th"}
 // by detectCategory() from the subdirectory name (Roformer, MelBand, SCnet, etc.)
 var categoryMap = map[string]string{
 	"VR_Models":       "VR_Arch",
-	"MDX_Net_Models":  "MDX",
+	"MDX_Net_Models":  "MDXNet",
 	"RoFormer_Models": "Roformer",
 	"Demucs_Models":   "Demucs",
 	"Demucs_ONNX":     "Demucs ONNX",
@@ -269,7 +269,7 @@ func listModels() ModelsListResponse {
 	}
 
 	var categories []string
-	for _, cat := range []string{"VR_Arch", "MDX", "Roformer", "Roformer/MelBand", "SCnet", "Demucs", "Demucs ONNX"} {
+	for _, cat := range []string{"VR_Arch", "MDXNet", "Roformer", "Roformer/MelBand", "SCnet", "Demucs", "Demucs ONNX"} {
 		if categorySet[cat] {
 			categories = append(categories, cat)
 		}
@@ -844,6 +844,11 @@ func detectCategoryFromFilename(filename string) string {
 		strings.Contains(lower, "light") ||
 		strings.Contains(lower, "repro_mdx") {
 		return "Demucs_Models"
+	}
+
+	// MDXNet ONNX models are classified under the MDX_Net_Models directory.
+	if strings.HasSuffix(lower, ".onnx") {
+		return "MDX_Net_Models"
 	}
 
 	// Default fallback

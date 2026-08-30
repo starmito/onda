@@ -5,7 +5,10 @@
   import PitchPage from './lib/PitchPage.svelte';
   import SettingsPanel from './lib/SettingsPanel.svelte';
   import PlaceholderPage from './lib/PlaceholderPage.svelte';
-  import DAWPage from './lib/DAWPage.svelte';
+  import DAWWorkspace from './lib/DAWWorkspace.svelte';
+  import MIDIPage from './lib/MIDIPage.svelte';
+  import SpectrogramPage from './lib/SpectrogramPage.svelte';
+  import BpmPage from './lib/BpmPage.svelte';
   import HelpPage from './lib/HelpPage.svelte';
   import PresetsPanel from './lib/PresetsPanel.svelte';
   import type { ResultStem } from './lib/types';
@@ -512,12 +515,12 @@
     }
   }
 
-  function handleCancel() {
-    cancelQueue().catch(() => {});
-    if (queuePollingTimer) {
-      clearInterval(queuePollingTimer);
-      queuePollingTimer = null;
-    }
+  function songNameForQueueFile(qf: QueueFile): string {
+    const raw = qf.path?.split('/').pop() || qf.file.name;
+    return raw.replace(/\.[^.]+$/, '');
+  }
+
+  function resetPipelineUI() {
     separating = false;
     pipelineStatus = 'idle';
     pipelineStep = '';
@@ -527,117 +530,157 @@
     queueJobs = [];
     processedDoneSongs = new Set();
     activeSongNames = new Set();
-    // Reset queue files so they can be re-processed cleanly
-    queueFiles = queueFiles.map(qf => ({ ...qf, status: 'waiting', progress: 0, errorMsg: undefined }));
+    // Preserve done/error rows, reset the rest so they can be re-processed cleanly
+    queueFiles = queueFiles.map(qf =>
+      qf.status === 'done' || qf.status === 'error'
+        ? qf
+        : { ...qf, status: 'waiting', progress: 0, errorMsg: undefined }
+    );
+  }
+
+  async function handleCancel() {
+    // Ask backend to cancel first, then sync local state
+    try {
+      await cancelQueue();
+    } catch {
+      // ignore — we will sync anyway
+    }
+
+    // Optimistically reset UI so the button responds immediately
+    if (queuePollingTimer) {
+      clearInterval(queuePollingTimer);
+      queuePollingTimer = null;
+    }
+    resetPipelineUI();
+
+    // Re-sync with backend so external cancellations (API / another client) are reflected
+    await syncQueueStatus();
+    if (queueJobs.some(j => j.status === 'waiting' || j.status === 'processing')) {
+      startQueuePolling();
+    }
+
     showToast('⏹ Proceso cancelado', 'success');
   }
 
-  function startQueuePolling() {
-    if (queuePollingTimer) clearInterval(queuePollingTimer);
-    pollStartTime = Date.now();
+  /** Fetch backend queue state and update the UI accordingly. */
+  async function syncQueueStatus(): Promise<boolean> {
+    try {
+      const status = await getQueueStatus();
+      const jobs = status.jobs || [];
+      queueJobs = jobs;
 
-    queuePollingTimer = setInterval(async () => {
-      try {
-        const status = await getQueueStatus();
-        queueJobs = status.jobs || [];
+      // Update progress UI from the processing job
+      const processingJob = jobs.find(j => j.status === 'processing');
+      if (processingJob) {
+        pipelineSong = processingJob.song;
+        pipelineStep = processingJob.step_name || 'processing';
+        pipelineEta = processingJob.eta || '';
+        inferenceDevice = processingJob.device || '';
+      }
 
-        // Update progress UI from processing job
-        const processingJob = queueJobs.find(j => j.status === 'processing');
-        if (processingJob) {
-          pipelineSong = processingJob.song;
-          pipelineStep = processingJob.step_name || 'processing';
-          if (processingJob.eta) pipelineEta = processingJob.eta;
-          if (processingJob.device) inferenceDevice = processingJob.device;
-        }
-
-        // Calculate total progress across ALL submitted songs in this batch
-        if (queueJobs.length > 0 && activeSongNames.size > 0) {
-          let totalSteps = 0;
-          let completedSteps = 0;
-          for (const job of queueJobs) {
-            // Only count jobs from the current batch
-            if (!activeSongNames.has(job.song)) continue;
-            const steps = job.total_steps || 1;
-            totalSteps += steps;
-            if (job.status === 'done') {
-              completedSteps += steps;
-            } else if (job.status === 'processing') {
-              completedSteps += (job.current_step || 1) - 1 + (job.progress || 0) / 100;
-            }
-            // waiting/error jobs contribute 0
-          }
-          if (totalSteps > 0) {
-            currentProgress = completedSteps / totalSteps;
+      // Calculate total progress across the active batch (or all jobs if no batch is tracked)
+      const songsToCount = activeSongNames.size > 0 ? activeSongNames : new Set(jobs.map(j => j.song));
+      if (jobs.length > 0 && songsToCount.size > 0) {
+        let totalSteps = 0;
+        let completedSteps = 0;
+        for (const job of jobs) {
+          if (!songsToCount.has(job.song)) continue;
+          const steps = job.total_steps || 1;
+          totalSteps += steps;
+          if (job.status === 'done') {
+            completedSteps += steps;
+          } else if (job.status === 'processing') {
+            completedSteps += (job.current_step || 1) - 1 + (job.progress || 0) / 100;
           }
         }
+        if (totalSteps > 0) {
+          currentProgress = completedSteps / totalSteps;
+        }
+      }
 
-        // Check for newly done jobs → accumulate results
-        for (const job of queueJobs) {
-          if (job.status === 'done' && !processedDoneSongs.has(job.song)) {
-            processedDoneSongs.add(job.song);
-            if (job.files && job.files.length > 0) {
-              const newResults: ResultStem[] = job.files.map((f: any) => ({
+      // Accumulate results and surface per-job errors once per song
+      for (const job of jobs) {
+        if (job.status === 'done' && !processedDoneSongs.has(job.song)) {
+          processedDoneSongs.add(job.song);
+          if (job.files && job.files.length > 0) {
+            const alreadyLoaded = new Set(results.map(r => `${r.song}/${r.name}`));
+            const newResults: ResultStem[] = job.files
+              .filter((f: any) => !alreadyLoaded.has(`${job.song}/${f.name}`))
+              .map((f: any) => ({
                 name: f.name,
                 path: f.path,
                 song: job.song,
                 stemType: detectStemType(f.name),
               }));
-              results = [...results, ...newResults]; // accumulate, don't replace
+            if (newResults.length > 0) {
+              results = [...results, ...newResults];
             }
           }
-          if (job.status === 'error' && job.error && !processedDoneSongs.has(job.song)) {
-            processedDoneSongs.add(job.song);
-            showToast(`Error en "${job.song}": ${job.error.slice(0, 200)}`, 'error');
-          }
         }
-
-        // Update queue file statuses to match job states (including per-track progress)
-        for (const job of queueJobs) {
-          const qf = queueFiles.find(
-            (q) => q.path && q.path.includes(job.song.replace(/\.[^.]+$/, '')),
-          );
-          if (qf) {
-            qf.status = job.status;
-            qf.progress = job.status === 'done' ? 100 : (job.progress ?? 0);
-            qf.current_step = job.current_step;
-            qf.total_steps = job.total_steps;
-            qf.step_name = job.step_name;
-          }
+        if (job.status === 'error' && job.error && !processedDoneSongs.has(job.song)) {
+          processedDoneSongs.add(job.song);
+          showToast(`Error en "${job.song}": ${job.error.slice(0, 200)}`, 'error');
         }
-
-        // All jobs done or errored → stop polling
-        const allSettled = queueJobs.every(
-          (j) => j.status === 'done' || j.status === 'error',
-        );
-        if (allSettled && queueJobs.length > 0) {
-          clearInterval(queuePollingTimer!);
-          queuePollingTimer = null;
-          separating = false;
-          pipelineStatus = queueJobs.some((j) => j.status === 'error') ? 'error' : 'done';
-          pipelineStep = queueJobs.some((j) => j.status === 'error') ? 'Error' : 'Completado';
-          currentProgress = queueJobs.some((j) => j.status === 'error') ? 0 : 1;
-        }
-
-        // Timeout: if queue is empty but we expected jobs, show error after 10s
-        if (queueJobs.length === 0 && activeSongNames.size > 0 && queuePollingTimer) {
-          const elapsed = Date.now() - pollStartTime;
-          if (elapsed > 10000) {
-            clearInterval(queuePollingTimer);
-            queuePollingTimer = null;
-            separating = false;
-            pipelineStatus = 'error';
-            pipelineStep = 'Error al encolar';
-            currentProgress = 0;
-            showToast('Error: Los trabajos no se encolaron correctamente', 'error');
-          }
-        }
-      } catch (e) {
-        // Silently keep polling on transient network errors
       }
-    }, 500);
+
+      // Reflect each job state in its queue row, including backend error messages
+      queueFiles = queueFiles.map(qf => {
+        const qfSong = songNameForQueueFile(qf);
+        const job = jobs.find(j => j.song === qfSong || j.song.startsWith(qfSong));
+        if (!job) return qf;
+        return {
+          ...qf,
+          status: job.status,
+          progress: job.status === 'done' ? 100 : (job.progress ?? 0),
+          current_step: job.current_step,
+          total_steps: job.total_steps,
+          step_name: job.step_name,
+          errorMsg: job.status === 'error' ? (job.error || qf.errorMsg) : qf.errorMsg,
+        };
+      });
+
+      const hasActive = jobs.some(j => j.status === 'waiting' || j.status === 'processing');
+      const allSettled = jobs.length > 0 && jobs.every(j => j.status === 'done' || j.status === 'error');
+
+      if (jobs.length === 0) {
+        // Backend queue is empty — stop polling and reset UI so no ghost jobs remain
+        if (queuePollingTimer) {
+          clearInterval(queuePollingTimer);
+          queuePollingTimer = null;
+        }
+        resetPipelineUI();
+      } else if (allSettled) {
+        if (queuePollingTimer) {
+          clearInterval(queuePollingTimer);
+          queuePollingTimer = null;
+        }
+        separating = false;
+        const hasError = jobs.some(j => j.status === 'error');
+        pipelineStatus = hasError ? 'error' : 'done';
+        pipelineStep = hasError ? 'Error' : 'Completado';
+        currentProgress = hasError ? 0 : 1;
+        activeSongNames = new Set();
+      } else if (!separating) {
+        // Jobs appeared from outside (another client / API)
+        separating = true;
+        pipelineStatus = 'running';
+      }
+
+      return hasActive;
+    } catch (e) {
+      // Keep polling on transient network errors; return true so callers don't think we are done
+      return true;
+    }
   }
 
-  let pollStartTime = 0;
+  function startQueuePolling() {
+    if (queuePollingTimer) clearInterval(queuePollingTimer);
+    // Immediate sync, then keep polling every 500 ms
+    syncQueueStatus();
+    queuePollingTimer = setInterval(() => {
+      syncQueueStatus();
+    }, 500);
+  }
 
   // ---- Refresh results from backend (e.g., after pitch shift) ----
   async function handleRefreshResults() {
@@ -704,6 +747,16 @@
       // File was only dragged in but not uploaded yet — just remove from list
       queueFiles = queueFiles.filter((q) => q.id !== id);
     }
+
+    // Stop tracking this song as part of the current batch so it doesn't leave ghost progress
+    const removedSong = songNameForQueueFile(qf);
+    if (activeSongNames.has(removedSong)) {
+      activeSongNames.delete(removedSong);
+      activeSongNames = activeSongNames;
+    }
+
+    // Sync with backend so the queue view never shows stale / ghost jobs
+    await syncQueueStatus();
   }
 
   function statusBadgeClass(status: string): string {
@@ -806,9 +859,13 @@
         {:else if activeTab === 'pitch'}
           <PitchPage results={results} onResultsChange={handleRefreshResults} />
         {:else if activeTab === 'daw'}
-          <DAWPage />
+          <DAWWorkspace />
+        {:else if activeTab === 'midi'}
+          <MIDIPage />
+        {:else if activeTab === 'spectrogram'}
+          <SpectrogramPage />
         {:else if activeTab === 'bpm'}
-          <PlaceholderPage tabId={activeTab} />
+          <BpmPage />
         {:else}
           <!-- PipelineView con el preset -->
           <PipelineView

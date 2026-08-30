@@ -1,6 +1,6 @@
 <script lang="ts">
   import PresetsPanel from './PresetsPanel.svelte';
-  import { uploadAudio, deleteInput } from './api';
+  import { uploadAudio, deleteInput, clearQueue } from './api';
   import { IconUpload } from './icons';
 
   interface QueueFile {
@@ -115,7 +115,12 @@
     onQueueChange(updated);
   }
 
-  function handleClearQueue() {
+  async function handleClearQueue() {
+    try {
+      await clearQueue();
+    } catch {
+      // ignore — backend will sync on next poll
+    }
     onQueueChange([]);
   }
 
@@ -226,6 +231,9 @@
                 </div>
               {:else if qf.status === 'error'}
                 <span class="step-label error">Error</span>
+                {#if qf.errorMsg}
+                  <span class="queue-error-msg" title={qf.errorMsg}>{qf.errorMsg}</span>
+                {/if}
                 <div class="mini-progress-bar">
                   <div class="mini-progress-fill error" style="width:100%"></div>
                 </div>
@@ -249,7 +257,15 @@
         </button>
 
         {#if separating}
-          <button class="btn-stop" onclick={onCancel}>⏹ Detener</button>
+          <button
+            class="btn-stop"
+            onclick={onCancel}
+            title="Cancela el proceso en curso y limpia la cola de espera"
+            aria-label="Cancela el proceso en curso y limpia la cola de espera"
+          >
+            ⏹ Detener
+          </button>
+          <span class="stop-hint">Cancela el proceso en curso y limpia la cola de espera</span>
 
           <div class="progress-card">
             <div class="progress-header">
@@ -575,6 +591,14 @@
   .btn-stop:hover {
     background: #5a2a2a;
   }
+  .stop-hint {
+    display: block;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    margin-top: -8px;
+    margin-bottom: 12px;
+    text-align: center;
+  }
 
   /* Mini progress bar inside queue rows */
   .queue-progress {
@@ -611,6 +635,15 @@
   }
   .mini-progress-fill.done { background: #4caf50; }
   .mini-progress-fill.error { background: #e57373; }
+  .queue-error-msg {
+    font-size: 0.7rem;
+    color: #e57373;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    text-align: center;
+  }
   .done-row {
     cursor: pointer;
     border-color: var(--accent-border);

@@ -251,6 +251,7 @@
       'Roformer',
       'Roformer/MelBand',
       'MDX',
+      'MDXNet',
       'SCnet',
       'Demucs',
       'VR_Arch',

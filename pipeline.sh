@@ -12,7 +12,7 @@
 # Flags:
 #   --steps JSON          Chained mode: JSON array of step objects
 #   --vocal-model PATH    Vocal model path (default: /app/models/VR_Models/BS_Roformer_Viperx)
-#   --vocal-type TYPE     Vocal model type: mdx | roformer | auto (default: auto)
+#   --vocal-type TYPE     Vocal model type: mdx | mdxnet | roformer | auto (default: auto)
 #   --vocal-keep WHAT     What to save: instrumental | vocals | both (default) (alias: --viperx-keep)
 #   --viperx-model PATH   Same as --vocal-model (deprecated)
 #   --viperx-keep WHAT    Same as --vocal-keep (deprecated)
@@ -186,10 +186,11 @@ run_with_elapsed() {
     update_elapsed_loop &
     local elapsed_pid=$!
     # Ensure the background loop is always cleaned up, even on failure or exit.
-    trap 'kill_wait "$elapsed_pid"' EXIT
+    # Use ${elapsed_pid:-} so set -u never aborts the trap before cleanup.
+    trap 'kill_wait "${elapsed_pid:-}"' EXIT
     "$@"
     local cmd_rc=$?
-    kill_wait "$elapsed_pid"
+    kill_wait "${elapsed_pid:-}"
     trap - EXIT
     return $cmd_rc
 }
@@ -459,6 +460,26 @@ PY
     return 1
 }
 
+# Detect whether a vocal model directory contains an MDXNet ONNX model.
+# Heuristic: explicit --vocal-type mdxnet, OR the directory contains a .onnx file.
+is_onnx_model_dir() {
+    local model_path="$1"
+    local model_dir="$model_path"
+    if [ -f "$model_path" ]; then
+        model_dir="$(dirname "$model_path")"
+    fi
+
+    case "$VOCAL_TYPE" in
+        mdxnet) return 0 ;;
+    esac
+
+    if ls "${model_dir}"/*.onnx >/dev/null 2>&1; then
+        return 0
+    fi
+
+    return 1
+}
+
 # Run a Vocal model step in chaining mode
 # Args: model_path (file or dir), input_file, output_dir
 run_vocal_step() {
@@ -484,14 +505,17 @@ run_vocal_step() {
         fi
         echo "   ℹ️  Detected MDX-C vocal model"
         local mdx_overlap="8"
+        local mdx_batch_size="1"
         local mdx_yaml
         mdx_yaml=$(ls "${model_dir}"/*.yaml 2>/dev/null | head -1)
         if [ -n "$mdx_yaml" ]; then
             mdx_overlap=$(python3 -c "import yaml; print(yaml.load(open('$mdx_yaml'), Loader=yaml.FullLoader).get('inference',{}).get('num_overlap',8))" 2>/dev/null || echo "8")
+            mdx_batch_size=$(python3 -c "import yaml; print(yaml.load(open('$mdx_yaml'), Loader=yaml.FullLoader).get('inference',{}).get('batch_size',1))" 2>/dev/null || echo "1")
         fi
         run_with_elapsed python3 /app/inference_mdx.py \
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
+            --batch-size "${mdx_batch_size}" \
             "${model_dir}" "${input_file}" "${output_dir}" "${mdx_overlap}"
     elif is_scnet_model_dir "$model_dir"; then
         if [ ! -f /app/inference_scnet.py ]; then
@@ -503,6 +527,22 @@ run_vocal_step() {
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
             "${model_dir}" "${input_file}" "${output_dir}"
+    elif is_onnx_model_dir "$model_dir"; then
+        if [ ! -f /app/inference_onnx.py ]; then
+            echo "❌ inference_onnx.py not found" >&2
+            exit 2
+        fi
+        echo "   ℹ️  Detected MDXNet ONNX vocal model"
+        local onnx_overlap="4"
+        local onnx_json
+        onnx_json=$(ls "${model_dir}"/*.json 2>/dev/null | head -1)
+        if [ -n "$onnx_json" ]; then
+            onnx_overlap=$(python3 -c "import json; print(json.load(open('$onnx_json')).get('overlap',4))" 2>/dev/null || echo "4")
+        fi
+        run_with_elapsed python3 /app/inference_onnx.py \
+            --pipeline-status "$STATUS_FILE" \
+            --device "$DEVICE" \
+            "${model_dir}" "${input_file}" "${output_dir}" "${onnx_overlap}"
     else
         if [ ! -f /app/inference_universal.py ]; then
             echo "❌ inference_universal.py not found" >&2
@@ -600,7 +640,8 @@ run_demucs_step() {
 
     # Always clean up both background processes when the function exits, even on
     # error, so the pipeline never hangs on a stray background loop.
-    trap 'kill_wait "$demucs_pid"; kill_wait "$elapsed_pid"' EXIT
+    # Use ${var:-} so set -u never aborts the trap before cleanup.
+    trap 'kill_wait "${demucs_pid:-}"; kill_wait "${elapsed_pid:-}"' EXIT
 
     # Poll the demucs stderr log for real progress percentages.
     while kill -0 "$demucs_pid" 2>/dev/null; do
@@ -629,7 +670,7 @@ run_demucs_step() {
 
     # Clean up the elapsed updater explicitly before dropping the trap, so the
     # function can return the real demucs exit code without blocking.
-    kill_wait "$elapsed_pid"
+    kill_wait "${elapsed_pid:-}"
     trap - EXIT
     rm -f "${progress_log}"
 
@@ -1123,9 +1164,11 @@ if $VOCAL || $VIPERX; then
         fi
         echo "   ℹ️  Using MDX-C inference"
         VOCAL_OVERLAP_INT="${VOCAL_NUM_OVERLAP:-${VIPERX_NUM_OVERLAP:-8}}"
+        VOCAL_BATCH_SIZE_INT="${VOCAL_BATCH_SIZE:-${VIPERX_BATCH_SIZE:-1}}"
         run_with_elapsed python3 /app/inference_mdx.py \
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
+            --batch-size "${VOCAL_BATCH_SIZE_INT}" \
             "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}" ${VOCAL_OVERLAP_INT}
     elif is_scnet_model_dir "${vocal_model_dir}"; then
         if [ ! -f /app/inference_scnet.py ]; then
@@ -1137,6 +1180,22 @@ if $VOCAL || $VIPERX; then
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
             "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}"
+    elif is_onnx_model_dir "${vocal_model_dir}"; then
+        if [ ! -f /app/inference_onnx.py ]; then
+            echo "❌ inference_onnx.py not found" >&2
+            exit 2
+        fi
+        echo "   ℹ️  Using MDXNet ONNX inference"
+        local onnx_overlap="4"
+        local onnx_json
+        onnx_json=$(ls "${vocal_model_dir}"/*.json 2>/dev/null | head -1)
+        if [ -n "$onnx_json" ]; then
+            onnx_overlap=$(python3 -c "import json; print(json.load(open('$onnx_json')).get('overlap',4))" 2>/dev/null || echo "4")
+        fi
+        run_with_elapsed python3 /app/inference_onnx.py \
+            --pipeline-status "$STATUS_FILE" \
+            --device "$DEVICE" \
+            "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}" "${onnx_overlap}"
     else
         if [ ! -f /app/inference_universal.py ]; then
             echo "❌ inference_universal.py not found" >&2
