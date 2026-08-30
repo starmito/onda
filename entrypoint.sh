@@ -27,6 +27,21 @@ if [ "$GPU" != "cpu" ]; then
         echo "✅ $GPU backend installed"
     fi
 
+    # Robustness: verify onnxruntime imports from the cache, reinstall if missing/corrupt.
+    if ! PYTHONPATH="$CACHE_DIR" python -c "import onnxruntime" >/dev/null 2>&1; then
+        echo "⚠️  onnxruntime not importable in cache, reinstalling..."
+        mkdir -p "$CACHE_DIR"
+        case $GPU in
+            cuda)
+                pip install --target "$CACHE_DIR" onnxruntime-gpu==1.26.0
+                ;;
+            rocm)
+                pip install --target "$CACHE_DIR" onnxruntime
+                ;;
+        esac
+        echo "✅ onnxruntime reinstalled"
+    fi
+
     # onnxruntime-gpu needs CUDA libraries that are bundled inside torch's lib dir.
     if [ -d "$CACHE_DIR/torch/lib" ]; then
         export LD_LIBRARY_PATH="$CACHE_DIR/torch/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"

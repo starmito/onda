@@ -48,21 +48,23 @@ const defaultVRAMMB = 2000
 const fallbackAvailableVRAMMB = 16311
 
 // estimateVRAMMB returns the empirical VRAM peak in MB for a model name.
-// It uses measured peaks for Roformer/ViperX/Vocal, Demucs, MDX and SCNet.
+// It uses measured peaks for Roformer/ViperX/Vocal, Demucs, MDX/MDXNet and SCNet.
 // Falls back to defaultVRAMMB for unknown models.
 func estimateVRAMMB(modelName string, segmentSize, batchSize, demucsSegment int) int {
 	lower := strings.ToLower(modelName)
 
-	// MDX / MDXNet / ONNX: measured flat peak.
-	// Checked before Vocal/Roformer because names like "MDXNet_Vocals" contain
-	// the "vocal" substring but are still MDX-family models.
+	// MDX / MDXNet / ONNX: empirical peak depends on dim_t (derived from
+	// segment_size) and scales with batch size. Checked before Vocal/Roformer
+	// because names like "MDXNet_Vocals" contain the "vocal" substring but are
+	// still MDX-family models.
 	if strings.Contains(lower, "mdx") || strings.Contains(lower, "onnx") {
-		return 2476
+		return mdxEstimateVRAMMB(segmentSize, batchSize)
 	}
 
-	// SCNet: measured flat peak.
+	// SCNet: empirical peak scales linearly with chunk_size and batch size.
+	// Overlap does not affect the estimate.
 	if strings.Contains(lower, "scnet") {
-		return 1828
+		return scnetEstimateVRAMMB(segmentSize, batchSize)
 	}
 
 	// Roformer / ViperX / Vocal: measured peak with real long audio:
@@ -193,6 +195,66 @@ func (s *Server) handleGPUInfo(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}
 	json.NewEncoder(w).Encode(info)
+}
+
+// mdxDimTPoints are today's measured MDX23C dim_t values ordered increasingly.
+// dim_t is derived from segment_size as: dim_t = segment_size*3 + 33.
+var mdxDimTPoints = []int{417, 801, 1569, 2337}
+
+// mdxVRAMPoints are the measured VRAM peaks (MiB, batch 1) for mdxDimTPoints.
+var mdxVRAMPoints = []int{2080, 2478, 6748, 9872}
+
+// mdxEstimateVRAMMB returns the empirical MDX-family VRAM peak in MB.
+// It derives dim_t from segment_size, interpolates the base peak from the
+// measured table, and multiplies by batch size.
+func mdxEstimateVRAMMB(segmentSize, batchSize int) int {
+	b := batchSize
+	if b < 1 {
+		b = 1
+	}
+	dimT := segmentSize*3 + 33
+	base := interpolatePeak(dimT, mdxDimTPoints, mdxVRAMPoints)
+	return base * b
+}
+
+// scnetChunkPoints are today's measured SCNet chunk_size values (samples)
+// for 100-second audio, ordered increasingly.
+var scnetChunkPoints = []int{242550, 485100, 970200}
+
+// scnetVRAMPoints are the measured VRAM peaks (MiB, batch 1) for scnetChunkPoints.
+var scnetVRAMPoints = []int{600, 948, 1762}
+
+// scnetEstimateVRAMMB returns the empirical SCNet VRAM peak in MB.
+// It uses a base linear in chunk_size (interpolated from batch-1 measurements)
+// and multiplies by batch size. Overlap is ignored.
+func scnetEstimateVRAMMB(segmentSize, batchSize int) int {
+	b := batchSize
+	if b < 1 {
+		b = 1
+	}
+	// segmentSize is used directly as chunk_size in samples.
+	base := interpolatePeak(segmentSize, scnetChunkPoints, scnetVRAMPoints)
+	return base * b
+}
+
+// interpolatePeak returns the interpolated peak from sorted x/y measurement
+// tables. Values below the first point clamp to the first point, values above
+// the last point clamp to the last point, and values in between use linear
+// interpolation.
+func interpolatePeak(x int, xs, ys []int) int {
+	if len(xs) == 0 || len(xs) != len(ys) {
+		return defaultVRAMMB
+	}
+	if x <= xs[0] {
+		return ys[0]
+	}
+	for i := 1; i < len(xs); i++ {
+		if x <= xs[i] {
+			t := float64(x-xs[i-1]) / float64(xs[i]-xs[i-1])
+			return int(math.Round(float64(ys[i-1]) + t*float64(ys[i]-ys[i-1])))
+		}
+	}
+	return ys[len(ys)-1]
 }
 
 // isVocalOrRoformer returns true for Vocal and Roformer models whose VRAM
