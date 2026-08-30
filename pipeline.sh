@@ -186,10 +186,11 @@ run_with_elapsed() {
     update_elapsed_loop &
     local elapsed_pid=$!
     # Ensure the background loop is always cleaned up, even on failure or exit.
-    trap 'kill_wait "$elapsed_pid"' EXIT
+    # Use ${elapsed_pid:-} so set -u never aborts the trap before cleanup.
+    trap 'kill_wait "${elapsed_pid:-}"' EXIT
     "$@"
     local cmd_rc=$?
-    kill_wait "$elapsed_pid"
+    kill_wait "${elapsed_pid:-}"
     trap - EXIT
     return $cmd_rc
 }
@@ -639,7 +640,8 @@ run_demucs_step() {
 
     # Always clean up both background processes when the function exits, even on
     # error, so the pipeline never hangs on a stray background loop.
-    trap 'kill_wait "$demucs_pid"; kill_wait "$elapsed_pid"' EXIT
+    # Use ${var:-} so set -u never aborts the trap before cleanup.
+    trap 'kill_wait "${demucs_pid:-}"; kill_wait "${elapsed_pid:-}"' EXIT
 
     # Poll the demucs stderr log for real progress percentages.
     while kill -0 "$demucs_pid" 2>/dev/null; do
@@ -668,7 +670,7 @@ run_demucs_step() {
 
     # Clean up the elapsed updater explicitly before dropping the trap, so the
     # function can return the real demucs exit code without blocking.
-    kill_wait "$elapsed_pid"
+    kill_wait "${elapsed_pid:-}"
     trap - EXIT
     rm -f "${progress_log}"
 

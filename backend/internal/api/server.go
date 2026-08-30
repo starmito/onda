@@ -142,6 +142,64 @@ var killProcessGroup = func(pgid int) error {
 	return nil
 }
 
+// pipelineWaitTimeout is the maximum time the worker will wait for cmd.Wait()
+// after the pipeline context has been cancelled. If Wait() does not return,
+// the job is abandoned so the worker never gets stuck.
+const pipelineWaitTimeout = 5 * time.Second
+
+// waitCmdResult waits for cmd.Wait() to return. If ctx is cancelled, it waits
+// up to pipelineWaitTimeout for Wait() to return; if it still hasn't, it
+// returns a descriptive error so the worker can abandon the job instead of
+// hanging forever.
+func waitCmdResult(ctx context.Context, cmd *exec.Cmd) error {
+	return waitWithTimeout(ctx, cmd.Wait, pipelineWaitTimeout)
+}
+
+// waitWithTimeout waits for wait() to return. If ctx is cancelled, it waits up
+// to timeout for wait() to return; if it still hasn't, it returns a descriptive
+// error. It is split out from waitCmdResult so tests can exercise the timeout
+// path with fast, in-memory mocks instead of real processes.
+func waitWithTimeout(ctx context.Context, wait func() error, timeout time.Duration) error {
+	type waitResult struct {
+		err error
+	}
+	done := make(chan waitResult, 1)
+	go func() {
+		done <- waitResult{err: wait()}
+	}()
+
+	select {
+	case r := <-done:
+		return r.err
+	case <-ctx.Done():
+		select {
+		case r := <-done:
+			return r.err
+		case <-time.After(timeout):
+			return errors.New("pipeline process did not exit after cancellation (cmd.Wait timeout)")
+		}
+	}
+}
+
+// sweepOrphanPipelineProcesses kills known pipeline orphan processes that may
+// survive after the process group is terminated. It uses specific pkill
+// patterns (never a generic python pkill) so the backend is not affected.
+// It is a variable so tests can substitute a mock implementation and verify
+// that the cleanup sweep is invoked during cancellation.
+var sweepOrphanPipelineProcesses = func() {
+	patterns := []string{
+		"pipeline.sh",
+		"inference_mdx.py",
+		"inference_scnet.py",
+		"inference_universal.py",
+		"inference_onnx.py",
+	}
+	for _, pattern := range patterns {
+		// Ignore errors; this is a best-effort cleanup sweep.
+		_ = exec.Command("pkill", "-9", "-f", pattern).Run()
+	}
+}
+
 // NewServer creates a new http.Server with CORS middleware and routes registered.
 func NewServer(addr string) *http.Server {
 	s := &Server{
@@ -648,6 +706,10 @@ func (s *Server) cancelCurrentJob() {
 		killProcessGroup(-s.currentPID)
 		// Fallback in case Setpgid wasn't applied.
 		killProcess(s.currentPID)
+		// Sweep any orphaned pipeline processes that survived the group kill.
+		// Specific patterns avoid killing unrelated python processes such as
+		// the backend itself.
+		sweepOrphanPipelineProcesses()
 	}
 	s.currentCancel = nil
 	s.currentCmd = nil
@@ -767,7 +829,7 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	s.jobsMu.Unlock()
 
 	if err == nil {
-		err = cmd.Wait()
+		err = waitCmdResult(ctx, cmd)
 	}
 
 	s.jobsMu.Lock()
@@ -787,7 +849,10 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 			state.Status = "error"
 			errMsg := strings.TrimSpace(string(output))
 			if errMsg == "" {
-				errMsg = "pipeline failed"
+				errMsg = err.Error()
+				if errMsg == "" {
+					errMsg = "pipeline failed"
+				}
 			}
 			state.Error = errMsg
 			Log("pipeline", "error", "Pipeline failed for "+job.Song+": "+errMsg)
@@ -866,7 +931,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		s.jobsMu.Unlock()
 
 		if err == nil {
-			err = cmd.Wait()
+			err = waitCmdResult(ctx, cmd)
 		}
 
 		s.jobsMu.Lock()
@@ -885,8 +950,12 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 			s.jobsMu.Lock()
 			if state, ok := s.jobs[job.Song]; ok {
 				state.Status = "error"
-				state.Error = fmt.Sprintf("Step %d (%s) failed: %s", i+1, step.ID, strings.TrimSpace(string(output)))
-				Log("pipeline", "error", fmt.Sprintf("Pipeline step %d/%d failed for %s: %s", i+1, len(steps), job.Song, strings.TrimSpace(string(output))))
+				errMsg := strings.TrimSpace(string(output))
+				if errMsg == "" {
+					errMsg = err.Error()
+				}
+				state.Error = fmt.Sprintf("Step %d (%s) failed: %s", i+1, step.ID, errMsg)
+				Log("pipeline", "error", fmt.Sprintf("Pipeline step %d/%d failed for %s: %s", i+1, len(steps), job.Song, errMsg))
 			}
 			s.jobsMu.Unlock()
 			return
