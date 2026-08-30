@@ -183,15 +183,18 @@ kill_wait() {
 # Helper: run a command with elapsed/eta updates in background
 # Usage: run_with_elapsed <command...>
 run_with_elapsed() {
+    # Preserve the outer EXIT trap so temp-dir cleanup still runs after this helper.
+    local prev_exit_trap
+    prev_exit_trap=$(trap -p EXIT)
     update_elapsed_loop &
     local elapsed_pid=$!
     # Ensure the background loop is always cleaned up, even on failure or exit.
     # Use ${elapsed_pid:-} so set -u never aborts the trap before cleanup.
-    trap 'kill_wait "${elapsed_pid:-}"' EXIT
+    trap 'kill_wait "${elapsed_pid:-}"; cleanup_legacy_temps' EXIT
     "$@"
     local cmd_rc=$?
     kill_wait "${elapsed_pid:-}"
-    trap - EXIT
+    eval "${prev_exit_trap:-trap - EXIT}"
     return $cmd_rc
 }
 
@@ -612,6 +615,8 @@ run_demucs_step() {
     local step_idx="${5:-}"
     local demucs_pid=""
     local elapsed_pid=""
+    local prev_exit_trap
+    prev_exit_trap=$(trap -p EXIT)
 
     local demucs_args=(-n "${model_name}" --device "${DEVICE}" -o "${output_dir}")
     [ "${SHIFTS:-1}" -gt 0 ] && demucs_args+=(--shifts "${SHIFTS:-1}")
@@ -641,7 +646,7 @@ run_demucs_step() {
     # Always clean up both background processes when the function exits, even on
     # error, so the pipeline never hangs on a stray background loop.
     # Use ${var:-} so set -u never aborts the trap before cleanup.
-    trap 'kill_wait "${demucs_pid:-}"; kill_wait "${elapsed_pid:-}"' EXIT
+    trap 'kill_wait "${demucs_pid:-}"; kill_wait "${elapsed_pid:-}"; cleanup_legacy_temps' EXIT
 
     # Poll the demucs stderr log for real progress percentages.
     while kill -0 "$demucs_pid" 2>/dev/null; do
@@ -671,7 +676,7 @@ run_demucs_step() {
     # Clean up the elapsed updater explicitly before dropping the trap, so the
     # function can return the real demucs exit code without blocking.
     kill_wait "${elapsed_pid:-}"
-    trap - EXIT
+    eval "${prev_exit_trap:-trap - EXIT}"
     rm -f "${progress_log}"
 
     return $demucs_rc
@@ -754,6 +759,14 @@ fi
 
 SONG=$(basename "${INPUT%.*}")
 OUTPUT="${OUTPUT:-/app/output/${SONG}}"
+
+# Ensure temporary vocal/demucs dirs are always removed, even on error or cancellation.
+cleanup_legacy_temps() {
+    if [ -n "${OUTPUT:-}" ]; then
+        rm -rf "${OUTPUT}/_vocal" "${OUTPUT}/_demucs" 2>/dev/null || true
+    fi
+}
+trap 'cleanup_legacy_temps' EXIT
 
 # ── Auto-detect steps: if no step was explicitly requested and not in --steps mode,
 #    enable all steps for backward compatibility (full pipeline).

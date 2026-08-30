@@ -51,13 +51,14 @@ fi
 # Crear directorios de montaje
 mkdir -p /app/input /app/output /app/input_rubberband /app/config
 
-export TORCH_HOME=/tmp/torch_cache
-export NUMBA_CACHE_DIR=/tmp/numba_cache
-export XDG_CACHE_HOME=/tmp/xdg_cache
-export HF_HOME=/tmp/hf_cache
+# Use persistent caches under /app so torch/hf/numba state survives restarts.
+export TORCH_HOME=/app/.cache/torch
+export NUMBA_CACHE_DIR=/app/.cache/numba
+export XDG_CACHE_HOME=/app/.cache/xdg
+export HF_HOME=/app/.cache/hf
 
-# Crear directorios temporales como appuser
-mkdir -p /tmp/numba_cache /tmp/torch_cache /tmp/xdg_cache /tmp/hf_cache
+# Crear directorios de caché persistentes como appuser
+mkdir -p /app/.cache/numba /app/.cache/torch /app/.cache/xdg /app/.cache/hf
 
 echo "🚀 Starting Onda ${ONDAP_VERSION:-unknown} ($GPU mode)..."
 exec /usr/local/bin/onda-backend serve --addr 0.0.0.0:3000

@@ -111,7 +111,7 @@ RUN groupadd -g ${USER_GID} appgroup && \
     useradd -m -u ${USER_UID} -g appgroup -d /app -s /bin/bash appuser
 
 # Directorios runtime (bind mounts del host) propiedad del usuario
-RUN mkdir -p /input /output /input_rubberband /config /daw-data /opt/pytorch-backends && \
+RUN mkdir -p /input /output /input_rubberband /config /daw-data /opt/pytorch-backends /app/.cache && \
     chown -R ${USER_UID}:${USER_GID} /input /output /input_rubberband /config /daw-data /app /opt/pytorch-backends
 
 # Symlink para el backend Go (espera /pipeline.sh)

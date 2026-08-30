@@ -618,6 +618,28 @@ export async function pitchStems(song: string, pitch: number): Promise<PitchResp
   return res.json();
 }
 
+export async function pitchFile(file: string, pitch: number): Promise<PitchResponse> {
+  const res = await fetch(`${API_BASE}/api/pitch/file`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ file, pitch }),
+  });
+  if (!res.ok) throw new Error(`Pitch file failed: ${res.status}`);
+  return res.json();
+}
+
+export interface PitchUpload {
+  name: string;
+  path: string;
+  subgroups: PitchSubgroup[];
+}
+
+export async function getPitchUploads(): Promise<PitchUpload[]> {
+  const res = await fetch(`${API_BASE}/api/uploads/pitch`);
+  if (!res.ok) return [];
+  return res.json();
+}
+
 export interface PitchSubgroup {
   pitch: number;
   files: Array<{ name: string; path: string }>;
