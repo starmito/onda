@@ -53,6 +53,18 @@ const fallbackAvailableVRAMMB = 16311
 func estimateVRAMMB(modelName string, segmentSize, batchSize, demucsSegment int) int {
 	lower := strings.ToLower(modelName)
 
+	// MDX / MDXNet / ONNX: measured flat peak.
+	// Checked before Vocal/Roformer because names like "MDXNet_Vocals" contain
+	// the "vocal" substring but are still MDX-family models.
+	if strings.Contains(lower, "mdx") || strings.Contains(lower, "onnx") {
+		return 2476
+	}
+
+	// SCNet: measured flat peak.
+	if strings.Contains(lower, "scnet") {
+		return 1828
+	}
+
 	// Roformer / ViperX / Vocal: measured peak with real long audio:
 	// pico ≈ 1100 + (106 + 6.72*segment_size) * batch_size.
 	// batch_size is multiplicative because chunks are processed in parallel.
@@ -70,13 +82,6 @@ func estimateVRAMMB(modelName string, segmentSize, batchSize, demucsSegment int)
 			return 1106
 		}
 		return 1572
-	}
-
-	if strings.Contains(lower, "mdx") {
-		return 2476
-	}
-	if strings.Contains(lower, "scnet") {
-		return 1828
 	}
 
 	return defaultVRAMMB

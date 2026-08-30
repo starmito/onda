@@ -504,14 +504,17 @@ run_vocal_step() {
         fi
         echo "   ℹ️  Detected MDX-C vocal model"
         local mdx_overlap="8"
+        local mdx_batch_size="1"
         local mdx_yaml
         mdx_yaml=$(ls "${model_dir}"/*.yaml 2>/dev/null | head -1)
         if [ -n "$mdx_yaml" ]; then
             mdx_overlap=$(python3 -c "import yaml; print(yaml.load(open('$mdx_yaml'), Loader=yaml.FullLoader).get('inference',{}).get('num_overlap',8))" 2>/dev/null || echo "8")
+            mdx_batch_size=$(python3 -c "import yaml; print(yaml.load(open('$mdx_yaml'), Loader=yaml.FullLoader).get('inference',{}).get('batch_size',1))" 2>/dev/null || echo "1")
         fi
         run_with_elapsed python3 /app/inference_mdx.py \
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
+            --batch-size "${mdx_batch_size}" \
             "${model_dir}" "${input_file}" "${output_dir}" "${mdx_overlap}"
     elif is_scnet_model_dir "$model_dir"; then
         if [ ! -f /app/inference_scnet.py ]; then
@@ -1159,9 +1162,11 @@ if $VOCAL || $VIPERX; then
         fi
         echo "   ℹ️  Using MDX-C inference"
         VOCAL_OVERLAP_INT="${VOCAL_NUM_OVERLAP:-${VIPERX_NUM_OVERLAP:-8}}"
+        VOCAL_BATCH_SIZE_INT="${VOCAL_BATCH_SIZE:-${VIPERX_BATCH_SIZE:-1}}"
         run_with_elapsed python3 /app/inference_mdx.py \
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
+            --batch-size "${VOCAL_BATCH_SIZE_INT}" \
             "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}" ${VOCAL_OVERLAP_INT}
     elif is_scnet_model_dir "${vocal_model_dir}"; then
         if [ ! -f /app/inference_scnet.py ]; then

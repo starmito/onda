@@ -8,17 +8,19 @@
 
   let { onclose, initialModel }: Props = $props();
 
-  type ModelType = 'Roformer' | 'Demucs' | 'MDX' | 'SCNet';
-  const MODEL_TYPES: ModelType[] = ['Roformer', 'Demucs', 'MDX', 'SCNet'];
+  type ModelType = 'Roformer' | 'Demucs' | 'MDX' | 'MDXNet' | 'SCNet';
+  const MODEL_TYPES: ModelType[] = ['Roformer', 'Demucs', 'MDX', 'MDXNet', 'SCNet'];
 
   function modelTypeFromModel(name?: string, category?: string): ModelType | '' {
     const n = (name || '').toLowerCase();
+    if (n.includes('mdxnet')) return 'MDXNet';
     if (n.includes('roformer')) return 'Roformer';
     if (n.includes('mdx')) return 'MDX';
     if (n.includes('scnet')) return 'SCNet';
     if (n.includes('demucs')) return 'Demucs';
 
     const c = (category || '').toLowerCase();
+    if (c.includes('mdxnet')) return 'MDXNet';
     if (c.includes('roformer')) return 'Roformer';
     if (c.includes('demucs')) return 'Demucs';
     if (c.includes('mdx')) return 'MDX';
@@ -62,7 +64,7 @@
 
   // Group all models by type for quick lookup
   let modelsByType = $derived.by(() => {
-    const map: Record<ModelType, LocalModel[]> = { Roformer: [], Demucs: [], MDX: [], SCNet: [] };
+    const map: Record<ModelType, LocalModel[]> = { Roformer: [], Demucs: [], MDX: [], MDXNet: [], SCNet: [] };
     for (const m of models) {
       const t = modelTypeFromModel(m.name, m.category);
       if (t) map[t].push(m);
@@ -84,6 +86,7 @@
   let isRoformer = $derived.by(() => selectedType === 'Roformer');
   let isDemucs = $derived.by(() => selectedType === 'Demucs');
   let isMdx = $derived.by(() => selectedType === 'MDX');
+  let isMdxNet = $derived.by(() => selectedType === 'MDXNet');
   let isScnet = $derived.by(() => selectedType === 'SCNet');
 
   // Display name for the selected model
@@ -241,6 +244,10 @@
       jobs = cfg.jobs ?? 0;
       dimT = cfg.dim_t ?? 801;
       numOverlap = cfg.num_overlap ?? 4;
+      // MDX/SCNet/MDXNet sliders start at 1; auto (0) is not a valid choice here.
+      if ((isMdx || isScnet || isMdxNet) && batchSize < 1) {
+        batchSize = 1;
+      }
       configLoaded = true;
     } catch {
       // Use current values as defaults
@@ -440,33 +447,88 @@
           </div>
         {/if}
 
-        {#if isMdx || isScnet}
-          <div class="readonly-params">
-            <h3 class="readonly-title">📄 Parámetros del YAML</h3>
-            <div class="readonly-grid">
-              <div class="readonly-item">
-                <span class="readonly-key">dim_t</span>
-                <span class="readonly-value">{dimT}</span>
-              </div>
-              <div class="readonly-item">
-                <span class="readonly-key">num_overlap</span>
-                <span class="readonly-value">{numOverlap}</span>
-              </div>
-              {#if batchSize > 0}
-                <div class="readonly-item">
-                  <span class="readonly-key">batch_size</span>
-                  <span class="readonly-value">{batchSize}</span>
-                </div>
-              {/if}
-              {#if chunkSize > 0}
-                <div class="readonly-item">
-                  <span class="readonly-key">chunk_size</span>
-                  <span class="readonly-value">{chunkSize}</span>
-                </div>
-              {/if}
+        {#if isMdx || isScnet || isMdxNet}
+          <!-- Segment Size -->
+          <div class="field">
+            <label for="seg-size-mdx">
+              Segment Size: <strong>{segmentSize}</strong>
+            </label>
+            <input
+              id="seg-size-mdx"
+              type="range"
+              min="64"
+              max="1024"
+              step="64"
+              bind:value={segmentSize}
+            />
+            <p class="param-desc">Tamaño del chunk de análisis en frames. Más grande = mejor contexto y calidad, pero más VRAM.</p>
+            <div class="slider-labels">
+              <span class="slider-min">64 — ⚡ Fast / -VRAM</span>
+              <span class="slider-max">🎵 Quality / +VRAM — 1024</span>
             </div>
-            <p class="param-desc">Estos valores se leen directamente del YAML del modelo. El pipeline los usa tal cual; no se pueden editar desde aquí.</p>
           </div>
+
+          <!-- Overlap -->
+          <div class="field">
+            <label for="overlap-mdx">
+              Overlap: <strong>{formatOverlap(overlap)}</strong>
+            </label>
+            <input
+              id="overlap-mdx"
+              type="range"
+              min="0"
+              max="0.5"
+              step="0.05"
+              bind:value={overlap}
+            />
+            <p class="param-desc">Solapamiento entre chunks. Más overlap suaviza las transiciones pero ralentiza el proceso. NO multiplica VRAM.</p>
+            <div class="slider-labels">
+              <span class="slider-min">0 — ⚡ Fast</span>
+              <span class="slider-max">🔄 Smooth / Slow — 0.5</span>
+            </div>
+          </div>
+
+          <!-- Batch Size -->
+          <div class="field">
+            <label for="batch-size-mdx">
+              Batch Size: <strong>{batchSize === 0 ? 1 : batchSize}</strong>
+            </label>
+            <input
+              id="batch-size-mdx"
+              type="range"
+              min="1"
+              max="8"
+              step="1"
+              bind:value={batchSize}
+            />
+            <p class="param-desc">Procesa N chunks en paralelo. MULTIPLICA la VRAM (igual que en Roformer).</p>
+            <div class="slider-labels">
+              <span class="slider-min">1 — Mínimo</span>
+              <span class="slider-max">⚡ GPU / ++VRAM — 8</span>
+            </div>
+          </div>
+
+          <!-- Chunk Size (SCNet only) -->
+          {#if isScnet}
+            <div class="field">
+              <label for="chunk-size-scnet">
+                Chunk Size: <strong>{chunkSize === 0 ? 'YAML' : chunkSize}</strong>
+              </label>
+              <input
+                id="chunk-size-scnet"
+                type="range"
+                min="0"
+                max="1000000"
+                step="10000"
+                bind:value={chunkSize}
+              />
+              <p class="param-desc">Tamaño de chunk de audio en samples para SCNet. 0 = el que trae el YAML del modelo.</p>
+              <div class="slider-labels">
+                <span class="slider-min">0 — 🤖 YAML</span>
+                <span class="slider-max">🧩 Samples — 1000000</span>
+              </div>
+            </div>
+          {/if}
         {/if}
 
         <!-- Device -->

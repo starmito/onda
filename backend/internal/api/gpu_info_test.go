@@ -22,6 +22,8 @@ func TestEstimateVRAMMB_Empirical(t *testing.T) {
 		{"demucs seg0", "htdemucs_ft", 0, 0, 0, 1572},
 		{"demucs seg7", "htdemucs_ft", 0, 0, 7, 1106},
 		{"mdx", "MDX23C", 0, 0, 0, 2476},
+		{"mdxnet", "MDXNet_Vocals", 0, 0, 0, 2476},
+		{"onnx", "UVR_MDXNET_3_9662", 0, 0, 0, 2476},
 		{"scnet", "SCNet", 0, 0, 0, 1828},
 		{"unknown fallback", "not_a_known_model_v1", 0, 0, 0, 2000},
 	}
