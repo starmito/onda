@@ -12,7 +12,7 @@
 # Flags:
 #   --steps JSON          Chained mode: JSON array of step objects
 #   --vocal-model PATH    Vocal model path (default: /app/models/VR_Models/BS_Roformer_Viperx)
-#   --vocal-type TYPE     Vocal model type: mdx | roformer | auto (default: auto)
+#   --vocal-type TYPE     Vocal model type: mdx | mdxnet | roformer | auto (default: auto)
 #   --vocal-keep WHAT     What to save: instrumental | vocals | both (default) (alias: --viperx-keep)
 #   --viperx-model PATH   Same as --vocal-model (deprecated)
 #   --viperx-keep WHAT    Same as --vocal-keep (deprecated)
@@ -459,6 +459,26 @@ PY
     return 1
 }
 
+# Detect whether a vocal model directory contains an MDXNet ONNX model.
+# Heuristic: explicit --vocal-type mdxnet, OR the directory contains a .onnx file.
+is_onnx_model_dir() {
+    local model_path="$1"
+    local model_dir="$model_path"
+    if [ -f "$model_path" ]; then
+        model_dir="$(dirname "$model_path")"
+    fi
+
+    case "$VOCAL_TYPE" in
+        mdxnet) return 0 ;;
+    esac
+
+    if ls "${model_dir}"/*.onnx >/dev/null 2>&1; then
+        return 0
+    fi
+
+    return 1
+}
+
 # Run a Vocal model step in chaining mode
 # Args: model_path (file or dir), input_file, output_dir
 run_vocal_step() {
@@ -503,6 +523,22 @@ run_vocal_step() {
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
             "${model_dir}" "${input_file}" "${output_dir}"
+    elif is_onnx_model_dir "$model_dir"; then
+        if [ ! -f /app/inference_onnx.py ]; then
+            echo "❌ inference_onnx.py not found" >&2
+            exit 2
+        fi
+        echo "   ℹ️  Detected MDXNet ONNX vocal model"
+        local onnx_overlap="4"
+        local onnx_json
+        onnx_json=$(ls "${model_dir}"/*.json 2>/dev/null | head -1)
+        if [ -n "$onnx_json" ]; then
+            onnx_overlap=$(python3 -c "import json; print(json.load(open('$onnx_json')).get('overlap',4))" 2>/dev/null || echo "4")
+        fi
+        run_with_elapsed python3 /app/inference_onnx.py \
+            --pipeline-status "$STATUS_FILE" \
+            --device "$DEVICE" \
+            "${model_dir}" "${input_file}" "${output_dir}" "${onnx_overlap}"
     else
         if [ ! -f /app/inference_universal.py ]; then
             echo "❌ inference_universal.py not found" >&2
@@ -1137,6 +1173,22 @@ if $VOCAL || $VIPERX; then
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
             "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}"
+    elif is_onnx_model_dir "${vocal_model_dir}"; then
+        if [ ! -f /app/inference_onnx.py ]; then
+            echo "❌ inference_onnx.py not found" >&2
+            exit 2
+        fi
+        echo "   ℹ️  Using MDXNet ONNX inference"
+        local onnx_overlap="4"
+        local onnx_json
+        onnx_json=$(ls "${vocal_model_dir}"/*.json 2>/dev/null | head -1)
+        if [ -n "$onnx_json" ]; then
+            onnx_overlap=$(python3 -c "import json; print(json.load(open('$onnx_json')).get('overlap',4))" 2>/dev/null || echo "4")
+        fi
+        run_with_elapsed python3 /app/inference_onnx.py \
+            --pipeline-status "$STATUS_FILE" \
+            --device "$DEVICE" \
+            "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}" "${onnx_overlap}"
     else
         if [ ! -f /app/inference_universal.py ]; then
             echo "❌ inference_universal.py not found" >&2

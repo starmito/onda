@@ -1113,6 +1113,8 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 		args = append(args, "--viperx-model", modelDir)
 		if isMdxModel(vocalModel) {
 			args = append(args, "--vocal-type", "mdx")
+		} else if isOnnxModel(vocalModel) {
+			args = append(args, "--vocal-type", "mdxnet")
 		} else if isScnetModel(vocalModel) {
 			args = append(args, "--vocal-type", "scnet")
 		}
@@ -1199,6 +1201,8 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 			}
 			if isMdxModel(step.Model) {
 				args = append(args, "--vocal-type", "mdx")
+			} else if isOnnxModel(step.Model) {
+				args = append(args, "--vocal-type", "mdxnet")
 			} else if isScnetModel(step.Model) {
 				args = append(args, "--vocal-type", "scnet")
 			}
@@ -1587,6 +1591,40 @@ func isScnetModel(name string) bool {
 			if _, ok := model["band_kernel"]; ok {
 				return true
 			}
+		}
+	}
+
+	return false
+}
+
+// isOnnxModel reports whether a model name/path refers to an MDXNet ONNX model.
+// It checks for an explicit .onnx file in the resolved model directory or for
+// the "mdxnet" marker in the name.
+func isOnnxModel(name string) bool {
+	if name == "" {
+		return false
+	}
+	lower := strings.ToLower(name)
+	if strings.Contains(lower, "mdxnet") {
+		return true
+	}
+
+	modelDir := resolveModelDir(name)
+	if modelDir == "" || modelDir == name {
+		return false
+	}
+	entries, err := os.ReadDir(modelDir)
+	if err != nil {
+		return false
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		fn := strings.ToLower(entry.Name())
+		if strings.HasSuffix(fn, ".onnx") {
+			return true
 		}
 	}
 

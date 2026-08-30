@@ -557,3 +557,78 @@ func TestBuildStepPipelineArgs_VocalNoChunkSizeOmitsEnv(t *testing.T) {
 	}
 }
 
+func TestIsOnnxModel(t *testing.T) {
+	root := t.TempDir()
+	oldBase := modelsBasePath
+	modelsBasePath = root
+	t.Cleanup(func() { modelsBasePath = oldBase })
+
+	modelDir := filepath.Join(root, "MDX_Net_Models", "MyMDXNet")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatalf("failed to create model dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.onnx"), []byte("fake"), 0o644); err != nil {
+		t.Fatalf("failed to write onnx file: %v", err)
+	}
+
+	if !isOnnxModel("MyMDXNet") {
+		t.Error("expected MyMDXNet to be detected as ONNX model")
+	}
+	if isOnnxModel("NonExistent") {
+		t.Error("expected non-existent model not to be ONNX")
+	}
+}
+
+func TestBuildPipelineArgs_OnnxModel(t *testing.T) {
+	root := t.TempDir()
+	oldBase := modelsBasePath
+	modelsBasePath = root
+	t.Cleanup(func() { modelsBasePath = oldBase })
+
+	modelDir := filepath.Join(root, "MDX_Net_Models", "MyMDXNet")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatalf("failed to create model dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.onnx"), []byte("fake"), 0o644); err != nil {
+		t.Fatalf("failed to write onnx file: %v", err)
+	}
+
+	req := &SeparateRequest{Input: "/app/input/song.wav", VocalModel: "MyMDXNet"}
+	_, args, _, _ := buildPipelineArgs(req)
+	if got := argValue(args, "--vocal-type"); got != "mdxnet" {
+		t.Errorf("expected --vocal-type mdxnet, got %q", got)
+	}
+	if !contains(args, "--viperx-model") {
+		t.Error("expected --viperx-model flag")
+	}
+}
+
+func TestBuildStepPipelineArgs_OnnxModel(t *testing.T) {
+	root := t.TempDir()
+	oldBase := modelsBasePath
+	modelsBasePath = root
+	t.Cleanup(func() { modelsBasePath = oldBase })
+
+	modelDir := filepath.Join(root, "MDX_Net_Models", "MyMDXNet")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatalf("failed to create model dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.onnx"), []byte("fake"), 0o644); err != nil {
+		t.Fatalf("failed to write onnx file: %v", err)
+	}
+
+	step := cli.PipelineStep{
+		ID:      "vocal",
+		Type:    "vocal",
+		Model:   "MyMDXNet",
+		Enabled: true,
+	}
+	args, _ := buildStepPipelineArgs(step, "/app/input/song.wav", "/app/output/song", "cpu")
+	if got := argValue(args, "--vocal-type"); got != "mdxnet" {
+		t.Errorf("expected --vocal-type mdxnet, got %q", got)
+	}
+	if !contains(args, "--vocal-model") {
+		t.Error("expected --vocal-model flag")
+	}
+}
+
