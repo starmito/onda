@@ -86,6 +86,7 @@ RUN chmod +x /app/pipeline.sh
 COPY inference_universal.py /app/inference_universal.py
 COPY inference_mdx.py /app/inference_mdx.py
 COPY inference_scnet.py /app/inference_scnet.py
+COPY inference_onnx.py /app/inference_onnx.py
 COPY lib_v5/ /app/lib_v5/
 COPY onda/ /app/onda/
 

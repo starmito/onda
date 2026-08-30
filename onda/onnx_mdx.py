@@ -5,6 +5,7 @@ onnxruntime and the STFT helpers from lib_v5.
 """
 
 import glob
+import hashlib
 import json
 import os
 import sys
@@ -16,6 +17,17 @@ import numpy as np
 import librosa
 import soundfile as sf
 import torch
+
+# onnxruntime-gpu is installed under /opt/pytorch-backends/cuda alongside torch.
+# Torch ships the CUDA libraries (e.g. libcublasLt.so.12) in its lib/ directory,
+# but onnxruntime does not look there by default. Ensure the path is present
+# before onnxruntime is imported so CUDAExecutionProvider can be loaded.
+for _backend in ("cuda", "rocm"):
+    _torch_lib = f"/opt/pytorch-backends/{_backend}/torch/lib"
+    if os.path.isdir(_torch_lib):
+        _ld = os.environ.get("LD_LIBRARY_PATH", "")
+        if _torch_lib not in _ld:
+            os.environ["LD_LIBRARY_PATH"] = f"{_torch_lib}{':' + _ld if _ld else ''}"
 
 # onnxruntime may not be present in the host test runner; allow import to fail
 # gracefully so pure-logic tests (config resolution, CLI parsing, etc.) can run.
@@ -50,27 +62,124 @@ def _has_onnx_config_fields(cfg: Dict[str, Any]) -> bool:
     return dim_f is not None and dim_t is not None and n_fft is not None and hop_length is not None
 
 
-def _lookup_onnx_config_name(onnx_name: str) -> Optional[str]:
-    """Query TRvlvr's download_checks.json for the MDXNet config of a model."""
-    catalog_url = (
-        "https://raw.githubusercontent.com/TRvlvr/application_data/main/filelists/"
-        "download_checks.json"
-    )
+MODEL_DATA_URL = (
+    "https://raw.githubusercontent.com/TRvlvr/application_data/main/"
+    "mdx_model_data/model_data_new.json"
+)
+# In-memory cache for the online MDX-Net model metadata dictionary.
+_MODEL_DATA_CACHE: Optional[Dict[str, Any]] = None
+
+
+def _md5(path: str) -> str:
+    """Return the MD5 hex digest of a file."""
+    h = hashlib.md5()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(8192), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _fetch_mdx_model_data(cache_root: str) -> Optional[Dict[str, Any]]:
+    """Fetch and cache TRvlvr's MDX-Net model_data_new.json.
+
+    The file is keyed by MD5 hash of each ONNX model and contains the
+    ``mdx_dim_f_set``, ``mdx_dim_t_set``, ``mdx_n_fft_scale_set`` and
+    ``compensate`` values required to build an inference config.
+    """
+    global _MODEL_DATA_CACHE
+    if _MODEL_DATA_CACHE is not None:
+        return _MODEL_DATA_CACHE
+
+    os.makedirs(cache_root, exist_ok=True)
+    cached_json = os.path.join(cache_root, "model_data_new.json")
+    if os.path.isfile(cached_json):
+        try:
+            with open(cached_json) as f:
+                _MODEL_DATA_CACHE = json.load(f)
+                return _MODEL_DATA_CACHE
+        except Exception:
+            pass
+
     try:
-        with urllib.request.urlopen(catalog_url, timeout=20) as resp:
+        with urllib.request.urlopen(MODEL_DATA_URL, timeout=20) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except Exception:
         return None
 
-    for section in ("mdx_download_list", "mdx_download_vip_list"):
-        for entry in data.get(section, {}).values():
-            if not isinstance(entry, dict):
-                continue
-            for model_name, config_name in entry.items():
-                if model_name.lower() == onnx_name.lower() and config_name.endswith(
-                    (".json", ".yaml", ".yml")
-                ):
-                    return config_name
+    try:
+        with open(cached_json, "w") as f:
+            json.dump(data, f, indent=2)
+    except Exception:
+        pass
+
+    _MODEL_DATA_CACHE = data
+    return data
+
+
+def _lookup_onnx_config_name(
+    model_path: str, onnx_name: str, cache_root: str
+) -> Optional[str]:
+    """Resolve the MDXNet config for an ONNX model.
+
+    TRvlvr indexes MDX-Net ONNX models by MD5 hash in
+    ``mdx_model_data/model_data_new.json``.  Each entry provides the parameters
+    needed to synthesise a flat JSON config understood by ``OnnxMDX``:
+    ``dim_f = mdx_dim_f_set``, ``dim_t = 2 ** mdx_dim_t_set``,
+    ``n_fft = mdx_n_fft_scale_set`` and a fixed ``hop_length`` of 1024.
+
+    If the model hash is missing from the online catalog (e.g. Kim_Vocal_1 in
+    some local builds) we fall back to a per-model JSON config at
+    ``mdx_model_data/mdx_net_configs/<model_name>.json``.  That path is not
+    published for every model, so the fallback is best-effort; when it also
+    fails the caller must provide a local config next to the model.
+    """
+    base = os.path.splitext(onnx_name)[0]
+    generated = os.path.join(cache_root, f"{base}.json")
+    if os.path.isfile(generated):
+        return generated
+
+    # Primary source: online hash-based catalog.
+    if os.path.isfile(model_path):
+        model_hash = _md5(model_path)
+        data = _fetch_mdx_model_data(cache_root)
+        if data and model_hash in data:
+            settings = data[model_hash]
+            # ``config_yaml`` entries belong to MDX-C checkpoints, not ONNX.
+            if "config_yaml" in settings:
+                return None
+            try:
+                dim_t = 2 ** int(settings["mdx_dim_t_set"])
+            except Exception:
+                dim_t = int(settings.get("dim_t", 0))
+            cfg = {
+                "dim_f": int(settings.get("mdx_dim_f_set", 0)),
+                "dim_t": dim_t,
+                "n_fft": int(settings.get("mdx_n_fft_scale_set", 0)),
+                "hop_length": 1024,
+                "compensate": float(settings.get("compensate", 1.035)),
+                "target_instrument": str(settings.get("primary_stem", "Vocals")),
+            }
+            os.makedirs(cache_root, exist_ok=True)
+            with open(generated, "w") as f:
+                json.dump(cfg, f, indent=2)
+            return generated
+
+    # Fallback: some models ship a JSON config with the same base name.
+    fallback_name = f"{base}.json"
+    fallback = os.path.join(cache_root, fallback_name)
+    if os.path.isfile(fallback):
+        return fallback
+    url = (
+        "https://raw.githubusercontent.com/TRvlvr/application_data/main/"
+        f"mdx_model_data/mdx_net_configs/{fallback_name}"
+    )
+    try:
+        urllib.request.urlretrieve(url, fallback)
+        if os.path.isfile(fallback):
+            return fallback
+    except Exception:
+        pass
+
     return None
 
 
@@ -82,7 +191,8 @@ def _resolve_onnx_config(
     Search order:
       1. JSON/YAML next to the model with matching base name.
       2. Any JSON/YAML in the model directory that contains MDXNet fields.
-      3. UVR cache directory, downloading from the application_data repo if needed.
+      3. UVR online catalog (model_data_new.json by MD5 hash) and per-model
+         JSON fallback, cached under ``models/MDX_Net_Models/model_data/mdx_net_configs``.
     """
     base = os.path.splitext(onnx_name)[0]
 
@@ -113,23 +223,8 @@ def _resolve_onnx_config(
         )
     os.makedirs(cache_root, exist_ok=True)
 
-    config_name = _lookup_onnx_config_name(onnx_name)
-    if config_name:
-        cached = os.path.join(cache_root, config_name)
-        if os.path.isfile(cached):
-            return cached
-        url = (
-            "https://raw.githubusercontent.com/TRvlvr/application_data/main/"
-            f"mdx_model_data/mdx_net_configs/{config_name}"
-        )
-        try:
-            urllib.request.urlretrieve(url, cached)
-            if os.path.isfile(cached):
-                return cached
-        except Exception as e:
-            print(f"   ⚠️  Could not download config {config_name}: {e}")
-
-    return None
+    model_path = os.path.join(model_dir, onnx_name)
+    return _lookup_onnx_config_name(model_path, onnx_name, cache_root)
 
 
 def _write_progress(progress_file: Optional[str], chunk: int, total: int):
