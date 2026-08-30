@@ -271,6 +271,8 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("GET /api/pitch/files/{song}/{pitch}/{file}", s.handlePitchFileServe)
 	s.mux.HandleFunc("POST /api/upload", s.handleUpload)
 	s.mux.HandleFunc("POST /api/upload/pitch", s.handleUploadPitch)
+	s.mux.HandleFunc("GET /api/uploads/pitch", s.handleListPitchUploads)
+	s.mux.HandleFunc("POST /api/pitch/file", s.handlePitchFile)
 	s.mux.HandleFunc("GET /api/files/{song}/{file}", s.handleFileServe)
 	s.mux.HandleFunc("POST /api/backend/start", s.handleBackendStart)
 	s.mux.HandleFunc("POST /api/backend/stop", s.handleBackendStop)
@@ -651,7 +653,15 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 	// progress reported by chained pipelines.
 	liveProgress := pipelineStatus.Progress
 	if liveProgress == 0 && pipelineStatus.OverallProgress > 0 {
-		liveProgress = pipelineStatus.OverallProgress
+		// multi-step mode reports overall_progress as a 0-100 integer, so
+		// normalize it to the 0-1 fraction used by the rest of the handler.
+		liveProgress = pipelineStatus.OverallProgress / 100.0
+	}
+	if liveProgress < 0 {
+		liveProgress = 0
+	}
+	if liveProgress > 1 {
+		liveProgress = 1
 	}
 
 	// Step name mapping and ordering
@@ -697,6 +707,14 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 // stdout/stderr open and block cmd.Wait()), and finally falls back to killing
 // the tracked PID alone in case Setpgid did not apply.
 func (s *Server) cancelCurrentJob() {
+	// Log the currently processing song before tearing the job down.
+	for _, job := range s.jobs {
+		if job.Status == "processing" {
+			Log("backend", "info", "Cancelled job: "+job.Song)
+			break
+		}
+	}
+
 	if s.currentCancel != nil {
 		s.currentCancel()
 	}

@@ -224,7 +224,8 @@ func TestHandleQueueStatus_OverallProgressFallback(t *testing.T) {
 	s := newQueueTestServer(t)
 
 	statusPath := filepath.Join(root, "output", "pipeline_status.json")
-	status := `{"status":"running","step":"vocal","overall_progress":0.25,"device":"cpu"}`
+	// multi-step mode reports overall_progress as a 0-100 integer.
+	status := `{"status":"running","step":"vocal","overall_progress":25,"device":"cpu"}`
 	if err := os.WriteFile(statusPath, []byte(status), 0o644); err != nil {
 		t.Fatalf("failed to write pipeline status: %v", err)
 	}
@@ -248,6 +249,39 @@ func TestHandleQueueStatus_OverallProgressFallback(t *testing.T) {
 	}
 	if resp.Jobs[0].Progress != 25 {
 		t.Errorf("expected progress 25 from overall_progress, got %d", resp.Jobs[0].Progress)
+	}
+}
+
+func TestHandleQueueStatus_OverallProgressClamped(t *testing.T) {
+	root := setupQueueTestRoot(t)
+	s := newQueueTestServer(t)
+
+	statusPath := filepath.Join(root, "output", "pipeline_status.json")
+	// An out-of-range overall_progress must be clamped to 0-100.
+	status := `{"status":"running","step":"vocal","overall_progress":150,"device":"cpu"}`
+	if err := os.WriteFile(statusPath, []byte(status), 0o644); err != nil {
+		t.Fatalf("failed to write pipeline status: %v", err)
+	}
+
+	s.jobsMu.Lock()
+	s.jobs["processing-song"] = &JobState{Song: "processing-song", Status: "processing", Index: 0, TotalSteps: 2}
+	s.jobsMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/queue/status", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	var resp struct {
+		Jobs []*JobState `json:"jobs"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(resp.Jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(resp.Jobs))
+	}
+	if resp.Jobs[0].Progress != 100 {
+		t.Errorf("expected progress clamped to 100, got %d", resp.Jobs[0].Progress)
 	}
 }
 
@@ -323,6 +357,19 @@ func TestHandleQueueCancel_CancelsRunningJob(t *testing.T) {
 		t.Errorf("expected jobs cleared after cancel, got %d", len(s.jobs))
 	}
 	s.jobsMu.RUnlock()
+
+	found := false
+	logBufferMu.RLock()
+	for _, entry := range logBuffer {
+		if entry.Service == "backend" && entry.Level == "info" && strings.Contains(entry.Message, "Cancelled job: song") {
+			found = true
+			break
+		}
+	}
+	logBufferMu.RUnlock()
+	if !found {
+		t.Error("expected backend info log for cancelled job")
+	}
 }
 
 func TestRunSinglePipeline_MarksDone(t *testing.T) {
