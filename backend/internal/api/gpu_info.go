@@ -50,7 +50,7 @@ const fallbackAvailableVRAMMB = 16311
 // estimateVRAMMB returns the empirical VRAM peak in MB for a model name.
 // It uses measured peaks for Roformer/ViperX/Vocal, Demucs, MDX/MDXNet and SCNet.
 // Falls back to defaultVRAMMB for unknown models.
-func estimateVRAMMB(modelName string, segmentSize, batchSize, demucsSegment int) int {
+func estimateVRAMMB(modelName string, segmentSize, chunkSize, batchSize, demucsSegment int) int {
 	lower := strings.ToLower(modelName)
 
 	// MDX / MDXNet / ONNX: empirical peak depends on dim_t (derived from
@@ -64,7 +64,7 @@ func estimateVRAMMB(modelName string, segmentSize, batchSize, demucsSegment int)
 	// SCNet: empirical peak scales linearly with chunk_size and batch size.
 	// Overlap does not affect the estimate.
 	if strings.Contains(lower, "scnet") {
-		return scnetEstimateVRAMMB(segmentSize, batchSize)
+		return scnetEstimateVRAMMB(chunkSize, batchSize)
 	}
 
 	// Roformer / ViperX / Vocal: measured peak with real long audio:
@@ -227,13 +227,12 @@ var scnetVRAMPoints = []int{600, 948, 1762}
 // scnetEstimateVRAMMB returns the empirical SCNet VRAM peak in MB.
 // It uses a base linear in chunk_size (interpolated from batch-1 measurements)
 // and multiplies by batch size. Overlap is ignored.
-func scnetEstimateVRAMMB(segmentSize, batchSize int) int {
+func scnetEstimateVRAMMB(chunkSize, batchSize int) int {
 	b := batchSize
 	if b < 1 {
 		b = 1
 	}
-	// segmentSize is used directly as chunk_size in samples.
-	base := interpolatePeak(segmentSize, scnetChunkPoints, scnetVRAMPoints)
+	base := interpolatePeak(chunkSize, scnetChunkPoints, scnetVRAMPoints)
 	return base * b
 }
 
@@ -295,7 +294,7 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Parse segment_size query parameter (affects VRAM for Roformer/ViperX/Vocal models).
+	// Parse segment_size query parameter (affects VRAM for Roformer/ViperX/Vocal and MDX models).
 	segmentSize := 0
 	segmentSizeParam := r.URL.Query().Get("segment_size")
 	if segmentSizeParam != "" {
@@ -304,7 +303,16 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Parse batch_size query parameter (affects VRAM for batched Roformer/ViperX/Vocal models).
+	// Parse chunk_size query parameter (affects VRAM for SCNet models).
+	chunkSize := 0
+	chunkSizeParam := r.URL.Query().Get("chunk_size")
+	if chunkSizeParam != "" {
+		if cs, err := strconv.Atoi(chunkSizeParam); err == nil && cs > 0 {
+			chunkSize = cs
+		}
+	}
+
+	// Parse batch_size query parameter (affects VRAM for batched models).
 	batchSize := 0
 	batchSizeParam := r.URL.Query().Get("batch_size")
 	if batchSizeParam != "" {
@@ -354,7 +362,7 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 			modelName = strings.TrimSpace(pair[eqIdx+1:])
 		}
 
-		vramMB := estimateVRAMMB(modelName, segmentSize, batchSize, demucsSegment)
+		vramMB := estimateVRAMMB(modelName, segmentSize, chunkSize, batchSize, demucsSegment)
 
 		models = append(models, VRAMModelEntry{
 			Name:   modelName,
