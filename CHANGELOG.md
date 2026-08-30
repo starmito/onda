@@ -1,5 +1,10 @@
 # Changelog
 
+## [v3.3.3] - 2026-08-30
+
+### Fixed
+- **Calculadora de VRAM para SCNet**: usa el `chunk_size` real en la estimación de memoria, corrigiendo el cálculo para canciones procesadas por fragmentos.
+
 ## [v3.3.2] - 2026-08-30
 
 ### Fixed
