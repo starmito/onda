@@ -1,5 +1,17 @@
 # Changelog
 
+## [v3.3.5] - 2026-08-30
+
+### Fixed
+- **Estado Completado desde disco**: las filas done se reconstruyen del disco al recargar; borrar un stem actualiza el job y lo limpia si queda vacío; los jobs done verifican que sus archivos existen; el arranque limpia temporales _vocal/_demucs de reinicios duros.
+- **Progreso monótono de demucs**: ya no baja al cambiar de stem (stems completados + % actual / total).
+- **input_rubberband excluido del repo**.
+
+### Added
+- **Gráfico de calidad** en Ajustes de Modelos: debajo del selector, señala el punto de más/menos calidad y el comportamiento de VRAM.
+- **Etiquetas de sliders** (min/max) con calidad, VRAM y velocidad por extremo.
+- **Tipo de modelo clasificado** en el calculador de VRAM.
+
 ## [v3.3.4] - 2026-08-30
 
 ### Fixed
