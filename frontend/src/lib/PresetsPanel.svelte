@@ -33,7 +33,15 @@
   </button>
 
   {#if status === 'running'}
-    <button class="btn-stop" onclick={onCancel}>⏹ Detener</button>
+    <button
+      class="btn-stop"
+      onclick={onCancel}
+      title="Cancela el proceso en curso y limpia la cola de espera"
+      aria-label="Cancela el proceso en curso y limpia la cola de espera"
+    >
+      ⏹ Detener
+    </button>
+    <span class="stop-hint">Cancela el proceso en curso y limpia la cola de espera</span>
 
     <div class="progress-card">
       <div class="progress-header">
@@ -64,8 +72,9 @@
   .btn-execute-large:hover { background: var(--accent-light); }
   .btn-execute-large:disabled { opacity: 0.3; cursor: not-allowed; }
 
-  .btn-stop { width: 100%; padding: 12px; background: #4a1a1a; color: #e57373; border: 1px solid #6a2a2a; border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer; margin-bottom: 12px; transition: background 0.2s; }
+  .btn-stop { width: 100%; padding: 12px; background: #4a1a1a; color: #e57373; border: 1px solid #6a2a2a; border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer; margin-bottom: 8px; transition: background 0.2s; }
   .btn-stop:hover { background: #5a2a2a; }
+  .stop-hint { display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 12px; text-align: center; }
 
   .progress-card { background: var(--bg-primary); border-radius: 8px; padding: 14px; }
   .progress-header { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
