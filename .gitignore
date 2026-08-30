@@ -17,6 +17,7 @@ models/
 # Outputs (generated)
 output/
 output_*/
+input_rubberband/
 /tmp/onda_test/
 test_sound.wav
 

@@ -261,6 +261,7 @@
           pipelineStatus = 'done';
           currentProgress = 1;
           console.log('Loaded existing results from filesystem:', results.length, 'stems');
+          markDoneRowsFromResults();
         }
       })
       .catch((err) => {
@@ -291,6 +292,7 @@
             queueFiles = [...queueFiles, ...newQueueFiles];
             console.log('Restored', newQueueFiles.length, 'inputs from filesystem');
           }
+          markDoneRowsFromResults();
         }
       })
       .catch((err) => {
@@ -521,6 +523,18 @@
   function songNameForQueueFile(qf: QueueFile): string {
     const raw = qf.path?.split('/').pop() || qf.file.name;
     return raw.replace(/\.[^.]+$/, '');
+  }
+
+  /** Mark queue rows as done when their song already has stems on disk. */
+  function markDoneRowsFromResults() {
+    const songsWithResults = new Set(results.map(r => r.song));
+    queueFiles = queueFiles.map(qf => {
+      const song = songNameForQueueFile(qf);
+      if (songsWithResults.has(song)) {
+        return { ...qf, status: 'done', progress: 100 };
+      }
+      return qf;
+    });
   }
 
   function resetPipelineUI() {

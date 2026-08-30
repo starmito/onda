@@ -607,7 +607,7 @@ apply_demucs_fallback_config() {
 # Args: model_name, input_file, output_dir, [expected_stems_count], [step_index]
 # If step_index is empty the legacy report_progress path is used; otherwise
 # multi_step_progress is updated with real progress parsed from demucs stderr.
-run_demucs_step() {
+    run_demucs_step() {
     local model_name="$1"
     local input_file="$2"
     local output_dir="$3"
@@ -617,6 +617,11 @@ run_demucs_step() {
     local elapsed_pid=""
     local prev_exit_trap
     prev_exit_trap=$(trap -p EXIT)
+
+    # Defensive default: demucs always emits at least one progress bar.
+    if [ "${expected_stems}" -le 0 ] 2>/dev/null; then
+        expected_stems=4
+    fi
 
     local demucs_args=(-n "${model_name}" --device "${DEVICE}" -o "${output_dir}")
     [ "${SHIFTS:-1}" -gt 0 ] && demucs_args+=(--shifts "${SHIFTS:-1}")
@@ -649,17 +654,42 @@ run_demucs_step() {
     trap 'kill_wait "${demucs_pid:-}"; kill_wait "${elapsed_pid:-}"; cleanup_legacy_temps' EXIT
 
     # Poll the demucs stderr log for real progress percentages.
+    # demucs restarts its 0-100% bar for every stem, so we detect stem
+    # boundaries (a drop of ~30+ percentage points after reaching high values)
+    # and compute a monotonic global progress as:
+    #   (completed_stems * 100 + current_stem_pct) / expected_stems
+    local prev_pct=-1
+    local completed_stems=0
+    local last_progress=0
     while kill -0 "$demucs_pid" 2>/dev/null; do
         if [ -s "${progress_log}" ]; then
             local pct_line pct
             pct_line=$(tail -c 4096 "${progress_log}" | tr '\r' '\n' | grep -aE '^ *[0-9]+%' | tail -1)
             if [ -n "${pct_line}" ]; then
                 pct=$(echo "${pct_line}" | LC_ALL=C sed -E 's/^ *([0-9]+)%.*/\1/')
-                if [ -n "${pct}" ] && [ "${pct}" -gt 0 ] 2>/dev/null; then
-                    if [ -n "${step_idx}" ]; then
-                        multi_step_progress "processing" "${step_idx}" "${pct}"
+                if [ -n "${pct}" ] && [ "${pct}" -ge 0 ] 2>/dev/null; then
+                    # Detect a new stem when the percentage drops significantly.
+                    if [ "${prev_pct}" -ge 85 ] && [ "${pct}" -lt 30 ]; then
+                        completed_stems=$((completed_stems + 1))
+                    fi
+                    prev_pct=${pct}
+
+                    local monotonic_pct
+                    if [ "${completed_stems}" -ge "${expected_stems}" ]; then
+                        monotonic_pct=100
                     else
-                        local global_pct=$(( DEMUCS_START + (pct * (DEMUCS_END - DEMUCS_START) / 100) ))
+                        monotonic_pct=$(( (completed_stems * 100 + pct) / expected_stems ))
+                    fi
+                    # Enforce monotonic progress — never go backwards.
+                    if [ "${monotonic_pct}" -lt "${last_progress}" ]; then
+                        monotonic_pct=${last_progress}
+                    fi
+                    last_progress=${monotonic_pct}
+
+                    if [ -n "${step_idx}" ]; then
+                        multi_step_progress "processing" "${step_idx}" "${monotonic_pct}"
+                    else
+                        local global_pct=$(( DEMUCS_START + (monotonic_pct * (DEMUCS_END - DEMUCS_START) / 100) ))
                         [ "${global_pct}" -gt "${DEMUCS_END}" ] && global_pct=${DEMUCS_END}
                         [ "${global_pct}" -lt "${DEMUCS_START}" ] && global_pct=${DEMUCS_START}
                         report_progress "running" "demucs" "${global_pct}"

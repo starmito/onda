@@ -41,6 +41,7 @@ func newQueueTestServer(t *testing.T) *Server {
 	s.mux.HandleFunc("GET /api/queue/status", s.handleQueueStatus)
 	s.mux.HandleFunc("DELETE /api/queue", s.handleQueueClear)
 	s.mux.HandleFunc("POST /api/queue/cancel", s.handleQueueCancel)
+	s.mux.HandleFunc("DELETE /api/delete", s.handleDeleteFile)
 	return s
 }
 
@@ -497,5 +498,163 @@ echo "stem" > "$4/vocals.wav"
 	s.jobsMu.RUnlock()
 	if state.Status != "done" {
 		t.Errorf("expected done, got %q", state.Status)
+	}
+}
+
+func TestHandleDeleteFile_RemovesFileFromJob(t *testing.T) {
+	root := setupQueueTestRoot(t)
+	s := newQueueTestServer(t)
+
+	songDir := filepath.Join(root, "output", "song")
+	if err := os.MkdirAll(songDir, 0o755); err != nil {
+		t.Fatalf("failed to create song dir: %v", err)
+	}
+	for _, name := range []string{"vocals.wav", "drums.wav"} {
+		if err := os.WriteFile(filepath.Join(songDir, name), []byte("stem"), 0o644); err != nil {
+			t.Fatalf("failed to create %s: %v", name, err)
+		}
+	}
+
+	s.jobsMu.Lock()
+	s.jobs["song"] = &JobState{
+		Song:   "song",
+		Status: "done",
+		Files: []FileEntry{
+			{Name: "vocals.wav", Path: "/api/files/song/vocals.wav"},
+			{Name: "drums.wav", Path: "/api/files/song/drums.wav"},
+		},
+	}
+	s.jobsMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/delete?file=song/vocals.wav", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	s.jobsMu.RLock()
+	job, ok := s.jobs["song"]
+	s.jobsMu.RUnlock()
+	if !ok {
+		t.Fatal("expected job to remain")
+	}
+	if len(job.Files) != 1 || job.Files[0].Name != "drums.wav" {
+		t.Errorf("expected only drums.wav, got %+v", job.Files)
+	}
+}
+
+func TestHandleDeleteFile_RemovesJobWhenLastFile(t *testing.T) {
+	root := setupQueueTestRoot(t)
+	s := newQueueTestServer(t)
+
+	songDir := filepath.Join(root, "output", "song")
+	if err := os.MkdirAll(songDir, 0o755); err != nil {
+		t.Fatalf("failed to create song dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(songDir, "vocals.wav"), []byte("stem"), 0o644); err != nil {
+		t.Fatalf("failed to create vocals.wav: %v", err)
+	}
+
+	s.jobsMu.Lock()
+	s.jobs["song"] = &JobState{
+		Song:   "song",
+		Status: "done",
+		Files:  []FileEntry{{Name: "vocals.wav", Path: "/api/files/song/vocals.wav"}},
+	}
+	s.jobsMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/delete?file=song/vocals.wav", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	s.jobsMu.RLock()
+	_, exists := s.jobs["song"]
+	s.jobsMu.RUnlock()
+	if exists {
+		t.Error("expected job to be removed when last file is deleted")
+	}
+}
+
+func TestHandleQueueStatus_DoneJobFiltersMissingFiles(t *testing.T) {
+	root := setupQueueTestRoot(t)
+	s := newQueueTestServer(t)
+
+	songDir := filepath.Join(root, "output", "song")
+	if err := os.MkdirAll(songDir, 0o755); err != nil {
+		t.Fatalf("failed to create song dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(songDir, "vocals.wav"), []byte("stem"), 0o644); err != nil {
+		t.Fatalf("failed to create vocals.wav: %v", err)
+	}
+
+	s.jobsMu.Lock()
+	s.jobs["song"] = &JobState{
+		Song:   "song",
+		Status: "done",
+		Files: []FileEntry{
+			{Name: "vocals.wav", Path: "/api/files/song/vocals.wav"},
+			{Name: "drums.wav", Path: "/api/files/song/drums.wav"},
+		},
+	}
+	s.jobsMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/queue/status", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		Jobs []*JobState `json:"jobs"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(resp.Jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(resp.Jobs))
+	}
+	if len(resp.Jobs[0].Files) != 1 || resp.Jobs[0].Files[0].Name != "vocals.wav" {
+		t.Errorf("expected only vocals.wav, got %+v", resp.Jobs[0].Files)
+	}
+}
+
+func TestHandleQueueStatus_DoneJobRemovedWhenAllFilesMissing(t *testing.T) {
+	setupQueueTestRoot(t)
+	s := newQueueTestServer(t)
+
+	s.jobsMu.Lock()
+	s.jobs["song"] = &JobState{
+		Song:   "song",
+		Status: "done",
+		Files:  []FileEntry{{Name: "vocals.wav", Path: "/api/files/song/vocals.wav"}},
+	}
+	s.jobsMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/queue/status", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		Jobs []*JobState `json:"jobs"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	for _, j := range resp.Jobs {
+		if j.Song == "song" {
+			t.Errorf("expected song job to be removed, got status %q", j.Status)
+		}
 	}
 }

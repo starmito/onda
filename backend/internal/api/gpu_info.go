@@ -282,6 +282,29 @@ func isDemucsModel(modelName string) bool {
 	return strings.Contains(lower, "htdemucs") || strings.Contains(lower, "demucs")
 }
 
+// classifyModelType returns a canonical model type for VRAM reporting.
+// It overrides any caller-provided type so the response always reflects the
+// model family (vocal/roformer, demucs, mdx, mdxnet, scnet).
+func classifyModelType(modelName string) string {
+	lower := strings.ToLower(modelName)
+	if isDemucsModel(lower) {
+		return "demucs"
+	}
+	if strings.Contains(lower, "mdxnet") || strings.Contains(lower, "onnx") {
+		return "mdxnet"
+	}
+	if strings.Contains(lower, "mdx") {
+		return "mdx"
+	}
+	if strings.Contains(lower, "scnet") {
+		return "scnet"
+	}
+	if isVocalOrRoformer(lower) {
+		return "vocal"
+	}
+	return "unknown"
+}
+
 // handleVRAMCalculator serves GET /api/gpu/vram-calculator with VRAM estimates
 // for the requested models and available GPU memory.
 func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
@@ -353,20 +376,19 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 		}
 		// Split by first "=". If no "=", treat the entire string as a model name.
 		eqIdx := strings.Index(pair, "=")
-		var modelType, modelName string
+		var modelName string
 		if eqIdx < 0 {
-			modelType = "unknown"
 			modelName = pair
 		} else {
-			modelType = strings.TrimSpace(pair[:eqIdx])
 			modelName = strings.TrimSpace(pair[eqIdx+1:])
 		}
+		modelName = strings.TrimSpace(modelName)
 
 		vramMB := estimateVRAMMB(modelName, segmentSize, chunkSize, batchSize, demucsSegment)
 
 		models = append(models, VRAMModelEntry{
 			Name:   modelName,
-			Type:   modelType,
+			Type:   classifyModelType(modelName),
 			VRAMMB: vramMB,
 		})
 		totalVRAM += vramMB

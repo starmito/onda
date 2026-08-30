@@ -1,6 +1,11 @@
 package api
 
-import "testing"
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
 
 func TestEstimateVRAMMB_Empirical(t *testing.T) {
 	tests := []struct {
@@ -63,5 +68,53 @@ func TestEstimateVRAMMB_Empirical(t *testing.T) {
 				)
 			}
 		})
+	}
+}
+
+func TestClassifyModelType(t *testing.T) {
+	tests := []struct {
+		name string
+		want string
+	}{
+		{"htdemucs_ft", "demucs"},
+		{"htdemucs", "demucs"},
+		{"BS_Roformer_Viperx", "vocal"},
+		{"melband_kj", "vocal"},
+		{"MDX23C", "mdx"},
+		{"MDXNet_Vocals", "mdxnet"},
+		{"UVR_MDXNET_3_9662", "mdxnet"},
+		{"SCNet", "scnet"},
+		{"unknown_thing", "unknown"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := classifyModelType(tt.name); got != tt.want {
+				t.Errorf("classifyModelType(%q) = %q, want %q", tt.name, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestHandleVRAMCalculator_ClassifiesModelType(t *testing.T) {
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/gpu/vram-calculator?models=htdemucs_ft", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp VRAMCalculatorResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(resp.Models) != 1 {
+		t.Fatalf("expected 1 model, got %d", len(resp.Models))
+	}
+	if resp.Models[0].Type != "demucs" {
+		t.Errorf("expected type demucs, got %q", resp.Models[0].Type)
 	}
 }

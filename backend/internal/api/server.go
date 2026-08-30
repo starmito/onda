@@ -631,8 +631,49 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	projectRoot := resolveProjectRoot()
+	outputDir := filepath.Join(projectRoot, "output")
+
+	// ── Disk is the source of truth for completed jobs ──
+	// Filter out files that no longer exist on disk and drop done jobs whose
+	// stems have all disappeared (e.g., deleted externally or via handleDeleteFile).
+	type fileCheck struct {
+		existing []FileEntry
+		remove   bool
+	}
+	checks := make(map[string]fileCheck)
 	s.jobsMu.RLock()
-	defer s.jobsMu.RUnlock()
+	for song, job := range s.jobs {
+		if job.Status != "done" {
+			continue
+		}
+		var existing []FileEntry
+		for _, f := range job.Files {
+			diskPath := f.Path
+			if strings.HasPrefix(diskPath, "/api/files/") {
+				diskPath = filepath.Join(outputDir, strings.TrimPrefix(diskPath, "/api/files/"))
+			}
+			if info, err := os.Stat(diskPath); err == nil && !info.IsDir() {
+				existing = append(existing, f)
+			}
+		}
+		// Only drop a done job if we had recorded files for it and none of them
+		// are still on disk. Jobs without recorded files are kept so the queue
+		// status reflects all known jobs.
+		checks[song] = fileCheck{existing: existing, remove: len(job.Files) > 0 && len(existing) == 0}
+	}
+	s.jobsMu.RUnlock()
+
+	s.jobsMu.Lock()
+	for song, check := range checks {
+		if job, ok := s.jobs[song]; ok && job.Status == "done" {
+			job.Files = check.existing
+			if check.remove {
+				delete(s.jobs, song)
+			}
+		}
+	}
+	s.jobsMu.Unlock()
 
 	// Read pipeline status file for live step/progress info
 	type PipelineStatusJSON struct {
@@ -643,8 +684,7 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 		Device          string  `json:"device"`
 	}
 	var pipelineStatus PipelineStatusJSON
-	projectRoot := resolveProjectRoot()
-	statusPath := filepath.Join(projectRoot, "output", "pipeline_status.json")
+	statusPath := filepath.Join(outputDir, "pipeline_status.json")
 	if data, err := os.ReadFile(statusPath); err == nil {
 		json.Unmarshal(data, &pipelineStatus)
 	}
@@ -666,6 +706,9 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 
 	// Step name mapping and ordering
 	stepOrder := map[string]int{"vocal": 1, "viperx": 1, "demucs": 2, "rubberband": 3}
+
+	s.jobsMu.RLock()
+	defer s.jobsMu.RUnlock()
 
 	var jobList []*JobState
 	for _, j := range s.jobs {
@@ -2603,7 +2646,11 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 	filePath := filepath.Join(projectRoot, "output", file)
 
 	// Verify inside output/
-	outputPrefix := filepath.Join(projectRoot, "output")
+	outputPrefix, err := filepath.Abs(filepath.Join(projectRoot, "output"))
+	if err != nil {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
 	absPath, err := filepath.Abs(filePath)
 	if err != nil || !strings.HasPrefix(absPath, outputPrefix+string(filepath.Separator)) {
 		http.Error(w, "forbidden", http.StatusForbidden)
@@ -2622,6 +2669,28 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
+	}
+
+	// Update the in-memory job for this song so the deleted stem is removed
+	// from job.Files. If no files remain, drop the job from tracking so the
+	// queue state stays consistent with disk.
+	song := filepath.Dir(file)
+	if song != "" && song != "." {
+		s.jobsMu.Lock()
+		if job, ok := s.jobs[song]; ok {
+			base := filepath.Base(file)
+			filtered := make([]FileEntry, 0, len(job.Files))
+			for _, f := range job.Files {
+				if f.Name != base {
+					filtered = append(filtered, f)
+				}
+			}
+			job.Files = filtered
+			if len(job.Files) == 0 {
+				delete(s.jobs, song)
+			}
+		}
+		s.jobsMu.Unlock()
 	}
 
 	// Don't clear the status file for single-stem deletion; the pipeline is still valid.
