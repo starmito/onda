@@ -59,6 +59,8 @@
   let queuePollingTimer: ReturnType<typeof setInterval> | null = null;
   let processedDoneSongs = $state<Set<string>>(new Set());
   let activeSongNames = $state<Set<string>>(new Set()); // songs submitted in current batch
+  let emptyQueueTicks = $state(0);
+  const EMPTY_QUEUE_THRESHOLD = 3; // tolerate transient empty status ticks
 
   // ---- Health / Version from backend ----
   let healthVersion = $state('');
@@ -449,6 +451,7 @@
     queueJobs = [];
     processedDoneSongs = new Set();
     activeSongNames = new Set();
+    emptyQueueTicks = 0;
 
     // Mark checked files as uploading
     for (const qf of checked) {
@@ -551,6 +554,7 @@
       clearInterval(queuePollingTimer);
       queuePollingTimer = null;
     }
+    emptyQueueTicks = 0;
     resetPipelineUI();
 
     // Re-sync with backend so external cancellations (API / another client) are reflected
@@ -643,13 +647,22 @@
       const allSettled = jobs.length > 0 && jobs.every(j => j.status === 'done' || j.status === 'error');
 
       if (jobs.length === 0) {
-        // Backend queue is empty — stop polling and reset UI so no ghost jobs remain
-        if (queuePollingTimer) {
-          clearInterval(queuePollingTimer);
-          queuePollingTimer = null;
+        // Backend queue may be transiently empty while jobs start; wait a few ticks
+        // before stopping polling so a single empty response doesn't kill the loop.
+        emptyQueueTicks++;
+        if (emptyQueueTicks >= EMPTY_QUEUE_THRESHOLD) {
+          if (queuePollingTimer) {
+            clearInterval(queuePollingTimer);
+            queuePollingTimer = null;
+          }
+          resetPipelineUI();
+          emptyQueueTicks = 0;
         }
-        resetPipelineUI();
-      } else if (allSettled) {
+      } else {
+        emptyQueueTicks = 0;
+      }
+
+      if (allSettled) {
         if (queuePollingTimer) {
           clearInterval(queuePollingTimer);
           queuePollingTimer = null;
