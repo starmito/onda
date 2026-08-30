@@ -1,5 +1,17 @@
 # Changelog
 
+## [v3.3.0] - 2026-08-30
+
+### Added
+- **Soporte MDXNet ONNX** en el pipeline headless (`inference_onnx.py`, `onda/onnx_mdx.py`), con detección y ejecución de modelos MDX-Net exportados a ONNX.
+- **UI ModelManager editable para MDX/SCNet/MDXNet**: Ajustes → Modelos permite editar parámetros de MDX, SCNet y MDXNet directamente desde la interfaz, además de Roformer y Demucs.
+- **Batch MDX** y ajustes al catálogo de modelos y cálculo de VRAM para MDXNet/SCNet.
+- **UI de cola mejorada** con tooltip informativo, polling robusto del estado y visualización de errores por job.
+
+### Fixed
+- **Worker congelado** al cancelar pipelines: se evita el bloqueo del worker y se barren procesos huérfanos.
+- **Recuperación de componentes DAW perdidos** en el merge anterior (`feat/v3.2.0`), restaurando paneles y endpoints backend asociados.
+
 ## [v3.2.5] - 2026-08-29
 
 ### Added
