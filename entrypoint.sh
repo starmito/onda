@@ -26,6 +26,11 @@ if [ "$GPU" != "cpu" ]; then
         esac
         echo "✅ $GPU backend installed"
     fi
+
+    # onnxruntime-gpu needs CUDA libraries that are bundled inside torch's lib dir.
+    if [ -d "$CACHE_DIR/torch/lib" ]; then
+        export LD_LIBRARY_PATH="$CACHE_DIR/torch/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    fi
 fi
 
 # Crear directorios de montaje

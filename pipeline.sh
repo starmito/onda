@@ -1186,8 +1186,7 @@ if $VOCAL || $VIPERX; then
             exit 2
         fi
         echo "   ℹ️  Using MDXNet ONNX inference"
-        local onnx_overlap="4"
-        local onnx_json
+        onnx_overlap="4"
         onnx_json=$(ls "${vocal_model_dir}"/*.json 2>/dev/null | head -1)
         if [ -n "$onnx_json" ]; then
             onnx_overlap=$(python3 -c "import json; print(json.load(open('$onnx_json')).get('overlap',4))" 2>/dev/null || echo "4")
