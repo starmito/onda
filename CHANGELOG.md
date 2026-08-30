@@ -1,5 +1,13 @@
 # Changelog
 
+## [v3.3.1] - 2026-08-30
+
+### Fixed
+- **COPY inference_onnx.py en Dockerfile**: se incluye el script de inferencia ONNX en la imagen para evitar fallos de ejecución en contenedores.
+- **Fix rama single-step ONNX en pipeline.sh**: corrige la selección de la rama de procesamiento ONNX de un solo paso.
+- **LD_LIBRARY_PATH para onnxruntime CUDA**: asegura que las librerías CUDA de onnxruntime se encuentren disponibles en runtime.
+- **Resolución automática de configs MDXNet ONNX**: el pipeline resuelve automáticamente las configuraciones asociadas a modelos MDXNet exportados a ONNX.
+
 ## [v3.3.0] - 2026-08-30
 
 ### Added
