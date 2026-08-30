@@ -1,5 +1,13 @@
 # Changelog
 
+## [v3.3.2] - 2026-08-30
+
+### Fixed
+- **Robustez en entrypoint.sh**: verifica y reinstala `onnxruntime` en la caché del backend GPU si falta, asegurando que el runtime ONNX esté disponible tras recrear el contenedor.
+
+### Changed
+- **Fórmula empírica de VRAM para MDX y SCNet**: ajustadas las estimaciones de memoria con datos medidos, mejorando la precisión del calculador de VRAM para estos modelos.
+
 ## [v3.3.1] - 2026-08-30
 
 ### Fixed
