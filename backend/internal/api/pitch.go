@@ -24,6 +24,12 @@ type PitchResponse struct {
 	Files []FileEntry `json:"files"`
 }
 
+// PitchSubgroup groups the files produced by a single pitch shift.
+type PitchSubgroup struct {
+	Pitch int         `json:"pitch"`
+	Files []FileEntry `json:"files"`
+}
+
 // handlePitchShift applies rubberband pitch shift to all stems of a song
 // except drums, and saves results in a subdirectory.
 // POST /api/pitch
@@ -211,11 +217,7 @@ func (s *Server) handleListPitchSubgroups(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	type subgroupInfo struct {
-		Pitch int         `json:"pitch"`
-		Files []FileEntry `json:"files"`
-	}
-	var subgroups []subgroupInfo
+	var subgroups []PitchSubgroup
 
 	for _, entry := range entries {
 		if !entry.IsDir() {
@@ -254,14 +256,14 @@ func (s *Server) handleListPitchSubgroups(w http.ResponseWriter, r *http.Request
 			}
 		}
 
-		subgroups = append(subgroups, subgroupInfo{
+		subgroups = append(subgroups, PitchSubgroup{
 			Pitch: pitch,
 			Files: files,
 		})
 	}
 
 	if subgroups == nil {
-		subgroups = []subgroupInfo{}
+		subgroups = []PitchSubgroup{}
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -351,4 +353,200 @@ func (s *Server) handleDeletePitchStem(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+// PitchFileRequest is the JSON body for POST /api/pitch/file.
+type PitchFileRequest struct {
+	File  string `json:"file"`
+	Pitch int    `json:"pitch"`
+}
+
+// handlePitchFile applies rubberband pitch shift to a single uploaded file in
+// input_rubberband and stores the result in a pitch subgroup directory.
+// POST /api/pitch/file
+func (s *Server) handlePitchFile(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req PitchFileRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON"})
+		return
+	}
+
+	if req.File == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "file name is required"})
+		return
+	}
+	if req.Pitch == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "pitch must be non-zero"})
+		return
+	}
+
+	projectRoot := resolveProjectRoot()
+	inputDir := filepath.Join(projectRoot, "input_rubberband")
+
+	safeName := filepath.Base(req.File)
+	inputPath := filepath.Join(inputDir, safeName)
+
+	// Path traversal guard
+	if !strings.HasPrefix(filepath.Clean(inputPath), filepath.Clean(inputDir)+string(filepath.Separator)) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid file name"})
+		return
+	}
+
+	if _, err := os.Stat(inputPath); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("file %q not found", safeName)})
+		return
+	}
+
+	ext := strings.ToLower(filepath.Ext(safeName))
+	baseName := strings.TrimSuffix(safeName, ext)
+	pitchSuffix := fmt.Sprintf("_pitch%+d", req.Pitch)
+	outDir := filepath.Join(inputDir, baseName+pitchSuffix)
+
+	if err := os.MkdirAll(outDir, 0o755); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to create output dir: %v", err)})
+		return
+	}
+
+	outputName := baseName + pitchSuffix + ext
+	outputPath := filepath.Join(outDir, outputName)
+
+	Log("pipeline", "info", fmt.Sprintf("Pitch shift file started: file=%q, pitch=%+d", safeName, req.Pitch))
+
+	if err := audio.RubberbandPitch(req.Pitch, inputPath, outputPath); err != nil {
+		Log("pipeline", "error", fmt.Sprintf("rubberband FAILED for file %q: %v", safeName, err))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("rubberband failed: %v", err)})
+		return
+	}
+
+	Log("pipeline", "info", fmt.Sprintf("Pitch shift file completed: %s → %s", safeName, outputName))
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(PitchResponse{
+		Song:  baseName,
+		Pitch: req.Pitch,
+		Files: []FileEntry{{
+			Name: outputName,
+			Path: "/input_rubberband/" + baseName + pitchSuffix + "/" + outputName,
+		}},
+	})
+}
+
+// PitchUpload describes a file in input_rubberband together with its pitch
+// subgroups, returned by GET /api/uploads/pitch.
+type PitchUpload struct {
+	Name      string          `json:"name"`
+	Path      string          `json:"path"`
+	Subgroups []PitchSubgroup `json:"subgroups"`
+}
+
+// handleListPitchUploads lists files in input_rubberband and any pitch
+// subgroups derived from {base}_pitch{+N} directories.
+// GET /api/uploads/pitch
+func (s *Server) handleListPitchUploads(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	projectRoot := resolveProjectRoot()
+	inputDir := filepath.Join(projectRoot, "input_rubberband")
+
+	entries, err := os.ReadDir(inputDir)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode([]PitchUpload{})
+		return
+	}
+
+	var uploads []PitchUpload
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		ext := strings.ToLower(filepath.Ext(name))
+		if ext != ".wav" && ext != ".mp3" && ext != ".flac" && ext != ".ogg" && ext != ".m4a" {
+			continue
+		}
+
+		baseName := strings.TrimSuffix(name, ext)
+		upload := PitchUpload{
+			Name: name,
+			Path: "/app/input_rubberband/" + name,
+		}
+
+		// Look for pitch subgroups for this base name
+		subDirPattern := filepath.Join(inputDir, baseName+"_pitch*")
+		matches, _ := filepath.Glob(subDirPattern)
+		for _, match := range matches {
+			info, err := os.Stat(match)
+			if err != nil || !info.IsDir() {
+				continue
+			}
+			dirName := filepath.Base(match)
+			idx := strings.LastIndex(dirName, "_pitch")
+			if idx < 0 {
+				continue
+			}
+			pitchStr := dirName[idx+6:]
+			var pitch int
+			if _, err := fmt.Sscanf(pitchStr, "%d", &pitch); err != nil {
+				continue
+			}
+
+			subEntries, err := os.ReadDir(match)
+			if err != nil {
+				continue
+			}
+			var files []FileEntry
+			for _, se := range subEntries {
+				if se.IsDir() {
+					continue
+				}
+				files = append(files, FileEntry{
+					Name: se.Name(),
+					Path: "/input_rubberband/" + dirName + "/" + se.Name(),
+				})
+			}
+			if len(files) > 0 {
+				upload.Subgroups = append(upload.Subgroups, PitchSubgroup{
+					Pitch: pitch,
+					Files: files,
+				})
+			}
+		}
+
+		uploads = append(uploads, upload)
+	}
+
+	if uploads == nil {
+		uploads = []PitchUpload{}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(uploads)
 }
