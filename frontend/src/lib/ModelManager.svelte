@@ -363,6 +363,18 @@
         {/if}
       </div>
 
+      <!-- Quality / VRAM trade-off scale -->
+      <div class="quality-scale">
+        <div class="quality-scale-title">Calidad / VRAM</div>
+        <div class="quality-scale-bar">
+          <span class="quality-scale-min">↓ Menos calidad</span>
+          <span class="quality-scale-max">↑ Más calidad</span>
+        </div>
+        <div class="quality-scale-note">
+          A la derecha: más calidad (o más VRAM si el flag no afecta la calidad).
+        </div>
+      </div>
+
       <!-- Sliders (disabled when no model selected) -->
       <fieldset class="sliders" disabled={!selectedModel}>
         {#if isRoformer}
@@ -381,8 +393,8 @@
             />
             <p class="param-desc">Cada unidad sube la VRAM ~6.7 MiB. Más segmento = chunks más largos (mejor contexto, menos overhead), pero con batch alto puede agotar la GPU en canciones largas.</p>
             <div class="slider-labels">
-              <span class="slider-min">64 — ⚡ Fast / -VRAM</span>
-              <span class="slider-max">🎵 Quality / +VRAM — 1024</span>
+              <span class="slider-min">64 — ⚡ Rápido / -VRAM / -Calidad</span>
+              <span class="slider-max">1024 — 🐌 Lento / +VRAM / +Calidad</span>
             </div>
           </div>
 
@@ -401,15 +413,15 @@
             />
             <p class="param-desc">NO afecta a la VRAM. Solo suaviza las transiciones entre segmentos a costa de más tiempo de proceso.</p>
             <div class="slider-labels">
-              <span class="slider-min">0 — ⚡ Fast</span>
-              <span class="slider-max">🔄 Smooth / Slow — 0.5</span>
+              <span class="slider-min">0 — ⚡ Rápido / =VRAM / -Calidad</span>
+              <span class="slider-max">0.5 — 🐌 Lento / =VRAM / +Calidad</span>
             </div>
           </div>
 
-          <!-- Chunk Size -->
+          <!-- Chunk Size (inverted: 0 = full song on the right = max quality) -->
           <div class="field">
             <label for="chunk-size">
-              Chunk Size: <strong>{chunkSize === 0 ? 'auto' : chunkSize}</strong>
+              Chunk Size: <strong>{chunkSize === 0 ? 'canción completa' : chunkSize}</strong>
             </label>
             <input
               id="chunk-size"
@@ -417,12 +429,13 @@
               min="0"
               max="4096"
               step="1"
-              bind:value={chunkSize}
+              value={4096 - chunkSize}
+              oninput={(e) => chunkSize = 4096 - Number(e.currentTarget.value)}
             />
-            <p class="param-desc">Divide la canción en trozos de N segundos para procesarla por partes (0 = canción completa). Reduce el uso de VRAM en canciones largas. Los trozos se unen con solapamiento suave para evitar artefactos en las uniones.</p>
+            <p class="param-desc">Divide la canción en trozos de N segundos para procesarla por partes. 0 = canción completa (máxima calidad, más VRAM). Reduce el uso de VRAM en canciones largas. Los trozos se unen con solapamiento suave para evitar artefactos en las uniones.</p>
             <div class="slider-labels">
-              <span class="slider-min">0 — 🤖 Completa</span>
-              <span class="slider-max">🧩 Por partes — 4096</span>
+              <span class="slider-min">4096 — 🧩 Troceado / -VRAM / -Calidad / +Rapidez</span>
+              <span class="slider-max">0 — 🎵 Completa / +VRAM / +Calidad / -Rapidez</span>
             </div>
           </div>
 
@@ -439,10 +452,10 @@
               step="1"
               bind:value={batchSize}
             />
-            <p class="param-desc">MULTIPLICA la VRAM del resto de parámetros: procesa varios chunks en paralelo. Con segmentos grandes o canciones largas, un batch alto agota la GPU (ej: SS1024 + batch 2 = 15 GB).</p>
+            <p class="param-desc">NO afecta a la calidad. MULTIPLICA la VRAM del resto de parámetros: procesa varios chunks en paralelo. Con segmentos grandes o canciones largas, un batch alto agota la GPU (ej: SS1024 + batch 2 = 15 GB).</p>
             <div class="slider-labels">
-              <span class="slider-min">0 — 🤖 Auto</span>
-              <span class="slider-max">⚡ GPU / ++VRAM — 32</span>
+              <span class="slider-min">0 — 🤖 Auto / -VRAM / =Calidad</span>
+              <span class="slider-max">32 — ⚡ Paralelo / +VRAM / =Calidad</span>
             </div>
           </div>
         {/if}
@@ -463,8 +476,8 @@
             />
             <p class="param-desc">Tamaño del chunk de análisis en frames. Más grande = mejor contexto y calidad, pero más VRAM.</p>
             <div class="slider-labels">
-              <span class="slider-min">64 — ⚡ Fast / -VRAM</span>
-              <span class="slider-max">🎵 Quality / +VRAM — 1024</span>
+              <span class="slider-min">64 — ⚡ Rápido / -VRAM / -Calidad</span>
+              <span class="slider-max">1024 — 🐌 Lento / +VRAM / +Calidad</span>
             </div>
           </div>
 
@@ -483,8 +496,8 @@
             />
             <p class="param-desc">Solapamiento entre chunks. Más overlap suaviza las transiciones pero ralentiza el proceso. NO multiplica VRAM.</p>
             <div class="slider-labels">
-              <span class="slider-min">0 — ⚡ Fast</span>
-              <span class="slider-max">🔄 Smooth / Slow — 0.5</span>
+              <span class="slider-min">0 — ⚡ Rápido / =VRAM / -Calidad</span>
+              <span class="slider-max">0.5 — 🐌 Lento / =VRAM / +Calidad</span>
             </div>
           </div>
 
@@ -501,10 +514,10 @@
               step="1"
               bind:value={batchSize}
             />
-            <p class="param-desc">Procesa N chunks en paralelo. MULTIPLICA la VRAM (igual que en Roformer).</p>
+            <p class="param-desc">NO afecta a la calidad. Procesa N chunks en paralelo y MULTIPLICA la VRAM (igual que en Roformer).</p>
             <div class="slider-labels">
-              <span class="slider-min">1 — Mínimo</span>
-              <span class="slider-max">⚡ GPU / ++VRAM — 8</span>
+              <span class="slider-min">1 — 🐢 Mínimo / -VRAM / =Calidad</span>
+              <span class="slider-max">8 — ⚡ Paralelo / +VRAM / =Calidad</span>
             </div>
           </div>
 
@@ -512,7 +525,7 @@
           {#if isScnet}
             <div class="field">
               <label for="chunk-size-scnet">
-                Chunk Size: <strong>{chunkSize === 0 ? 'YAML' : chunkSize}</strong>
+                Chunk Size: <strong>{chunkSize === 0 ? 'YAML óptimo' : chunkSize}</strong>
               </label>
               <input
                 id="chunk-size-scnet"
@@ -522,10 +535,10 @@
                 step="10000"
                 bind:value={chunkSize}
               />
-              <p class="param-desc">Tamaño de chunk de audio en samples para SCNet. 0 = el que trae el YAML del modelo.</p>
+              <p class="param-desc">Tamaño de chunk de audio en samples para SCNet. 0 = usa el valor óptimo definido en el YAML del modelo.</p>
               <div class="slider-labels">
-                <span class="slider-min">0 — 🤖 YAML</span>
-                <span class="slider-max">🧩 Samples — 1000000</span>
+                <span class="slider-min">0 — 🤖 YAML óptimo / +Calidad / -VRAM</span>
+                <span class="slider-max">1000000 — 🧩 Samples / =Calidad / +VRAM</span>
               </div>
             </div>
           {/if}
@@ -559,10 +572,10 @@
                 step="1"
                 bind:value={shifts}
               />
-              <p class="param-desc">Número de variaciones por shift para estabilización. Más shifts = mejor calidad pero más lento. No afecta a la VRAM (medido). Paper original usa 10.</p>
+              <p class="param-desc">Número de variaciones por shift para estabilización. Más shifts = mejor calidad, más lento y más VRAM. El paper original de Demucs usa 10.</p>
               <div class="slider-labels">
-                <span class="slider-min">0 — ⚡ Sin shifts / Fast</span>
-                <span class="slider-max">🎵 Paper / Slow — 20</span>
+                <span class="slider-min">0 — ⚡ Rápido / -VRAM / -Calidad</span>
+                <span class="slider-max">20 — 🐌 Lento / +VRAM / +Calidad (paper 10)</span>
               </div>
             </div>
 
@@ -581,8 +594,8 @@
               />
               <p class="param-desc">Duración del segmento en segundos. El valor máximo (7s) es el que MENOS VRAM usa (1.1 GB); valores 1-4 o auto usan ~1.6 GB. Máximo configurable 7s porque el límite interno del modelo es 7.8s y el CLI de demucs solo acepta valores enteros.</p>
               <div class="slider-labels">
-                <span class="slider-min">1-4 / auto — ~1.6 GB</span>
-                <span class="slider-max">🎵 7s / -VRAM — 1.1 GB</span>
+                <span class="slider-min">0/auto — ⚡ Rápido / +VRAM / =Calidad</span>
+                <span class="slider-max">7 — 🐌 Lento / -VRAM / =Calidad</span>
               </div>
             </div>
 
@@ -599,10 +612,10 @@
                 step="1"
                 bind:value={jobs}
               />
-              <p class="param-desc">Número de workers paralelos. 0 = automático. No afecta a la VRAM (medido).</p>
+              <p class="param-desc">NO afecta a la calidad ni a la VRAM. Número de workers paralelos; 0 = automático. Solo cambia la velocidad.</p>
               <div class="slider-labels">
-                <span class="slider-min">0 — 🤖 Auto</span>
-                <span class="slider-max">⚡ Parallel — 8</span>
+                <span class="slider-min">0 — 🤖 Auto / =Calidad / =VRAM</span>
+                <span class="slider-max">8 — ⚡ Paralelo / =Calidad / =VRAM</span>
               </div>
             </div>
           </div>
@@ -995,5 +1008,52 @@
   .vram-text.muted {
     color: var(--text-muted);
     font-style: italic;
+  }
+
+  /* Quality / VRAM scale */
+  .quality-scale {
+    margin-bottom: 1rem;
+    padding: 0.75rem;
+    background: var(--bg-surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+
+  .quality-scale-title {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.4rem;
+  }
+
+  .quality-scale-bar {
+    position: relative;
+    height: 10px;
+    border-radius: 5px;
+    background: linear-gradient(90deg, #2a2a4a 0%, var(--accent) 50%, #81c784 100%);
+    margin-bottom: 0.3rem;
+  }
+
+  .quality-scale-min,
+  .quality-scale-max {
+    position: absolute;
+    top: 14px;
+    font-size: 0.65rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+  }
+
+  .quality-scale-min {
+    left: 0;
+  }
+
+  .quality-scale-max {
+    right: 0;
+  }
+
+  .quality-scale-note {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    padding-top: 1.1rem;
   }
 </style>
