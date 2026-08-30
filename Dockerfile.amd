@@ -15,6 +15,13 @@ COPY requirements-docker-amd.txt /tmp/
 RUN SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True \
     pip install --no-cache-dir -r /tmp/requirements-docker-amd.txt
 
+ENV TORCH_HOME=/app/.cache/torch
+ENV NUMBA_CACHE_DIR=/app/.cache/numba
+ENV XDG_CACHE_HOME=/app/.cache/xdg
+ENV HF_HOME=/app/.cache/hf
+
+RUN mkdir -p /app/.cache/numba /app/.cache/torch /app/.cache/xdg /app/.cache/hf
+
 WORKDIR /app
 COPY . .
 
