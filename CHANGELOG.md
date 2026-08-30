@@ -1,5 +1,19 @@
 # Changelog
 
+## [v3.3.4] - 2026-08-30
+
+### Fixed
+- **Progreso >100%**: normalizada la mezcla de unidades (fracción 0-1 vs 0-100) del progreso multi-paso y añadido clamp en el frontend.
+- **Carpetas fantasma**: `_vocal`/`_demucs` se limpian con `trap EXIT` también en cancelación/error.
+- **Polling de cola robusto**: la UI ya no abandona el seguimiento de un job por un tick transitorio vacío (3 ticks consecutivos) y re-sincroniza al volver de pestaña.
+- **Cachés persistentes**: TORCH_HOME/NUMBA/XDG/HF bajo `/app/.cache` — el checkpoint de demucs sobrevive a rebuilds (sin re-descarga de 320 MB).
+- **Log de cancelación**: `cancelCurrentJob` registra la canción cancelada.
+
+### Added
+- **Pitch de archivo suelto**: slider de semitonos + botón en el reproductor de archivos subidos (`POST /api/pitch/file`); el resultado aparece como subgrupo con reproductor (sin slider), mismo patrón que los grupos de stems.
+- **Listado de zona de tono** (`GET /api/uploads/pitch`): los archivos subidos a Cambiar Tono se cargan al entrar en la pantalla.
+- **Borrar stem individual del subgrupo de tono** en PitchPage.
+
 ## [v3.3.3] - 2026-08-30
 
 ### Fixed
