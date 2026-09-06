@@ -778,10 +778,10 @@ export interface MergeResponse {
 }
 
 export interface FormatProfile {
-  bitDepth?: number;
-  sampleRate?: number;
+  bitDepth?: string;
+  sampleRate?: string;
   compression?: number;
-  bitrate?: number;
+  bitrate?: string;
   mode?: string;
 }
 

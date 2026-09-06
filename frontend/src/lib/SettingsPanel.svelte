@@ -4,7 +4,8 @@
   import ModelDownloader from './ModelDownloader.svelte';
   import PipelineEditor from './PipelineEditor.svelte';
   import InterfaceSettings from './InterfaceSettings.svelte';
-  import { IconModel, IconDownload, IconPresets, IconLogs, IconClose, IconRefresh, IconSettings } from './icons';
+  import ExportProfilesPanel from './ExportProfilesPanel.svelte';
+  import { IconModel, IconDownload, IconPresets, IconLogs, IconClose, IconRefresh, IconSettings, IconExport } from './icons';
   import { API_BASE } from './api';
 
   interface Props {
@@ -147,6 +148,11 @@
       class:active={subtab === 'interface'}
       onclick={() => handleSubtabChange('interface')}
     >{@html IconSettings} <span>Interfaz</span></button>
+    <button
+      class="settings-tab"
+      class:active={subtab === 'export'}
+      onclick={() => handleSubtabChange('export')}
+    >{@html IconExport} <span>Perfiles de salida</span></button>
   </div>
 
   <!-- Body content -->
@@ -225,6 +231,10 @@
     {:else if subtab === 'interface'}
       <div class="subtab-content">
         <InterfaceSettings />
+      </div>
+    {:else if subtab === 'export'}
+      <div class="subtab-content">
+        <ExportProfilesPanel />
       </div>
     {/if}
   </div>
