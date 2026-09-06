@@ -220,6 +220,7 @@ func NewServer(addr string) *http.Server {
 	}
 	s.mux.HandleFunc("/api/health", s.handleHealth)
 	s.mux.HandleFunc("GET /api/queue/status", s.handleQueueStatus)
+	s.mux.HandleFunc("GET /api/processes/status", s.handleProcessStatus)
 	s.mux.HandleFunc("DELETE /api/queue", s.handleQueueClear)
 	s.mux.HandleFunc("POST /api/queue/cancel", s.handleQueueCancel)
 	s.mux.HandleFunc("GET /api/results", s.handleResults)
@@ -629,18 +630,10 @@ func (s *Server) handleInputs(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(inputs)
 }
 
-// handleQueueStatus returns all jobs ordered by status priority.
-// GET /api/queue/status
-func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusMethodNotAllowed)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": fmt.Sprintf("method %s not allowed", r.Method),
-		})
-		return
-	}
-
+// collectQueueJobs returns the current list of jobs ordered by status priority.
+// It mirrors the internal logic of handleQueueStatus so it can be reused by
+// the real-time process status endpoint.
+func (s *Server) collectQueueJobs() []*JobState {
 	projectRoot := resolveProjectRoot()
 	outputDir := filepath.Join(projectRoot, "output")
 
@@ -749,6 +742,23 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 		}
 		return jobList[i].Index < jobList[j].Index
 	})
+
+	return jobList
+}
+
+// handleQueueStatus returns all jobs ordered by status priority.
+// GET /api/queue/status
+func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("method %s not allowed", r.Method),
+		})
+		return
+	}
+
+	jobList := s.collectQueueJobs()
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]interface{}{"jobs": jobList})
