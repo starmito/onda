@@ -237,3 +237,98 @@ func TestHandleStemsMerge_HappyPath(t *testing.T) {
 		t.Errorf("merged file not found at %s: %v", mergePath, err)
 	}
 }
+
+func TestHandleStemsMerge_PitchSubgroup(t *testing.T) {
+	skipIfMissingBinary(t, "ffmpeg")
+
+	root := t.TempDir()
+	t.Setenv("ONDA_ROOT", root)
+
+	songDir := filepath.Join(root, "output", "Base", "Base_pitch-1")
+	if err := os.MkdirAll(songDir, 0o755); err != nil {
+		t.Fatalf("failed to create pitch subgroup dir: %v", err)
+	}
+
+	for _, stem := range []string{"bass_pitch-1.wav", "drums.wav"} {
+		cmd := exec.Command("ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "0.1", "-acodec", "pcm_s16le", filepath.Join(songDir, stem))
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("failed to create test wav %s: %v\n%s", stem, err, string(out))
+		}
+	}
+
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("POST /api/stems/merge", s.handleStemsMerge)
+
+	reqBody := MergeRequest{
+		Song:   "Base (pitch -1)",
+		Stems:  []string{"bass_pitch-1.wav", "drums.wav"},
+		Format: "flac",
+	}
+	body, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest(http.MethodPost, "/api/stems/merge", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp MergeResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Format != "flac" {
+		t.Errorf("expected format flac, got %q", resp.Format)
+	}
+	if !strings.HasSuffix(resp.File, ".flac") {
+		t.Errorf("expected flac file, got %q", resp.File)
+	}
+
+	mergePath := filepath.Join(songDir, resp.File)
+	if _, err := os.Stat(mergePath); err != nil {
+		t.Errorf("merged file not found at %s: %v", mergePath, err)
+	}
+}
+
+func TestHandleStemsMerge_PitchSubgroupWithoutPitchStemsStillWorks(t *testing.T) {
+	skipIfMissingBinary(t, "ffmpeg")
+
+	root := t.TempDir()
+	t.Setenv("ONDA_ROOT", root)
+
+	songDir := filepath.Join(root, "output", "Normal")
+	if err := os.MkdirAll(songDir, 0o755); err != nil {
+		t.Fatalf("failed to create normal song dir: %v", err)
+	}
+
+	for _, stem := range []string{"bass.wav", "drums.wav"} {
+		cmd := exec.Command("ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "0.1", "-acodec", "pcm_s16le", filepath.Join(songDir, stem))
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("failed to create test wav %s: %v\n%s", stem, err, string(out))
+		}
+	}
+
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("POST /api/stems/merge", s.handleStemsMerge)
+
+	reqBody := MergeRequest{
+		Song:   "Normal",
+		Stems:  []string{"bass.wav", "drums.wav"},
+		Format: "flac",
+	}
+	body, _ := json.Marshal(reqBody)
+	req := httptest.NewRequest(http.MethodPost, "/api/stems/merge", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	mergePath := filepath.Join(songDir, "merge_Normal.flac")
+	if _, err := os.Stat(mergePath); err != nil {
+		t.Errorf("merged file not found at %s: %v", mergePath, err)
+	}
+}

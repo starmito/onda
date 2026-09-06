@@ -70,8 +70,18 @@ func (s *Server) handleStemsMerge(w http.ResponseWriter, r *http.Request) {
 	}
 
 	projectRoot := findProjectRoot()
-	safeSong := filepath.Base(req.Song)
+	baseSong := req.Song
+	pitchSuffix := ""
+	if idx := strings.LastIndex(req.Song, " (pitch "); idx >= 0 {
+		baseSong = req.Song[:idx]
+		rest := strings.TrimSuffix(req.Song[idx+len(" (pitch "):], ")")
+		pitchSuffix = filepath.Base(baseSong) + "_pitch" + rest
+	}
+	safeSong := filepath.Base(baseSong)
 	songDir := filepath.Join(projectRoot, "output", safeSong)
+	if pitchSuffix != "" {
+		songDir = filepath.Join(songDir, pitchSuffix)
+	}
 
 	var inputFiles []string
 	for _, stem := range req.Stems {
