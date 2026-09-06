@@ -28,15 +28,19 @@
     }
   }
 
+  function defaultFormat(): string {
+    return (availableProfiles?.defaultFormat || 'flac').toUpperCase();
+  }
+
   async function loadStems() {
     loading = true;
     try {
       stemsResponse = await listStems();
-      // Initialize default format per song
+      // Initialize default format per song from the configured export profile.
       const defaults: Record<string, string> = {};
       if (stemsResponse?.output) {
         for (const song of Object.keys(stemsResponse.output)) {
-          defaults[song] = 'FLAC';
+          defaults[song] = defaultFormat();
         }
       }
       selectedFormats = { ...selectedFormats, ...defaults };
@@ -66,7 +70,7 @@
       showToast('No hay stems para unir', 'error');
       return;
     }
-    const format = selectedFormats[song] || 'FLAC';
+    const format = selectedFormats[song] || defaultFormat();
     exporting = { ...exporting, [song]: true };
     try {
       const resp = await mergeStems(song, stems, format.toLowerCase());
