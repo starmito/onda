@@ -113,8 +113,18 @@ func TestExportProfilesRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to read persisted file: %v", err)
 	}
-	if !strings.Contains(string(data), "DefaultFormat") {
-		t.Errorf("persisted JSON should contain DefaultFormat key")
+	if !strings.Contains(string(data), `"defaultFormat"`) {
+		t.Errorf("persisted JSON should contain defaultFormat key")
+	}
+
+	// Outgoing JSON from the HTTP handler must also use camelCase.
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("GET /api/export/profiles", s.handleGetExportProfiles)
+	req := httptest.NewRequest(http.MethodGet, "/api/export/profiles", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+	if !strings.Contains(rr.Body.String(), `"defaultFormat"`) {
+		t.Errorf("handler response should contain defaultFormat key, got %s", rr.Body.String())
 	}
 }
 

@@ -12,7 +12,7 @@ const audioExportProfilesFile = "/config/audio_export_profiles.json"
 
 // AudioExportProfiles holds persisted audio export configuration.
 type AudioExportProfiles struct {
-	DefaultFormat string                    `json:"DefaultFormat"`
+	DefaultFormat string                    `json:"defaultFormat"`
 	Formats       map[string]*FormatProfile `json:"formats"`
 }
 
