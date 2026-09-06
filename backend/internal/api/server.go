@@ -84,16 +84,18 @@ type JobRequest struct {
 
 // JobState tracks the status of a separation job.
 type JobState struct {
-	Song        string      `json:"song"`
-	Status      string      `json:"status"` // waiting, processing, done, error
-	Progress    int         `json:"progress"`
-	Error       string      `json:"error,omitempty"`
-	Files       []FileEntry `json:"files,omitempty"`
-	Index       int         `json:"index"`
-	CurrentStep int         `json:"current_step"`
-	TotalSteps  int         `json:"total_steps"`
-	StepName    string      `json:"step_name"`
-	Device      string      `json:"device,omitempty"`
+	Song             string      `json:"song"`
+	Status           string      `json:"status"` // waiting, processing, done, error, blocked_no_gpu
+	Progress         int         `json:"progress"`
+	Error            string      `json:"error,omitempty"`
+	Files            []FileEntry `json:"files,omitempty"`
+	Index            int         `json:"index"`
+	CurrentStep      int         `json:"current_step"`
+	TotalSteps       int         `json:"total_steps"`
+	StepName         string      `json:"step_name"`
+	Device           string      `json:"device,omitempty"`
+	BlockedReason    string      `json:"blocked_reason,omitempty"`
+	BlockedReasonMsg string      `json:"blocked_reason_msg,omitempty"`
 }
 
 // Server wraps the HTTP server with routes, middleware, and a sequential job queue.
@@ -741,7 +743,7 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 		jobList = append(jobList, j)
 	}
 	sort.Slice(jobList, func(i, j int) bool {
-		order := map[string]int{"processing": 0, "waiting": 1, "done": 2, "error": 3}
+		order := map[string]int{"processing": 0, "waiting": 1, "blocked_no_gpu": 2, "done": 3, "error": 4}
 		if order[jobList[i].Status] != order[jobList[j].Status] {
 			return order[jobList[i].Status] < order[jobList[j].Status]
 		}
@@ -864,8 +866,58 @@ func (s *Server) worker() {
 	}
 }
 
+// gpuInfoProvider is the function used by the pipeline workers to query GPU
+// memory. It is a variable so tests can substitute a mock implementation.
+var gpuInfoProvider = getGPUInfo
+
+// stepModelName returns the model name to use for VRAM estimation for a
+// pipeline step. It mirrors the default model selection in buildStepPipelineArgs.
+func stepModelName(step cli.PipelineStep) string {
+	if step.Type == "demucs" {
+		if step.Model != "" {
+			return step.Model
+		}
+		return "htdemucs_ft"
+	}
+	if step.Model != "" {
+		return step.Model
+	}
+	return "BS_Roformer_Viperx"
+}
+
 // runSinglePipeline executes a single pipeline.sh invocation.
 func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
+	// VRAM headroom check before launching.
+	modelName := job.Config.VocalModel
+	if modelName == "" {
+		modelName = job.Config.ViperxModel
+	}
+	if modelName == "" {
+		modelName = job.Config.StemModel
+	}
+	if modelName == "" {
+		modelName = job.Config.DemucsModel
+	}
+	if modelName == "" {
+		modelName = "unknown"
+	}
+	if !job.Config.ForceVRAM {
+		gpu := gpuInfoProvider()
+		if gpu.OK {
+			if ok, _, reason := checkVramHeadroom(gpu.VRAMFreeMB, modelName); !ok {
+				s.jobsMu.Lock()
+				state.Status = "blocked_no_gpu"
+				state.Error = reason
+				state.BlockedReason = "insufficient_vram"
+				state.BlockedReasonMsg = reason
+				state.Progress = 0
+				s.jobsMu.Unlock()
+				Log("pipeline", "warn", fmt.Sprintf("Job blocked for %s: %s", job.Song, reason))
+				return
+			}
+		}
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
 	script := "/app/pipeline.sh"
 	pipelineArgs := job.Args
@@ -963,6 +1015,28 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		s.jobsMu.Unlock()
 
 		Log("pipeline", "info", fmt.Sprintf("Step %d/%d: %s (%s)", i+1, len(steps), step.ID, step.Type))
+
+		// VRAM headroom check before launching this step.
+		if !job.Config.ForceVRAM {
+			gpu := gpuInfoProvider()
+			if gpu.OK {
+				modelName := stepModelName(step)
+				if ok, _, reason := checkVramHeadroom(gpu.VRAMFreeMB, modelName); !ok {
+					s.jobsMu.Lock()
+				if state, ok := s.jobs[job.Song]; ok {
+					state.Status = "blocked_no_gpu"
+					state.Error = reason
+					state.BlockedReason = "insufficient_vram"
+					state.BlockedReasonMsg = reason
+					state.Progress = 0
+				}
+
+					s.jobsMu.Unlock()
+					Log("pipeline", "warn", fmt.Sprintf("Job blocked for %s at step %d: %s", job.Song, i+1, reason))
+					return
+				}
+			}
+		}
 
 		// Build args for this specific step
 		containerOutput := "/app/output/" + song
@@ -1581,6 +1655,10 @@ type SeparateRequest struct {
 	Jobs          int     `json:"jobs,omitempty"`
 	// Device override (defaults to cuda)
 	Device string `json:"device,omitempty"`
+
+	// ForceVRAM skips the VRAM headroom check and lets the user launch the
+	// pipeline even when the GPU appears to be low on memory.
+	ForceVRAM bool `json:"force_vram,omitempty"`
 }
 
 // ModelConfigResponse is what the config API returns (read from model YAML or defaults).

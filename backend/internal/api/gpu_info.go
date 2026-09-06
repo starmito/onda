@@ -45,6 +45,22 @@ type VRAMCalculatorResponse struct {
 // defaultVRAMMB is used when a model is not catalogued by estimateVRAMMB.
 const defaultVRAMMB = 2000
 
+// vramHeadroomMargin is the safety margin applied on top of the model estimate.
+const vramHeadroomMargin = 1.20 // +20%
+
+// checkVramHeadroom returns whether freeMB can accommodate the peak VRAM
+// expected for modelName with a 20% safety margin. It also returns the required
+// memory and a human-readable reason when there is not enough headroom.
+func checkVramHeadroom(freeMB int, modelName string) (bool, int, string) {
+	needed := int(math.Round(float64(estimateVRAMMB(modelName, 0, 0, 0, 0)) * vramHeadroomMargin))
+	if freeMB >= needed {
+		return true, needed, ""
+	}
+	reason := fmt.Sprintf("insufficient VRAM: model %q needs ~%d MiB (with %.0f%% margin), only %d MiB free",
+		modelName, needed, (vramHeadroomMargin-1.0)*100, freeMB)
+	return false, needed, reason
+}
+
 // fallbackAvailableVRAMMB is used when GPU info cannot be obtained.
 // It is kept only as a last-resort fallback for the VRAM calculator; getGPUInfo
 // no longer reports this hardcoded value as real GPU memory.
