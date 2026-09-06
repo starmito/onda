@@ -9,6 +9,7 @@
   let loading = $state(true);
   let exporting = $state<Record<string, boolean>>({});
   let selectedFormats = $state<Record<string, string>>({});
+  let suffixes = $state<Record<string, string>>({});
   let availableProfiles = $state<AudioExportProfiles | null>(null);
   let toast = $state<{ message: string; type: 'success' | 'error' } | null>(null);
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -71,9 +72,12 @@
       return;
     }
     const format = selectedFormats[song] || defaultFormat();
+    const suffix = (suffixes[song] || '').trim();
+    const base = song;
+    const outputName = suffix ? `${base} (${suffix})` : base;
     exporting = { ...exporting, [song]: true };
     try {
-      const resp = await mergeStems(song, stems, format.toLowerCase());
+      const resp = await mergeStems(song, stems, format.toLowerCase(), outputName);
       const url = downloadUrl(song, resp.file);
       const a = document.createElement('a');
       a.href = url;
@@ -139,6 +143,18 @@
               {#each stems as stem}
                 <span class="export-stem-tag">{stem}</span>
               {/each}
+            </div>
+
+            <div class="export-suffix-row">
+              <label class="suffix-label" for={`suffix-${song}`}>Sufijo:</label>
+              <input
+                id={`suffix-${song}`}
+                class="suffix-input"
+                type="text"
+                bind:value={suffixes[song]}
+                placeholder="sufijo entre paréntesis (opcional)"
+                disabled={exporting[song]}
+              />
             </div>
 
             <div class="export-actions-row">
@@ -308,6 +324,34 @@
     border-radius: 4px;
     padding: 0.15rem 0.45rem;
   }
+
+  .export-suffix-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.6rem;
+  }
+
+  .suffix-label {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
+
+  .suffix-input {
+    flex: 1;
+    min-width: 160px;
+    padding: 0.35rem 0.6rem;
+    border-radius: 6px;
+    border: 1px solid var(--border-light);
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    font-size: 0.8rem;
+    outline: none;
+  }
+  .suffix-input:focus { border-color: var(--accent); }
+  .suffix-input:disabled { opacity: 0.6; cursor: not-allowed; }
 
   .export-actions-row {
     display: flex;

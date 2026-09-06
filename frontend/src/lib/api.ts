@@ -825,11 +825,16 @@ export async function mergeStems(
   song: string,
   stems: string[],
   format: string,
+  outputName?: string,
 ): Promise<MergeResponse> {
+  const body: Record<string, unknown> = { song, stems, format };
+  if (outputName) {
+    body.outputName = outputName;
+  }
   const res = await fetch(`${API_BASE}/api/stems/merge`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ song, stems, format }),
+    body: JSON.stringify(body),
   });
   if (!res.ok) {
     throw new Error(`Merge failed with status ${res.status}: ${res.statusText}`);
