@@ -1,5 +1,10 @@
 # Changelog
 
+## [v3.4.3] - 2026-09-06
+
+### Fixed
+- **Merge de subgrupos pitch**: el backend ahora resuelve correctamente la subcarpeta `output/{canción}/{canción}_pitchN/` al detectar `" (pitch N)"` en el nombre, permitiendo exportar/mergear un subgrupo pitch sin mezclarlo con el resto de stems.
+
 ## [v3.4.2] - 2026-09-06
 
 ### Added
