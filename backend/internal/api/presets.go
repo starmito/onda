@@ -74,10 +74,12 @@ func seedPresets() {
 		},
 	}
 
-	// 3. Separador Completo → 2 steps: Vocal vocals→route, Demucs htdemucs_ft drums,bass,other,vocals
+	// 3. Separador Completo → 2 steps:
+	//    Vocal saves vocals to result and routes instrumental to Demucs.
+	//    Demucs splits the instrumental into drums/bass/other (saved) and discards its vocals.
 	cli.Presets["Separador Completo"] = cli.Preset{
 		Name:        "Separador Completo",
-		Description: "2 pasos: Vocal separa voces → Demucs separa en drums, bass, other, vocals",
+		Description: "2 pasos: Vocal separa voces → Demucs separa el instrumental en drums, bass, other",
 		Pitch:       0,
 		Locked:      true,
 		Steps: []cli.PipelineStep{
@@ -87,7 +89,7 @@ func seedPresets() {
 				Type:    "vocal",
 				Enabled: true,
 				Stems: map[string]cli.StemRoute{
-					"vocals":       {Action: cli.ActionRoute, Target: "step:demucs"},
+					"vocals":       {Action: cli.StemSave, Target: "result"},
 					"instrumental": {Action: cli.ActionRoute, Target: "step:demucs"},
 				},
 			},
@@ -100,7 +102,7 @@ func seedPresets() {
 					"drums":  {Action: cli.StemSave, Target: "result"},
 					"bass":   {Action: cli.StemSave, Target: "result"},
 					"other":  {Action: cli.StemSave, Target: "result"},
-					"vocals": {Action: cli.StemSave, Target: "result"},
+					"vocals": {Action: cli.StemDiscard},
 				},
 			},
 		},

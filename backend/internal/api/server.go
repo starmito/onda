@@ -1063,6 +1063,10 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		}
 	}
 
+	// Clean up intermediate / discarded stems so the final result contains only
+	// stems explicitly routed to the result target.
+	cleanupIntermediateStems(outputDir, steps)
+
 	// Finalize: mark job as done
 	s.jobsMu.Lock()
 	if state, ok := s.jobs[job.Song]; ok {
@@ -1072,6 +1076,47 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		Log("pipeline", "success", fmt.Sprintf("Pipeline completed: %s (%d stems, %d steps)", job.Song, len(state.Files), len(steps)))
 	}
 	s.jobsMu.Unlock()
+}
+
+// cleanupIntermediateStems removes audio files from the output directory that
+// are not part of the final result set (intermediate or discarded stems).
+// After a successful multi-step pipeline, only stems explicitly marked
+// StemSave with Target="result" remain.
+func cleanupIntermediateStems(outputDir string, steps []cli.PipelineStep) {
+	finalNames := make(map[string]struct{})
+	for _, step := range steps {
+		for stem, route := range step.Stems {
+			if route.Action == cli.StemSave && route.Target == "result" {
+				finalNames[stem] = struct{}{}
+			}
+		}
+	}
+
+	entries, err := os.ReadDir(outputDir)
+	if err != nil {
+		return
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		ext := strings.ToLower(filepath.Ext(name))
+		if ext != ".wav" && ext != ".flac" && ext != ".mp3" && ext != ".m4a" &&
+			ext != ".ogg" && ext != ".aac" && ext != ".wma" {
+			continue
+		}
+		base := strings.TrimSuffix(name, filepath.Ext(name))
+		if _, ok := finalNames[base]; ok {
+			continue
+		}
+		path := filepath.Join(outputDir, name)
+		if err := os.Remove(path); err != nil {
+			Log("pipeline", "warn", fmt.Sprintf("Failed to remove intermediate stem %s: %v", path, err))
+		} else {
+			Log("pipeline", "info", fmt.Sprintf("Removed intermediate stem: %s", path))
+		}
+	}
 }
 
 // stepTypeDisplay returns a human-readable name for a step type.
@@ -1088,15 +1133,44 @@ func stepTypeDisplay(stepType string) string {
 
 // findChainedInput looks for a stem file from the previous step that should be
 // used as input to the next step. It looks for stems routed with StemRoute action.
+//
+// The result is deterministic: instrumental/no_vocals stems and explicit
+// step-routing targets are preferred over other routed stems, so multi-step
+// pipelines such as "Separador Completo" always chain the correct file.
 func findChainedInput(outputDir string, step cli.PipelineStep) string {
-	// First, look for stems that are explicitly routed
+	// Collect routed stems so we can order them deterministically.
+	type routedStem struct {
+		stem   string
+		target string
+	}
+	var routed []routedStem
 	for stem, route := range step.Stems {
 		if route.Action == cli.ActionRoute {
-			pattern := filepath.Join(outputDir, "*"+stem+"*")
-			matches, _ := filepath.Glob(pattern)
-			if len(matches) > 0 {
-				return matches[0]
-			}
+			routed = append(routed, routedStem{stem: stem, target: route.Target})
+		}
+	}
+
+	// Sort: prefer stems whose name contains "instrumental" or "no_vocals",
+	// then routes with an explicit step: target.
+	sort.SliceStable(routed, func(i, j int) bool {
+		iInst := isInterstemName(routed[i].stem)
+		jInst := isInterstemName(routed[j].stem)
+		if iInst != jInst {
+			return iInst
+		}
+		iStep := strings.HasPrefix(routed[i].target, "step:")
+		jStep := strings.HasPrefix(routed[j].target, "step:")
+		if iStep != jStep {
+			return iStep
+		}
+		return routed[i].stem < routed[j].stem
+	})
+
+	for _, r := range routed {
+		pattern := filepath.Join(outputDir, "*"+r.stem+"*")
+		matches, _ := filepath.Glob(pattern)
+		if len(matches) > 0 {
+			return pickInterstem(matches)
 		}
 	}
 
@@ -1109,11 +1183,33 @@ func findChainedInput(outputDir string, step cli.PipelineStep) string {
 	for _, pattern := range patterns {
 		matches, _ := filepath.Glob(pattern)
 		if len(matches) > 0 {
-			return matches[0]
+			return pickInterstem(matches)
 		}
 	}
 
 	return ""
+}
+
+// isInterstemName reports whether a stem name corresponds to an instrumental
+// inter-step stem used for chaining.
+func isInterstemName(stem string) bool {
+	l := strings.ToLower(stem)
+	return strings.Contains(l, "instrumental") || strings.Contains(l, "no_vocals")
+}
+
+// pickInterstem chooses the best file from a set of glob matches for chaining,
+// preferring names that contain "instrumental" or "no_vocals".
+func pickInterstem(matches []string) string {
+	if len(matches) == 0 {
+		return ""
+	}
+	sort.Strings(matches)
+	for _, m := range matches {
+		if isInterstemName(filepath.Base(m)) {
+			return m
+		}
+	}
+	return matches[0]
 }
 
 // toInternalContainerPath converts a host path to a container-relative path.
