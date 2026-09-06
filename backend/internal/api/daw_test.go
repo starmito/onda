@@ -53,6 +53,8 @@ func TestHandleListStems(t *testing.T) {
 	root := setupDAWTestRoot(t)
 	writeTestFile(t, filepath.Join(root, "output", "cancion1", "vocals.wav"), []byte("vocals"))
 	writeTestFile(t, filepath.Join(root, "output", "cancion1", "instrumental.wav"), []byte("instrumental"))
+	writeTestFile(t, filepath.Join(root, "output", "cancion1", "cancion1_pitch-1", "bass_pitch-1.wav"), []byte("bass"))
+	writeTestFile(t, filepath.Join(root, "output", "cancion1", "cancion1_pitch-1", "drums.wav"), []byte("drums"))
 	writeTestFile(t, filepath.Join(root, "input_rubberband", "cancion1_pitch.wav"), []byte("pitch"))
 	writeTestFile(t, filepath.Join(root, "input_rubberband", "readme.txt"), []byte("ignore"))
 
@@ -70,14 +72,23 @@ func TestHandleListStems(t *testing.T) {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	if got, want := len(resp.Output), 1; got != want {
+	if got, want := len(resp.Output), 2; got != want {
 		t.Fatalf("expected %d output songs, got %d", want, got)
 	}
 	if got, want := resp.Output["cancion1"], []string{"instrumental.wav", "vocals.wav"}; !sliceEqual(got, want) {
 		t.Fatalf("expected stems %v, got %v", want, got)
 	}
-	if len(resp.Pitch) != 0 {
-		t.Fatalf("expected no pitch entries from input_rubberband, got %v", resp.Pitch)
+	if got, want := resp.Output["cancion1 (pitch -1)"], []string{"bass_pitch-1.wav", "drums.wav"}; !sliceEqual(got, want) {
+		t.Fatalf("expected pitch subgroup stems %v, got %v", want, got)
+	}
+
+	// The pitch subgroup must still be reported through resp.Pitch for other views.
+	wantPitch := []PitchStemEntry{
+		{Song: "cancion1", Pitch: "-1", Stem: "bass_pitch-1.wav"},
+		{Song: "cancion1", Pitch: "-1", Stem: "drums.wav"},
+	}
+	if !pitchEqual(resp.Pitch, wantPitch) {
+		t.Fatalf("expected pitch entries %v, got %v", wantPitch, resp.Pitch)
 	}
 }
 
@@ -237,6 +248,18 @@ func TestHandleUploadAudio_InvalidExtension(t *testing.T) {
 }
 
 func sliceEqual(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func pitchEqual(a, b []PitchStemEntry) bool {
 	if len(a) != len(b) {
 		return false
 	}

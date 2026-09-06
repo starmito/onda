@@ -112,28 +112,34 @@ func (s *Server) handleListStems(w http.ResponseWriter, r *http.Request) {
 				if pitch == "" {
 					continue
 				}
-				pitchStemDir := filepath.Join(songDir, subName)
-				stemEntries, err := os.ReadDir(pitchStemDir)
-				if err != nil {
+			pitchStemDir := filepath.Join(songDir, subName)
+			stemEntries, err := os.ReadDir(pitchStemDir)
+			if err != nil {
+				continue
+			}
+			var pitchStems []string
+			for _, stemEntry := range stemEntries {
+				if stemEntry.IsDir() {
 					continue
 				}
-				for _, stemEntry := range stemEntries {
-					if stemEntry.IsDir() {
-						continue
-					}
-					name := filepath.Base(stemEntry.Name())
-					if !isAudioStem(name) {
-						continue
-					}
-					resp.Pitch = append(resp.Pitch, PitchStemEntry{
-						Song:  song,
-						Pitch: pitch,
-						Stem:  name,
-					})
+				name := filepath.Base(stemEntry.Name())
+				if !isAudioStem(name) {
+					continue
 				}
+				pitchStems = append(pitchStems, name)
+				resp.Pitch = append(resp.Pitch, PitchStemEntry{
+					Song:  song,
+					Pitch: pitch,
+					Stem:  name,
+				})
+			}
+			sort.Strings(pitchStems)
+			if len(pitchStems) > 0 {
+				resp.Output[song+" (pitch "+pitch+")"] = pitchStems
 			}
 		}
 	}
+}
 
 	sort.Slice(resp.Pitch, func(i, j int) bool {
 		if resp.Pitch[i].Song != resp.Pitch[j].Song {
