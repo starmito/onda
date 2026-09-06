@@ -1,0 +1,156 @@
+package api
+
+import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+)
+
+// MergeRequest is the JSON body for POST /api/stems/merge.
+type MergeRequest struct {
+	Song   string   `json:"song"`
+	Stems  []string `json:"stems"`
+	Format string   `json:"format,omitempty"`
+}
+
+// MergeResponse is returned by POST /api/stems/merge.
+type MergeResponse struct {
+	File   string `json:"file"`
+	Format string `json:"format"`
+	Size   int64  `json:"size"`
+}
+
+// handleStemsMerge mixes multiple stems of a song into a single file.
+// POST /api/stems/merge
+func (s *Server) handleStemsMerge(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("method %s not allowed", r.Method),
+		})
+		return
+	}
+
+	var req MergeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON"})
+		return
+	}
+
+	if req.Song == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "song is required"})
+		return
+	}
+	if len(req.Stems) == 0 {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "stems are required"})
+		return
+	}
+
+	format := strings.ToLower(req.Format)
+	if format == "" {
+		format = "flac"
+	}
+	if format != "wav" && format != "flac" && format != "mp3" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "format must be 'wav', 'flac' or 'mp3'"})
+		return
+	}
+
+	projectRoot := findProjectRoot()
+	safeSong := filepath.Base(req.Song)
+	songDir := filepath.Join(projectRoot, "output", safeSong)
+
+	var inputFiles []string
+	for _, stem := range req.Stems {
+		safeStem := filepath.Base(stem)
+		stemPath := filepath.Join(songDir, safeStem)
+		if info, err := os.Stat(stemPath); err != nil || info.IsDir() {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "stem not found: " + safeStem})
+			return
+		}
+		inputFiles = append(inputFiles, stemPath)
+	}
+
+	outputName := "merge_" + safeSong + "." + format
+	outputPath := filepath.Join(songDir, outputName)
+
+	args := []string{"-y"}
+	for _, input := range inputFiles {
+		args = append(args, "-i", input)
+	}
+	args = append(args,
+		"-filter_complex", fmt.Sprintf("amix=inputs=%d:normalize=0", len(inputFiles)),
+		"-codec:a", codecForMergeFormat(format),
+	)
+
+	switch format {
+	case "flac":
+		args = append(args, "-compression_level", "5")
+	case "mp3":
+		bitrate := "320k"
+		exportProfilesMu.RLock()
+		if profiles := exportProfiles.Formats; profiles != nil {
+			if mp3 := profiles["mp3"]; mp3 != nil && mp3.Bitrate != "" {
+				bitrate = mp3.Bitrate
+			}
+		}
+		exportProfilesMu.RUnlock()
+		args = append(args, "-b:a", bitrate)
+	case "wav":
+		// Keep source sample rate; no -ar flag.
+	}
+
+	args = append(args, outputPath)
+
+	cmd := exec.Command("ffmpeg", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "ffmpeg merge failed: " + strings.TrimSpace(string(out)),
+		})
+		return
+	}
+
+	info, err := os.Stat(outputPath)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to stat merged file"})
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(MergeResponse{
+		File:   outputName,
+		Format: format,
+		Size:   info.Size(),
+	})
+}
+
+func codecForMergeFormat(format string) string {
+	switch format {
+	case "wav":
+		return "pcm_s32le"
+	case "mp3":
+		return "libmp3lame"
+	default:
+		return "flac"
+	}
+}

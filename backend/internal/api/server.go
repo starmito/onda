@@ -212,6 +212,10 @@ func NewServer(addr string) *http.Server {
 	if err := loadUISettings(); err != nil {
 		Log("backend", "warn", "Failed to load UI settings: "+err.Error())
 	}
+	// Load persisted audio export profiles (uses defaults if file doesn't exist)
+	if err := loadExportProfiles(); err != nil {
+		Log("backend", "warn", "Failed to load export profiles: "+err.Error())
+	}
 	s.mux.HandleFunc("/api/health", s.handleHealth)
 	s.mux.HandleFunc("GET /api/queue/status", s.handleQueueStatus)
 	s.mux.HandleFunc("DELETE /api/queue", s.handleQueueClear)
@@ -227,6 +231,9 @@ func NewServer(addr string) *http.Server {
 	// UI Settings API
 	s.mux.HandleFunc("GET /api/settings/ui", s.handleGetUISettings)
 	s.mux.HandleFunc("POST /api/settings/ui", s.handleSaveUISettings)
+	// Export Profiles API
+	s.mux.HandleFunc("GET /api/export/profiles", s.handleGetExportProfiles)
+	s.mux.HandleFunc("POST /api/export/profiles", s.handleSaveExportProfiles)
 	s.mux.HandleFunc("GET /api/logs", s.handleGetLogs)
 	s.mux.HandleFunc("GET /api/logs/services", s.handleGetServiceLogs)
 	s.mux.HandleFunc("/api/models", s.handleModels)
@@ -249,6 +256,7 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("POST /api/audio/trim", s.handleTrim)
 	s.mux.HandleFunc("POST /api/audio/fade", s.handleFade)
 	s.mux.HandleFunc("POST /api/audio/export", s.handleExport)
+	s.mux.HandleFunc("POST /api/stems/merge", s.handleStemsMerge)
 	s.mux.HandleFunc("GET /api/daw/stems", s.handleListStems)
 	s.mux.HandleFunc("POST /api/daw/import", s.handleImportStem)
 	s.mux.HandleFunc("POST /api/daw/upload", s.handleUploadAudio)
