@@ -1,5 +1,15 @@
 # Changelog
 
+## [v3.4.2] - 2026-09-06
+
+### Added
+- **Plantilla de nombre configurable** para exportaciones: ahora se puede personalizar el patrón de salida con `{song}`, `{pitches}` y `{suffix}`.
+- **Campo de sufijo entre paréntesis** en la pestaña **Unir y exportar** para añadir un identificador personalizado al nombre exportado.
+- **Backend de fusión de stems** acepta ahora `outputName` personalizado en `POST /api/stems/merge`.
+
+### Changed
+- Renombrada la sub-pestaña de ajustes de exportación de **"Perfiles de salida"** a **"Exportación"**.
+
 ## [v3.4.1] - 2026-09-06
 
 ### Added
