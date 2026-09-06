@@ -106,6 +106,81 @@ func TestHandleStemsMerge_DefaultFormat(t *testing.T) {
 	}
 }
 
+func TestHandleStemsMerge_OutputName(t *testing.T) {
+	skipIfMissingBinary(t, "ffmpeg")
+
+	root := t.TempDir()
+	t.Setenv("ONDA_ROOT", root)
+
+	songDir := filepath.Join(root, "output", "Mi Canción")
+	if err := os.MkdirAll(songDir, 0o755); err != nil {
+		t.Fatalf("failed to create song dir: %v", err)
+	}
+
+	cmd := exec.Command("ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "0.1", "-acodec", "pcm_s16le", filepath.Join(songDir, "vocals.wav"))
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("failed to create test wav: %v\n%s", err, string(out))
+	}
+
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("POST /api/stems/merge", s.handleStemsMerge)
+
+	cases := []struct {
+		name       string
+		outputName string
+		wantFile   string
+	}{
+		{
+			name:       "custom output name",
+			outputName: "Mi Canción - mezcla (mix)",
+			wantFile:   "Mi Canción - mezcla (mix).mp3",
+		},
+		{
+			name:       "empty output name falls back to merge_song",
+			outputName: "",
+			wantFile:   "merge_Mi Canción.mp3",
+		},
+		{
+			name:       "traversal sanitized",
+			outputName: "../malicious/name",
+			wantFile:   ".._malicious_name.mp3",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			reqBody := MergeRequest{
+				Song:       "Mi Canción",
+				Stems:      []string{"vocals.wav"},
+				Format:     "mp3",
+				OutputName: tc.outputName,
+			}
+			body, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest(http.MethodPost, "/api/stems/merge", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rr := httptest.NewRecorder()
+			s.mux.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+			}
+
+			var resp MergeResponse
+			if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("failed to decode response: %v", err)
+			}
+			if resp.File != tc.wantFile {
+				t.Errorf("expected file %q, got %q", tc.wantFile, resp.File)
+			}
+
+			mergePath := filepath.Join(songDir, resp.File)
+			if _, err := os.Stat(mergePath); err != nil {
+				t.Errorf("merged file not found at %s: %v", mergePath, err)
+			}
+		})
+	}
+}
+
 func TestHandleStemsMerge_HappyPath(t *testing.T) {
 	skipIfMissingBinary(t, "ffmpeg")
 

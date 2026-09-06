@@ -12,9 +12,10 @@ import (
 
 // MergeRequest is the JSON body for POST /api/stems/merge.
 type MergeRequest struct {
-	Song   string   `json:"song"`
-	Stems  []string `json:"stems"`
-	Format string   `json:"format,omitempty"`
+	Song       string   `json:"song"`
+	Stems      []string `json:"stems"`
+	Format     string   `json:"format,omitempty"`
+	OutputName string   `json:"outputName,omitempty"`
 }
 
 // MergeResponse is returned by POST /api/stems/merge.
@@ -85,7 +86,16 @@ func (s *Server) handleStemsMerge(w http.ResponseWriter, r *http.Request) {
 		inputFiles = append(inputFiles, stemPath)
 	}
 
-	outputName := "merge_" + safeSong + "." + format
+	base := "merge_" + safeSong
+	if strings.TrimSpace(req.OutputName) != "" {
+		sanitized := strings.ReplaceAll(req.OutputName, "/", "_")
+		base = filepath.Base(sanitized)
+	}
+	ext := "." + format
+	outputName := base
+	if !strings.HasSuffix(strings.ToLower(outputName), ext) {
+		outputName += ext
+	}
 	outputPath := filepath.Join(songDir, outputName)
 
 	args := []string{"-y"}
