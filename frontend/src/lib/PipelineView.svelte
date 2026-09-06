@@ -1,6 +1,7 @@
 <script lang="ts">
   import PresetsPanel from './PresetsPanel.svelte';
-  import { uploadAudio, deleteInput, clearQueue } from './api';
+  import { uploadAudio, deleteInput, clearQueue, separateAudio, cancelQueue, getProcessesStatus } from './api';
+  import type { ProcessStatus } from './api';
   import { IconUpload } from './icons';
 
   interface QueueFile {
@@ -37,6 +38,94 @@
     onRemoveFile = (id: string) => {},
     onViewResult = () => {},
   } = $props();
+
+  // ---- Real-time process / VRAM status ----
+  let processStatus = $state<ProcessStatus | null>(null);
+  let blockedMsg = $state<string | null>(null);
+
+  // ---- Local toast (supports info/warning without touching App.svelte) ----
+  let toastMessage = $state('');
+  let toastType = $state<'success' | 'error' | 'info' | 'warning'>('success');
+  let toastTimer = $state<ReturnType<typeof setTimeout> | null>(null);
+
+  function showToast(message: string, type: 'success' | 'error' | 'info' | 'warning') {
+    toastMessage = message;
+    toastType = type;
+    if (toastTimer) clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toastMessage = '';
+    }, 3000);
+  }
+
+  async function pollProcessesStatus() {
+    try {
+      const status = await getProcessesStatus();
+      processStatus = status;
+      if (status.blocked && status.blocked.length > 0) {
+        blockedMsg = status.blocked[0].message;
+      } else if (status.queue_jobs && status.queue_jobs.some((j: any) => j.status === 'blocked_no_gpu')) {
+        const job = status.queue_jobs.find((j: any) => j.status === 'blocked_no_gpu');
+        blockedMsg = job.blocked_reason_msg || job.blocked_reason || 'Memoria GPU insuficiente';
+      } else {
+        blockedMsg = null;
+      }
+    } catch {
+      // Silently ignore polling errors so the UI keeps working
+    }
+  }
+
+  $effect(() => {
+    if (!separating) {
+      blockedMsg = null;
+      processStatus = null;
+      return;
+    }
+    pollProcessesStatus();
+    const interval = setInterval(pollProcessesStatus, 1000);
+    return () => clearInterval(interval);
+  });
+
+  async function handleCancel() {
+    try {
+      await cancelQueue();
+    } catch (err: any) {
+      showToast(`Error al cancelar: ${err.message || 'unknown'}`, 'error');
+      return;
+    }
+    blockedMsg = null;
+    if (onCancel) onCancel();
+    showToast('Tarea cancelada', 'info');
+  }
+
+  async function handleForce() {
+    try {
+      await cancelQueue();
+    } catch (err: any) {
+      showToast(`Error al cancelar: ${err.message || 'unknown'}`, 'error');
+      return;
+    }
+
+    const selected = savedPresets.find(p => p.name === presetName);
+    const preset = selected ? selected.name : presetName || '';
+    const filesToForce = queueFiles.filter(qf => qf.path && qf.status !== 'done');
+
+    if (filesToForce.length === 0) {
+      showToast('No hay archivos para continuar', 'error');
+      return;
+    }
+
+    for (const qf of filesToForce) {
+      try {
+        await separateAudio({ preset, input: qf.path!, force_vram: true });
+      } catch (err: any) {
+        showToast(`Error al forzar: ${err.message || 'unknown'}`, 'error');
+        return;
+      }
+    }
+
+    blockedMsg = null;
+    showToast('Continuando sin comprobación de VRAM', 'warning');
+  }
 
   // ---- Drag & Drop state ----
   let dragCounter = $state(0);
@@ -257,6 +346,17 @@
         </button>
 
         {#if separating}
+          {#if blockedMsg}
+            <div class="vram-warning">
+              <span>⛔ <strong>No hay memoria GPU suficiente</strong></span>
+              <p>{blockedMsg}</p>
+              <div class="vram-actions">
+                <button class="btn-stop" onclick={handleCancel}>Cancelar tarea</button>
+                <button class="btn-force" onclick={handleForce}>Continuar de todos modos</button>
+              </div>
+            </div>
+          {/if}
+
           <button
             class="btn-stop"
             onclick={onCancel}
@@ -282,6 +382,11 @@
               {#if inferenceDevice}
                 <span class="progress-device">{inferenceDevice === 'cuda' || inferenceDevice === 'gpu' ? 'GPU' : 'CPU'}</span>
               {/if}
+              {#if processStatus?.gpu}
+                <span class="progress-gpu" class:vram-low={processStatus.gpu.free_mb < 2000}>
+                  GPU: {processStatus.gpu.free_mb}/{processStatus.gpu.total_mb} MB libres
+                </span>
+              {/if}
             </div>
           </div>
         {/if}
@@ -294,7 +399,10 @@
         hasFiles={queueFiles.some(qf => qf.checked)}
         disabled={separating}
         onExecute={handleExecute}
-        onCancel={onCancel}
+        onCancel={handleCancel}
+        onForce={handleForce}
+        blockedMsg={blockedMsg}
+
         progress={currentProgress}
         status={pipelineStatus}
         step={pipelineStep}
@@ -305,6 +413,10 @@
     {/if}
   {/if}
 </section>
+
+{#if toastMessage}
+  <div class="toast {toastType}">{toastMessage}</div>
+{/if}
 
 <style>
   .pipeline-view {
@@ -652,5 +764,80 @@
   .done-row:hover {
     background: var(--accent-subtle);
     border-color: var(--accent);
+  }
+
+  /* VRAM warning card */
+  .vram-warning {
+    background: rgba(255, 160, 0, 0.12);
+    border: 1px solid rgba(255, 160, 0, 0.5);
+    border-radius: 10px;
+    padding: 14px;
+    margin-bottom: 12px;
+    color: var(--text-primary);
+  }
+  .vram-warning p {
+    margin: 6px 0 10px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+  }
+  .vram-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .vram-actions .btn-stop,
+  .vram-actions .btn-force {
+    flex: 1;
+    min-width: 140px;
+  }
+
+  .btn-force {
+    padding: 12px;
+    background: #4a3a1a;
+    color: #ffd54f;
+    border: 1px solid #6a5a2a;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background 0.2s;
+  }
+  .btn-force:hover {
+    background: #5a4a2a;
+  }
+
+  .progress-gpu {
+    color: var(--text-secondary);
+    font-size: 11px;
+    background: rgba(128,128,128,0.1);
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .progress-gpu.vram-low {
+    background: rgba(244, 67, 54, 0.15);
+    color: #ef5350;
+  }
+
+  /* Local toast */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    padding: 12px 18px;
+    border-radius: 8px;
+    color: #fff;
+    font-weight: 600;
+    z-index: 1000;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    animation: slideIn 0.2s ease;
+  }
+  .toast.success { background: #4caf50; }
+  .toast.error { background: #f44336; }
+  .toast.info { background: #2196f3; }
+  .toast.warning { background: #ff9800; }
+
+  @keyframes slideIn {
+    from { transform: translateY(12px); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
   }
 </style>

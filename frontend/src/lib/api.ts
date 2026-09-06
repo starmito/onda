@@ -48,6 +48,7 @@ export interface SeparateOptions {
   pitch?: number;
   steps?: PipelineStep[];
   output?: string;
+  force_vram?: boolean;
 }
 
 export interface StatusResponse {
@@ -151,6 +152,9 @@ export async function separateAudio(opts: SeparateOptions): Promise<SeparateResp
     }
     if (opts.steps && opts.steps.length > 0) {
       body.steps = opts.steps;
+    }
+    if (opts.force_vram) {
+      body.force_vram = true;
     }
     const res = await fetch(`${API_BASE}/api/separate`, {
       method: 'POST',
@@ -371,7 +375,7 @@ export async function clearQueue(): Promise<void> {
   }
 }
 
-export async function cancelQueue(): Promise<void> {
+export async function cancelQueue(): Promise<{ status: string }> {
   const res = await fetch(`${API_BASE}/api/queue/cancel`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -380,6 +384,33 @@ export async function cancelQueue(): Promise<void> {
   if (!res.ok) {
     throw new Error(`Queue cancel failed with status ${res.status}: ${res.statusText}`);
   }
+  return (await res.json()) as { status: string };
+}
+
+export interface ProcessStatus {
+  queue_jobs: any[];
+  gpu: {
+    total_mb: number;
+    used_mb: number;
+    free_mb: number;
+    runtime: string;
+    name: string;
+  };
+  pipeline_process: {
+    alive: boolean;
+    pid: number;
+    cmd: string;
+    elapsed_sec: number;
+  };
+  blocked: { song: string; message: string }[];
+}
+
+export async function getProcessesStatus(): Promise<ProcessStatus> {
+  const res = await fetch(`${API_BASE}/api/processes/status`);
+  if (!res.ok) {
+    throw new Error(`Processes status failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as ProcessStatus;
 }
 
 // ---- Results (file system persistence) ----

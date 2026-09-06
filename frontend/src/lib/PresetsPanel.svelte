@@ -6,6 +6,8 @@
     hasFiles = false,
     onExecute = () => {},
     onCancel = () => {},
+    onForce = () => {},
+    blockedMsg = null as string | null,
     disabled = false,
     progress = 0,
     status = 'idle',
@@ -33,6 +35,17 @@
   </button>
 
   {#if status === 'running'}
+    {#if blockedMsg}
+      <div class="vram-warning">
+        <span>⛔ <strong>No hay memoria GPU suficiente</strong></span>
+        <p>{blockedMsg}</p>
+        <div class="vram-actions">
+          <button class="btn-stop" onclick={onCancel}>Cancelar tarea</button>
+          <button class="btn-force" onclick={onForce}>Continuar de todos modos</button>
+        </div>
+      </div>
+    {/if}
+
     <button
       class="btn-stop"
       onclick={onCancel}
@@ -74,7 +87,14 @@
 
   .btn-stop { width: 100%; padding: 12px; background: #4a1a1a; color: #e57373; border: 1px solid #6a2a2a; border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer; margin-bottom: 8px; transition: background 0.2s; }
   .btn-stop:hover { background: #5a2a2a; }
+  .btn-force { width: 100%; padding: 12px; background: #4a3a1a; color: #ffd54f; border: 1px solid #6a5a2a; border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer; margin-bottom: 8px; transition: background 0.2s; }
+  .btn-force:hover { background: #5a4a2a; }
   .stop-hint { display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 12px; text-align: center; }
+  .vram-warning { background: rgba(255, 160, 0, 0.12); border: 1px solid rgba(255, 160, 0, 0.5); border-radius: 10px; padding: 14px; margin-bottom: 12px; color: var(--text-primary); }
+  .vram-warning p { margin: 6px 0 10px; font-size: 0.85rem; color: var(--text-secondary); }
+  .vram-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+  .vram-actions .btn-stop,
+  .vram-actions .btn-force { flex: 1; min-width: 140px; }
 
   .progress-card { background: var(--bg-primary); border-radius: 8px; padding: 14px; }
   .progress-header { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
