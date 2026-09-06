@@ -80,7 +80,7 @@
 </script>
 
 <div class="export-profiles-panel">
-  <h2>Perfiles de salida</h2>
+  <h2>Exportación</h2>
 
   {#if loading}
     <p class="loading-text">Cargando perfiles…</p>

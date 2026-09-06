@@ -152,7 +152,7 @@
       class="settings-tab"
       class:active={subtab === 'export'}
       onclick={() => handleSubtabChange('export')}
-    >{@html IconExport} <span>Perfiles de salida</span></button>
+    >{@html IconExport} <span>Exportación</span></button>
   </div>
 
   <!-- Body content -->
