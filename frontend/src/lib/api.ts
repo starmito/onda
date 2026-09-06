@@ -770,6 +770,64 @@ export async function exportAudio(
   return (await res.json()) as ExportResponse;
 }
 
+// ---- Stem merge / mixdown export ----
+export interface MergeResponse {
+  file: string;
+  format: string;
+  size: number;
+}
+
+export interface FormatProfile {
+  bitDepth?: number;
+  sampleRate?: number;
+  compression?: number;
+  bitrate?: number;
+  mode?: string;
+}
+
+export interface AudioExportProfiles {
+  defaultFormat: string;
+  formats: Record<string, FormatProfile>;
+}
+
+export async function mergeStems(
+  song: string,
+  stems: string[],
+  format: string,
+): Promise<MergeResponse> {
+  const res = await fetch(`${API_BASE}/api/stems/merge`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ song, stems, format }),
+  });
+  if (!res.ok) {
+    throw new Error(`Merge failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as MergeResponse;
+}
+
+export async function getExportProfiles(): Promise<AudioExportProfiles> {
+  const res = await fetch(`${API_BASE}/api/export/profiles`);
+  if (!res.ok) {
+    throw new Error(`Get export profiles failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as AudioExportProfiles;
+}
+
+export async function saveExportProfiles(
+  profiles: AudioExportProfiles,
+): Promise<{ status: string }> {
+  const res = await fetch(`${API_BASE}/api/export/profiles`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(profiles),
+  });
+  if (!res.ok) {
+    throw new Error(`Save export profiles failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as { status: string };
+}
+
 // ---- DAW stem import ----
 export interface PitchStemEntry {
   song: string;

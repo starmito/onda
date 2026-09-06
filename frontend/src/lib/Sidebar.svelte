@@ -1,5 +1,5 @@
 <script>
-	import { IconMenu, IconUser, IconTone, IconBPM, IconDAW, IconMIDI, IconSpectrogram, IconHelp, IconSettings } from './icons';
+	import { IconMenu, IconUser, IconTone, IconBPM, IconDAW, IconMIDI, IconSpectrogram, IconExport, IconHelp, IconSettings } from './icons';
 
 	/**
 	 * Sidebar.svelte — Sidebar vertical colapsable al estilo vocalremover.org
@@ -26,6 +26,7 @@
 		{ id: 'daw',         name: 'DAW',                 icon: IconDAW },
 		{ id: 'midi',        name: 'Piano Roll',          icon: IconMIDI },
 		{ id: 'spectrogram', name: 'Espectrograma',       icon: IconSpectrogram },
+		{ id: 'export',      name: 'Unir y exportar',     icon: IconExport },
 	];
 
 	const bottomItems = [

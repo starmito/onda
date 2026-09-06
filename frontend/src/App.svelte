@@ -9,6 +9,7 @@
   import MIDIPage from './lib/MIDIPage.svelte';
   import SpectrogramPage from './lib/SpectrogramPage.svelte';
   import BpmPage from './lib/BpmPage.svelte';
+  import ExportPage from './lib/ExportPage.svelte';
   import HelpPage from './lib/HelpPage.svelte';
   import PresetsPanel from './lib/PresetsPanel.svelte';
   import type { ResultStem } from './lib/types';
@@ -893,6 +894,8 @@
           <SpectrogramPage />
         {:else if activeTab === 'bpm'}
           <BpmPage />
+        {:else if activeTab === 'export'}
+          <ExportPage />
         {:else}
           <!-- PipelineView con el preset -->
           <PipelineView
