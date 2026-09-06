@@ -22,11 +22,11 @@
 
 	const staticItems = [
 		{ id: 'pitch',       name: 'Cambiar Tono',        icon: IconTone },
+		{ id: 'export',      name: 'Unir y exportar',     icon: IconExport },
 		{ id: 'bpm',         name: 'Detectar velocidad',  icon: IconBPM },
 		{ id: 'daw',         name: 'DAW',                 icon: IconDAW },
 		{ id: 'midi',        name: 'Piano Roll',          icon: IconMIDI },
 		{ id: 'spectrogram', name: 'Espectrograma',       icon: IconSpectrogram },
-		{ id: 'export',      name: 'Unir y exportar',     icon: IconExport },
 	];
 
 	const bottomItems = [
