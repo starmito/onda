@@ -1,5 +1,12 @@
 # Changelog
 
+## [v3.4.0] - 2026-09-06
+
+### Added
+- **Exportación de stems mixdown float** y **perfiles de salida por formato** WAV/FLAC/MP3 con sliders y gráfico de calidad, persistente en config/.
+- Backend: `POST /api/stems/merge` + `GET/POST /api/export/profiles`.
+- Frontend: pestaña **Unir y exportar** + subtab **Perfiles de salida**.
+
 ## [v3.3.5] - 2026-08-30
 
 ### Fixed
