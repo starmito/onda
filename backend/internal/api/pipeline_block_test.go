@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/starmito/onda/internal/cli"
 )
@@ -215,5 +216,99 @@ func TestHandleQueueStatus_BlockedNoGPUFields(t *testing.T) {
 	}
 	if j.BlockedReasonMsg == "" {
 		t.Errorf("blocked_reason_msg empty")
+	}
+}
+
+func TestShouldAutoFailBlocked(t *testing.T) {
+	cases := []struct {
+		elapsed int
+		want    bool
+	}{
+		{0, false},
+		{1, false},
+		{120, false},
+		{121, true},
+		{300, true},
+	}
+	for _, tc := range cases {
+		if got := shouldAutoFailBlocked(tc.elapsed); got != tc.want {
+			t.Errorf("shouldAutoFailBlocked(%d) = %v, want %v", tc.elapsed, got, tc.want)
+		}
+	}
+}
+
+func TestHandleQueueStatus_BlockedNoGPU_RecentStaysBlocked(t *testing.T) {
+	s := &Server{
+		mux:  http.NewServeMux(),
+		jobs: make(map[string]*JobState),
+	}
+	s.mux.HandleFunc("GET /api/queue/status", s.handleQueueStatus)
+	s.jobs["blocked_song"] = &JobState{
+		Song:             "blocked_song",
+		Status:           "blocked_no_gpu",
+		Error:            "insufficient VRAM",
+		BlockedReason:    "insufficient_vram",
+		BlockedReasonMsg: "insufficient VRAM: test",
+		Index:            0,
+		StartedAt:        time.Now().Add(-30 * time.Second),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/queue/status", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	var resp struct {
+		Jobs []JobState `json:"jobs"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+	if len(resp.Jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(resp.Jobs))
+	}
+	if resp.Jobs[0].Status != "blocked_no_gpu" {
+		t.Errorf("recent blocked job changed to %q, want blocked_no_gpu", resp.Jobs[0].Status)
+	}
+}
+
+func TestHandleQueueStatus_BlockedNoGPU_AutoExpiresAfterTwoMinutes(t *testing.T) {
+	s := &Server{
+		mux:  http.NewServeMux(),
+		jobs: make(map[string]*JobState),
+	}
+	s.mux.HandleFunc("GET /api/queue/status", s.handleQueueStatus)
+	s.jobs["blocked_song"] = &JobState{
+		Song:             "blocked_song",
+		Status:           "blocked_no_gpu",
+		Error:            "insufficient VRAM",
+		BlockedReason:    "insufficient_vram",
+		BlockedReasonMsg: "insufficient VRAM: test",
+		Index:            0,
+		StartedAt:        time.Now().Add(-121 * time.Second),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/queue/status", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	var resp struct {
+		Jobs []JobState `json:"jobs"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode: %v", err)
+	}
+	if len(resp.Jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(resp.Jobs))
+	}
+	j := resp.Jobs[0]
+	if j.Status != "error" {
+		t.Errorf("status = %q, want error", j.Status)
+	}
+	wantError := "Cancelado automáticamente: VRAM insuficiente durante 2 min"
+	if j.Error != wantError {
+		t.Errorf("error = %q, want %q", j.Error, wantError)
+	}
+	if j.BlockedReason != "" || j.BlockedReasonMsg != "" {
+		t.Errorf("expected blocked fields cleared, got reason=%q msg=%q", j.BlockedReason, j.BlockedReasonMsg)
 	}
 }

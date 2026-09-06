@@ -96,6 +96,7 @@ type JobState struct {
 	Device           string      `json:"device,omitempty"`
 	BlockedReason    string      `json:"blocked_reason,omitempty"`
 	BlockedReasonMsg string      `json:"blocked_reason_msg,omitempty"`
+	StartedAt        time.Time   `json:"started_at,omitempty"`
 }
 
 // Server wraps the HTTP server with routes, middleware, and a sequential job queue.
@@ -630,10 +631,43 @@ func (s *Server) handleInputs(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(inputs)
 }
 
+const blockedAutoFailSeconds = 120
+
+// shouldAutoFailBlocked reports whether a blocked_no_gpu job has waited
+// longer than the allowed window and should be automatically failed.
+func shouldAutoFailBlocked(elapsedSec int) bool {
+	return elapsedSec > blockedAutoFailSeconds
+}
+
+// expireBlockedJobs transitions blocked_no_gpu jobs to error after the
+// auto-fail window has elapsed. It must be called with s.jobsMu unlocked;
+// it acquires the lock internally.
+func (s *Server) expireBlockedJobs() {
+	s.jobsMu.Lock()
+	defer s.jobsMu.Unlock()
+	for _, job := range s.jobs {
+		if job.Status != "blocked_no_gpu" || job.StartedAt.IsZero() {
+			continue
+		}
+		elapsed := int(time.Since(job.StartedAt).Seconds())
+		if shouldAutoFailBlocked(elapsed) {
+			job.Status = "error"
+			job.Error = "Cancelado automáticamente: VRAM insuficiente durante 2 min"
+			job.BlockedReason = ""
+			job.BlockedReasonMsg = ""
+			job.Progress = 0
+			Log("backend", "warn", "Auto-failed blocked job: "+job.Song)
+		}
+	}
+}
+
 // collectQueueJobs returns the current list of jobs ordered by status priority.
 // It mirrors the internal logic of handleQueueStatus so it can be reused by
 // the real-time process status endpoint.
 func (s *Server) collectQueueJobs() []*JobState {
+	// Auto-fail blocked_no_gpu jobs that have exceeded the retry window.
+	s.expireBlockedJobs()
+
 	projectRoot := resolveProjectRoot()
 	outputDir := filepath.Join(projectRoot, "output")
 
@@ -1756,7 +1790,7 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.jobs[song] = &JobState{Song: song, Status: "waiting", Index: s.nextIndex, TotalSteps: totalSteps}
+	s.jobs[song] = &JobState{Song: song, Status: "waiting", Index: s.nextIndex, TotalSteps: totalSteps, StartedAt: time.Now()}
 	s.nextIndex++
 	s.jobsMu.Unlock()
 
