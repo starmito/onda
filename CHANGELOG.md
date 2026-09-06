@@ -1,5 +1,17 @@
 # Changelog
 
+## [v3.4.1] - 2026-09-06
+
+### Added
+- **Detección de VRAM real** vía `nvidia-smi` para estimaciones más precisas antes de lanzar pipelines.
+- **Bloqueo por VRAM insuficiente**: estado `blocked_no_gpu` con ruta de override `force_vram` para forzar el proceso cuando el usuario lo decida.
+- **Endpoint de estado en tiempo real** `GET /api/processes/status` que expone cola, proceso activo y métricas de GPU.
+- **UI de estado de proceso en tiempo real** con aviso de memoria GPU y botones **Cancelar / Continuar** desde el panel de separación.
+- **Auto-expiración de `blocked_no_gpu`**: los jobs bloqueados por GPU pasan a error automáticamente tras 120 s si no se resuelven.
+
+### Fixed
+- **Pitch de archivo suelto**: ahora se lista como subgrupo aparte en la exportación, evitando que se mezcle con el resto de stems.
+
 ## [v3.4.0] - 2026-09-06
 
 ### Added
