@@ -818,6 +818,7 @@ export interface FormatProfile {
 
 export interface AudioExportProfiles {
   defaultFormat: string;
+  nameTemplate?: string;
   formats: Record<string, FormatProfile>;
 }
 

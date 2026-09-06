@@ -73,8 +73,10 @@
     }
     const format = selectedFormats[song] || defaultFormat();
     const suffix = (suffixes[song] || '').trim();
-    const base = song;
-    const outputName = suffix ? `${base} (${suffix})` : base;
+    const baseSong = groupBaseSong(song);
+    const pitch = groupPitch(song);
+    const tpl = availableProfiles?.nameTemplate || '{song} ({pitches}) ({suffix})';
+    const outputName = expandTemplate(tpl, baseSong, pitch, suffix, format.toLowerCase());
     exporting = { ...exporting, [song]: true };
     try {
       const resp = await mergeStems(song, stems, format.toLowerCase(), outputName);
@@ -95,6 +97,53 @@
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
+  }
+
+  function groupBaseSong(group: string): string {
+    return group.replace(/\s*\(pitch\s*[+-]?\d+\)\s*$/, '').trim();
+  }
+
+  function groupPitch(group: string): number {
+    const match = group.match(/\(pitch\s*([+-]?\d+)\)\s*$/);
+    return match ? Number(match[1]) : 0;
+  }
+
+  function signedPitch(pitch: number): string {
+    return pitch > 0 ? `+${pitch}` : String(pitch);
+  }
+
+  function expandTemplate(
+    tpl: string,
+    song: string,
+    pitch: number,
+    suffix: string,
+    format: string,
+  ): string {
+    const now = new Date();
+    const replacements: Record<string, string> = {
+      '{song}': song,
+      '{pitches}': signedPitch(pitch),
+      '{suffix}': suffix,
+      '{format}': format,
+      '{date}': now.toISOString().slice(0, 10),
+      '{time}': now.toTimeString().slice(0, 5).replace(':', '-'),
+    };
+    let out = tpl;
+    for (const [key, value] of Object.entries(replacements)) {
+      out = out.split(key).join(value);
+    }
+    out = out.replace(/\(\s*\)/g, '');
+    return out.trim();
+  }
+
+  function previewFileName(group: string): string {
+    const format = selectedFormats[group] || defaultFormat();
+    const baseSong = groupBaseSong(group);
+    const pitch = groupPitch(group);
+    const suffix = (suffixes[group] || '').trim();
+    const tpl = availableProfiles?.nameTemplate || '{song} ({pitches}) ({suffix})';
+    const base = expandTemplate(tpl, baseSong, pitch, suffix, format.toLowerCase());
+    return `${base}.${format.toLowerCase()}`;
   }
 
   function showToast(message: string, type: 'success' | 'error') {
@@ -156,6 +205,9 @@
                 disabled={exporting[song]}
               />
             </div>
+            <p class="export-name-preview">
+              {previewFileName(song)}
+            </p>
 
             <div class="export-actions-row">
               <label class="format-label" for={`format-${song}`}>Formato:</label>
@@ -352,6 +404,14 @@
   }
   .suffix-input:focus { border-color: var(--accent); }
   .suffix-input:disabled { opacity: 0.6; cursor: not-allowed; }
+
+  .export-name-preview {
+    margin: -0.25rem 0 0.5rem 0;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    word-break: break-word;
+  }
 
   .export-actions-row {
     display: flex;

@@ -11,6 +11,7 @@
 
   const defaultProfiles: AudioExportProfiles = {
     defaultFormat: 'flac',
+    nameTemplate: '{song} ({pitches}) ({suffix})',
     formats: {
       wav: { bitDepth: '32f', sampleRate: 'source' },
       flac: { compression: 5, bitDepth: '24' },
@@ -26,6 +27,7 @@
   function normalizeProfiles(p: AudioExportProfiles): AudioExportProfiles {
     return {
       defaultFormat: p.defaultFormat || defaultProfiles.defaultFormat,
+      nameTemplate: p.nameTemplate || defaultProfiles.nameTemplate,
       formats: {
         wav: { ...defaultProfiles.formats.wav, ...(p.formats?.wav || {}) },
         flac: { ...defaultProfiles.formats.flac, ...(p.formats?.flac || {}) },
@@ -98,6 +100,22 @@
           </label>
         {/each}
       </div>
+    </div>
+
+    <div class="field">
+      <label class="field-label" for="name-template">Plantilla de nombre</label>
+      <input
+        id="name-template"
+        class="name-template-input"
+        type="text"
+        bind:value={profiles.nameTemplate}
+        placeholder="{song} ({pitches}) ({suffix})"
+      />
+      <p class="param-desc">
+        Variables: <code>{'{song}'}</code>, <code>{'{pitches}'}</code>,
+        <code>{'{suffix}'}</code>, <code>{'{format}'}</code>,
+        <code>{'{date}'}</code>, <code>{'{time}'}</code>.
+      </p>
     </div>
 
     <!-- WAV -->
@@ -337,6 +355,22 @@
   }
 
   .field select:focus {
+    border-color: var(--accent);
+  }
+
+  .name-template-input {
+    padding: 0.4rem 0.6rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    outline: none;
+    width: 100%;
+    box-sizing: border-box;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+  .name-template-input:focus {
     border-color: var(--accent);
   }
 

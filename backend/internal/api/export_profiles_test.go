@@ -25,6 +25,9 @@ func TestExportProfilesDefaults(t *testing.T) {
 	if profiles.DefaultFormat != "flac" {
 		t.Errorf("expected default format flac, got %q", profiles.DefaultFormat)
 	}
+	if profiles.NameTemplate != "{song} ({pitches}) ({suffix})" {
+		t.Errorf("expected default name template, got %q", profiles.NameTemplate)
+	}
 	if profiles.Formats == nil {
 		t.Fatal("expected formats map to be initialized")
 	}

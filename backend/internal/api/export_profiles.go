@@ -13,6 +13,7 @@ const audioExportProfilesFile = "/config/audio_export_profiles.json"
 // AudioExportProfiles holds persisted audio export configuration.
 type AudioExportProfiles struct {
 	DefaultFormat string                    `json:"defaultFormat"`
+	NameTemplate  string                    `json:"nameTemplate,omitempty"`
 	Formats       map[string]*FormatProfile `json:"formats"`
 }
 
@@ -33,6 +34,7 @@ var (
 func defaultExportProfiles() AudioExportProfiles {
 	return AudioExportProfiles{
 		DefaultFormat: "flac",
+		NameTemplate:  "{song} ({pitches}) ({suffix})",
 		Formats: map[string]*FormatProfile{
 			"wav": {BitDepth: "32f", SampleRate: "source"},
 			"flac": {Compression: 5, BitDepth: "24"},
