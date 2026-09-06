@@ -95,6 +95,65 @@ func TestClassifyModelType(t *testing.T) {
 	}
 }
 
+func TestParseNvidiaSmiMemory(t *testing.T) {
+	tests := []struct {
+		name       string
+		input      string
+		wantTotal  int
+		wantUsed   int
+		wantFree   int
+		wantErr    bool
+	}{
+		{
+			name:      "plain csv",
+			input:     "16311, 376, 15475\n",
+			wantTotal: 16311,
+			wantUsed:  376,
+			wantFree:  15475,
+		},
+		{
+			name:      "with unit suffixes",
+			input:     "16311 MiB, 376 MiB, 15475 MiB",
+			wantTotal: 16311,
+			wantUsed:  376,
+			wantFree:  15475,
+		},
+		{
+			name:      "extra whitespace and trailing garbage line",
+			input:     "  8192 , 1024 , 7168  \n[Not Supported]\n",
+			wantTotal: 8192,
+			wantUsed:  1024,
+			wantFree:  7168,
+		},
+		{
+			name:    "empty",
+			input:   "   \n",
+			wantErr: true,
+		},
+		{
+			name:    "too few fields",
+			input:   "16311, 376\n",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			total, used, free, err := parseNvidiaSmiMemory(tt.input)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("parseNvidiaSmiMemory(%q) error = %v, wantErr %v", tt.input, err, tt.wantErr)
+			}
+			if tt.wantErr {
+				return
+			}
+			if total != tt.wantTotal || used != tt.wantUsed || free != tt.wantFree {
+				t.Errorf("parseNvidiaSmiMemory(%q) = (%d,%d,%d), want (%d,%d,%d)",
+					tt.input, total, used, free, tt.wantTotal, tt.wantUsed, tt.wantFree)
+			}
+		})
+	}
+}
+
 func TestHandleVRAMCalculator_ClassifiesModelType(t *testing.T) {
 	s := &Server{mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)

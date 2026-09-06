@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -45,7 +46,116 @@ type VRAMCalculatorResponse struct {
 const defaultVRAMMB = 2000
 
 // fallbackAvailableVRAMMB is used when GPU info cannot be obtained.
+// It is kept only as a last-resort fallback for the VRAM calculator; getGPUInfo
+// no longer reports this hardcoded value as real GPU memory.
 const fallbackAvailableVRAMMB = 16311
+
+// parseNvidiaSmiMemory parses the CSV output of nvidia-smi for
+// memory.total,memory.used,memory.free and returns the three values in MiB.
+// It tolerates surrounding whitespace and the "nounits" suffix.
+func parseNvidiaSmiMemory(out string) (int, int, int, error) {
+	out = strings.TrimSpace(out)
+	// Some nvidia-smi versions emit a trailing line such as "[Not Supported]"
+	// or an empty line. Use only the first non-empty line.
+	lines := strings.Split(out, "\n")
+	var line string
+	for _, l := range lines {
+		l = strings.TrimSpace(l)
+		if l != "" {
+			line = l
+			break
+		}
+	}
+	if line == "" {
+		return 0, 0, 0, fmt.Errorf("empty nvidia-smi output")
+	}
+
+	parts := strings.Split(line, ",")
+	if len(parts) < 3 {
+		return 0, 0, 0, fmt.Errorf("unexpected nvidia-smi format: %q", line)
+	}
+
+	parse := func(s string) (int, error) {
+		s = strings.TrimSpace(s)
+		// Strip the " MiB" / " MB" unit suffix if present.
+		if idx := strings.Index(s, " "); idx >= 0 {
+			s = s[:idx]
+		}
+		return strconv.Atoi(s)
+	}
+
+	total, err := parse(parts[0])
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to parse total memory: %w", err)
+	}
+	used, err := parse(parts[1])
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to parse used memory: %w", err)
+	}
+	free, err := parse(parts[2])
+	if err != nil {
+		return 0, 0, 0, fmt.Errorf("failed to parse free memory: %w", err)
+	}
+
+	return total, used, free, nil
+}
+
+// getGPUInfoNvidiaSmi queries GPU details via nvidia-smi. It returns real VRAM
+// and utilization/temperature when available. This is the primary source of
+// truth because the onda container has torch without CUDA.
+func getGPUInfoNvidiaSmi() GPUInfoResponse {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "nvidia-smi",
+		"--query-gpu=memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu",
+		"--format=csv,noheader,nounits")
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return GPUInfoResponse{
+			OK:      false,
+			Error:   fmt.Sprintf("nvidia-smi failed: %v: %s", err, strings.TrimSpace(stderr.String())),
+			Runtime: "nvidia-smi",
+		}
+	}
+
+	total, used, free, err := parseNvidiaSmiMemory(string(out))
+	if err != nil {
+		return GPUInfoResponse{
+			OK:      false,
+			Error:   fmt.Sprintf("failed to parse nvidia-smi output: %v", err),
+			Runtime: "nvidia-smi",
+		}
+	}
+
+	// The remaining fields are optional and may be "[Not Supported]".
+	utilization := 0
+	temperature := 0
+	parts := strings.Split(strings.TrimSpace(string(out)), ",")
+	if len(parts) >= 4 {
+		if v, pErr := strconv.Atoi(strings.TrimSpace(parts[3])); pErr == nil {
+			utilization = v
+		}
+	}
+	if len(parts) >= 5 {
+		if v, pErr := strconv.Atoi(strings.TrimSpace(parts[4])); pErr == nil {
+			temperature = v
+		}
+	}
+
+	return GPUInfoResponse{
+		Name:              "nvidia-smi",
+		Runtime:           "nvidia-smi",
+		OK:                true,
+		VRAMTotalMB:       total,
+		VRAMUsedMB:        used,
+		VRAMFreeMB:        free,
+		UtilizationGPUPct: utilization,
+		TemperatureC:      temperature,
+	}
+}
 
 // estimateVRAMMB returns the empirical VRAM peak in MB for a model name.
 // It uses measured peaks for Roformer/ViperX/Vocal, Demucs, MDX/MDXNet and SCNet.
@@ -89,89 +199,18 @@ func estimateVRAMMB(modelName string, segmentSize, chunkSize, batchSize, demucsS
 	return defaultVRAMMB
 }
 
-// getGPUInfo queries GPU details via PyTorch inside the Docker container.
-// The onda container (python:slim) does not have nvidia-smi, so we use torch.cuda.
+// getGPUInfo queries GPU details. It prefers nvidia-smi because the onda
+// container has torch without CUDA. If nvidia-smi is unavailable it returns an
+// explicit failure with no fabricated VRAM numbers.
 func getGPUInfo() GPUInfoResponse {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	script := `import torch, json
-if not torch.cuda.is_available():
-    print(json.dumps({"ok": False, "error": "CUDA not available"}))
-else:
-    props = torch.cuda.get_device_properties(0)
-    total = props.total_memory
-    reserved = torch.cuda.memory_reserved(0)
-    result = {
-        "ok": True,
-        "name": props.name,
-        "total_mb": total // (1024*1024),
-        "used_mb": reserved // (1024*1024),
-        "free_mb": (total - reserved) // (1024*1024),
-    }
-    try:
-        import pynvml
-        pynvml.nvmlInit()
-        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
-        result["util_pct"] = pynvml.nvmlDeviceGetUtilizationRates(handle).gpu
-        result["temp_c"] = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
-        pynvml.nvmlShutdown()
-    except Exception:
-        result["util_pct"] = -1
-        result["temp_c"] = -1
-    print(json.dumps(result))`
-
-	cmd := exec.CommandContext(ctx, "python3", "-c", script)
-	out, err := cmd.Output()
-	if err != nil {
-		return GPUInfoResponse{
-			OK:    false,
-			Error: fmt.Sprintf("failed to query GPU via PyTorch: %v", err),
-		}
+	info := getGPUInfoNvidiaSmi()
+	if info.OK {
+		return info
 	}
-
-	var result struct {
-		OK      bool   `json:"ok"`
-		Error   string `json:"error,omitempty"`
-		Name    string `json:"name"`
-		TotalMB int    `json:"total_mb"`
-		UsedMB  int    `json:"used_mb"`
-		FreeMB  int    `json:"free_mb"`
-		UtilPct int    `json:"util_pct"`
-		TempC   int    `json:"temp_c"`
-	}
-	if err := json.Unmarshal(out, &result); err != nil {
-		return GPUInfoResponse{
-			OK:    false,
-			Error: fmt.Sprintf("failed to parse GPU info: %v", err),
-		}
-	}
-
-	if !result.OK {
-		return GPUInfoResponse{
-			OK:    false,
-			Error: result.Error,
-		}
-	}
-
-	utilization := result.UtilPct
-	if utilization < 0 {
-		utilization = 0
-	}
-	temperature := result.TempC
-	if temperature < 0 {
-		temperature = 0
-	}
-
 	return GPUInfoResponse{
-		Name:              result.Name,
-		VRAMTotalMB:       result.TotalMB,
-		VRAMUsedMB:        result.UsedMB,
-		VRAMFreeMB:        result.FreeMB,
-		UtilizationGPUPct: utilization,
-		TemperatureC:      temperature,
-		Runtime:           "pytorch",
-		OK:                true,
+		OK:      false,
+		Error:   info.Error,
+		Runtime: "unknown",
 	}
 }
 
