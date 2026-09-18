@@ -42,6 +42,7 @@
   // ---- Real-time process / VRAM status ----
   let processStatus = $state<ProcessStatus | null>(null);
   let blockedMsg = $state<string | null>(null);
+  let vramDismissed = $state(false);
 
   // ---- Local toast (supports info/warning without touching App.svelte) ----
   let toastMessage = $state('');
@@ -83,6 +84,12 @@
     pollProcessesStatus();
     const interval = setInterval(pollProcessesStatus, 1000);
     return () => clearInterval(interval);
+  });
+
+  $effect(() => {
+    if (!blockedMsg) {
+      vramDismissed = false;
+    }
   });
 
   async function handleCancel() {
@@ -304,7 +311,7 @@
               type="checkbox"
               checked={qf.checked}
               onchange={(e) => { e.stopPropagation(); handleToggleQueueFile(qf.id); }}
-              disabled={qf.status === 'done'}
+              title={qf.status === 'done' ? 'Marcar para reprocesar' : 'Seleccionar archivo'}
             />
             <span class="queue-name" title={qf.file.name}>{qf.file.name}</span>
             <span class="queue-progress">
@@ -346,17 +353,6 @@
         </button>
 
         {#if separating}
-          {#if blockedMsg}
-            <div class="vram-warning">
-              <span>⛔ <strong>No hay memoria GPU suficiente</strong></span>
-              <p>{blockedMsg}</p>
-              <div class="vram-actions">
-                <button class="btn-stop" onclick={handleCancel}>Cancelar tarea</button>
-                <button class="btn-force" onclick={handleForce}>Continuar de todos modos</button>
-              </div>
-            </div>
-          {/if}
-
           <button
             class="btn-stop"
             onclick={onCancel}
@@ -401,7 +397,6 @@
         onExecute={handleExecute}
         onCancel={handleCancel}
         onForce={handleForce}
-        blockedMsg={blockedMsg}
 
         progress={currentProgress}
         status={pipelineStatus}
@@ -413,6 +408,23 @@
     {/if}
   {/if}
 </section>
+
+{#if separating && blockedMsg && !vramDismissed}
+  <div class="vram-modal-overlay" role="dialog" aria-modal="true">
+    <div class="vram-modal-panel">
+      <div class="vram-modal-header">
+        <h3>⛔ No hay memoria GPU suficiente</h3>
+        <button class="vram-modal-close" onclick={() => vramDismissed = true} aria-label="Cerrar aviso">✕</button>
+      </div>
+      <p class="vram-modal-reason">{blockedMsg}</p>
+      <p class="vram-modal-info">Si no haces nada, la tarea se cancelará automáticamente a los 120 segundos.</p>
+      <div class="vram-modal-actions">
+        <button class="btn-stop" onclick={handleCancel}>Detener</button>
+        <button class="btn-force" onclick={handleForce}>Continuar de todos modos</button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 {#if toastMessage}
   <div class="toast {toastType}">{toastMessage}</div>
@@ -766,31 +778,6 @@
     border-color: var(--accent);
   }
 
-  /* VRAM warning card */
-  .vram-warning {
-    background: rgba(255, 160, 0, 0.12);
-    border: 1px solid rgba(255, 160, 0, 0.5);
-    border-radius: 10px;
-    padding: 14px;
-    margin-bottom: 12px;
-    color: var(--text-primary);
-  }
-  .vram-warning p {
-    margin: 6px 0 10px;
-    font-size: 0.85rem;
-    color: var(--text-secondary);
-  }
-  .vram-actions {
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-  .vram-actions .btn-stop,
-  .vram-actions .btn-force {
-    flex: 1;
-    min-width: 140px;
-  }
-
   .btn-force {
     padding: 12px;
     background: #4a3a1a;
@@ -839,5 +826,73 @@
   @keyframes slideIn {
     from { transform: translateY(12px); opacity: 0; }
     to { transform: translateY(0); opacity: 1; }
+  }
+
+  /* VRAM warning modal */
+  .vram-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.7);
+    z-index: 1100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: fadeIn 0.15s ease;
+  }
+  .vram-modal-panel {
+    background: var(--bg-surface, #1e1e2e);
+    border: 1px solid var(--border, #333);
+    border-radius: 12px;
+    width: 90vw;
+    max-width: 460px;
+    padding: 20px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+    color: var(--text-primary);
+  }
+  .vram-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+    gap: 12px;
+  }
+  .vram-modal-header h3 {
+    margin: 0;
+    font-size: 1rem;
+    color: #ff9800;
+  }
+  .vram-modal-close {
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    font-size: 1.1rem;
+    cursor: pointer;
+    padding: 4px 8px;
+    line-height: 1;
+  }
+  .vram-modal-close:hover {
+    color: var(--text-primary);
+  }
+  .vram-modal-reason {
+    margin: 0 0 10px;
+    font-size: 0.9rem;
+    color: var(--text-secondary);
+    word-break: break-word;
+  }
+  .vram-modal-info {
+    margin: 0 0 16px;
+    font-size: 0.8rem;
+    color: var(--text-muted);
+  }
+  .vram-modal-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .vram-modal-actions .btn-stop,
+  .vram-modal-actions .btn-force {
+    flex: 1;
+    min-width: 140px;
+    margin-bottom: 0;
   }
 </style>
