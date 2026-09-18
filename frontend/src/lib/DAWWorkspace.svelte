@@ -32,6 +32,11 @@
     activeFile = fileName;
   }
 
+  function handleProcessedFile(fileName: string) {
+    activeFile = fileName;
+    dawPageRef?.setActiveTrackFile?.(fileName);
+  }
+
   // ===== Full mixer state =====
   let dawPageRef = $state<any>(null);
   let selectedChannelId = $state<string>('');
@@ -304,6 +309,7 @@
     try {
       const outputFile = await effect.apply(track.fileName, channelInsertValues[trackId][slot]);
       insertResults[key] = `Aplicado: ${outputFile}`;
+      dawPageRef?.setTrackFile?.(trackId, outputFile);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (err instanceof DAWAudioNotFoundError) {
@@ -366,6 +372,7 @@
       const resp = await applyEQ({ file: track.fileName, filters: channelEqBands[track.id] });
       eqFiltersApplied = resp.filters_applied;
       eqResult = `EQ aplicado: ${resp.file}`;
+      dawPageRef?.setTrackFile?.(track.id, resp.file);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (err instanceof DAWAudioNotFoundError) {
@@ -391,7 +398,7 @@
     </label>
 
     {#if activeFile}
-      <span class="active-file">{activeFile}</span>
+      <span class="active-file">Sonando: {activeFile}</span>
     {:else}
       <span class="active-file empty">Sin pista activa</span>
     {/if}
@@ -404,8 +411,8 @@
   <div class="mode-panel">
     {#if viewMode === 'basic'}
       <div class="basic-grid">
-        <BasicEffectsPanel activeFile={activeFile} {onError} />
-        <BasicEQPanel activeFile={activeFile} {onError} />
+        <BasicEffectsPanel activeFile={activeFile} {onError} onFileProcessed={handleProcessedFile} />
+        <BasicEQPanel activeFile={activeFile} {onError} onFileProcessed={handleProcessedFile} />
       </div>
     {:else if viewMode === 'medium'}
       <div class="medium-panel">
@@ -442,8 +449,8 @@
         <div class="tab-content">
           {#if activeTab === 'effects'}
             <div class="basic-grid">
-              <BasicEffectsPanel activeFile={activeFile} />
-              <BasicEQPanel activeFile={activeFile} />
+              <BasicEffectsPanel activeFile={activeFile} {onError} onFileProcessed={handleProcessedFile} />
+              <BasicEQPanel activeFile={activeFile} {onError} onFileProcessed={handleProcessedFile} />
             </div>
           {:else if activeTab === 'midi'}
             <MIDIPage />

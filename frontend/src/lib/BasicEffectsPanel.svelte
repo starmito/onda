@@ -14,9 +14,10 @@
   interface Props {
     activeFile: string | null;
     onError?: (message: string) => void;
+    onFileProcessed?: (fileName: string) => void;
   }
 
-  let { activeFile, onError }: Props = $props();
+  let { activeFile, onError, onFileProcessed }: Props = $props();
 
   let loading = $state<Record<string, boolean>>({});
   let result = $state<Record<string, string>>({});
@@ -197,6 +198,7 @@
     try {
       const outputFile = await effect.apply(activeFile, values[effectId]);
       result[effectId] = `Aplicado: ${outputFile}`;
+      onFileProcessed?.(outputFile);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (err instanceof DAWAudioNotFoundError) {

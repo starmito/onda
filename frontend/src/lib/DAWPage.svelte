@@ -14,6 +14,7 @@
     DAWAudioNotFoundError,
   } from './api';
   import type { TempoGridResponse, PitchStemEntry } from './api';
+  import { IconSkipBack, IconSkipForward } from './icons';
 
   type RegionLike = { start: number; end: number };
   type DAWState = {
@@ -391,6 +392,20 @@
     }
   }
 
+  export function setTrackFile(trackId: string, fileName: string) {
+    const track = tracks.find((t) => t.id === trackId);
+    if (!track || !track.ws) return;
+    const source = `/daw-data/${fileName}`;
+    loadSource(track, fileName, source, false);
+    pushHistory(fileName, source, getTrackRegions(track));
+  }
+
+  export function setActiveTrackFile(fileName: string) {
+    const track = getActiveTrack();
+    if (!track) return;
+    setTrackFile(track.id, fileName);
+  }
+
   function pushHistory(fileName: string, source: string, regions: RegionLike[]) {
     if (historyIndex < history.length - 1) {
       history = history.slice(0, historyIndex + 1);
@@ -463,6 +478,35 @@
       if (!t.ws || !t.isReady) continue;
       if (anyPlaying) t.ws.pause();
       else t.ws.play();
+    }
+  }
+
+  function playAll() {
+    if (!isReady) return;
+    for (const t of tracks) {
+      if (t.ws && t.isReady) t.ws.play();
+    }
+  }
+
+  function pauseAll() {
+    for (const t of tracks) {
+      if (t.ws && t.isReady) t.ws.pause();
+    }
+  }
+
+  function stopAll() {
+    for (const t of tracks) {
+      if (t.ws && t.isReady) t.ws.stop();
+    }
+  }
+
+  function skipAll(offset: number) {
+    if (!isReady) return;
+    for (const t of tracks) {
+      if (!t.ws || !t.isReady) continue;
+      const duration = t.ws.getDuration();
+      const current = t.ws.getCurrentTime();
+      t.ws.setTime(Math.max(0, Math.min(duration, current + offset)));
     }
   }
 
@@ -681,9 +725,17 @@
       <button class="btn-primary" onclick={() => fileInput?.click()}>
         Cargar audio
       </button>
-      <button class="btn" onclick={togglePlay} disabled={!isReady}>
-        {isPlaying ? 'Pausa' : 'Play'}
-      </button>
+      <div class="transport-controls">
+        <button class="ctrl-btn skip-btn" onclick={() => skipAll(-10)} disabled={!isReady} title="-10 segundos">
+          {@html IconSkipBack}
+        </button>
+        <button class="ctrl-btn play-btn" onclick={playAll} disabled={!isReady || isPlaying} title="Reproducir">▶</button>
+        <button class="ctrl-btn pause-btn" onclick={pauseAll} disabled={!isPlaying} title="Pausa">⏸</button>
+        <button class="ctrl-btn stop-btn" onclick={stopAll} disabled={!isPlaying} title="Parar">⏹</button>
+        <button class="ctrl-btn skip-btn" onclick={() => skipAll(10)} disabled={!isReady} title="+10 segundos">
+          {@html IconSkipForward}
+        </button>
+      </div>
       <button class="btn" onclick={addRegion} disabled={!isReady}>
         Añadir región
       </button>
@@ -773,11 +825,12 @@
               </div>
               <div class="track-controls">
                 <button
-                  class="btn-small"
+                  class="btn-small track-play-btn"
                   onclick={(e) => { e.stopPropagation(); toggleTrackPlay(track); }}
                   disabled={!track.isReady}
+                  title={track.isPlaying ? 'Pausa' : 'Reproducir'}
                 >
-                  {track.isPlaying ? 'Pausa' : 'Play'}
+                  {track.isPlaying ? '⏸' : '▶'}
                 </button>
                 <button
                   class="btn-small"
@@ -985,6 +1038,80 @@
     align-items: center;
     flex-wrap: wrap;
     gap: 0.6rem;
+  }
+
+  .transport-controls {
+    display: flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex-shrink: 0;
+  }
+
+  .ctrl-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    border: none;
+    font-size: 0.9rem;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s, transform 0.1s, opacity 0.2s;
+    flex-shrink: 0;
+    padding: 0;
+    font-family: 'Segoe UI', system-ui, sans-serif;
+  }
+
+  .ctrl-btn :global(svg) {
+    width: 18px;
+    height: 18px;
+  }
+
+  .ctrl-btn:active:not(:disabled) {
+    transform: scale(0.93);
+  }
+
+  .ctrl-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  .play-btn {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .play-btn:not(:disabled):hover {
+    background: var(--accent-light);
+  }
+
+  .pause-btn {
+    background: #ff9800;
+    color: var(--text-primary);
+  }
+
+  .pause-btn:not(:disabled):hover {
+    background: #e68900;
+  }
+
+  .stop-btn {
+    background: #f44336;
+    color: #fff;
+  }
+
+  .stop-btn:not(:disabled):hover {
+    background: #d32f2f;
+  }
+
+  .skip-btn {
+    background: #3a3a5a;
+    color: var(--text-primary);
+    font-size: 0.75rem;
+  }
+
+  .skip-btn:not(:disabled):hover {
+    background: #4a4a6a;
   }
 
   .toolbar-group {

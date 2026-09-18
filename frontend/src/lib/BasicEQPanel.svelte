@@ -5,9 +5,10 @@
   interface Props {
     activeFile: string | null;
     onError?: (message: string) => void;
+    onFileProcessed?: (fileName: string) => void;
   }
 
-  let { activeFile, onError }: Props = $props();
+  let { activeFile, onError, onFileProcessed }: Props = $props();
 
   const MIN_FREQ = 20;
   const MAX_FREQ = 20000;
@@ -68,6 +69,7 @@
       const resp = await applyEQ({ file: activeFile, filters: bands });
       filtersApplied = resp.filters_applied;
       result = `EQ aplicado: ${resp.file}`;
+      onFileProcessed?.(resp.file);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (err instanceof DAWAudioNotFoundError) {
