@@ -1,6 +1,41 @@
 #!/bin/bash
 set -euo pipefail
 
+# Repara los directorios montados como bind volumes: crea los que falten y,
+# si detecta que el owner no coincide con el usuario de referencia, corrige la
+# propiedad recursivamente. NUNCA borra el contenido.
+#
+# Uso:
+#   repair_bind_dir_permissions "$BIND_DIRS"
+#
+# Variables de entorno (solo para tests):
+#   REPAIR_COMPARE_UID  - fuerza un UID de comparacion distinto para poder
+#                         probar la rama de deteccion sin crear dirs root-owned.
+repair_bind_dir_permissions() {
+    local dirs="$1"
+    local target_uid="${2:-$(id -u)}"
+    local target_gid="${3:-$(id -g)}"
+    local compare_uid="${REPAIR_COMPARE_UID:-$target_uid}"
+    local actual_uid
+
+    for dir in $dirs; do
+        mkdir -p "$dir"
+        actual_uid=$(stat -c '%u' "$dir" 2>/dev/null || echo 0)
+        if [ "$actual_uid" != "$compare_uid" ]; then
+            # Intentar sin sudo primero (suficiente cuando ya tenemos permisos
+            # o en entornos de test); si falla, usar sudo para directorios que
+            # pertenezcan a root tras ejecuciones previas con privilegios.
+            if ! chown -R "${target_uid}:${target_gid}" "$dir" 2>/dev/null; then
+                sudo chown -R "${target_uid}:${target_gid}" "$dir"
+            fi
+        fi
+    done
+}
+
+# Evitar que se ejecute el cuerpo del deploy cuando el script se sourcea
+# (por ejemplo, desde los tests) para poder reutilizar la funcion.
+if [ "${BASH_SOURCE[0]}" = "$0" ]; then
+
 cd "$(dirname "$0")"
 
 echo "🔍 Detectando hardware..."
@@ -17,21 +52,7 @@ export ONDAP_VERSION GUI_VERSION
 # Directorios montados como bind volumes (deben pertenecer al usuario host)
 BIND_DIRS="output input input_rubberband daw-data config"
 
-mkdir -p $BIND_DIRS
-
-# Ensure dirs are not root-owned from previous runs
-NEED_RESET=0
-for dir in $BIND_DIRS; do
-    if [ -d "$dir" ] && [ "$(stat -c '%u' "$dir" 2>/dev/null || echo 0)" != "$(id -u)" ]; then
-        NEED_RESET=1
-        break
-    fi
-done
-
-if [ "$NEED_RESET" -eq 1 ]; then
-    sudo rm -rf $BIND_DIRS 2>/dev/null || true
-    mkdir -p $BIND_DIRS
-fi
+repair_bind_dir_permissions "$BIND_DIRS"
 
 case $GPU in
   cuda)
@@ -49,3 +70,5 @@ case $GPU in
 esac
 
 echo "✅ Onda desplegado en http://localhost:${ONDA_PORT:-3000}"
+
+fi
