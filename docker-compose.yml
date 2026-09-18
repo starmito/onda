@@ -33,6 +33,7 @@ services:
       - ./input_rubberband:/input_rubberband
       - ./daw-data:/daw-data
       - ./config:/config
+      - ./logs:/app/logs
       # mounts /app/ para el pipeline de feat (paths unificados bajo /app/)
       - ./input:/app/input
       - ./output:/app/output

@@ -1346,17 +1346,55 @@ func toInternalContainerPath(hostPath string) string {
 	return hostPath
 }
 
-// logPipelineOutput logs all lines from a pipeline run to the ring buffer.
+var (
+	// progressLineRe matches progress-bar frames (e.g. tqdm, demucs) so that
+	// consecutive repetitive frames can be collapsed into a single log line.
+	progressLineRe = regexp.MustCompile(`\d+\s*%.*[|▌░█▓▒=\-#>]|[|▌░█▓▒=\-#>].*\d+\s*%`)
+	// pipelineErrorRe matches lines that look like errors or failures.
+	pipelineErrorRe = regexp.MustCompile(`(?i)\b(error|failed|fatal|traceback)\b|❌`)
+)
+
+// logPipelineOutput logs the lines printed by pipeline.sh. Consecutive
+// progress-bar frames are collapsed to the last frame to avoid flooding the
+// Services log tab. Error-like lines are logged with level "warn".
 func logPipelineOutput(output string) {
 	baseNano := time.Now().UnixNano()
-	lines := strings.Split(string(output), "\n")
-	for i, line := range lines {
+	lines := strings.Split(output, "\n")
+
+	var pendingLine string
+	flushPending := func() {
+		if pendingLine == "" {
+			return
+		}
+		level := "info"
+		if pipelineErrorRe.MatchString(pendingLine) {
+			level = "warn"
+		}
+		LogWithNano("pipeline", level, pendingLine, baseNano)
+		baseNano--
+		pendingLine = ""
+	}
+
+	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
 		}
-		LogWithNano("pipeline", "info", line, baseNano-int64(i))
+		if progressLineRe.MatchString(line) {
+			// Keep only the last frame of a contiguous progress block.
+			pendingLine = line
+			continue
+		}
+		flushPending()
+
+		level := "info"
+		if pipelineErrorRe.MatchString(line) {
+			level = "warn"
+		}
+		LogWithNano("pipeline", level, line, baseNano)
+		baseNano--
 	}
+	flushPending()
 }
 
 // listStems reads the output directory for a song and returns the generated files.
