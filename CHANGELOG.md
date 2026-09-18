@@ -1,5 +1,16 @@
 # Changelog
 
+## [v3.4.4] - 2026-09-18
+
+### Fixed
+- **Deploy seguro de bind dirs**: `deploy.sh` repara el owner de `output/`, `input/`, `config/` y `daw-data/` sin borrar su contenido (elimina el `rm -rf` previo).
+- **Pitch legible en exportación**: la lista de **Unir y exportar** muestra el valor de pitch entre paréntesis (p. ej. `Canción (-1)`) en vez de la clave cruda del backend.
+- **Essentia local**: `essentia.js` se carga desde el bundle local, eliminando la dependencia del CDN externo.
+- **Audio faltante en el DAW**: se muestra un error estructurado con aviso claro en la UI cuando falta un archivo de audio.
+
+### Added
+- **Logs de servicio persistentes**: el backend escribe logs de los servicios a fichero con rotación y captura la salida del pipeline.
+
 ## [v3.4.3] - 2026-09-06
 
 ### Fixed
