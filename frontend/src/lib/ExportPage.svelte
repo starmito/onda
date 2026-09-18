@@ -112,6 +112,10 @@
     return pitch > 0 ? `+${pitch}` : String(pitch);
   }
 
+  function groupDisplayName(group: string): string {
+    return `${groupBaseSong(group)} (${signedPitch(groupPitch(group))})`;
+  }
+
   function expandTemplate(
     tpl: string,
     song: string,
@@ -184,7 +188,7 @@
         {#each Object.entries(stemsResponse.output) as [song, stems] (song)}
           <div class="export-group-card">
             <div class="export-group-header">
-              <span class="export-song-name">📁 {song}</span>
+              <span class="export-song-name">📁 {groupDisplayName(song)}</span>
               <span class="export-stem-count">{stems.length} pistas</span>
             </div>
 
