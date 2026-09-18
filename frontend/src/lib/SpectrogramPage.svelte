@@ -10,12 +10,6 @@
     strength: number;
   };
 
-  declare global {
-    interface Window {
-      __essentia?: any;
-    }
-  }
-
   let audioSrc = $state<string>('');
   let isPlaying = $state(false);
   let loading = $state(false);
@@ -26,14 +20,6 @@
   let fileInput: HTMLInputElement | null = $state(null);
   let waveformContainer: HTMLDivElement | null = $state(null);
   let ws: WaveSurfer | null = $state(null);
-
-  async function getEssentia() {
-    if (!window.__essentia) {
-      const { Essentia, EssentiaWASM } = await loadEssentia();
-      window.__essentia = new Essentia(EssentiaWASM);
-    }
-    return window.__essentia;
-  }
 
   function destroyWavesurfer() {
     if (ws) {
@@ -113,7 +99,7 @@
       const arrayBuffer = await response.arrayBuffer();
       const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
       const channelData = audioBuffer.getChannelData(0);
-      const essentia = await getEssentia();
+      const essentia = await loadEssentia();
       const vector = essentia.arrayToVector(channelData);
       const result = essentia.KeyExtractor(vector);
       detectedKey = {
