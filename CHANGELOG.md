@@ -1,5 +1,12 @@
 # Changelog
 
+## [v3.4.6] - 2026-09-18
+
+### Fixed
+- **Rango de reverb alineado con SoX**: los sliders de `room_size` y `decay` usan ahora la escala 0..100 %, coherente con lo que espera SoX, para que el efecto sea claramente audible en valores altos.
+- **`threshold = 0` válido en el compresor**: el backend distingue campo ausente de valor explícito 0 mediante punteros, devolviendo 0 en los parámetros aplicados en lugar del default.
+- **Validación de rangos de efectos DAW**: errores 400 con mensajes claros cuando un parámetro sale de rango.
+
 ## [v3.4.5] - 2026-09-18
 
 ### Fixed
