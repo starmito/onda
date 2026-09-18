@@ -1,5 +1,17 @@
 # Changelog
 
+## [v3.4.5] - 2026-09-18
+
+### Fixed
+- **Reprocesar filas completadas**: las filas done de la cola se pueden volver a marcar para reprocesar la canción con el mismo método u otro.
+- **Aviso de VRAM insuficiente como ventana emergente**: el aviso de memoria GPU pasa a ser una modal con botón **Detener** (cancela la inferencia pendiente), botón **Continuar de todos modos** y aviso de auto-cancelación a los 120 s.
+
+### Added
+- **Logs de servicio con retención de una semana**: rotación por tamaño con fecha en el nombre y purga por edad, sin límite de generaciones.
+
+### Test
+- **Tests de cola sin GPU real**: se inyecta el proveedor de GPU en los tests de la cola, eliminando los fallos por `blocked_no_gpu`.
+
 ## [v3.4.4] - 2026-09-18
 
 ### Fixed
