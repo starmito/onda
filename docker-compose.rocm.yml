@@ -1,4 +1,4 @@
-# Override ROCm para Onda v3.1.1
+# Override ROCm para Onda v3.4.4
 # Añade los devices AMD ROCm (/dev/kfd, /dev/dri) necesarios para GPU
 #
 # Uso: docker compose -f docker-compose.yml -f docker-compose.rocm.yml up -d --build

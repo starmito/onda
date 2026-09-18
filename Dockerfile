@@ -1,4 +1,4 @@
-# Onda v3.1.1 — Contenedor unificado (Python + Go + Svelte)
+# Onda v3.4.4 — Contenedor unificado (Python + Go + Svelte)
 # GPU auto-detect en runtime via entrypoint.sh
 # Build: docker compose build
 # Deploy: docker compose up -d  (o bash deploy.sh para auto-detectar GPU)
@@ -60,6 +60,8 @@ FROM python:3.12-slim AS runtime
 
 ARG USER_UID=1000
 ARG USER_GID=1000
+ARG ONDAP_VERSION
+ENV ONDAP_VERSION=${ONDAP_VERSION:-unknown}
 
 # Solo lo necesario para PRODUCCIÓN (sin build-essential)
 RUN apt-get update && apt-get install -y --no-install-recommends \

@@ -4,11 +4,15 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_DIR"
 
+# Resolver versión desde tags de git (misma lógica que build.sh/deploy.sh).
+source ./build.sh --version
+export ONDAP_VERSION GUI_VERSION
+
 echo "=== 1. Clean ==="
 docker compose -f docker-compose.yml -f docker-compose.cuda.yml down -v 2>/dev/null
 docker rm -f onda 2>/dev/null
 docker volume rm onda_pytorch-cache 2>/dev/null
-docker rmi onda:3.1.1 2>/dev/null
+docker rmi onda:${ONDAP_VERSION:-latest} 2>/dev/null
 rm -rf output/* input/* 2>/dev/null
 mkdir -p output input
 
