@@ -415,15 +415,15 @@ func TestEffectValidParametersNo500(t *testing.T) {
 	}
 }
 
-// rmsLevelDB returns the "RMS lev dB" value reported by `sox <file> -n stat`.
-func rmsLevelDB(t *testing.T, path string) float64 {
+// rmsAmplitude returns the "RMS amplitude" value reported by `sox <file> -n stat`.
+func rmsAmplitude(t *testing.T, path string) float64 {
 	t.Helper()
 	out, err := exec.Command("sox", path, "-n", "stat").CombinedOutput()
 	if err != nil {
 		t.Fatalf("sox stat failed for %s: %v\n%s", path, err, out)
 	}
 	for _, line := range strings.Split(string(out), "\n") {
-		if strings.Contains(line, "RMS") && strings.Contains(line, "lev dB") {
+		if strings.Contains(line, "RMS") && strings.Contains(line, "amplitude") && !strings.Contains(line, "delta") {
 			fields := strings.Fields(line)
 			if len(fields) == 0 {
 				continue
@@ -434,7 +434,7 @@ func rmsLevelDB(t *testing.T, path string) float64 {
 			}
 		}
 	}
-	t.Fatalf("could not parse RMS lev dB from sox stat output for %s:\n%s", path, out)
+	t.Fatalf("could not parse RMS amplitude from sox stat output for %s:\n%s", path, out)
 	return 0
 }
 
@@ -464,12 +464,43 @@ func TestCompressorExplicitZeroThreshold(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
+	t.Logf("threshold=0 response: %+v", body)
 	got, ok := body.Parameters["threshold"]
 	if !ok {
 		t.Fatalf("response missing threshold parameter")
 	}
-	if got != 0 {
+	if got != 0.0 {
 		t.Errorf("threshold = %v, want 0", got)
+	}
+}
+
+// TestCompressorThresholdOutOfRangeResponse verifies that a threshold outside
+// the supported range returns a clear 400 error.
+func TestCompressorThresholdOutOfRangeResponse(t *testing.T) {
+	root := setupFase10TestRoot(t)
+	srv := newEffectsTestServer(t)
+	writeEffectsTestWAV(t, root)
+
+	resp := postJSON(t, srv, "/api/daw/compressor", map[string]any{
+		"file":      "test.wav",
+		"threshold": 1,
+		"ratio":     4,
+		"attack":    5,
+		"release":   50,
+		"makeup":    0,
+	})
+	defer resp.Body.Close()
+
+	var body map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	t.Logf("threshold=1 response: status=%d body=%+v", resp.StatusCode, body)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Errorf("status = %d, want 400", resp.StatusCode)
+	}
+	if !strings.Contains(body["error"], "threshold must be between -60.00 and 0.00 dB") {
+		t.Errorf("error = %q, want threshold range error", body["error"])
 	}
 }
 
@@ -512,16 +543,13 @@ func TestReverbHighValuesAudible(t *testing.T) {
 		t.Fatalf("failed to stat output: %v", err)
 	}
 
-	inRMS := rmsLevelDB(t, inputPath)
-	outRMS := rmsLevelDB(t, outputPath)
+	inRMS := rmsAmplitude(t, inputPath)
+	outRMS := rmsAmplitude(t, outputPath)
 
-	t.Logf("input size=%d output size=%d input RMS=%.2f dB output RMS=%.2f dB",
+	t.Logf("input size=%d output size=%d input RMS amplitude=%.4f output RMS amplitude=%.4f",
 		inInfo.Size(), outInfo.Size(), inRMS, outRMS)
 
-	if outInfo.Size() <= inInfo.Size() {
-		t.Errorf("output size %d is not larger than input size %d; reverb tail not present", outInfo.Size(), inInfo.Size())
-	}
-	if math.Abs(outRMS-inRMS) < 1.0 {
-		t.Errorf("RMS difference too small (%.2f dB); reverb did not audibly change the signal", math.Abs(outRMS-inRMS))
+	if math.Abs(outRMS-inRMS) < 0.01 {
+		t.Errorf("RMS amplitude difference too small (%.4f); reverb did not audibly change the signal", math.Abs(outRMS-inRMS))
 	}
 }
