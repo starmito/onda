@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -42,20 +41,10 @@ func (s *Server) handleTempo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Prevent path traversal by using only the base name.
-	safeName := filepath.Base(file)
-	projectRoot := findProjectRoot()
-
-	sourcePath := filepath.Join(projectRoot, "input", safeName)
-	if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
-		dawPath := filepath.Join(projectRoot, "daw-data", safeName)
-		if _, err := os.Stat(dawPath); os.IsNotExist(err) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]string{"error": "file not found"})
-			return
-		}
-		sourcePath = dawPath
+	sourcePath, safeName, err := resolveDAWAudioSource(file)
+	if err != nil {
+		writeDAWFileNotFound(w, safeName)
+		return
 	}
 
 	bpm, err := detectBPM(sourcePath)

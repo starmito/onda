@@ -78,22 +78,14 @@ func (s *Server) handleFade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	safeName := filepath.Base(req.File)
-	projectRoot := findProjectRoot()
-	inputPath := filepath.Join(projectRoot, "input", safeName)
-	dawBase := filepath.Join(projectRoot, "daw-data")
-	dawPath := filepath.Join(dawBase, safeName)
-
-	sourcePath := inputPath
-	if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
-		if _, err := os.Stat(dawPath); os.IsNotExist(err) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]string{"error": "file not found"})
-			return
-		}
-		sourcePath = dawPath
+	sourcePath, safeName, err := resolveDAWAudioSource(req.File)
+	if err != nil {
+		writeDAWFileNotFound(w, safeName)
+		return
 	}
+
+	projectRoot := findProjectRoot()
+	dawBase := filepath.Join(projectRoot, "daw-data")
 
 	duration, err := detectDuration(sourcePath)
 	if err != nil {

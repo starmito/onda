@@ -81,22 +81,6 @@ type NoiseGateRequest struct {
 	Release  float64 `json:"release"`
 }
 
-// locateEffectInput resolves the absolute path of an input file by looking
-// first in input/ and then in daw-data/. It returns an empty string if not found.
-func locateEffectInput(file string) string {
-	safeName := filepath.Base(file)
-	projectRoot := findProjectRoot()
-	inputPath := filepath.Join(projectRoot, "input", safeName)
-	if _, err := os.Stat(inputPath); err == nil {
-		return inputPath
-	}
-	dawPath := filepath.Join(projectRoot, "daw-data", safeName)
-	if _, err := os.Stat(dawPath); err == nil {
-		return dawPath
-	}
-	return ""
-}
-
 // resolveEffectOutput returns the absolute output path in daw-data/ and the
 // generated file name with the given effect prefix.
 func resolveEffectOutput(prefix, safeName string) (string, string, error) {
@@ -169,10 +153,9 @@ func (s *Server) handleCompressor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	safeName := filepath.Base(req.File)
-	sourcePath := locateEffectInput(req.File)
-	if sourcePath == "" {
-		writeEffectError(w, http.StatusNotFound, "file not found")
+	sourcePath, safeName, err := resolveDAWAudioSource(req.File)
+	if err != nil {
+		writeDAWFileNotFound(w, safeName)
 		return
 	}
 
@@ -260,10 +243,9 @@ func (s *Server) handleReverb(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	safeName := filepath.Base(req.File)
-	sourcePath := locateEffectInput(req.File)
-	if sourcePath == "" {
-		writeEffectError(w, http.StatusNotFound, "file not found")
+	sourcePath, safeName, err := resolveDAWAudioSource(req.File)
+	if err != nil {
+		writeDAWFileNotFound(w, safeName)
 		return
 	}
 
@@ -334,10 +316,9 @@ func (s *Server) handleDelay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	safeName := filepath.Base(req.File)
-	sourcePath := locateEffectInput(req.File)
-	if sourcePath == "" {
-		writeEffectError(w, http.StatusNotFound, "file not found")
+	sourcePath, safeName, err := resolveDAWAudioSource(req.File)
+	if err != nil {
+		writeDAWFileNotFound(w, safeName)
 		return
 	}
 
@@ -419,10 +400,9 @@ func (s *Server) handleChorus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	safeName := filepath.Base(req.File)
-	sourcePath := locateEffectInput(req.File)
-	if sourcePath == "" {
-		writeEffectError(w, http.StatusNotFound, "file not found")
+	sourcePath, safeName, err := resolveDAWAudioSource(req.File)
+	if err != nil {
+		writeDAWFileNotFound(w, safeName)
 		return
 	}
 
@@ -498,10 +478,9 @@ func (s *Server) handleFlanger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	safeName := filepath.Base(req.File)
-	sourcePath := locateEffectInput(req.File)
-	if sourcePath == "" {
-		writeEffectError(w, http.StatusNotFound, "file not found")
+	sourcePath, safeName, err := resolveDAWAudioSource(req.File)
+	if err != nil {
+		writeDAWFileNotFound(w, safeName)
 		return
 	}
 
@@ -576,10 +555,9 @@ func (s *Server) handlePhaser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	safeName := filepath.Base(req.File)
-	sourcePath := locateEffectInput(req.File)
-	if sourcePath == "" {
-		writeEffectError(w, http.StatusNotFound, "file not found")
+	sourcePath, safeName, err := resolveDAWAudioSource(req.File)
+	if err != nil {
+		writeDAWFileNotFound(w, safeName)
 		return
 	}
 
@@ -655,10 +633,9 @@ func (s *Server) handleTremolo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	safeName := filepath.Base(req.File)
-	sourcePath := locateEffectInput(req.File)
-	if sourcePath == "" {
-		writeEffectError(w, http.StatusNotFound, "file not found")
+	sourcePath, safeName, err := resolveDAWAudioSource(req.File)
+	if err != nil {
+		writeDAWFileNotFound(w, safeName)
 		return
 	}
 
@@ -727,10 +704,9 @@ func (s *Server) handleNoiseGate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	safeName := filepath.Base(req.File)
-	sourcePath := locateEffectInput(req.File)
-	if sourcePath == "" {
-		writeEffectError(w, http.StatusNotFound, "file not found")
+	sourcePath, safeName, err := resolveDAWAudioSource(req.File)
+	if err != nil {
+		writeDAWFileNotFound(w, safeName)
 		return
 	}
 

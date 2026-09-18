@@ -36,6 +36,7 @@ func newDAWTestServer(t *testing.T) *Server {
 	s.mux.HandleFunc("GET /api/daw/stems", s.handleListStems)
 	s.mux.HandleFunc("POST /api/daw/import", s.handleImportStem)
 	s.mux.HandleFunc("POST /api/daw/upload", s.handleUploadAudio)
+	s.mux.HandleFunc("POST /api/audio/trim", s.handleTrim)
 	return s
 }
 
@@ -269,4 +270,33 @@ func pitchEqual(a, b []PitchStemEntry) bool {
 		}
 	}
 	return true
+}
+
+func TestHandleTrim_MissingFile_StructuredError(t *testing.T) {
+	setupDAWTestRoot(t)
+	srv := newDAWTestServer(t)
+
+	body := `{"file":"archivo_perdido.wav","start":0,"end":5}`
+	req := httptest.NewRequest(http.MethodPost, "/api/audio/trim", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp dawFileNotFoundResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Code != "file_not_found" {
+		t.Fatalf("expected code file_not_found, got %q", resp.Code)
+	}
+	if resp.File != "archivo_perdido.wav" {
+		t.Fatalf("expected file archivo_perdido.wav, got %q", resp.File)
+	}
+	if !strings.Contains(resp.Help, "Vuelve a subirlo") {
+		t.Fatalf("expected recovery hint, got %q", resp.Help)
+	}
 }

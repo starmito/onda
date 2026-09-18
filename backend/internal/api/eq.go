@@ -107,23 +107,16 @@ func (s *Server) handleEQ(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	safeName := filepath.Base(req.File)
+	sourcePath, safeName, err := resolveDAWAudioSource(req.File)
+	if err != nil {
+		writeDAWFileNotFound(w, safeName)
+		return
+	}
+
 	projectRoot := findProjectRoot()
 	dawBase := filepath.Join(projectRoot, "daw-data")
 
-	sourcePath := filepath.Join(projectRoot, "input", safeName)
-	if _, err := os.Stat(sourcePath); os.IsNotExist(err) {
-		dawPath := filepath.Join(dawBase, safeName)
-		if _, err := os.Stat(dawPath); os.IsNotExist(err) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]string{"error": "file not found"})
-			return
-		}
-		sourcePath = dawPath
-	}
-
-	_, err := detectDuration(sourcePath)
+	_, err = detectDuration(sourcePath)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)

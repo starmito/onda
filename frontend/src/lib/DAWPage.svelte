@@ -11,6 +11,7 @@
     importStem,
     uploadAudioDAW,
     getTempoGrid,
+    DAWAudioNotFoundError,
   } from './api';
   import type { TempoGridResponse, PitchStemEntry } from './api';
 
@@ -41,9 +42,10 @@
 
   interface Props {
     onActiveTrackChange?: (fileName: string | null) => void;
+    onError?: (message: string) => void;
   }
 
-  let { onActiveTrackChange }: Props = $props();
+  let { onActiveTrackChange, onError }: Props = $props();
 
   let fileInput: HTMLInputElement | null = $state(null);
   let exportFormat = $state<'wav' | 'mp3' | 'flac'>('wav');
@@ -127,7 +129,10 @@
         drawGrid(track);
       }
     } catch (err) {
-      // Grid data is optional, but log failures so they are not silently lost.
+      // Grid data is optional, but surface missing-file errors clearly.
+      if (err instanceof DAWAudioNotFoundError) {
+        onError?.(err.message);
+      }
       console.error(`Failed to load tempo grid for ${fileName}:`, err);
     }
   }
@@ -524,7 +529,11 @@
       setTimeout(() => setTrackRegions(track, newRegions), 0);
       status = `Recortado: ${resp.file}`;
     } catch (err) {
-      status = `Error al recortar: ${err instanceof Error ? err.message : String(err)}`;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof DAWAudioNotFoundError) {
+        onError?.(msg);
+      }
+      status = `Error al recortar: ${msg}`;
     } finally {
       isProcessing = false;
     }
@@ -546,7 +555,11 @@
       setTimeout(() => setTrackRegions(track, newRegions), 0);
       status = `Fade ${type}: ${resp.file}`;
     } catch (err) {
-      status = `Error al aplicar fade: ${err instanceof Error ? err.message : String(err)}`;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof DAWAudioNotFoundError) {
+        onError?.(msg);
+      }
+      status = `Error al aplicar fade: ${msg}`;
     } finally {
       isProcessing = false;
     }
@@ -562,7 +575,11 @@
       const resp = await exportAudio(track.fileName, exportFormat, bitrate);
       status = `Exportado: ${resp.file} (${resp.format}, ${formatBytes(resp.size)})`;
     } catch (err) {
-      status = `Error al exportar: ${err instanceof Error ? err.message : String(err)}`;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof DAWAudioNotFoundError) {
+        onError?.(msg);
+      }
+      status = `Error al exportar: ${msg}`;
     } finally {
       isProcessing = false;
     }

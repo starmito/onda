@@ -15,8 +15,14 @@
     applyTremolo,
     applyNoiseGate,
     applyEQ,
+    DAWAudioNotFoundError,
   } from './api';
   import type { EqFilter } from './api';
+
+  interface Props {
+    onError?: (message: string) => void;
+  }
+  let { onError }: Props = $props();
 
   let viewMode = $state<'basic' | 'medium' | 'full'>('basic');
   let activeFile = $state<string | null>(null);
@@ -299,7 +305,11 @@
       const outputFile = await effect.apply(track.fileName, channelInsertValues[trackId][slot]);
       insertResults[key] = `Aplicado: ${outputFile}`;
     } catch (err) {
-      insertResults[key] = `Error: ${err instanceof Error ? err.message : String(err)}`;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof DAWAudioNotFoundError) {
+        onError?.(msg);
+      }
+      insertResults[key] = `Error: ${msg}`;
     } finally {
       insertLoading[key] = false;
     }
@@ -357,8 +367,12 @@
       eqFiltersApplied = resp.filters_applied;
       eqResult = `EQ aplicado: ${resp.file}`;
     } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof DAWAudioNotFoundError) {
+        onError?.(msg);
+      }
       eqFiltersApplied = 0;
-      eqResult = `Error: ${err instanceof Error ? err.message : String(err)}`;
+      eqResult = `Error: ${msg}`;
     } finally {
       eqLoading = false;
     }
@@ -384,14 +398,14 @@
   </div>
 
   <div class="audio-panel">
-    <DAWPage bind:this={dawPageRef} onActiveTrackChange={handleActiveTrackChange} />
+    <DAWPage bind:this={dawPageRef} onActiveTrackChange={handleActiveTrackChange} {onError} />
   </div>
 
   <div class="mode-panel">
     {#if viewMode === 'basic'}
       <div class="basic-grid">
-        <BasicEffectsPanel activeFile={activeFile} />
-        <BasicEQPanel activeFile={activeFile} />
+        <BasicEffectsPanel activeFile={activeFile} {onError} />
+        <BasicEQPanel activeFile={activeFile} {onError} />
       </div>
     {:else if viewMode === 'medium'}
       <div class="medium-panel">

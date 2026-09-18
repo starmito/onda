@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"path/filepath"
 )
 
 // Bar represents a musical bar grouping four detected beats.
@@ -43,21 +41,10 @@ func (s *Server) handleTempoGrid(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Prevent path traversal by using only the base name.
-	safeName := filepath.Base(file)
-	projectRoot := findProjectRoot()
-
-	// Look for the file in input/ first, then fall back to daw-data/.
-	inputPath := filepath.Join(projectRoot, "input", safeName)
-	if _, err := os.Stat(inputPath); os.IsNotExist(err) {
-		dawPath := filepath.Join(projectRoot, "daw-data", safeName)
-		if _, err := os.Stat(dawPath); os.IsNotExist(err) {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]string{"error": "file not found"})
-			return
-		}
-		inputPath = dawPath
+	inputPath, safeName, err := resolveDAWAudioSource(file)
+	if err != nil {
+		writeDAWFileNotFound(w, safeName)
+		return
 	}
 
 	bpm, err := detectBPM(inputPath)

@@ -89,9 +89,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if filePath == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "file not found"})
+		writeDAWFileNotFound(w, safeName)
 		return
 	}
 

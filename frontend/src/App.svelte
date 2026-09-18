@@ -887,7 +887,7 @@
         {:else if activeTab === 'pitch'}
           <PitchPage results={results} onResultsChange={handleRefreshResults} />
         {:else if activeTab === 'daw'}
-          <DAWWorkspace />
+          <DAWWorkspace onError={(msg) => showToast(msg, 'error')} />
         {:else if activeTab === 'midi'}
           <MIDIPage />
         {:else if activeTab === 'spectrogram'}
