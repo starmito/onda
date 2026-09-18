@@ -1,7 +1,7 @@
 <script lang="ts">
   import PresetsPanel from './PresetsPanel.svelte';
   import { uploadAudio, deleteInput, clearQueue, separateAudio, cancelQueue, getProcessesStatus } from './api';
-  import type { ProcessStatus } from './api';
+  import type { ProcessStatus, QueueJob } from './api';
   import { IconUpload } from './icons';
 
   interface QueueFile {
@@ -22,6 +22,7 @@
     displayName = '',
     queueFiles = [] as QueueFile[],
     savedPresets = [] as {name: string, config: any}[],
+    queueJobs = [] as QueueJob[],
     separating = false,
     pipelineStatus = 'idle',
     currentProgress = 0,
@@ -76,7 +77,8 @@
   }
 
   $effect(() => {
-    if (!separating) {
+    const hasUnfinishedJobs = queueJobs.some(j => j.status !== 'done' && j.status !== 'error');
+    if (!hasUnfinishedJobs) {
       blockedMsg = null;
       processStatus = null;
       return;
@@ -409,7 +411,7 @@
   {/if}
 </section>
 
-{#if separating && blockedMsg && !vramDismissed}
+{#if blockedMsg && !vramDismissed}
   <div class="vram-modal-overlay" role="dialog" aria-modal="true">
     <div class="vram-modal-panel">
       <div class="vram-modal-header">

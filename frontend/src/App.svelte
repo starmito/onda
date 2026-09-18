@@ -63,6 +63,19 @@
   let emptyQueueTicks = $state(0);
   const EMPTY_QUEUE_THRESHOLD = 3; // tolerate transient empty status ticks
 
+  // ---- Safeguard: if the UI flag gets stuck but there is no real work, fix it next tick ----
+  $effect(() => {
+    if (!separating) return;
+    const hasActiveJob = queueJobs.some(j => j.status === 'waiting' || j.status === 'processing');
+    const hasActiveFile = queueFiles.some(qf => qf.status === 'uploading' || qf.status === 'processing');
+    if (!hasActiveJob && !hasActiveFile) {
+      separating = false;
+      if (pipelineStatus === 'running') {
+        pipelineStatus = 'idle';
+      }
+    }
+  });
+
   // ---- Health / Version from backend ----
   let healthVersion = $state('');
   const appVersion = $state(import.meta.env.VITE_ONDA_VERSION || '');
@@ -305,7 +318,7 @@
       .then((status) => {
         queueJobs = status.jobs || [];
         // Restore results for already-done jobs
-        const activeJobs = status.jobs?.filter(j => j.status !== 'done' && j.status !== 'error') || [];
+        const activeJobs = status.jobs?.filter(j => j.status === 'waiting' || j.status === 'processing') || [];
         if (activeJobs.length > 0) {
           console.log('Restoring', activeJobs.length, 'active queue jobs');
           separating = true;
@@ -574,7 +587,7 @@
 
     // Re-sync with backend so external cancellations (API / another client) are reflected
     await syncQueueStatus();
-    if (queueJobs.some(j => j.status === 'waiting' || j.status === 'processing')) {
+    if (queueJobs.some(j => j.status === 'waiting' || j.status === 'processing' || j.status === 'blocked_no_gpu')) {
       startQueuePolling();
     }
 
@@ -659,6 +672,7 @@
       });
 
       const hasActive = jobs.some(j => j.status === 'waiting' || j.status === 'processing');
+      const hasPending = jobs.some(j => j.status === 'waiting' || j.status === 'processing' || j.status === 'blocked_no_gpu');
       const allSettled = jobs.length > 0 && jobs.every(j => j.status === 'done' || j.status === 'error');
 
       if (jobs.length === 0) {
@@ -688,10 +702,21 @@
         pipelineStep = hasError ? 'Error' : 'Completado';
         currentProgress = hasError ? 0 : 1;
         activeSongNames = new Set();
-      } else if (!separating) {
-        // Jobs appeared from outside (another client / API)
+      } else if (!separating && hasActive) {
+        // Real work appeared from outside (another client / API)
         separating = true;
         pipelineStatus = 'running';
+      } else if (!hasActive && separating) {
+        // Safeguard: no real work in progress but flag is still set (e.g. after a
+        // blocked job is cancelled externally). Reset it on the next tick.
+        separating = false;
+      }
+
+      // Keep polling alive while there is any non-terminal job (including blocked).
+      // The polling loop itself is started by startQueuePolling / handleCancel.
+      if (!hasPending && queuePollingTimer) {
+        clearInterval(queuePollingTimer);
+        queuePollingTimer = null;
       }
 
       return hasActive;
@@ -846,6 +871,7 @@
             displayName={activeTab}
             {queueFiles}
             {savedPresets}
+            {queueJobs}
             {separating}
             {pipelineStatus}
             {currentProgress}
@@ -868,6 +894,7 @@
             displayName={selectedPresetName || 'Personalizado'}
             {queueFiles}
             {savedPresets}
+            {queueJobs}
             {separating}
             {pipelineStatus}
             {currentProgress}
@@ -903,6 +930,7 @@
             displayName={activeTabName}
             {queueFiles}
             {savedPresets}
+            {queueJobs}
             {separating}
             {pipelineStatus}
             {currentProgress}

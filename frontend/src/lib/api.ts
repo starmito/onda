@@ -376,7 +376,7 @@ export async function stopBackend(): Promise<BackendActionResponse> {
 // ---- Queue (cola secuencial) ----
 export interface QueueJob {
   song: string;
-  status: 'waiting' | 'processing' | 'done' | 'error';
+  status: 'waiting' | 'processing' | 'done' | 'error' | 'blocked_no_gpu';
   progress: number;
   current_step?: number;
   total_steps?: number;
