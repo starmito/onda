@@ -54,6 +54,10 @@ BIND_DIRS="output input input_rubberband daw-data config logs"
 
 repair_bind_dir_permissions "$BIND_DIRS"
 
+# Asegurar que el script del pipeline sea ejecutable en el host (y por tanto
+# dentro del contenedor, ya que se monta como bind volume).
+chmod +x pipeline.sh
+
 case $GPU in
   cuda)
     echo "🚀 Desplegando con aceleración NVIDIA CUDA..."

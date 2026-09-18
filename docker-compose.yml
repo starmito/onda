@@ -34,6 +34,9 @@ services:
       - ./daw-data:/daw-data
       - ./config:/config
       - ./logs:/app/logs
+      # Bind-mount del script del pipeline: refleja los cambios del host en el
+      # contenedor sin rebuild ni `docker cp`, evitando drift silencioso.
+      - ./pipeline.sh:/app/pipeline.sh:ro
       # mounts /app/ para el pipeline de feat (paths unificados bajo /app/)
       - ./input:/app/input
       - ./output:/app/output
