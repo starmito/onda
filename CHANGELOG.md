@@ -1,5 +1,15 @@
 # Changelog
 
+## [v3.4.7] - 2026-09-18
+
+### Fixed
+- **Nombres de canción con caracteres especiales saneados en la subida**: los caracteres reales de canciones (acentos, paréntesis, `&`, comas, apóstrofes…) ya no devuelven HTTP 400 "filename contains invalid characters" ni rompen la subida en **Detectar velocidad**.
+- **Tempo indetectable reportado con error comprensible**: cuando `aubio` no puede detectar el BPM (`unknown bpm`), el backend devuelve un mensaje entendible en lugar de un error 500.
+- **Interfaz usable tras cancelar un job bloqueado por VRAM**: tras pulsar **Detener** en el aviso de VRAM insuficiente, la UI ya no se queda bloqueada; `separating` solo refleja trabajo real (waiting/processing), el modal de VRAM no depende de `separating` y la interfaz se autocorrige cuando no hay trabajo activo.
+
+### Added
+- **Importar canciones ya subidas en el DAW**: en **Importar pistas** del DAW hay un apartado nuevo con las canciones ya subidas al servidor, para importarlas sin volver a subirlas.
+
 ## [v3.4.6] - 2026-09-18
 
 ### Fixed
