@@ -476,11 +476,13 @@ export async function getResults(): Promise<ResultsGroup[]> {
 export interface InputEntry {
   name: string;
   path: string;
+  source?: string;
 }
 
-export async function getInputs(): Promise<InputEntry[]> {
+export async function getInputs(include?: 'input' | 'daw-data' | 'all'): Promise<InputEntry[]> {
   try {
-    const res = await fetch(`${API_BASE}/api/inputs`);
+    const qs = include ? `?include=${encodeURIComponent(include)}` : '';
+    const res = await fetch(`${API_BASE}/api/inputs${qs}`);
     if (!res.ok) {
       throw new Error(`Inputs fetch failed with status ${res.status}: ${res.statusText}`);
     }
@@ -914,18 +916,20 @@ export async function importStem(
   song?: string,
   stem?: string,
   pitch?: string,
+  file?: string,
 ): Promise<DAWImportResponse> {
   const body: Record<string, unknown> = { source };
   if (song !== undefined) body.song = song;
   if (stem !== undefined) body.stem = stem;
   if (pitch !== undefined) body.pitch = pitch;
+  if (file !== undefined) body.file = file;
   const res = await fetch(`${API_BASE}/api/daw/import`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    throw new Error(`Import failed with status ${res.status}: ${res.statusText}`);
+    throw await parseDAWError(res);
   }
   return (await res.json()) as DAWImportResponse;
 }

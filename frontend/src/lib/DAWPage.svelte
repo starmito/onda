@@ -11,9 +11,10 @@
     importStem,
     uploadAudioDAW,
     getTempoGrid,
+    getInputs,
     DAWAudioNotFoundError,
   } from './api';
-  import type { TempoGridResponse, PitchStemEntry } from './api';
+  import type { TempoGridResponse, PitchStemEntry, InputEntry } from './api';
   import { IconSkipBack, IconSkipForward } from './icons';
 
   type RegionLike = { start: number; end: number };
@@ -58,18 +59,23 @@
   let trackContainers: Record<string, HTMLDivElement> = $state({});
 
   let importOpen = $state(false);
-  let importTab = $state<'upload' | 'output' | 'pitch'>('upload');
+  let importTab = $state<'upload' | 'uploaded' | 'output' | 'pitch'>('upload');
   let stemsData = $state<{ output: Record<string, string[]>; pitch: PitchStemEntry[] }>({
     output: {},
     pitch: [],
   });
   let stemsLoading = $state(false);
+  let uploadedInputs = $state<InputEntry[]>([]);
+  let uploadedLoading = $state(false);
   let expandedSongs = $state<Record<string, boolean>>({});
   let uploadResult = $state<{ file: string; size: number } | null>(null);
 
   $effect(() => {
-    // Ensure stems are loaded whenever the import panel is open on a stems tab.
-    if (importOpen && importTab !== 'upload') {
+    // Ensure stems or uploaded inputs are loaded whenever the import panel is open.
+    if (!importOpen) return;
+    if (importTab === 'uploaded') {
+      loadUploadedInputs();
+    } else if (importTab !== 'upload') {
       loadStems();
     }
   });
@@ -640,9 +646,25 @@
     }
   }
 
-  function openImportTab(tab: 'upload' | 'output' | 'pitch') {
+  function openImportTab(tab: 'upload' | 'uploaded' | 'output' | 'pitch') {
     importTab = tab;
-    if (tab !== 'upload') loadStems();
+    if (tab === 'uploaded') {
+      loadUploadedInputs();
+    } else if (tab !== 'upload') {
+      loadStems();
+    }
+  }
+
+  async function loadUploadedInputs() {
+    uploadedLoading = true;
+    try {
+      uploadedInputs = await getInputs('all');
+    } catch (err) {
+      status = `Error al cargar canciones: ${err instanceof Error ? err.message : String(err)}`;
+      uploadedInputs = [];
+    } finally {
+      uploadedLoading = false;
+    }
   }
 
   async function handleImportUpload(e: Event) {
@@ -656,11 +678,33 @@
       uploadResult = { file: resp.file, size: resp.size };
       addTrack(resp.file, `/daw-data/${resp.file}`, resp.size);
       status = `Subido: ${resp.file}`;
+      await loadUploadedInputs();
     } catch (err) {
       status = `Error al subir: ${err instanceof Error ? err.message : String(err)}`;
     } finally {
       isProcessing = false;
       input.value = '';
+    }
+  }
+
+  async function handleImportUploaded(entry: InputEntry) {
+    isProcessing = true;
+    status = 'Importando...';
+    try {
+      const resp = await importStem('input', undefined, undefined, undefined, entry.name);
+      addTrack(resp.file, `/daw-data/${resp.file}`, resp.size);
+      status = `Importado: ${resp.file}`;
+      await loadUploadedInputs();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof DAWAudioNotFoundError) {
+        onError?.(msg);
+        status = `Archivo no encontrado: ${msg}`;
+      } else {
+        status = `Error al importar: ${msg}`;
+      }
+    } finally {
+      isProcessing = false;
     }
   }
 
@@ -672,7 +716,13 @@
       addTrack(resp.file, `/daw-data/${resp.file}`, resp.size);
       status = `Importado: ${resp.file}`;
     } catch (err) {
-      status = `Error al importar: ${err instanceof Error ? err.message : String(err)}`;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof DAWAudioNotFoundError) {
+        onError?.(msg);
+        status = `Archivo no encontrado: ${msg}`;
+      } else {
+        status = `Error al importar: ${msg}`;
+      }
     } finally {
       isProcessing = false;
     }
@@ -686,7 +736,13 @@
       addTrack(resp.file, `/daw-data/${resp.file}`, resp.size);
       status = `Importado: ${resp.file}`;
     } catch (err) {
-      status = `Error al importar: ${err instanceof Error ? err.message : String(err)}`;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof DAWAudioNotFoundError) {
+        onError?.(msg);
+        status = `Archivo no encontrado: ${msg}`;
+      } else {
+        status = `Error al importar: ${msg}`;
+      }
     } finally {
       isProcessing = false;
     }
@@ -882,6 +938,13 @@
         </button>
         <button
           class="import-tab"
+          class:active={importTab === 'uploaded'}
+          onclick={() => openImportTab('uploaded')}
+        >
+          Canciones ya subidas
+        </button>
+        <button
+          class="import-tab"
           class:active={importTab === 'output'}
           onclick={() => openImportTab('output')}
         >
@@ -914,6 +977,32 @@
                 <span class="upload-name">{uploadResult.file}</span>
                 <span class="upload-size">{formatBytes(uploadResult.size)}</span>
               </div>
+            {/if}
+          </div>
+        {:else if importTab === 'uploaded'}
+          <div class="import-section">
+            {#if uploadedLoading}
+              <div class="loading">Cargando canciones...</div>
+            {:else if uploadedInputs.length === 0}
+              <div class="empty">No hay canciones subidas todavía.</div>
+            {:else}
+              {#each uploadedInputs as entry}
+                <div class="stem-item">
+                  <div class="stem-info">
+                    <span class="stem-name">{entry.name}</span>
+                    <span class="stem-meta">
+                      {entry.source === 'daw-data' ? 'DAW' : 'Subida'}
+                    </span>
+                  </div>
+                  <button
+                    class="btn-small"
+                    onclick={() => handleImportUploaded(entry)}
+                    disabled={isProcessing}
+                  >
+                    Importar
+                  </button>
+                </div>
+              {/each}
             {/if}
           </div>
         {:else if importTab === 'output'}

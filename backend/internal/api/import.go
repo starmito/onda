@@ -15,6 +15,7 @@ type ImportRequest struct {
 	Song   string `json:"song,omitempty"`
 	Stem   string `json:"stem,omitempty"`
 	Pitch  string `json:"pitch,omitempty"`
+	File   string `json:"file,omitempty"`
 }
 
 // ImportResponse is returned by POST /api/daw/import.
@@ -60,7 +61,17 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to resolve output path"})
 		return
 	}
+	inputBase := filepath.Join(projectRoot, "input")
+	absInputBase, err := filepath.Abs(inputBase)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to resolve input path"})
+		return
+	}
+
 	var srcPath, destFile string
+	var absBase string
 
 	switch req.Source {
 	case "output":
@@ -73,6 +84,7 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 		safeSong := filepath.Base(req.Song)
 		safeStem := filepath.Base(req.Stem)
 		srcPath = filepath.Join(outputBase, safeSong, safeStem)
+		absBase = absOutputBase
 		ext := strings.ToLower(filepath.Ext(safeStem))
 		destFile = fmt.Sprintf("import_%s_%s", safeSong, strings.TrimSuffix(safeStem, ext))
 		if ext != "" {
@@ -89,17 +101,27 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 		safeStem := filepath.Base(req.Stem)
 		resolved, err := resolvePitchSourcePath(absOutputBase, safeSong, req.Pitch, safeStem)
 		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusNotFound)
-			json.NewEncoder(w).Encode(map[string]string{"error": "source file not found"})
+			writeDAWFileNotFound(w, safeStem)
 			return
 		}
 		srcPath = resolved
+		absBase = absOutputBase
 		ext := strings.ToLower(filepath.Ext(safeStem))
 		destFile = fmt.Sprintf("import_%s", safeStem)
 		if ext == "" {
 			destFile += ".wav"
 		}
+	case "input":
+		if req.File == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "file is required for input source"})
+			return
+		}
+		safeName := filepath.Base(req.File)
+		srcPath = filepath.Join(inputBase, safeName)
+		absBase = absInputBase
+		destFile = fmt.Sprintf("import_%s", safeName)
 	default:
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -107,9 +129,9 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Defense in depth: verify the resolved source path stays inside output/.
+	// Defense in depth: verify the resolved source path stays inside its base dir.
 	absSrc, err := filepath.Abs(srcPath)
-	if err != nil || !strings.HasPrefix(absSrc, absOutputBase+string(filepath.Separator)) {
+	if err != nil || !strings.HasPrefix(absSrc, absBase+string(filepath.Separator)) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "invalid source path"})
@@ -140,9 +162,7 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 
 	data, err := os.ReadFile(srcPath)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "source file not found"})
+		writeDAWFileNotFound(w, filepath.Base(srcPath))
 		return
 	}
 

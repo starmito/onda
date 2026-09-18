@@ -173,6 +173,7 @@ func TestHandleImportStem_Validation(t *testing.T) {
 		`{"source":"output","song":"cancion1"}`,
 		`{"source":"output","stem":"vocals.wav"}`,
 		`{"source":"pitch"}`,
+		`{"source":"input"}`,
 		`{"source":"bad"}`,
 	}
 	for _, body := range cases {
@@ -183,6 +184,76 @@ func TestHandleImportStem_Validation(t *testing.T) {
 		if rr.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400 for %s, got %d: %s", body, rr.Code, rr.Body.String())
 		}
+	}
+}
+
+func TestHandleImportStem_Input(t *testing.T) {
+	root := setupDAWTestRoot(t)
+	srcContent := []byte("input-song-content")
+	writeTestFile(t, filepath.Join(root, "input", "mi_cancion.wav"), srcContent)
+
+	srv := newDAWTestServer(t)
+	body := `{"source":"input","file":"mi_cancion.wav"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/daw/import", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ImportResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.File != "import_mi_cancion.wav" {
+		t.Fatalf("expected file import_mi_cancion.wav, got %s", resp.File)
+	}
+	if resp.Size != int64(len(srcContent)) {
+		t.Fatalf("expected size %d, got %d", len(srcContent), resp.Size)
+	}
+
+	// Re-importing should return the already imported file.
+	rr2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest(http.MethodPost, "/api/daw/import", strings.NewReader(body))
+	req2.Header.Set("Content-Type", "application/json")
+	srv.mux.ServeHTTP(rr2, req2)
+	if rr2.Code != http.StatusOK {
+		t.Fatalf("expected 200 on re-import, got %d: %s", rr2.Code, rr2.Body.String())
+	}
+	var resp2 ImportResponse
+	if err := json.Unmarshal(rr2.Body.Bytes(), &resp2); err != nil {
+		t.Fatalf("failed to decode second response: %v", err)
+	}
+	if resp2.Size != resp.Size {
+		t.Fatalf("re-import size changed: %d vs %d", resp2.Size, resp.Size)
+	}
+}
+
+func TestHandleImportStem_InputNotFound_StructuredError(t *testing.T) {
+	setupDAWTestRoot(t)
+	srv := newDAWTestServer(t)
+
+	body := `{"source":"input","file":"no_existe.wav"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/daw/import", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp dawFileNotFoundResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Code != "file_not_found" {
+		t.Fatalf("expected code file_not_found, got %q", resp.Code)
+	}
+	if resp.File != "no_existe.wav" {
+		t.Fatalf("expected file no_existe.wav, got %q", resp.File)
 	}
 }
 

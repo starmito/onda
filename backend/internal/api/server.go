@@ -581,11 +581,24 @@ func (s *Server) handleResults(w http.ResponseWriter, r *http.Request) {
 
 // InputEntry describes an uploaded input file.
 type InputEntry struct {
-	Name string `json:"name"`
-	Path string `json:"path"`
+	Name   string `json:"name"`
+	Path   string `json:"path"`
+	Source string `json:"source"`
 }
 
-// handleInputs lists uploaded input files from the input directory.
+// audioFileExts lists the extensions considered uploaded audio files.
+var audioFileExts = map[string]bool{
+	".wav":  true,
+	".mp3":  true,
+	".flac": true,
+	".ogg":  true,
+	".m4a":  true,
+}
+
+// handleInputs lists uploaded audio files from input/ and, when requested,
+// from daw-data/. The "include" query parameter accepts "input" (default),
+// "daw-data" or "all". Each entry includes its source directory so callers
+// can tell where the file lives.
 // GET /api/inputs
 func (s *Server) handleInputs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -598,31 +611,69 @@ func (s *Server) handleInputs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	projectRoot := findProjectRoot()
-	inputDir := filepath.Join(projectRoot, "input")
-	entries, err := os.ReadDir(inputDir)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode([]InputEntry{})
-		return
+	include := r.URL.Query().Get("include")
+	if include == "" {
+		include = "input"
 	}
+	includeInput := include == "input" || include == "all"
+	includeDaw := include == "daw-data" || include == "all"
 
 	var inputs []InputEntry
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
+
+	if includeInput {
+		inputDir := filepath.Join(projectRoot, "input")
+		entries, err := os.ReadDir(inputDir)
+		if err != nil {
+			// Preserve the legacy 404 behaviour when only input/ was requested.
+			if include == "input" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusNotFound)
+				json.NewEncoder(w).Encode([]InputEntry{})
+				return
+			}
+		} else {
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				name := entry.Name()
+				if !audioFileExts[strings.ToLower(filepath.Ext(name))] {
+					continue
+				}
+				inputs = append(inputs, InputEntry{
+					Name:   name,
+					Path:   "/app/input/" + name,
+					Source: "input",
+				})
+			}
 		}
-		name := entry.Name()
-		ext := strings.ToLower(filepath.Ext(name))
-		if ext != ".wav" && ext != ".mp3" && ext != ".flac" && ext != ".ogg" && ext != ".m4a" {
-			continue
-		}
-		inputs = append(inputs, InputEntry{
-			Name: name,
-			Path: "/app/input/" + name,
-		})
 	}
+
+	if includeDaw {
+		dawDir := filepath.Join(projectRoot, "daw-data")
+		entries, err := os.ReadDir(dawDir)
+		if err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				name := entry.Name()
+				if !audioFileExts[strings.ToLower(filepath.Ext(name))] {
+					continue
+				}
+				inputs = append(inputs, InputEntry{
+					Name:   name,
+					Path:   "daw-data/" + name,
+					Source: "daw-data",
+				})
+			}
+		}
+	}
+
 	sort.Slice(inputs, func(i, j int) bool {
+		if inputs[i].Source != inputs[j].Source {
+			return inputs[i].Source < inputs[j].Source
+		}
 		return inputs[i].Name < inputs[j].Name
 	})
 
