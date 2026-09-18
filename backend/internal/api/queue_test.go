@@ -376,6 +376,12 @@ func TestHandleQueueCancel_CancelsRunningJob(t *testing.T) {
 func TestRunSinglePipeline_MarksDone(t *testing.T) {
 	root := setupQueueTestRoot(t)
 
+	orig := gpuInfoProvider
+	defer func() { gpuInfoProvider = orig }()
+	gpuInfoProvider = func() GPUInfoResponse {
+		return GPUInfoResponse{OK: true, VRAMTotalMB: 16000, VRAMFreeMB: 16000}
+	}
+
 	// Create a fake pipeline.sh that writes a stem file.
 	fakePipeline := filepath.Join(root, "pipeline.sh")
 	script := `#!/bin/bash
@@ -417,6 +423,12 @@ echo "stem" > "$4/vocals.wav"
 func TestRunSinglePipeline_MarksError(t *testing.T) {
 	root := setupQueueTestRoot(t)
 
+	orig := gpuInfoProvider
+	defer func() { gpuInfoProvider = orig }()
+	gpuInfoProvider = func() GPUInfoResponse {
+		return GPUInfoResponse{OK: true, VRAMTotalMB: 16000, VRAMFreeMB: 16000}
+	}
+
 	fakePipeline := filepath.Join(root, "pipeline.sh")
 	if err := os.WriteFile(fakePipeline, []byte("#!/bin/bash\nexit 1\n"), 0o755); err != nil {
 		t.Fatalf("failed to write fake pipeline: %v", err)
@@ -451,6 +463,12 @@ func TestRunSinglePipeline_MarksError(t *testing.T) {
 
 func TestWorker_ProcessesJob(t *testing.T) {
 	root := setupQueueTestRoot(t)
+
+	orig := gpuInfoProvider
+	defer func() { gpuInfoProvider = orig }()
+	gpuInfoProvider = func() GPUInfoResponse {
+		return GPUInfoResponse{OK: true, VRAMTotalMB: 16000, VRAMFreeMB: 16000}
+	}
 
 	fakePipeline := filepath.Join(root, "pipeline.sh")
 	script := `#!/bin/bash
