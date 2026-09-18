@@ -38,6 +38,22 @@ type eqProcessor interface {
 	Apply(input float64) float64
 }
 
+// writeEQError sends a JSON error response with the given status code.
+func writeEQError(w http.ResponseWriter, status int, msg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	json.NewEncoder(w).Encode(map[string]string{"error": msg})
+}
+
+// isKnownEQFilterType reports whether the given filter type is supported.
+func isKnownEQFilterType(t string) bool {
+	switch strings.ToLower(t) {
+	case "lowpass", "highpass", "bandpass", "notch", "peak", "lowshelf", "highshelf":
+		return true
+	}
+	return false
+}
+
 // handleEQ applies a chain of parametric EQ filters to a WAV file.
 // POST /api/daw/eq
 func (s *Server) handleEQ(w http.ResponseWriter, r *http.Request) {
@@ -73,27 +89,19 @@ func (s *Server) handleEQ(w http.ResponseWriter, r *http.Request) {
 
 	for i, f := range req.Filters {
 		if f.Type == "" {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": fmt.Sprintf("filter %d: type is required", i),
-			})
+			writeEQError(w, http.StatusBadRequest, fmt.Sprintf("filter %d: type is required", i))
 			return
 		}
-		if f.Freq <= 0 {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": fmt.Sprintf("filter %d: freq must be > 0", i),
-			})
+		if !isKnownEQFilterType(f.Type) {
+			writeEQError(w, http.StatusBadRequest, fmt.Sprintf("filter %d: unknown filter type %q", i, f.Type))
 			return
 		}
-		if f.Q <= 0 {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": fmt.Sprintf("filter %d: q must be > 0", i),
-			})
+		if f.Freq < 20 || f.Freq > 20000 {
+			writeEQError(w, http.StatusBadRequest, fmt.Sprintf("filter %d: freq must be between 20 and 20000 Hz (got %.2f)", i, f.Freq))
+			return
+		}
+		if f.Q < 0.1 || f.Q > 10 {
+			writeEQError(w, http.StatusBadRequest, fmt.Sprintf("filter %d: q must be between 0.1 and 10 (got %.2f)", i, f.Q))
 			return
 		}
 		needsGain := map[string]bool{
@@ -101,9 +109,11 @@ func (s *Server) handleEQ(w http.ResponseWriter, r *http.Request) {
 			"lowshelf":  true,
 			"highshelf": true,
 		}
-		if needsGain[strings.ToLower(f.Type)] && f.Gain == 0 {
-			// Gain=0 is technically valid (no change), but we still accept it.
-			// No-op filters are allowed for API symmetry.
+		if needsGain[strings.ToLower(f.Type)] {
+			if f.Gain < -24 || f.Gain > 24 {
+				writeEQError(w, http.StatusBadRequest, fmt.Sprintf("filter %d: gain must be between -24 and 24 dB (got %.2f)", i, f.Gain))
+				return
+			}
 		}
 	}
 

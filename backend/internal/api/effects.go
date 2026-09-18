@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -16,69 +17,95 @@ type EffectResponse struct {
 }
 
 // CompressorRequest is the JSON body for POST /api/daw/compressor.
+// Pointer fields distinguish a missing value (use default) from an explicit
+// zero, which is a valid slider value for several parameters.
 type CompressorRequest struct {
-	File      string  `json:"file"`
-	Threshold float64 `json:"threshold"`
-	Ratio     float64 `json:"ratio"`
-	Attack    float64 `json:"attack"`
-	Release   float64 `json:"release"`
-	Makeup    float64 `json:"makeup"`
+	File      string   `json:"file"`
+	Threshold *float64 `json:"threshold,omitempty"`
+	Ratio     *float64 `json:"ratio,omitempty"`
+	Attack    *float64 `json:"attack,omitempty"`
+	Release   *float64 `json:"release,omitempty"`
+	Makeup    *float64 `json:"makeup,omitempty"`
 }
 
 // ReverbRequest is the JSON body for POST /api/daw/reverb.
 type ReverbRequest struct {
-	File     string  `json:"file"`
-	RoomSize float64 `json:"room_size"`
-	Decay    float64 `json:"decay"`
-	WetDry   float64 `json:"wet_dry"`
+	File     string   `json:"file"`
+	RoomSize *float64 `json:"room_size,omitempty"`
+	Decay    *float64 `json:"decay,omitempty"`
+	WetDry   *float64 `json:"wet_dry,omitempty"`
 }
 
 // DelayRequest is the JSON body for POST /api/daw/delay.
 type DelayRequest struct {
-	File      string  `json:"file"`
-	DelayTime float64 `json:"delay_time"`
-	Feedback  float64 `json:"feedback"`
-	WetDry    float64 `json:"wet_dry"`
+	File      string   `json:"file"`
+	DelayTime *float64 `json:"delay_time,omitempty"`
+	Feedback  *float64 `json:"feedback,omitempty"`
+	WetDry    *float64 `json:"wet_dry,omitempty"`
 }
 
 // ChorusRequest is the JSON body for POST /api/daw/chorus.
 type ChorusRequest struct {
-	File    string  `json:"file"`
-	Depth   float64 `json:"depth"`
-	Rate    float64 `json:"rate"`
-	DelayMs float64 `json:"delay_ms"`
-	WetDry  float64 `json:"wet_dry"`
+	File    string   `json:"file"`
+	Depth   *float64 `json:"depth,omitempty"`
+	Rate    *float64 `json:"rate,omitempty"`
+	DelayMs *float64 `json:"delay_ms,omitempty"`
+	WetDry  *float64 `json:"wet_dry,omitempty"`
 }
 
 // FlangerRequest is the JSON body for POST /api/daw/flanger.
 type FlangerRequest struct {
-	File   string  `json:"file"`
-	Depth  float64 `json:"depth"`
-	Rate   float64 `json:"rate"`
-	WetDry float64 `json:"wet_dry"`
+	File   string   `json:"file"`
+	Depth  *float64 `json:"depth,omitempty"`
+	Rate   *float64 `json:"rate,omitempty"`
+	WetDry *float64 `json:"wet_dry,omitempty"`
 }
 
 // PhaserRequest is the JSON body for POST /api/daw/phaser.
 type PhaserRequest struct {
-	File   string  `json:"file"`
-	Depth  float64 `json:"depth"`
-	Rate   float64 `json:"rate"`
-	WetDry float64 `json:"wet_dry"`
+	File   string   `json:"file"`
+	Depth  *float64 `json:"depth,omitempty"`
+	Rate   *float64 `json:"rate,omitempty"`
+	WetDry *float64 `json:"wet_dry,omitempty"`
 }
 
 // TremoloRequest is the JSON body for POST /api/daw/tremolo.
 type TremoloRequest struct {
-	File  string  `json:"file"`
-	Speed float64 `json:"speed"`
-	Depth float64 `json:"depth"`
+	File  string   `json:"file"`
+	Speed *float64 `json:"speed,omitempty"`
+	Depth *float64 `json:"depth,omitempty"`
 }
 
 // NoiseGateRequest is the JSON body for POST /api/daw/noisegate.
 type NoiseGateRequest struct {
-	File     string  `json:"file"`
-	Threshold float64 `json:"threshold"`
-	Attack   float64 `json:"attack"`
-	Release  float64 `json:"release"`
+	File      string   `json:"file"`
+	Threshold *float64 `json:"threshold,omitempty"`
+	Attack    *float64 `json:"attack,omitempty"`
+	Release   *float64 `json:"release,omitempty"`
+}
+
+// defaultFloat returns the pointed value or the supplied default when nil.
+func defaultFloat(p *float64, d float64) float64 {
+	if p == nil {
+		return d
+	}
+	return *p
+}
+
+// validateRange returns a clear error when value is outside [min, max].
+func validateRange(name string, value, min, max float64, unit string) error {
+	if value < min || value > max {
+		if unit != "" {
+			return fmt.Errorf("%s must be between %.2f and %.2f %s (got %.2f)", name, min, max, unit, value)
+		}
+		return fmt.Errorf("%s must be between %.2f and %.2f (got %.2f)", name, min, max, value)
+	}
+	return nil
+}
+
+// writeValidationError sends a 400 JSON response with a clear error message.
+func writeValidationError(w http.ResponseWriter, err error) {
+	writeEffectError(w, http.StatusBadRequest, err.Error())
 }
 
 // resolveEffectOutput returns the absolute output path in daw-data/ and the
@@ -117,39 +144,29 @@ func (s *Server) handleCompressor(w http.ResponseWriter, r *http.Request) {
 		writeEffectError(w, http.StatusBadRequest, "file is required")
 		return
 	}
-	if req.Threshold == 0 {
-		req.Threshold = -20
-	}
-	if req.Ratio == 0 {
-		req.Ratio = 4
-	}
-	if req.Attack == 0 {
-		req.Attack = 5
-	}
-	if req.Release == 0 {
-		req.Release = 100
-	}
-	if req.Makeup == 0 {
-		req.Makeup = 0
-	}
-	if req.Threshold < -60 || req.Threshold > 0 {
-		writeEffectError(w, http.StatusBadRequest, "threshold must be between -60 and 0 dB")
+	threshold := defaultFloat(req.Threshold, -20)
+	ratio := defaultFloat(req.Ratio, 4)
+	attack := defaultFloat(req.Attack, 5)
+	release := defaultFloat(req.Release, 100)
+	makeup := defaultFloat(req.Makeup, 0)
+	if err := validateRange("threshold", threshold, -60, 0, "dB"); err != nil {
+		writeValidationError(w, err)
 		return
 	}
-	if req.Ratio < 1 || req.Ratio > 20 {
-		writeEffectError(w, http.StatusBadRequest, "ratio must be between 1 and 20")
+	if err := validateRange("ratio", ratio, 1, 20, ""); err != nil {
+		writeValidationError(w, err)
 		return
 	}
-	if req.Attack < 0.1 || req.Attack > 100 {
-		writeEffectError(w, http.StatusBadRequest, "attack must be between 0.1 and 100 ms")
+	if err := validateRange("attack", attack, 0.1, 100, "ms"); err != nil {
+		writeValidationError(w, err)
 		return
 	}
-	if req.Release < 10 || req.Release > 1000 {
-		writeEffectError(w, http.StatusBadRequest, "release must be between 10 and 1000 ms")
+	if err := validateRange("release", release, 10, 1000, "ms"); err != nil {
+		writeValidationError(w, err)
 		return
 	}
-	if req.Makeup < 0 || req.Makeup > 24 {
-		writeEffectError(w, http.StatusBadRequest, "makeup must be between 0 and 24 dB")
+	if err := validateRange("makeup", makeup, 0, 24, "dB"); err != nil {
+		writeValidationError(w, err)
 		return
 	}
 
@@ -165,9 +182,9 @@ func (s *Server) handleCompressor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	attackS := req.Attack / 1000.0
-	releaseS := req.Release / 1000.0
-	gain := req.Makeup / 10.0
+	attackS := attack / 1000.0
+	releaseS := release / 1000.0
+	gain := makeup / 10.0
 	if gain <= 0 {
 		gain = 0.2
 	}
@@ -178,9 +195,9 @@ func (s *Server) handleCompressor(w http.ResponseWriter, r *http.Request) {
 			Params: []string{
 				fmt.Sprintf("%f,%f", attackS, releaseS),
 				fmt.Sprintf("%.1f,%.1f,%.1f,%.1f,%.1f,%.1f",
-					req.Threshold-40, req.Threshold-40,
-					req.Threshold-10, req.Threshold-10-((req.Threshold-40)-(req.Threshold-10))/req.Ratio,
-					req.Threshold, req.Threshold),
+					threshold-40, threshold-40,
+					threshold-10, threshold-10-((threshold-40)-(threshold-10))/ratio,
+					threshold, threshold),
 				fmt.Sprintf("%f", gain),
 				"-90",
 				"0.2",
@@ -198,8 +215,8 @@ func (s *Server) handleCompressor(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(EffectResponse{
 		File: outputName,
 		Parameters: map[string]interface{}{
-			"threshold": req.Threshold,
-			"ratio":     req.Ratio,
+			"threshold": threshold,
+			"ratio":     ratio,
 		},
 	})
 }
@@ -221,25 +238,19 @@ func (s *Server) handleReverb(w http.ResponseWriter, r *http.Request) {
 		writeEffectError(w, http.StatusBadRequest, "file is required")
 		return
 	}
-	if req.RoomSize == 0 {
-		req.RoomSize = 50
-	}
-	if req.Decay == 0 {
-		req.Decay = 50
-	}
-	if req.WetDry == 0 {
-		req.WetDry = 50
-	}
-	if req.RoomSize < 0 || req.RoomSize > 100 {
-		writeEffectError(w, http.StatusBadRequest, "room_size must be between 0 and 100")
+	roomSize := defaultFloat(req.RoomSize, 50)
+	decay := defaultFloat(req.Decay, 50)
+	wetDry := defaultFloat(req.WetDry, 50)
+	if err := validateRange("room_size", roomSize, 0, 100, ""); err != nil {
+		writeValidationError(w, err)
 		return
 	}
-	if req.Decay < 0 || req.Decay > 100 {
-		writeEffectError(w, http.StatusBadRequest, "decay must be between 0 and 100")
+	if err := validateRange("decay", decay, 0, 100, ""); err != nil {
+		writeValidationError(w, err)
 		return
 	}
-	if req.WetDry < 0 || req.WetDry > 100 {
-		writeEffectError(w, http.StatusBadRequest, "wet_dry must be between 0 and 100")
+	if err := validateRange("wet_dry", wetDry, 0, 100, "%"); err != nil {
+		writeValidationError(w, err)
 		return
 	}
 
@@ -255,13 +266,13 @@ func (s *Server) handleReverb(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	preDelay := req.WetDry / 10.0
+	preDelay := wetDry / 10.0
 	effects := []SoxEffect{
 		{
 			Name: "reverb",
 			Params: []string{
-				fmt.Sprintf("%f", req.RoomSize),
-				fmt.Sprintf("%f", req.Decay),
+				fmt.Sprintf("%f", roomSize),
+				fmt.Sprintf("%f", decay),
 				fmt.Sprintf("%f", preDelay),
 			},
 		},
@@ -294,25 +305,19 @@ func (s *Server) handleDelay(w http.ResponseWriter, r *http.Request) {
 		writeEffectError(w, http.StatusBadRequest, "file is required")
 		return
 	}
-	if req.DelayTime == 0 {
-		req.DelayTime = 0.5
-	}
-	if req.Feedback == 0 {
-		req.Feedback = 30
-	}
-	if req.WetDry == 0 {
-		req.WetDry = 50
-	}
-	if req.DelayTime < 0.01 || req.DelayTime > 5 {
-		writeEffectError(w, http.StatusBadRequest, "delay_time must be between 0.01 and 5 seconds")
+	delayTime := defaultFloat(req.DelayTime, 0.5)
+	feedback := defaultFloat(req.Feedback, 30)
+	wetDry := defaultFloat(req.WetDry, 50)
+	if err := validateRange("delay_time", delayTime, 0.03, 5, "seconds"); err != nil {
+		writeValidationError(w, err)
 		return
 	}
-	if req.Feedback < 0 || req.Feedback > 100 {
-		writeEffectError(w, http.StatusBadRequest, "feedback must be between 0 and 100")
+	if err := validateRange("feedback", feedback, 0, 100, "%"); err != nil {
+		writeValidationError(w, err)
 		return
 	}
-	if req.WetDry < 0 || req.WetDry > 100 {
-		writeEffectError(w, http.StatusBadRequest, "wet_dry must be between 0 and 100")
+	if err := validateRange("wet_dry", wetDry, 0, 100, "%"); err != nil {
+		writeValidationError(w, err)
 		return
 	}
 
@@ -328,10 +333,12 @@ func (s *Server) handleDelay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	gainIn := req.WetDry / 100.0
-	gainOut := req.Feedback / 100.0
-	delay := req.DelayTime
-	decay := req.DelayTime * 0.5
+	gainIn := wetDry / 100.0
+	gainOut := feedback / 100.0
+	delay := delayTime
+	// SoX echo requires the decay argument to be < 1.0; clamp to keep any
+	// slider value inside the supported range without failing.
+	decay := math.Min(delayTime*0.5, 0.99)
 	effects := []SoxEffect{
 		{
 			Name: "echo",
@@ -371,32 +378,26 @@ func (s *Server) handleChorus(w http.ResponseWriter, r *http.Request) {
 		writeEffectError(w, http.StatusBadRequest, "file is required")
 		return
 	}
-	if req.Depth == 0 {
-		req.Depth = 3
-	}
-	if req.Rate == 0 {
-		req.Rate = 0.5
-	}
-	if req.DelayMs == 0 {
-		req.DelayMs = 40
-	}
-	if req.WetDry == 0 {
-		req.WetDry = 50
-	}
-	if req.Depth < 0 || req.Depth > 10 {
-		writeEffectError(w, http.StatusBadRequest, "depth must be between 0 and 10")
+	depth := defaultFloat(req.Depth, 3)
+	rate := defaultFloat(req.Rate, 0.5)
+	delayMs := defaultFloat(req.DelayMs, 40)
+	wetDry := defaultFloat(req.WetDry, 50)
+	if err := validateRange("depth", depth, 0, 10, ""); err != nil {
+		writeValidationError(w, err)
 		return
 	}
-	if req.Rate < 0.1 || req.Rate > 10 {
-		writeEffectError(w, http.StatusBadRequest, "rate must be between 0.1 and 10 Hz")
+	// SoX chorus requires speed < 5 Hz (5.0 is accepted, anything above fails).
+	if err := validateRange("rate", rate, 0.1, 5, "Hz"); err != nil {
+		writeValidationError(w, err)
 		return
 	}
-	if req.DelayMs < 10 || req.DelayMs > 100 {
-		writeEffectError(w, http.StatusBadRequest, "delay_ms must be between 10 and 100")
+	// SoX chorus requires delay >= 20 ms.
+	if err := validateRange("delay_ms", delayMs, 20, 100, "ms"); err != nil {
+		writeValidationError(w, err)
 		return
 	}
-	if req.WetDry < 0 || req.WetDry > 100 {
-		writeEffectError(w, http.StatusBadRequest, "wet_dry must be between 0 and 100")
+	if err := validateRange("wet_dry", wetDry, 0, 100, "%"); err != nil {
+		writeValidationError(w, err)
 		return
 	}
 
@@ -412,18 +413,18 @@ func (s *Server) handleChorus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	gainIn := req.WetDry / 100.0
-	gainOut := req.WetDry / 100.0
+	gainIn := wetDry / 100.0
+	gainOut := wetDry / 100.0
 	effects := []SoxEffect{
 		{
 			Name: "chorus",
 			Params: []string{
 				fmt.Sprintf("%f", gainIn),
 				fmt.Sprintf("%f", gainOut),
-				fmt.Sprintf("%f", req.DelayMs),
+				fmt.Sprintf("%f", delayMs),
 				"0.5",
-				fmt.Sprintf("%f", req.Rate),
-				fmt.Sprintf("%f", req.Depth),
+				fmt.Sprintf("%f", rate),
+				fmt.Sprintf("%f", depth),
 				"-t",
 			},
 		},
@@ -456,25 +457,19 @@ func (s *Server) handleFlanger(w http.ResponseWriter, r *http.Request) {
 		writeEffectError(w, http.StatusBadRequest, "file is required")
 		return
 	}
-	if req.Depth == 0 {
-		req.Depth = 2
-	}
-	if req.Rate == 0 {
-		req.Rate = 0.5
-	}
-	if req.WetDry == 0 {
-		req.WetDry = 50
-	}
-	if req.Depth < 0 || req.Depth > 10 {
-		writeEffectError(w, http.StatusBadRequest, "depth must be between 0 and 10")
+	depth := defaultFloat(req.Depth, 2)
+	rate := defaultFloat(req.Rate, 0.5)
+	wetDry := defaultFloat(req.WetDry, 50)
+	if err := validateRange("depth", depth, 0, 10, ""); err != nil {
+		writeValidationError(w, err)
 		return
 	}
-	if req.Rate < 0.1 || req.Rate > 10 {
-		writeEffectError(w, http.StatusBadRequest, "rate must be between 0.1 and 10 Hz")
+	if err := validateRange("rate", rate, 0.1, 10, "Hz"); err != nil {
+		writeValidationError(w, err)
 		return
 	}
-	if req.WetDry < 0 || req.WetDry > 100 {
-		writeEffectError(w, http.StatusBadRequest, "wet_dry must be between 0 and 100")
+	if err := validateRange("wet_dry", wetDry, 0, 100, "%"); err != nil {
+		writeValidationError(w, err)
 		return
 	}
 
@@ -494,14 +489,14 @@ func (s *Server) handleFlanger(w http.ResponseWriter, r *http.Request) {
 		{
 			Name: "flanger",
 			Params: []string{
-				"0",                        // delay base (0ms)
-				fmt.Sprintf("%f", req.Depth), // depth (swept delay)
-				"0",                        // regen (sin feedback)
-				"71",                       // width (default)
-				fmt.Sprintf("%f", req.Rate),  // speed
-				"sine",                     // shape
-				"25",                       // phase
-				"linear",                   // interpolation
+				"0",                       // delay base (0ms)
+				fmt.Sprintf("%f", depth),  // depth (swept delay)
+				"0",                       // regen (sin feedback)
+				"71",                      // width (default)
+				fmt.Sprintf("%f", rate),   // speed
+				"sine",                    // shape
+				"25",                      // phase
+				"linear",                  // interpolation
 			},
 		},
 	}
@@ -533,25 +528,19 @@ func (s *Server) handlePhaser(w http.ResponseWriter, r *http.Request) {
 		writeEffectError(w, http.StatusBadRequest, "file is required")
 		return
 	}
-	if req.Depth == 0 {
-		req.Depth = 3
-	}
-	if req.Rate == 0 {
-		req.Rate = 0.5
-	}
-	if req.WetDry == 0 {
-		req.WetDry = 50
-	}
-	if req.Depth < 0 || req.Depth > 10 {
-		writeEffectError(w, http.StatusBadRequest, "depth must be between 0 and 10")
+	depth := defaultFloat(req.Depth, 3)
+	rate := defaultFloat(req.Rate, 0.5)
+	wetDry := defaultFloat(req.WetDry, 50)
+	if err := validateRange("depth", depth, 0, 10, ""); err != nil {
+		writeValidationError(w, err)
 		return
 	}
-	if req.Rate < 0.1 || req.Rate > 10 {
-		writeEffectError(w, http.StatusBadRequest, "rate must be between 0.1 and 10 Hz")
+	if err := validateRange("rate", rate, 0.1, 10, "Hz"); err != nil {
+		writeValidationError(w, err)
 		return
 	}
-	if req.WetDry < 0 || req.WetDry > 100 {
-		writeEffectError(w, http.StatusBadRequest, "wet_dry must be between 0 and 100")
+	if err := validateRange("wet_dry", wetDry, 0, 100, "%"); err != nil {
+		writeValidationError(w, err)
 		return
 	}
 
@@ -567,13 +556,13 @@ func (s *Server) handlePhaser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	gainIn := req.WetDry / 100.0
-	gainOut := req.WetDry / 100.0
-	decay := req.Depth / 10.0
+	gainIn := wetDry / 100.0
+	gainOut := wetDry / 100.0
+	decay := depth / 10.0
 	if decay > 0.99 {
 		decay = 0.99
 	}
-	speed := req.Rate
+	speed := rate
 	if speed > 2 {
 		speed = 2
 	}
@@ -618,18 +607,14 @@ func (s *Server) handleTremolo(w http.ResponseWriter, r *http.Request) {
 		writeEffectError(w, http.StatusBadRequest, "file is required")
 		return
 	}
-	if req.Speed == 0 {
-		req.Speed = 5
-	}
-	if req.Depth == 0 {
-		req.Depth = 40
-	}
-	if req.Speed < 0.1 || req.Speed > 30 {
-		writeEffectError(w, http.StatusBadRequest, "speed must be between 0.1 and 30 Hz")
+	speed := defaultFloat(req.Speed, 5)
+	depth := defaultFloat(req.Depth, 40)
+	if err := validateRange("speed", speed, 0.1, 30, "Hz"); err != nil {
+		writeValidationError(w, err)
 		return
 	}
-	if req.Depth < 0 || req.Depth > 100 {
-		writeEffectError(w, http.StatusBadRequest, "depth must be between 0 and 100")
+	if err := validateRange("depth", depth, 0, 100, "%"); err != nil {
+		writeValidationError(w, err)
 		return
 	}
 
@@ -649,8 +634,8 @@ func (s *Server) handleTremolo(w http.ResponseWriter, r *http.Request) {
 		{
 			Name: "tremolo",
 			Params: []string{
-				fmt.Sprintf("%f", req.Speed),
-				fmt.Sprintf("%f", req.Depth),
+				fmt.Sprintf("%f", speed),
+				fmt.Sprintf("%f", depth),
 			},
 		},
 	}
@@ -682,25 +667,19 @@ func (s *Server) handleNoiseGate(w http.ResponseWriter, r *http.Request) {
 		writeEffectError(w, http.StatusBadRequest, "file is required")
 		return
 	}
-	if req.Threshold == 0 {
-		req.Threshold = -40
-	}
-	if req.Attack == 0 {
-		req.Attack = 1
-	}
-	if req.Release == 0 {
-		req.Release = 50
-	}
-	if req.Threshold < -80 || req.Threshold > 0 {
-		writeEffectError(w, http.StatusBadRequest, "threshold must be between -80 and 0 dB")
+	threshold := defaultFloat(req.Threshold, -40)
+	attack := defaultFloat(req.Attack, 1)
+	release := defaultFloat(req.Release, 50)
+	if err := validateRange("threshold", threshold, -80, 0, "dB"); err != nil {
+		writeValidationError(w, err)
 		return
 	}
-	if req.Attack < 0.1 || req.Attack > 100 {
-		writeEffectError(w, http.StatusBadRequest, "attack must be between 0.1 and 100 ms")
+	if err := validateRange("attack", attack, 0.1, 100, "ms"); err != nil {
+		writeValidationError(w, err)
 		return
 	}
-	if req.Release < 10 || req.Release > 1000 {
-		writeEffectError(w, http.StatusBadRequest, "release must be between 10 and 1000 ms")
+	if err := validateRange("release", release, 10, 1000, "ms"); err != nil {
+		writeValidationError(w, err)
 		return
 	}
 
@@ -716,14 +695,14 @@ func (s *Server) handleNoiseGate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	attackS := req.Attack / 1000.0
-	releaseS := req.Release / 1000.0
+	attackS := attack / 1000.0
+	releaseS := release / 1000.0
 	effects := []SoxEffect{
 		{
 			Name: "compand",
 			Params: []string{
 				fmt.Sprintf("%f,%f", attackS, releaseS),
-				fmt.Sprintf("-80,-80,-80,%s,-40,-40", strconv.FormatFloat(req.Threshold, 'f', -1, 64)),
+				fmt.Sprintf("-80,-80,-80,%s,-40,-40", strconv.FormatFloat(threshold, 'f', -1, 64)),
 				"-5",
 				"0",
 				"0.2",

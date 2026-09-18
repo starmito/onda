@@ -52,8 +52,10 @@
       id: 'reverb',
       name: 'Reverb',
       params: [
-        { key: 'room_size', label: 'Room size', min: 0, max: 1, step: 0.01, default: 0.5, unit: '' },
-        { key: 'decay', label: 'Decay', min: 0.1, max: 10, step: 0.1, default: 2, unit: 's' },
+        // SoX reverb expects room_size and decay as 0..100 percentages.
+        // The UI uses the same scale so the slider value is sent as-is.
+        { key: 'room_size', label: 'Room size', min: 0, max: 100, step: 1, default: 50, unit: '%' },
+        { key: 'decay', label: 'Decay', min: 0, max: 100, step: 1, default: 50, unit: '%' },
         { key: 'wet_dry', label: 'Wet/Dry', min: 0, max: 100, step: 1, default: 50, unit: '%' },
       ],
       apply: async (file: string, values: Record<string, number>) => {
@@ -70,7 +72,7 @@
       id: 'delay',
       name: 'Delay',
       params: [
-        { key: 'delay_time', label: 'Delay time', min: 0.01, max: 5, step: 0.01, default: 0.3, unit: 's' },
+        { key: 'delay_time', label: 'Delay time', min: 0.03, max: 5, step: 0.01, default: 0.3, unit: 's' },
         { key: 'feedback', label: 'Feedback', min: 0, max: 100, step: 1, default: 30, unit: '%' },
         { key: 'wet_dry', label: 'Wet/Dry', min: 0, max: 100, step: 1, default: 50, unit: '%' },
       ],
@@ -89,8 +91,8 @@
       name: 'Chorus',
       params: [
         { key: 'depth', label: 'Depth', min: 0, max: 10, step: 0.5, default: 5, unit: '' },
-        { key: 'rate', label: 'Rate', min: 0.1, max: 10, step: 0.1, default: 1.5, unit: 'Hz' },
-        { key: 'delay_ms', label: 'Delay', min: 10, max: 100, step: 1, default: 25, unit: 'ms' },
+        { key: 'rate', label: 'Rate', min: 0.1, max: 5, step: 0.1, default: 1.5, unit: 'Hz' },
+        { key: 'delay_ms', label: 'Delay', min: 20, max: 100, step: 1, default: 25, unit: 'ms' },
         { key: 'wet_dry', label: 'Wet/Dry', min: 0, max: 100, step: 1, default: 50, unit: '%' },
       ],
       apply: async (file: string, values: Record<string, number>) => {
