@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 func resetLogBuffer() {
@@ -187,10 +188,10 @@ func TestServiceLogStore_Rotation(t *testing.T) {
 	Log("backend", "info", "first")
 	Log("backend", "info", "second")
 	// The second write makes the file exceed maxSize, so it is rotated to
-	// onda.log.1 and a new onda.log is started.
+	// onda.log.YYYYMMDD-HHMMSS and a new onda.log is started.
 	Log("backend", "info", "third")
 
-	entries := defaultLogStore.readAll()
+	entries := defaultLogStore.readRecent(0)
 	if len(entries) < 3 {
 		t.Fatalf("expected at least 3 persisted entries after rotation, got %d", len(entries))
 	}
@@ -205,7 +206,149 @@ func TestServiceLogStore_Rotation(t *testing.T) {
 		}
 	}
 
-	if _, err := os.Stat(defaultLogStore.path + ".1"); err != nil {
-		t.Errorf("rotated log file %q should exist: %v", defaultLogStore.path+".1", err)
+	matches, err := filepath.Glob(defaultLogStore.path + ".[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[0-9][0-9][0-9][0-9][0-9][0-9]*")
+	if err != nil {
+		t.Fatalf("glob failed: %v", err)
+	}
+	if len(matches) == 0 {
+		t.Errorf("expected a rotated log file with timestamp suffix, got none")
+	}
+}
+
+func TestServiceLogStore_PurgeByAge(t *testing.T) {
+	setupTestLogStore(t)
+	resetLogBuffer()
+
+	// Force small rotations so each write creates a new generation.
+	defaultLogStore.maxSize = 70
+
+	// Create several generations.
+	for i := 0; i < 5; i++ {
+		Log("backend", "info", fmt.Sprintf("entry %d", i))
+	}
+
+	dir := filepath.Dir(defaultLogStore.path)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("failed to read log dir: %v", err)
+	}
+
+	oldCutoff := time.Now().Add(-8 * 24 * time.Hour)
+	recentCutoff := time.Now().Add(-2 * 24 * time.Hour)
+
+	oldMarked := false
+	for _, e := range entries {
+		name := e.Name()
+		if name == filepath.Base(defaultLogStore.path) {
+			continue
+		}
+		path := filepath.Join(dir, name)
+		if !oldMarked {
+			_ = os.Chtimes(path, oldCutoff, oldCutoff)
+			oldMarked = true
+		} else {
+			_ = os.Chtimes(path, recentCutoff, recentCutoff)
+		}
+	}
+	if !oldMarked {
+		t.Fatal("expected at least one rotated file to mark as old")
+	}
+
+	// Trigger a write to invoke purge.
+	Log("backend", "info", "trigger")
+
+	// Verify the old file is gone and recent ones remain.
+	entries, err = os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("failed to read log dir after purge: %v", err)
+	}
+	activeBase := filepath.Base(defaultLogStore.path)
+	for _, e := range entries {
+		name := e.Name()
+		if name == activeBase {
+			continue
+		}
+		info, err := os.Stat(filepath.Join(dir, name))
+		if err != nil {
+			continue
+		}
+		if info.ModTime().Before(time.Now().Add(-7 * 24 * time.Hour)) {
+			t.Errorf("old rotated file %q should have been purged", name)
+		}
+	}
+}
+
+func TestServiceLogStore_NoGenerationLimitWithinWindow(t *testing.T) {
+	setupTestLogStore(t)
+	resetLogBuffer()
+
+	// Small size to force multiple rotations.
+	defaultLogStore.maxSize = 60
+
+	// Generate enough entries to create 5 rotated files.
+	for i := 0; i < 7; i++ {
+		Log("backend", "info", fmt.Sprintf("entry %d", i))
+	}
+
+	dir := filepath.Dir(defaultLogStore.path)
+	activeBase := filepath.Base(defaultLogStore.path)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("failed to read log dir: %v", err)
+	}
+	rotated := 0
+	for _, e := range entries {
+		if e.Name() != activeBase {
+			rotated++
+		}
+	}
+	if rotated < 5 {
+		t.Fatalf("expected at least 5 rotated files within retention window, got %d", rotated)
+	}
+
+	// Ensure all recent files are still readable.
+	all := defaultLogStore.readRecent(0)
+	if len(all) < 7 {
+		t.Errorf("expected at least 7 persisted entries, got %d", len(all))
+	}
+}
+
+func TestHandleGetServiceLogs_RecentFirstAfterRotations(t *testing.T) {
+	setupTestLogStore(t)
+	resetLogBuffer()
+
+	// Force frequent rotations.
+	defaultLogStore.maxSize = 90
+
+	// Write entries with explicit increasing timestamps.
+	for i := 0; i < 6; i++ {
+		LogWithNano("backend", "info", fmt.Sprintf("msg %d", i), int64(i+1)*1e9)
+	}
+
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("GET /api/logs/services", s.handleGetServiceLogs)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/logs/services?limit=4", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var logs []LogEntry
+	if err := json.Unmarshal(rr.Body.Bytes(), &logs); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(logs) != 4 {
+		t.Fatalf("expected 4 logs, got %d", len(logs))
+	}
+
+	// Most recent first.
+	for i, l := range logs {
+		want := fmt.Sprintf("msg %d", 5-i)
+		if l.Message != want {
+			t.Errorf("log[%d].Message = %q, want %q", i, l.Message, want)
+		}
 	}
 }

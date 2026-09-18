@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,6 +17,8 @@ import (
 
 const maxLogEntries = 200
 const defaultMaxLogFileSize = 2 * 1024 * 1024
+const serviceLogRetention = 7 * 24 * time.Hour
+const serviceLogTimeSuffix = "20060102-150405"
 
 // LogEntry represents a single log line. ID is used for deduplication when
 // the in-memory ring buffer is merged with the persisted log file.
@@ -58,14 +61,16 @@ func newServiceLogStore(path string) *serviceLogStore {
 	if dir := filepath.Dir(path); dir != "" {
 		_ = os.MkdirAll(dir, 0o755)
 	}
-	return &serviceLogStore{
+	st := &serviceLogStore{
 		path:    path,
 		maxSize: defaultMaxLogFileSize,
 	}
+	st.purge()
+	return st
 }
 
 // serviceLogStore persists log entries to an append-only JSON-lines file with
-// simple single-generation rotation.
+// time-stamped rotations and age-based retention.
 type serviceLogStore struct {
 	path    string
 	maxSize int64
@@ -88,34 +93,148 @@ func (st *serviceLogStore) persist(entry LogEntry) {
 	info, err := f.Stat()
 	_ = f.Close()
 	if err == nil && info.Size() > st.maxSize {
-		_ = os.Rename(st.path, st.path+".1")
+		st.rotateLocked()
 	}
+	st.purgeLocked()
 }
 
-// readAll returns every entry stored in the current log file and the previous
-// rotated generation (.1). Entries are returned in file order (oldest first).
-func (st *serviceLogStore) readAll() []LogEntry {
-	st.mu.Lock()
-	defer st.mu.Unlock()
+// rotateLocked moves the active log file to a timestamped backup. If a
+// generation already exists for the current second, a numeric counter is
+// appended so no history is overwritten. The caller must hold st.mu.
+func (st *serviceLogStore) rotateLocked() {
+	suffix := time.Now().Format(serviceLogTimeSuffix)
+	rotated := st.path + "." + suffix
+	for i := 1; ; i++ {
+		if _, err := os.Stat(rotated); os.IsNotExist(err) {
+			break
+		}
+		rotated = fmt.Sprintf("%s.%s.%d", st.path, suffix, i)
+	}
+	_ = os.Rename(st.path, rotated)
+}
 
-	var entries []LogEntry
-	for _, p := range []string{st.path + ".1", st.path} {
-		f, err := os.Open(p)
+// purgeLocked removes rotated generations older than serviceLogRetention. The
+// active log file is never removed. The caller must hold st.mu.
+func (st *serviceLogStore) purgeLocked() {
+	dir := filepath.Dir(st.path)
+	base := filepath.Base(st.path)
+	cutoff := time.Now().Add(-serviceLogRetention)
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if name == base || !strings.HasPrefix(name, base+".") {
+			continue
+		}
+		info, err := e.Info()
 		if err != nil {
 			continue
 		}
-		scanner := bufio.NewScanner(f)
-		scanner.Buffer(make([]byte, 4096), 1024*1024)
-		for scanner.Scan() {
-			var e LogEntry
-			if err := json.Unmarshal(scanner.Bytes(), &e); err != nil {
-				continue
-			}
-			entries = append(entries, e)
+		if info.ModTime().Before(cutoff) {
+			_ = os.Remove(filepath.Join(dir, name))
 		}
-		_ = f.Close()
+	}
+}
+
+// purge is the public wrapper for purgeLocked, used during initialization.
+func (st *serviceLogStore) purge() {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	st.purgeLocked()
+}
+
+// readRecent returns the most recent log entries, reading the active file and
+// then rotated generations from newest to oldest until the limit is reached.
+// A limit <= 0 means no limit and reads every generation.
+func (st *serviceLogStore) readRecent(limit int) []LogEntry {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+
+	dir := filepath.Dir(st.path)
+	base := filepath.Base(st.path)
+	rotated, err := listRotatedFiles(dir, base)
+	if err != nil {
+		rotated = nil
+	}
+
+	var entries []LogEntry
+	entries = append(entries, st.readFileLocked(st.path)...)
+
+	if limit <= 0 {
+		for _, p := range rotated {
+			entries = append(entries, st.readFileLocked(p)...)
+		}
+		return entries
+	}
+
+	if len(entries) >= limit {
+		return entries
+	}
+	for _, p := range rotated {
+		entries = append(entries, st.readFileLocked(p)...)
+		if len(entries) >= limit {
+			break
+		}
 	}
 	return entries
+}
+
+// readFileLocked reads every JSON-lines entry from path. The caller must hold
+// st.mu.
+func (st *serviceLogStore) readFileLocked(path string) []LogEntry {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	var entries []LogEntry
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 4096), 1024*1024)
+	for scanner.Scan() {
+		var e LogEntry
+		if err := json.Unmarshal(scanner.Bytes(), &e); err != nil {
+			continue
+		}
+		entries = append(entries, e)
+	}
+	return entries
+}
+
+// listRotatedFiles returns the rotated log files for base in this directory,
+// ordered from newest to oldest by modification time.
+func listRotatedFiles(dir, base string) ([]string, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	type fileInfo struct {
+		path string
+		mt   time.Time
+	}
+	var files []fileInfo
+	for _, e := range entries {
+		name := e.Name()
+		if name == base || !strings.HasPrefix(name, base+".") {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		files = append(files, fileInfo{path: filepath.Join(dir, name), mt: info.ModTime()})
+	}
+	sort.Slice(files, func(i, j int) bool {
+		return files[i].mt.After(files[j].mt)
+	})
+	paths := make([]string, len(files))
+	for i, f := range files {
+		paths[i] = f.path
+	}
+	return paths, nil
 }
 
 func newLogID() string {
@@ -194,7 +313,7 @@ func (s *Server) handleGetServiceLogs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	persisted := defaultLogStore.readAll()
+	persisted := defaultLogStore.readRecent(limit)
 
 	logBufferMu.RLock()
 	buf := make([]LogEntry, len(logBuffer))
