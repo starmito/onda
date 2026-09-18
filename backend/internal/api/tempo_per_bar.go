@@ -163,7 +163,16 @@ func (s *Server) handleTempoPerBar(w http.ResponseWriter, r *http.Request) {
 		ratioMap[br.Bar] = br.Ratio
 	}
 
-	inputBuf, inputFmt, err := readWAV(sourcePath)
+	pcmPath, cleanupInput, err := decodeAudioToPCMWav(sourcePath)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to decode input audio: " + err.Error()})
+		return
+	}
+	defer cleanupInput()
+
+	inputBuf, inputFmt, err := readWAV(pcmPath)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -274,10 +283,10 @@ func (s *Server) handleTempoPerBar(w http.ResponseWriter, r *http.Request) {
 	outputName := "tempo_per_bar_" + baseName + ext
 	outputPath := filepath.Join(dawBase, outputName)
 
-	if err := writeWAV(outputPath, outputBuf, inputFmt); err != nil {
+	if err := writeAudioFile(outputPath, outputBuf, inputFmt); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to write output WAV: %v", err)})
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to write output audio: %v", err)})
 		return
 	}
 

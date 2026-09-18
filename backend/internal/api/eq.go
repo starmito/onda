@@ -138,7 +138,16 @@ func (s *Server) handleEQ(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inputBuf, inputFmt, err := readWAV(sourcePath)
+	pcmPath, cleanupInput, err := decodeAudioToPCMWav(sourcePath)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to decode input audio: " + err.Error()})
+		return
+	}
+	defer cleanupInput()
+
+	inputBuf, inputFmt, err := readWAV(pcmPath)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -192,10 +201,10 @@ func (s *Server) handleEQ(w http.ResponseWriter, r *http.Request) {
 	outputName := "eq_" + safeName
 	outputPath := filepath.Join(dawBase, outputName)
 
-	if err := writeWAV(outputPath, outputBuf, inputFmt); err != nil {
+	if err := writeAudioFile(outputPath, outputBuf, inputFmt); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to write output WAV: " + err.Error()})
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to write output audio: " + err.Error()})
 		return
 	}
 
