@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -13,6 +14,10 @@ import (
 
 // bpmRe matches the first floating point number in a line of text.
 var bpmRe = regexp.MustCompile(`([0-9]+\.[0-9]+)`)
+
+// errUndetectableBPM is returned when aubio reports that it cannot determine
+// the tempo of the provided audio file.
+var errUndetectableBPM = errors.New("undetectable tempo")
 
 // TempoResponse is the JSON response for the BPM detection endpoint.
 type TempoResponse struct {
@@ -50,8 +55,16 @@ func (s *Server) handleTempo(w http.ResponseWriter, r *http.Request) {
 	bpm, err := detectBPM(sourcePath)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "aubio tempo failed: " + err.Error()})
+		if errors.Is(err, errUndetectableBPM) {
+			w.WriteHeader(http.StatusUnprocessableEntity)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":  "no se pudo detectar el tempo del archivo",
+				"detail": err.Error(),
+			})
+		} else {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "aubio tempo failed: " + err.Error()})
+		}
 		return
 	}
 
@@ -93,18 +106,29 @@ func aubioEnv() []string {
 	return env
 }
 
+// aubioTempoRunner runs the aubio tempo command. It is a variable so tests can
+// substitute a mock implementation.
+var aubioTempoRunner = func(inputPath string) ([]byte, error) {
+	cmd := exec.Command("aubio", "tempo", inputPath)
+	cmd.Env = aubioEnv()
+	return cmd.CombinedOutput()
+}
+
 // detectBPM runs `aubio tempo` and returns the detected BPM.
 // It extracts the first floating point number from the output, supporting
 // formats like "120.00 bpm", "112.75 bpm (uncertain)", and "BPM: 120.0".
+// When aubio reports "unknown bpm" the function returns errUndetectableBPM
+// so the handler can reply with a client-friendly error instead of 500.
 func detectBPM(inputPath string) (float64, error) {
-	cmd := exec.Command("aubio", "tempo", inputPath)
-	cmd.Env = aubioEnv()
-	out, err := cmd.CombinedOutput()
+	out, err := aubioTempoRunner(inputPath)
+	line := strings.TrimSpace(string(out))
+	if strings.Contains(strings.ToLower(line), "unknown bpm") {
+		return 0, fmt.Errorf("%w: aubio reported unknown bpm", errUndetectableBPM)
+	}
 	if err != nil {
-		return 0, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(out)))
+		return 0, fmt.Errorf("%w: %s", err, line)
 	}
 
-	line := strings.TrimSpace(string(out))
 	matches := bpmRe.FindStringSubmatch(line)
 	if len(matches) < 2 {
 		return 0, fmt.Errorf("could not find BPM value in output: %s", line)

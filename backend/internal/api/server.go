@@ -2428,10 +2428,15 @@ func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
 }
 
-// safeFilenamePattern matches names composed only of letters, digits, spaces,
-// hyphens, underscores, dots and parentheses. Anything else (including path
-// separators and control characters) is rejected.
-var safeFilenamePattern = regexp.MustCompile(`^[A-Za-z0-9\s\-_\.\(\)]+$`)
+// allowedFilenameChars matches characters that are safe to keep in a song
+// filename. This includes Unicode letters and digits, spaces, and common
+// punctuation used in song titles (parentheses, commas, apostrophes,
+// ampersand, exclamation marks, etc.). Anything not matched is replaced with
+// an underscore during sanitization.
+var allowedFilenameChars = regexp.MustCompile(`[^\p{L}\p{N}\s\-_.(),'’&!?+=\[\]{}#@%~]`)
+
+// whitespaceCollapse collapses consecutive whitespace characters into a single space.
+var whitespaceCollapse = regexp.MustCompile(`\s+`)
 
 // audioExtensions is the set of audio extensions considered valid for uploads.
 // It is built from audio.SupportedExtensions for a single source of truth.
@@ -2443,44 +2448,57 @@ var audioExtensions = func() map[string]bool {
 	return m
 }()
 
-// validateUploadFilename validates a raw upload filename. It rejects:
-//   - empty names or names with path separators / traversal sequences
-//   - names containing characters outside a small safe set
-//   - names ending in a non-audio extension
-//   - names with consecutive audio extensions (e.g. song.mp3.flac)
-func validateUploadFilename(name string) error {
+// sanitizeFilenameStem replaces unsafe characters with underscores and
+// collapses consecutive spaces. It preserves letters (including accented
+// ones), digits and common song-name punctuation.
+func sanitizeFilenameStem(stem string) string {
+	sanitized := allowedFilenameChars.ReplaceAllString(stem, "_")
+	sanitized = whitespaceCollapse.ReplaceAllString(sanitized, " ")
+	return strings.TrimSpace(sanitized)
+}
+
+// sanitizeUploadFilename validates and sanitizes a raw upload filename. It
+// rejects empty names, path separators, traversal sequences, unsupported
+// extensions and consecutive audio extensions. Any other problematic
+// characters are replaced with underscores, while letters (including
+// accented ones), digits and common song-name punctuation are preserved. The
+// original extension case is preserved.
+func sanitizeUploadFilename(name string) (string, error) {
 	if name == "" {
-		return errors.New("empty filename")
+		return "", errors.New("empty filename")
 	}
 
 	// filepath.Base removes any directory prefix, but we still reject names
 	// that explicitly contain separators or traversal markers.
 	base := filepath.Base(name)
 	if base != name || strings.Contains(name, "\\") || strings.Contains(name, "/") {
-		return errors.New("path separators not allowed")
+		return "", errors.New("path separators not allowed")
 	}
 	if strings.Contains(name, "..") {
-		return errors.New("path traversal not allowed")
-	}
-	if !safeFilenamePattern.MatchString(name) {
-		return errors.New("filename contains invalid characters")
+		return "", errors.New("path traversal not allowed")
 	}
 
-	ext := strings.ToLower(filepath.Ext(name))
+	origExt := filepath.Ext(name)
+	ext := strings.ToLower(origExt)
 	if ext == "" {
-		return errors.New("missing file extension")
+		return "", errors.New("missing file extension")
 	}
 	if !audioExtensions[ext] {
-		return errors.New("unsupported audio extension")
+		return "", errors.New("unsupported audio extension")
 	}
 
 	// Reject double audio extensions such as song.mp3.flac.
 	stem := strings.TrimSuffix(name, filepath.Ext(name))
 	if prevExt := strings.ToLower(filepath.Ext(stem)); prevExt != "" && audioExtensions[prevExt] {
-		return errors.New("consecutive audio extensions not allowed")
+		return "", errors.New("consecutive audio extensions not allowed")
 	}
 
-	return nil
+	cleanStem := sanitizeFilenameStem(stem)
+	if cleanStem == "" {
+		cleanStem = "audio"
+	}
+
+	return cleanStem + origExt, nil
 }
 
 // extractRawUploadFilename returns the raw filename parameter from the first
@@ -2539,7 +2557,8 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		Log("backend", "error", "Upload failed: "+err.Error())
 		return
 	}
-	if err := validateUploadFilename(rawName); err != nil {
+	safeName, err := sanitizeUploadFilename(rawName)
+	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
@@ -2571,7 +2590,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	// Limit to 500MB
 	r.ParseMultipartForm(500 << 20)
-	file, header, err := r.FormFile("file")
+	file, _, err := r.FormFile("file")
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -2581,7 +2600,6 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	safeName := filepath.Base(header.Filename)
 	destPath := filepath.Join(inputDir, safeName)
 	dst, err := os.Create(destPath)
 	if err != nil {
@@ -2622,7 +2640,8 @@ func (s *Server) handleUploadPitch(w http.ResponseWriter, r *http.Request) {
 		Log("backend", "error", "Pitch upload failed: "+err.Error())
 		return
 	}
-	if err := validateUploadFilename(rawName); err != nil {
+	safeName, err := sanitizeUploadFilename(rawName)
+	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
@@ -2650,7 +2669,7 @@ func (s *Server) handleUploadPitch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	r.ParseMultipartForm(500 << 20)
-	file, header, err := r.FormFile("file")
+	file, _, err := r.FormFile("file")
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -2660,7 +2679,6 @@ func (s *Server) handleUploadPitch(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	safeName := filepath.Base(header.Filename)
 	destPath := filepath.Join(inputDir, safeName)
 	dst, err := os.Create(destPath)
 	if err != nil {

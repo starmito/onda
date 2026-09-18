@@ -2,6 +2,7 @@ package api
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -261,51 +262,101 @@ func TestCorsMiddleware_OptionsRejected(t *testing.T) {
 
 // ── Upload filename sanitization tests ──────────────────────────────────────
 
-func TestValidateUploadFilename_AcceptsValidAudioName(t *testing.T) {
+func TestSanitizeUploadFilename_AcceptsValidAudioName(t *testing.T) {
 	for _, name := range []string{"song.wav", "my-track_2.mp3", "concert (live).flac"} {
-		if err := validateUploadFilename(name); err != nil {
+		got, err := sanitizeUploadFilename(name)
+		if err != nil {
 			t.Errorf("%q should be valid, got %v", name, err)
+			continue
+		}
+		if got != name {
+			t.Errorf("%q should be preserved, got %q", name, got)
 		}
 	}
 }
 
-func TestValidateUploadFilename_RejectsPathTraversal(t *testing.T) {
+func TestSanitizeUploadFilename_AcceptsRealSongNames(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"Así Fué (-3)(A) & mas.wav", "Así Fué (-3)(A) & mas.wav"},
+		{"Cañón (Live) [2024].mp3", "Cañón (Live) [2024].mp3"},
+		{"Don't Stop Believin'.flac", "Don't Stop Believin'.flac"},
+		{"Rock & Roll, Part II.ogg", "Rock & Roll, Part II.ogg"},
+		{"Mi    canción  favorita.m4a", "Mi canción favorita.m4a"},
+	}
+	for _, c := range cases {
+		got, err := sanitizeUploadFilename(c.input)
+		if err != nil {
+			t.Errorf("%q should be valid, got %v", c.input, err)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("sanitizeUploadFilename(%q) = %q, want %q", c.input, got, c.want)
+		}
+	}
+}
+
+func TestSanitizeUploadFilename_ReplacesUnsafeCharacters(t *testing.T) {
+	cases := []struct {
+		input string
+		want  string
+	}{
+		{"song;rm -rf .wav", "song_rm -rf.wav"},
+		{"song|pipe.wav", "song_pipe.wav"},
+		{"song$HOME.wav", "song_HOME.wav"},
+		{"song`whoami`.wav", "song_whoami_.wav"},
+		{"song  with\ttabs.wav", "song with tabs.wav"},
+		{"  leading spaces.wav", "leading spaces.wav"},
+		{"trailing spaces  .mp3", "trailing spaces.mp3"},
+		{"only___special#@!.wav", "only___special#@!.wav"},
+	}
+	for _, c := range cases {
+		got, err := sanitizeUploadFilename(c.input)
+		if err != nil {
+			t.Errorf("%q should be valid, got %v", c.input, err)
+			continue
+		}
+		if got != c.want {
+			t.Errorf("sanitizeUploadFilename(%q) = %q, want %q", c.input, got, c.want)
+		}
+	}
+}
+
+func TestSanitizeUploadFilename_RejectsPathTraversal(t *testing.T) {
 	for _, name := range []string{"../song.wav", "..\\song.wav", "foo/../../etc/passwd.wav", "../../../etc/shadow.mp3"} {
-		if err := validateUploadFilename(name); err == nil {
+		if _, err := sanitizeUploadFilename(name); err == nil {
 			t.Errorf("%q should be rejected", name)
 		}
 	}
 }
 
-func TestValidateUploadFilename_RejectsSpecialCharacters(t *testing.T) {
-	for _, name := range []string{"song;rm -rf /.wav", "song&echo.wav", "song|pipe.wav", "song$HOME.wav", "song`whoami`.wav"} {
-		if err := validateUploadFilename(name); err == nil {
-			t.Errorf("%q should be rejected", name)
-		}
-	}
-}
-
-func TestValidateUploadFilename_RejectsDoubleAudioExtension(t *testing.T) {
+func TestSanitizeUploadFilename_RejectsDoubleAudioExtension(t *testing.T) {
 	for _, name := range []string{"song.mp3.flac", "song.wav.mp3", "song.flac.ogg"} {
-		if err := validateUploadFilename(name); err == nil {
+		if _, err := sanitizeUploadFilename(name); err == nil {
 			t.Errorf("%q should be rejected", name)
 		}
 	}
 }
 
-func TestValidateUploadFilename_RejectsNonAudioExtension(t *testing.T) {
+func TestSanitizeUploadFilename_RejectsNonAudioExtension(t *testing.T) {
 	for _, name := range []string{"song.exe", "song.txt", "song.pdf", "song"} {
-		if err := validateUploadFilename(name); err == nil {
+		if _, err := sanitizeUploadFilename(name); err == nil {
 			t.Errorf("%q should be rejected", name)
 		}
 	}
 }
 
-func TestValidateUploadFilename_CaseInsensitiveExtension(t *testing.T) {
-	if err := validateUploadFilename("song.WAV"); err != nil {
+func TestSanitizeUploadFilename_CaseInsensitiveExtension(t *testing.T) {
+	got, err := sanitizeUploadFilename("song.WAV")
+	if err != nil {
 		t.Errorf("song.WAV should be valid, got %v", err)
 	}
-	if err := validateUploadFilename("song.MP3"); err != nil {
+	if got != "song.WAV" {
+		t.Errorf("song.WAV should be preserved, got %q", got)
+	}
+	if _, err := sanitizeUploadFilename("song.MP3"); err != nil {
 		t.Errorf("song.MP3 should be valid, got %v", err)
 	}
 }
@@ -346,18 +397,32 @@ func TestHandleUpload_RejectDoubleExtension(t *testing.T) {
 	}
 }
 
-func TestHandleUpload_RejectSpecialCharacters(t *testing.T) {
+func TestHandleUpload_SanitizesSpecialCharacters(t *testing.T) {
+	root := setupSecurityTestRoot(t)
 	s := newSecurityTestServer(t)
 
-	for _, filename := range []string{"song;cmd.wav", "song&echo.wav", "song|pipe.wav", "song`whoami`.wav"} {
-		body, contentType := buildUploadBody(t, filename, []byte("audio"))
+	cases := []struct {
+		filename string
+		savedAs  string
+	}{
+		{"song;cmd.wav", "song_cmd.wav"},
+		{"song&echo.wav", "song&echo.wav"},
+		{"song|pipe.wav", "song_pipe.wav"},
+		{"song`whoami`.wav", "song_whoami_.wav"},
+	}
+	for _, c := range cases {
+		body, contentType := buildUploadBody(t, c.filename, []byte("audio"))
 		req := httptest.NewRequest(http.MethodPost, "/api/upload", body)
 		req.Header.Set("Content-Type", contentType)
 		rr := httptest.NewRecorder()
 		s.mux.ServeHTTP(rr, req)
 
-		if rr.Code != http.StatusBadRequest {
-			t.Errorf("%q: expected 400, got %d: %s", filename, rr.Code, rr.Body.String())
+		if rr.Code != http.StatusOK {
+			t.Errorf("%q: expected 200, got %d: %s", c.filename, rr.Code, rr.Body.String())
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(root, "input", c.savedAs)); err != nil {
+			t.Errorf("%q: expected file %q to be saved: %v", c.filename, c.savedAs, err)
 		}
 	}
 }
@@ -377,6 +442,33 @@ func TestHandleUpload_AcceptsValidAudio(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(root, "input", "vocals.wav")); err != nil {
 		t.Errorf("valid upload should be saved: %v", err)
+	}
+}
+
+func TestHandleUpload_AcceptsRealSongFilename(t *testing.T) {
+	root := setupSecurityTestRoot(t)
+	s := newSecurityTestServer(t)
+
+	filename := "Así Fué (-3)(A) & mas.wav"
+	body, contentType := buildUploadBody(t, filename, []byte("audio"))
+	req := httptest.NewRequest(http.MethodPost, "/api/upload", body)
+	req.Header.Set("Content-Type", contentType)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	wantSaved := "Así Fué (-3)(A) & mas.wav"
+	if _, err := os.Stat(filepath.Join(root, "input", wantSaved)); err != nil {
+		t.Errorf("real song upload should be saved as %q: %v", wantSaved, err)
+	}
+	var resp map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("invalid JSON response: %v", err)
+	}
+	if resp["path"] != "/app/input/"+wantSaved {
+		t.Errorf("response path should be %q, got %q", "/app/input/"+wantSaved, resp["path"])
 	}
 }
 
