@@ -8,6 +8,7 @@
     onCancel = () => {},
     onForce = () => {},
     disabled = false,
+    errorMessage = '',
     progress = 0,
     status = 'idle',
     step = '',
@@ -31,9 +32,13 @@
     {/each}
   </select>
 
-  <button class="btn-execute-large" onclick={onExecute} disabled={disabled || !hasFiles || !selectedPreset}>
+  <button class="btn-execute-large" onclick={onExecute} disabled={disabled || !hasFiles}>
     ▶ Ejecutar
   </button>
+
+  {#if errorMessage}
+    <p class="execute-error" role="alert">{errorMessage}</p>
+  {/if}
 
   {#if status === 'running'}
     <button
@@ -80,6 +85,18 @@
   .btn-execute-large { width: 100%; padding: 14px; background: var(--accent); color: #fff; border: none; border-radius: 8px; font-size: 17px; font-weight: bold; cursor: pointer; margin-bottom: 12px; transition: background 0.2s; }
   .btn-execute-large:hover { background: var(--accent-light); }
   .btn-execute-large:disabled { opacity: 0.3; cursor: not-allowed; }
+
+  .execute-error {
+    margin: -4px 0 12px;
+    padding: 10px 12px;
+    background: rgba(244, 67, 54, 0.12);
+    border: 1px solid rgba(244, 67, 54, 0.35);
+    border-radius: 8px;
+    color: #ef5350;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-align: center;
+  }
 
   .btn-stop { width: 100%; padding: 12px; background: #4a1a1a; color: #e57373; border: 1px solid #6a2a2a; border-radius: 8px; font-size: 15px; font-weight: bold; cursor: pointer; margin-bottom: 8px; transition: background 0.2s; }
   .btn-stop:hover { background: #5a2a2a; }

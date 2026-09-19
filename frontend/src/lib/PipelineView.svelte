@@ -1,5 +1,6 @@
 <script lang="ts">
   import PresetsPanel from './PresetsPanel.svelte';
+  import { validateExecutePreset } from './executeValidation';
   import { uploadAudio, deleteInput, clearQueue, separateAudio, cancelQueue, getProcessesStatus } from './api';
   import type { ProcessStatus, QueueJob } from './api';
   import { IconUpload } from './icons';
@@ -52,6 +53,9 @@
   let toastType = $state<'success' | 'error' | 'info' | 'warning'>('success');
   let toastTimer = $state<ReturnType<typeof setTimeout> | null>(null);
 
+  // ---- Inline execute validation message ----
+  let executeError = $state('');
+
   function showToast(message: string, type: 'success' | 'error' | 'info' | 'warning') {
     toastMessage = message;
     toastType = type;
@@ -93,6 +97,13 @@
   $effect(() => {
     if (!blockedMsg) {
       vramDismissed = false;
+    }
+  });
+
+  $effect(() => {
+    // Clear the inline error as soon as the user picks a real preset.
+    if (presetName) {
+      executeError = '';
     }
   });
 
@@ -251,11 +262,15 @@
 
   // ---- Execute handler ----
   function handleExecute() {
-    const selected = savedPresets.find(p => p.name === presetName);
-    if (!selected) {
-      onError(`Preset "${presetName}" no encontrado en el servidor`);
+    const validation = validateExecutePreset(presetName, savedPresets);
+    if (!validation.ok) {
+      executeError = validation.message;
+      console.warn('[PipelineView] Ejecutar bloqueado:', validation.message);
+      onError(validation.message);
       return;
     }
+    executeError = '';
+    const selected = savedPresets.find(p => p.name === presetName)!;
     const config = selected.config;
     config.preset = presetName || undefined;
     onStart(config);
@@ -407,6 +422,7 @@
         onExecute={handleExecute}
         onCancel={handleCancel}
         onForce={handleForce}
+        errorMessage={executeError}
 
         progress={currentProgress}
         status={pipelineStatus}
