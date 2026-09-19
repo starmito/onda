@@ -21,6 +21,8 @@ type MergeRequest struct {
 // MergeResponse is returned by POST /api/stems/merge.
 type MergeResponse struct {
 	File   string `json:"file"`
+	Path   string `json:"path,omitempty"`
+	URL    string `json:"url,omitempty"`
 	Format string `json:"format"`
 	Size   int64  `json:"size"`
 }
@@ -106,7 +108,25 @@ func (s *Server) handleStemsMerge(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasSuffix(strings.ToLower(outputName), ext) {
 		outputName += ext
 	}
-	outputPath := filepath.Join(songDir, outputName)
+
+	var outputPath string
+	var outputRelPath string
+	var downloadURL string
+	if configuredExportDir := exportDir(); configuredExportDir != "" {
+		if err := os.MkdirAll(configuredExportDir, 0o755); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "failed to create export directory"})
+			return
+		}
+		outputPath = filepath.Join(configuredExportDir, outputName)
+		outputRelPath = outputName
+		downloadURL = exportDirFileURL(outputName)
+	} else {
+		outputPath = filepath.Join(songDir, outputName)
+		outputRelPath = filepath.Join("output", safeSong, outputName)
+		downloadURL = "/" + filepath.ToSlash(outputRelPath)
+	}
 
 	args := []string{"-y"}
 	for _, input := range inputFiles {
@@ -159,6 +179,8 @@ func (s *Server) handleStemsMerge(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(MergeResponse{
 		File:   outputName,
+		Path:   outputRelPath,
+		URL:    downloadURL,
 		Format: format,
 		Size:   info.Size(),
 	})

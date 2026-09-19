@@ -841,6 +841,8 @@ export async function exportAudio(
 // ---- Stem merge / mixdown export ----
 export interface MergeResponse {
   file: string;
+  path?: string;
+  url?: string;
   format: string;
   size: number;
 }

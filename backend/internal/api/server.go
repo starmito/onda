@@ -245,6 +245,7 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("POST /api/storage/clean", s.handleStorageClean)
 	s.mux.HandleFunc("GET /api/storage/config", s.handleStorageConfigGet)
 	s.mux.HandleFunc("POST /api/storage/config", s.handleStorageConfigPost)
+	s.mux.HandleFunc("GET /api/export/files/{file}", s.handleExportFileServe)
 	s.mux.HandleFunc("GET /api/logs", s.handleGetLogs)
 	s.mux.HandleFunc("GET /api/logs/services", s.handleGetServiceLogs)
 	s.mux.HandleFunc("/api/models", s.handleModels)
