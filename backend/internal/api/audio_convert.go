@@ -33,7 +33,7 @@ func decodeAudioToPCMWav(path string, song string) (tmpPath string, cleanup func
 		return "", nopCleanup, fmt.Errorf("input format %q requires ffmpeg, which is not installed", ext)
 	}
 
-	projectRoot := findProjectRoot()
+	projectRoot := dataRoot()
 	tmpDir := songTempDir(projectRoot, song)
 	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
 		return "", nopCleanup, fmt.Errorf("failed to create tmp dir: %w", err)
@@ -74,7 +74,7 @@ func writeAudioFile(path string, buf *audio.IntBuffer, wf *wavFormat, song strin
 // writeWAVAndEncode writes the buffer to a temporary WAV and converts it to the
 // target format with ffmpeg.
 func writeWAVAndEncode(outputPath string, buf *audio.IntBuffer, wf *wavFormat, song string) error {
-	projectRoot := findProjectRoot()
+	projectRoot := dataRoot()
 	tmpDir := songTempDir(projectRoot, song)
 	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create tmp dir: %w", err)

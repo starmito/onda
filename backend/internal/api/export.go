@@ -71,7 +71,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
+	projectRoot := dataRoot()
 
 	// Resolve the source inside the daw-data tree first, then fall back to input/.
 	filePath, safeName, song, _, err := resolveDAWAudioSource(req.File)

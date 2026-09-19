@@ -73,7 +73,7 @@ func (s *Server) handleTrim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
+	projectRoot := dataRoot()
 	editsDir := filepath.Join(projectRoot, dawDataDirName, song, dawEditsSubdir)
 
 	duration, err := detectDuration(sourcePath)

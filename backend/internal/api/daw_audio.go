@@ -165,7 +165,7 @@ func parseDAWTreePath(projectRoot, file string) (dawFileSource, bool) {
 // On success it returns the absolute path, the safe base name, the song
 // directory (when inside daw-data) and the subdirectory (original/imports/edits/tmp).
 func resolveDAWAudioSource(file string) (absPath, safeName, song, subdir string, err error) {
-	projectRoot := findProjectRoot()
+	projectRoot := dataRoot()
 	safeName = filepath.Base(file)
 
 	// 1. Flat input/ lookup.
@@ -331,7 +331,7 @@ func (s *Server) handleDeleteDAWSong(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
+	projectRoot := dataRoot()
 	dir, err := safeDAWSongDir(projectRoot, song)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")

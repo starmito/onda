@@ -115,7 +115,7 @@ func resolveEffectOutput(prefix, song, safeName string) (string, string, error) 
 	if song == "" {
 		return "", "", fmt.Errorf("song is required")
 	}
-	projectRoot := findProjectRoot()
+	projectRoot := dataRoot()
 	editsDir := filepath.Join(projectRoot, dawDataDirName, song, dawEditsSubdir)
 	if err := os.MkdirAll(editsDir, 0o755); err != nil {
 		return "", "", err

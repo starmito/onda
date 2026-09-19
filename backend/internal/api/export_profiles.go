@@ -5,10 +5,16 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 )
 
-const audioExportProfilesFile = "/config/audio_export_profiles.json"
+// exportProfilesFile returns the runtime path for the persisted audio export
+// profiles file. It is resolved under the configured data root so the file is
+// stored in [RAIZ]/config/ rather than being hardcoded to /config/.
+func exportProfilesFile() string {
+	return filepath.Join(mustSub("config"), "audio_export_profiles.json")
+}
 
 // AudioExportProfiles holds persisted audio export configuration.
 type AudioExportProfiles struct {
@@ -44,7 +50,7 @@ func defaultExportProfiles() AudioExportProfiles {
 }
 
 func loadExportProfiles() error {
-	return loadExportProfilesAt(audioExportProfilesFile, &exportProfiles)
+	return loadExportProfilesAt(exportProfilesFile(), &exportProfiles)
 }
 
 func loadExportProfilesAt(path string, dest *AudioExportProfiles) error {
@@ -64,7 +70,7 @@ func loadExportProfilesAt(path string, dest *AudioExportProfiles) error {
 }
 
 func saveExportProfiles(settings *AudioExportProfiles) error {
-	return saveExportProfilesAt(audioExportProfilesFile, settings)
+	return saveExportProfilesAt(exportProfilesFile(), settings)
 }
 
 func saveExportProfilesAt(path string, settings *AudioExportProfiles) error {

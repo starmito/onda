@@ -128,7 +128,7 @@ func (s *Server) handleEQ(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
+	projectRoot := dataRoot()
 	editsDir := filepath.Join(projectRoot, dawDataDirName, song, dawEditsSubdir)
 	tmpDir := songTempDir(projectRoot, song)
 

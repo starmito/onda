@@ -61,7 +61,7 @@ func (s *Server) handleMidiParse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
+	projectRoot := dataRoot()
 	var midiPath string
 
 	// Try the daw-data tree first, then fall back to input/.

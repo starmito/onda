@@ -1,6 +1,8 @@
 package api
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -52,5 +54,28 @@ func TestSub_RejectsTraversal(t *testing.T) {
 		if !strings.Contains(err.Error(), "invalid subpath") {
 			t.Errorf("sub(%q) error = %v; want error containing 'invalid subpath'", name, err)
 		}
+	}
+}
+
+// TestDAWOperationsRespectONDA_DATA_DIR verifies that songTempDir (used by the
+// DAW effects pipeline) places data under ONDA_DATA_DIR instead of deriving it
+// from the repository root.
+func TestDAWOperationsRespectONDA_DATA_DIR(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("cannot get working directory: %v", err)
+	}
+	root := filepath.Join(cwd, "testdata-daw-root")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatalf("cannot create test data root: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+
+	t.Setenv("ONDA_DATA_DIR", root)
+
+	got := songTempDir(dataRoot(), "my-song")
+	want := filepath.Join(root, "daw-data", "my-song", "tmp")
+	if got != want {
+		t.Fatalf("songTempDir(dataRoot(), %q) = %q, want %q", "my-song", got, want)
 	}
 }

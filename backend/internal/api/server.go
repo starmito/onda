@@ -45,10 +45,10 @@ func init() {
 	}
 }
 
-// resolveProjectRoot is an alias for findProjectRoot so health.go and the
-// pipeline fixes can use a consistent name without duplicating logic.
+// resolveProjectRoot is an alias for dataRoot so callers that need the
+// effective data root can use a consistent name without duplicating logic.
 func resolveProjectRoot() string {
-	return findProjectRoot()
+	return dataRoot()
 }
 
 // FileEntry describes a generated stem file.
@@ -3015,19 +3015,15 @@ func (s *Server) handleModelsCatalog(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// /app/uvr_models.json is the catalog bundled in the container image (not a
-	// data path). Try it first, then fall back to the project root.
+	// data path). It is the only legitimate source for the catalog.
 	data, err := os.ReadFile("/app/uvr_models.json")
 	if err != nil {
-		projectRoot := findProjectRoot()
-		data, err = os.ReadFile(filepath.Join(projectRoot, "uvr_models.json"))
-		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "failed to read uvr_models.json catalog file",
-			})
-			return
-		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "failed to read uvr_models.json catalog file",
+		})
+		return
 	}
 
 	var catalog []UVRModelEntry

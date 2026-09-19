@@ -942,7 +942,7 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	relName := foundPath
-	if projectRoot := findProjectRoot(); projectRoot != "" {
+	if projectRoot := dataRoot(); projectRoot != "" {
 		if r, err := filepath.Rel(projectRoot, foundPath); err == nil {
 			relName = r
 		}

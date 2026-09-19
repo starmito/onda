@@ -69,7 +69,7 @@ func (s *Server) handleStemsMerge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
+	projectRoot := dataRoot()
 	baseSong := req.Song
 	pitchSuffix := ""
 	if idx := strings.LastIndex(req.Song, " (pitch "); idx >= 0 {

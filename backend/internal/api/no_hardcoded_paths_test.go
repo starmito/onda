@@ -118,31 +118,13 @@ var allowedAppPathPrefixes = []string{
 var inferencePyRE = regexp.MustCompile(`^/app/inference_[^/]+\.py`)
 
 // legacyFindProjectRootCalls lists the remaining direct findProjectRoot() calls
-// outside paths.go. These are technical debt: they build data paths manually
-// instead of using dataRoot()/mustSub(). Do not add new entries; remove them
-// as the files are migrated.
-var legacyFindProjectRootCalls = map[string][]int{
-	"backend/internal/api/audio_convert.go": {36, 77},
-	"backend/internal/api/daw_audio.go":    {168, 334},
-	"backend/internal/api/effects.go":       {118},
-	"backend/internal/api/eq.go":            {131},
-	"backend/internal/api/export.go":        {74},
-	"backend/internal/api/fade.go":          {94},
-	"backend/internal/api/merge.go":         {72},
-	"backend/internal/api/midi.go":          {64},
-	"backend/internal/api/models.go":        {945},
-	"backend/internal/api/server.go":        {51, 3021},
-	"backend/internal/api/tempo_per_bar.go": {114},
-	"backend/internal/api/tempo_shift.go":   {72},
-	"backend/internal/api/trim.go":          {76},
-}
+// outside paths.go. Kept empty after the migration: every data path must go
+// through dataRoot()/mustSub().
+var legacyFindProjectRootCalls = map[string][]int{}
 
-// legacyHardcodedDataPaths lists a few remaining hardcoded data paths that
-// pre-date the ONDA_DATA_DIR refactor. They must be migrated to dataRoot()/
-// mustSub(); do not add new entries.
-var legacyHardcodedDataPaths = map[string][]int{
-	"backend/internal/api/export_profiles.go": {11},
-}
+// legacyHardcodedDataPaths lists remaining hardcoded data paths that pre-date
+// the ONDA_DATA_DIR refactor. Kept empty after the migration.
+var legacyHardcodedDataPaths = map[string][]int{}
 
 func checkGoFile(repoRoot, path string, violations *[]string) {
 	rel, _ := filepath.Rel(repoRoot, path)
