@@ -1,5 +1,14 @@
 # Changelog
 
+## [v3.4.9] - 2026-09-19
+
+### Added
+- **Observabilidad del pipeline**: el backend registra el código de salida y la señal que termina el proceso, incluye las últimas 40 líneas / 8 KB de salida en el error, guarda la configuración completa del job en el log y escribe `pipeline_status.json` con estado `failed`, paso, código y señal.
+- **Salida del pipeline sin buffer**: se activa `PYTHONUNBUFFERED=1` y se lanza `python3 -u` para que los logs lleguen en tiempo real.
+
+### Test
+- **Cobertura de observabilidad del pipeline**: más de 250 líneas de tests para los nuevos estados de fallo, códigos de salida y cola de salida.
+
 ## [v3.4.8] - 2026-09-19
 
 ### Fixed
