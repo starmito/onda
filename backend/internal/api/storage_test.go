@@ -247,3 +247,63 @@ func TestStorageClean_UnknownAction(t *testing.T) {
 		t.Errorf("expected clear unknown action error, got %s", string(b))
 	}
 }
+
+// TestStorageUsage_DataRootFromEnv verifies that /api/storage/usage reads the
+// configured ONDA_DATA_DIR instead of falling back to the project root. With the
+// old code models/ and logs/ under the configured data root would be reported as
+// 0 because the handler ignored ONDA_DATA_DIR.
+func TestStorageUsage_DataRootFromEnv(t *testing.T) {
+	assertTestRoot(t)
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("cannot get working directory: %v", err)
+	}
+	dataRoot, err := os.MkdirTemp(cwd, "storage-data-root-")
+	if err != nil {
+		t.Fatalf("failed to create data root: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dataRoot) })
+
+	t.Setenv("ONDA_DATA_DIR", dataRoot)
+
+	writeTestFile(t, filepath.Join(dataRoot, "models", "model1.pth"), []byte("model1"))
+	writeTestFile(t, filepath.Join(dataRoot, "models", "model2.pth"), []byte("model2"))
+	writeTestFile(t, filepath.Join(dataRoot, "logs", "onda.log"), []byte("logline"))
+
+	srv := newStorageTestServer(t)
+	resp, err := srv.Client().Get(srv.URL + "/api/storage/usage")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(b))
+	}
+
+	var body struct {
+		Folders   map[string]folderUsage `json:"folders"`
+		FreeBytes int64                  `json:"free_bytes"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if body.Folders["models"].Files != 2 {
+		t.Errorf("models files: expected 2, got %d", body.Folders["models"].Files)
+	}
+	if body.Folders["models"].Bytes != 12 {
+		t.Errorf("models bytes: expected 12, got %d", body.Folders["models"].Bytes)
+	}
+	if body.Folders["logs"].Files != 1 {
+		t.Errorf("logs files: expected 1, got %d", body.Folders["logs"].Files)
+	}
+	if body.Folders["logs"].Bytes != 7 {
+		t.Errorf("logs bytes: expected 7, got %d", body.Folders["logs"].Bytes)
+	}
+	if body.FreeBytes <= 0 {
+		t.Errorf("expected positive free_bytes, got %d", body.FreeBytes)
+	}
+}

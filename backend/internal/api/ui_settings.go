@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 )
-
-const uiSettingsFile = "/config/ui_settings.json"
 
 // UISettings holds persisted UI configuration (accent, theme, font size, scale).
 type UISettings struct {
@@ -23,8 +22,12 @@ var (
 	uiSettingsMu sync.RWMutex
 )
 
+func uiSettingsFile() string {
+	return filepath.Join(mustSub("config"), "ui_settings.json")
+}
+
 func loadUISettings() error {
-	data, err := os.ReadFile(uiSettingsFile)
+	data, err := os.ReadFile(uiSettingsFile())
 	if err != nil {
 		if os.IsNotExist(err) {
 			// File does not exist — use defaults
@@ -54,7 +57,7 @@ func saveUISettings(settings *UISettings) error {
 	if err != nil {
 		return fmt.Errorf("marshal ui settings: %w", err)
 	}
-	if err := os.WriteFile(uiSettingsFile, data, 0644); err != nil {
+	if err := os.WriteFile(uiSettingsFile(), data, 0644); err != nil {
 		return fmt.Errorf("write ui settings: %w", err)
 	}
 	return nil
