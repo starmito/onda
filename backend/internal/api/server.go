@@ -1135,15 +1135,7 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	if !job.Config.ForceRAM {
 		if _, availableMB, ok := hostMemoryProvider(); ok {
 			if ok, _, reason := checkRamHeadroom(availableMB, modelName, stepType); !ok {
-				s.jobsMu.Lock()
-				state.Status = "blocked_no_gpu"
-				state.Error = reason
-				state.BlockedReason = "insufficient_ram"
-				state.BlockedReasonMsg = reason
-				state.Progress = 0
-				s.jobsMu.Unlock()
-				Log("pipeline", "warn", fmt.Sprintf("Job blocked for %s: %s", job.Song, reason))
-				return
+				Log("pipeline", "warn", fmt.Sprintf("Job %s: %s", job.Song, reason))
 			}
 		}
 	}
@@ -1289,17 +1281,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		if !job.Config.ForceRAM {
 			if _, availableMB, ok := hostMemoryProvider(); ok {
 				if ok, _, reason := checkRamHeadroom(availableMB, modelName, step.Type); !ok {
-					s.jobsMu.Lock()
-					if state, ok := s.jobs[job.Song]; ok {
-						state.Status = "blocked_no_gpu"
-						state.Error = reason
-						state.BlockedReason = "insufficient_ram"
-						state.BlockedReasonMsg = reason
-						state.Progress = 0
-					}
-					s.jobsMu.Unlock()
-					Log("pipeline", "warn", fmt.Sprintf("Job blocked for %s at step %d: %s", job.Song, i+1, reason))
-					return
+					Log("pipeline", "warn", fmt.Sprintf("Job %s at step %d: %s", job.Song, i+1, reason))
 				}
 			}
 		}

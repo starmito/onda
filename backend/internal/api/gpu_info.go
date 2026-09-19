@@ -333,13 +333,14 @@ func ramRequiredMB(modelName, stepType string) int {
 
 // checkRamHeadroom returns whether availableMB can accommodate the host RAM
 // expected for modelName/stepType. It returns the required memory and a
-// human-readable reason when there is not enough headroom.
+// human-readable warning when there is not enough headroom. The RAM guard is
+// advisory only: callers log the warning but still proceed with the job.
 func checkRamHeadroom(availableMB int, modelName, stepType string) (bool, int, string) {
 	needed := ramRequiredMB(modelName, stepType)
 	if availableMB >= needed {
 		return true, needed, ""
 	}
-	reason := fmt.Sprintf("insufficient RAM: model %q (step %q) needs ~%d MiB, only %d MiB available",
+	reason := fmt.Sprintf("RAM low: model %q (step %q) estimated ~%d MiB, only %d MiB available - proceeding anyway",
 		modelName, stepType, needed, availableMB)
 	return false, needed, reason
 }

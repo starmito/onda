@@ -294,11 +294,11 @@ func TestCheckRamHeadroom(t *testing.T) {
 		wantReason bool
 	}{
 		{"viperx fits", 8000, "BS_Roformer_Viperx", "vocal", true, false},
-		{"viperx blocked", 6000, "BS_Roformer_Viperx", "vocal", false, true},
+		{"viperx below estimate", 6000, "BS_Roformer_Viperx", "vocal", false, true},
 		{"demucs fits", 5000, "htdemucs_ft", "demucs", true, false},
-		{"demucs blocked", 3000, "htdemucs_ft", "demucs", false, true},
+		{"demucs below estimate", 3000, "htdemucs_ft", "demucs", false, true},
 		{"unknown conservative", 5000, "unknown_model", "vocal", true, false},
-		{"unknown blocked", 2000, "unknown_model", "vocal", false, true},
+		{"unknown below estimate", 2000, "unknown_model", "vocal", false, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -319,37 +319,11 @@ func TestCheckRamHeadroom(t *testing.T) {
 	}
 }
 
-func TestRunSinglePipeline_BlockedInsufficientRAM(t *testing.T) {
+func TestRunSinglePipeline_LowRAMProceeds(t *testing.T) {
 	mockResourceProviders(t)
 	mockLowRAMProvider(t, 1024)
 
-	s := &Server{jobs: make(map[string]*JobState)}
-	state := &JobState{Song: "test", Status: "waiting"}
-	job := JobRequest{
-		Song: "test",
-		Config: SeparateRequest{
-			VocalModel: "BS_Roformer_Viperx",
-		},
-	}
-
-	s.runSinglePipeline(job, state)
-
-	if state.Status != "blocked_no_gpu" {
-		t.Errorf("status = %q, want blocked_no_gpu", state.Status)
-	}
-	if state.BlockedReason != "insufficient_ram" {
-		t.Errorf("blocked_reason = %q, want insufficient_ram", state.BlockedReason)
-	}
-	if !strings.Contains(state.BlockedReasonMsg, "insufficient RAM") {
-		t.Errorf("blocked reason should mention RAM, got %q", state.BlockedReasonMsg)
-	}
-}
-
-func TestRunSinglePipeline_ForceRAM(t *testing.T) {
-	mockResourceProviders(t)
-	mockLowRAMProvider(t, 1024)
-
-	scriptPath := filepath.Join("testdata", "fake_pipeline_force_ram.sh")
+	scriptPath := filepath.Join("testdata", "fake_pipeline_low_ram.sh")
 	if err := os.MkdirAll("testdata", 0o755); err != nil {
 		t.Fatalf("failed to create testdata: %v", err)
 	}
@@ -365,18 +339,20 @@ func TestRunSinglePipeline_ForceRAM(t *testing.T) {
 		Args: []string{scriptPath},
 		Config: SeparateRequest{
 			VocalModel: "BS_Roformer_Viperx",
-			ForceRAM:   true,
 		},
 	}
 
 	s.runSinglePipeline(job, state)
 
 	if state.Status == "blocked_no_gpu" {
-		t.Errorf("ForceRAM=true should not block the job")
+		t.Errorf("low RAM should not block the job, got status %q", state.Status)
+	}
+	if state.BlockedReason == "insufficient_ram" {
+		t.Errorf("low RAM should not set insufficient_ram blocked reason")
 	}
 }
 
-func TestRunMultiStepPipeline_BlockedInsufficientRAM(t *testing.T) {
+func TestRunMultiStepPipeline_LowRAMProceeds(t *testing.T) {
 	mockResourceProviders(t)
 	mockLowRAMProvider(t, 1024)
 
@@ -388,20 +364,17 @@ func TestRunMultiStepPipeline_BlockedInsufficientRAM(t *testing.T) {
 	}
 	job := JobRequest{
 		Song:   "test",
-		Config: SeparateRequest{Input: "/app/input/test.wav"},
+		Config: SeparateRequest{Input: "/app/input/test.wav", Device: "cpu"},
 		Steps:  steps,
 	}
 
 	s.runMultiStepPipeline(job, steps, state)
 
-	if state.Status != "blocked_no_gpu" {
-		t.Errorf("status = %q, want blocked_no_gpu", state.Status)
+	if state.Status == "blocked_no_gpu" {
+		t.Errorf("low RAM should not block the multi-step job, got status %q", state.Status)
 	}
-	if state.BlockedReason != "insufficient_ram" {
-		t.Errorf("blocked_reason = %q, want insufficient_ram", state.BlockedReason)
-	}
-	if !strings.Contains(state.BlockedReasonMsg, "insufficient RAM") {
-		t.Errorf("blocked reason should mention RAM, got %q", state.BlockedReasonMsg)
+	if state.BlockedReason == "insufficient_ram" {
+		t.Errorf("low RAM should not set insufficient_ram blocked reason")
 	}
 }
 
