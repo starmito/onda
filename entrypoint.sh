@@ -48,11 +48,19 @@ if [ "$GPU" != "cpu" ]; then
     fi
 fi
 
-# Crear directorios de montaje
-mkdir -p /app/input /app/output /app/input_rubberband /app/config
+ONDA_DATA_DIR="${ONDA_DATA_DIR:-/app/data}"
+
+# Crear directorios de datos bajo la raiz configurada.
+mkdir -p "${ONDA_DATA_DIR}/input" \
+         "${ONDA_DATA_DIR}/output" \
+         "${ONDA_DATA_DIR}/daw-data" \
+         "${ONDA_DATA_DIR}/input_rubberband" \
+         "${ONDA_DATA_DIR}/config" \
+         "${ONDA_DATA_DIR}/logs" \
+         "${ONDA_DATA_DIR}/models"
 
 # Limpieza de subcarpetas temporales huérfanas de jobs abortados por reinicio duro.
-for job_dir in /app/output/*; do
+for job_dir in "${ONDA_DATA_DIR}/output"/*; do
     if [ -d "$job_dir" ]; then
         for orphan in _vocal _demucs; do
             if [ -d "$job_dir/$orphan" ]; then
