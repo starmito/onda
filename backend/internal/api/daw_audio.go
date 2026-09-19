@@ -370,7 +370,7 @@ func (s *Server) handleDeleteDAWSong(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	Log("backend", "info", fmt.Sprintf("Deleted DAW song: %s (%d files, %d bytes freed)", song, files, bytes))
+	logDeletion(r, "daw-song", "daw-data/"+song, int64(files), bytes)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

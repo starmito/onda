@@ -143,7 +143,7 @@ func (s *Server) handleStorageClean(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	Log("backend", "info", fmt.Sprintf("Storage cleanup %s: %d files, %d bytes freed", result.Action, result.Files, result.Bytes))
+	logDeletion(r, "storage-clean", result.Action, result.Files, result.Bytes)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

@@ -920,16 +920,19 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	deletedFiles := false
+	var fileBytes int64
 
 	// Delete the model file if found
 	if foundPath != "" {
+		if info, err := os.Stat(foundPath); err == nil {
+			fileBytes = info.Size()
+		}
 		if err := os.Remove(foundPath); err != nil {
 			log.Printf("[models] failed to delete model file %s: %v", foundPath, err)
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to delete model file: %v", err)})
 			return
 		}
-		log.Printf("[models] deleted model file: %s", foundPath)
 		deletedFiles = true
 	}
 
@@ -938,6 +941,14 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("model %q not found on disk", name)})
 		return
 	}
+
+	relName := foundPath
+	if projectRoot := findProjectRoot(); projectRoot != "" {
+		if r, err := filepath.Rel(projectRoot, foundPath); err == nil {
+			relName = r
+		}
+	}
+	logDeletion(r, "model", relName, 1, fileBytes)
 
 	resp := map[string]interface{}{
 		"ok":     true,

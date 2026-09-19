@@ -301,12 +301,16 @@ func (s *Server) handleDeletePitchSubgroup(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
+	files, bytesFreed := dirUsage(pitchDir)
+
 	if err := os.RemoveAll(pitchDir); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to delete pitch subgroup: %v", err)})
 		return
 	}
+
+	logDeletion(r, "pitch-subgroup", "output/"+song+"/"+song+"_pitch"+pitchStr, files, bytesFreed)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
@@ -344,12 +348,23 @@ func (s *Server) handleDeletePitchStem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := os.Remove(filePath); err != nil {
+	info, err := os.Stat(filePath)
+	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
 		json.NewEncoder(w).Encode(map[string]string{"error": "file not found"})
 		return
 	}
+	fileBytes := info.Size()
+
+	if err := os.Remove(filePath); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to delete pitch stem: %v", err)})
+		return
+	}
+
+	logDeletion(r, "pitch-stem", "output/"+song+"/"+song+"_pitch"+pitchStr+"/"+file, 1, fileBytes)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})

@@ -168,6 +168,8 @@ func TestHandleDeleteDAWSong_LogsDeletion(t *testing.T) {
 
 	srv := newDAWDeleteTestServer(t)
 	req := httptest.NewRequest(http.MethodDelete, "/api/daw/songs/"+song, nil)
+	req.RemoteAddr = "192.0.2.1:1234"
+	req.Header.Set("User-Agent", "DAWTestAgent/1.0")
 	rr := httptest.NewRecorder()
 	srv.mux.ServeHTTP(rr, req)
 
@@ -175,15 +177,37 @@ func TestHandleDeleteDAWSong_LogsDeletion(t *testing.T) {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}
 
-	entries := defaultLogStore.readRecent(0)
-	var found bool
-	for _, e := range entries {
-		if e.Service == "backend" && strings.Contains(e.Message, "Deleted DAW song: "+song) {
-			found = true
-			break
+	msg := lastDeletionMessage(t)
+	wantParts := []string{
+		`kind=daw-song`,
+		`name="daw-data/` + song + `"`,
+		`files=1`,
+		`bytes=8`,
+		`ip=192.0.2.1`,
+		`ua="DAWTestAgent/1.0"`,
+	}
+	for _, part := range wantParts {
+		if !strings.Contains(msg, part) {
+			t.Fatalf("expected log to contain %q, got: %s", part, msg)
 		}
 	}
-	if !found {
-		t.Fatalf("expected deletion log entry for %q, got %v", song, entries)
+}
+
+func TestHandleDeleteDAWSong_InvalidNameDoesNotLogDeletion(t *testing.T) {
+	setupTestLogStore(t)
+	resetLogBuffer()
+
+	setupDAWTestRoot(t)
+	srv := newDAWDeleteTestServer(t)
+	req := httptest.NewRequest(http.MethodDelete, "/api/daw/songs/%2Fetc%2Fpasswd", nil)
+	rr := httptest.NewRecorder()
+	srv.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	if hasDeletionMessage() {
+		t.Fatalf("invalid deletion request must not leave a deletion log")
 	}
 }

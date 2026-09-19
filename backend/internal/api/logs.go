@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -239,6 +240,31 @@ func listRotatedFiles(dir, base string) ([]string, error) {
 
 func newLogID() string {
 	return fmt.Sprintf("%d-%d", time.Now().UnixNano(), logIDSeq.Add(1))
+}
+
+// clientIP returns the originating client IP from common proxy headers or the
+// request's RemoteAddr. It never returns the port.
+func clientIP(r *http.Request) string {
+	if ip := r.Header.Get("X-Forwarded-For"); ip != "" {
+		return strings.TrimSpace(strings.Split(ip, ",")[0])
+	}
+	if ip := r.Header.Get("X-Real-Ip"); ip != "" {
+		return strings.TrimSpace(ip)
+	}
+	host, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if host != "" {
+		return host
+	}
+	return r.RemoteAddr
+}
+
+// logDeletion writes a structured, grep-friendly audit entry for every deletion.
+// kind describes what was deleted, name is a repo-relative path, and files/bytes
+// quantify the removed data. The client IP and User-Agent are taken from r.
+func logDeletion(r *http.Request, kind, name string, files, bytes int64) {
+	ip := clientIP(r)
+	ua := strings.ReplaceAll(r.UserAgent(), `"`, `\"`)
+	Log("backend", "info", fmt.Sprintf(`Deletion: kind=%s name=%q files=%d bytes=%d ip=%s ua=%q`, kind, name, files, bytes, ip, ua))
 }
 
 // Log añade una entrada al ring buffer en memoria y la persiste en disco.

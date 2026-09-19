@@ -3235,12 +3235,16 @@ func (s *Server) handleDeleteSong(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	files, bytesFreed := dirUsage(absPath)
+
 	if err := os.RemoveAll(absPath); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
+
+	logDeletion(r, "output-song", "output/"+song, files, bytesFreed)
 
 	// Remove job from queue tracking if present
 	s.jobsMu.Lock()
@@ -3287,12 +3291,20 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := os.Stat(absPath); os.IsNotExist(err) {
+	info, err := os.Stat(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "file not found"})
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "file not found"})
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
+	fileBytes := info.Size()
 
 	if err := os.Remove(absPath); err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -3300,6 +3312,8 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
+
+	logDeletion(r, "stem", "output/"+file, 1, fileBytes)
 
 	// Update the in-memory job for this song so the deleted stem is removed
 	// from job.Files. If no files remain, drop the job from tracking so the
@@ -3348,12 +3362,20 @@ func (s *Server) handleDeleteInput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if _, err := os.Stat(absPath); os.IsNotExist(err) {
+	info, err := os.Stat(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "input file not found"})
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "input file not found"})
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
+	fileBytes := info.Size()
 
 	if err := os.Remove(absPath); err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -3362,7 +3384,7 @@ func (s *Server) handleDeleteInput(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	Log("backend", "info", "Deleted input: "+name)
+	logDeletion(r, "input-upload", "input/"+name, 1, fileBytes)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -3386,12 +3408,20 @@ func (s *Server) handleDeletePitchUpload(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	if _, err := os.Stat(absPath); os.IsNotExist(err) {
+	info, err := os.Stat(absPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "pitch upload not found"})
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		json.NewEncoder(w).Encode(map[string]string{"error": "pitch upload not found"})
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 		return
 	}
+	fileBytes := info.Size()
 
 	if err := os.Remove(absPath); err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -3400,7 +3430,7 @@ func (s *Server) handleDeletePitchUpload(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	Log("backend", "info", "Deleted pitch upload: "+name)
+	logDeletion(r, "pitch-upload", "input_rubberband/"+name, 1, fileBytes)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
