@@ -1248,6 +1248,51 @@ export async function applyNoiseGate(req: NoiseGateRequest): Promise<EffectRespo
   });
 }
 
+// ---- Storage config ----
+export interface StorageFolder {
+  exists: boolean;
+  files: number;
+  bytes: number;
+}
+
+export interface StorageConfig {
+  current_root: string;
+  source: 'env' | 'settings' | 'default';
+  exists: boolean;
+  writable: boolean;
+  folders: Record<string, StorageFolder>;
+  mode: 'container' | 'standalone';
+  candidates: string[];
+  note: string;
+}
+
+export async function getStorageConfig(): Promise<StorageConfig> {
+  const res = await fetch(`${API_BASE}/api/storage/config`);
+  if (!res.ok) {
+    throw new Error(`Storage config fetch failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as StorageConfig;
+}
+
+export async function setStorageConfig(root: string): Promise<StorageConfig> {
+  const res = await fetch(`${API_BASE}/api/storage/config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ root }),
+  });
+  if (!res.ok) {
+    let detail = `Request failed with status ${res.status}: ${res.statusText}`;
+    try {
+      const data = (await res.json()) as { error?: string };
+      if (data.error) detail = data.error;
+    } catch {
+      // keep default detail
+    }
+    throw new Error(detail);
+  }
+  return (await res.json()) as StorageConfig;
+}
+
 // ---- DAW EQ ----
 export interface EqFilter {
   type: 'peak' | 'lowshelf' | 'highshelf' | 'lowpass' | 'highpass';
