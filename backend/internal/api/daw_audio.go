@@ -3,6 +3,8 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -237,4 +239,145 @@ func isDAWEditFile(subdir, name string) bool {
 // songTempDir returns the per-song temporary directory path.
 func songTempDir(projectRoot, song string) string {
 	return filepath.Join(projectRoot, dawDataDirName, song, dawTmpSubdir)
+}
+
+// safeDAWSongDir returns the absolute path to daw-data/{song} after verifying
+// that the song name does not contain path separators or traversal sequences
+// and that the resolved directory stays inside daw-data/.
+func safeDAWSongDir(projectRoot, song string) (string, error) {
+	if song == "" || song == "." || song == ".." || hasPathSeparator(song) || strings.Contains(song, "..") {
+		return "", errDAWPathTraversal
+	}
+
+	song = songDirName(song)
+	if song == "" || song == "." || song == ".." {
+		return "", errDAWPathTraversal
+	}
+
+	dir := filepath.Join(projectRoot, dawDataDirName, song)
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		return "", err
+	}
+	absDaw, err := filepath.Abs(filepath.Join(projectRoot, dawDataDirName))
+	if err != nil {
+		return "", err
+	}
+	if abs == absDaw || !strings.HasPrefix(abs, absDaw+string(filepath.Separator)) {
+		return "", errDAWPathTraversal
+	}
+	return abs, nil
+}
+
+// dawSongDeleteResult is the JSON response for a successful DAW song deletion.
+type dawSongDeleteResult struct {
+	Deleted bool   `json:"deleted"`
+	Song    string `json:"song"`
+	Files   int    `json:"files"`
+	Bytes   int64  `json:"bytes"`
+}
+
+// deleteDAWSongDir removes the entire daw-data/{song}/ directory and returns the
+// number of files deleted and the total bytes freed. It refuses to delete paths
+// that are not inside daw-data/.
+func deleteDAWSongDir(projectRoot, song string) (files int, bytes int64, err error) {
+	dir, err := safeDAWSongDir(projectRoot, song)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		return 0, 0, err
+	}
+
+	_ = filepath.WalkDir(dir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if info, statErr := d.Info(); statErr == nil {
+			files++
+			bytes += info.Size()
+		}
+		return nil
+	})
+
+	if err := os.RemoveAll(dir); err != nil {
+		return 0, 0, err
+	}
+	return files, bytes, nil
+}
+
+// handleDeleteDAWSong deletes the whole daw-data/{song}/ tree, including the
+// original upload, imports, edits and tmp subdirectories.
+// DELETE /api/daw/songs/{song}
+func (s *Server) handleDeleteDAWSong(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("method %s not allowed", r.Method),
+		})
+		return
+	}
+
+	song := r.PathValue("song")
+	if song == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "missing song name"})
+		return
+	}
+
+	projectRoot := findProjectRoot()
+	dir, err := safeDAWSongDir(projectRoot, song)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error":   "invalid song name",
+			"details": err.Error(),
+		})
+		return
+	}
+
+	if _, err := os.Stat(dir); os.IsNotExist(err) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "song not found",
+			"song":  song,
+		})
+		return
+	}
+
+	files, bytes, err := deleteDAWSongDir(projectRoot, song)
+	if err != nil {
+		if errors.Is(err, errDAWPathTraversal) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{
+				"error":   "invalid song name",
+				"details": err.Error(),
+			})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	Log("backend", "info", fmt.Sprintf("Deleted DAW song: %s (%d files, %d bytes freed)", song, files, bytes))
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(dawSongDeleteResult{
+		Deleted: true,
+		Song:    song,
+		Files:   files,
+		Bytes:   bytes,
+	})
 }
