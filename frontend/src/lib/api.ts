@@ -477,6 +477,7 @@ export interface InputEntry {
   name: string;
   path: string;
   source?: string;
+  processed?: boolean;
 }
 
 export async function getInputs(include?: 'input' | 'daw-data' | 'all'): Promise<InputEntry[]> {

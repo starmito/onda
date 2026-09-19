@@ -67,6 +67,9 @@
   let stemsLoading = $state(false);
   let uploadedInputs = $state<InputEntry[]>([]);
   let uploadedLoading = $state(false);
+  let showProcessedInputs = $state(false);
+  let originalInputs = $derived(uploadedInputs.filter(isOriginalInput));
+  let processedInputs = $derived(uploadedInputs.filter((e) => !isOriginalInput(e)));
   let expandedSongs = $state<Record<string, boolean>>({});
   let uploadResult = $state<{ file: string; size: number } | null>(null);
 
@@ -691,7 +694,8 @@
     isProcessing = true;
     status = 'Importando...';
     try {
-      const resp = await importStem('input', undefined, undefined, undefined, entry.name);
+      const source = entry.source || 'input';
+      const resp = await importStem(source, undefined, undefined, undefined, entry.name);
       addTrack(resp.file, `/daw-data/${resp.file}`, resp.size);
       status = `Importado: ${resp.file}`;
       await loadUploadedInputs();
@@ -706,6 +710,10 @@
     } finally {
       isProcessing = false;
     }
+  }
+
+  function isOriginalInput(entry: InputEntry): boolean {
+    return entry.source === 'input' || (entry.source === 'daw-data' && !entry.processed);
   }
 
   async function handleImportOutput(song: string, stem: string) {
@@ -986,23 +994,60 @@
             {:else if uploadedInputs.length === 0}
               <div class="empty">No hay canciones subidas todavía.</div>
             {:else}
-              {#each uploadedInputs as entry}
-                <div class="stem-item">
-                  <div class="stem-info">
-                    <span class="stem-name">{entry.name}</span>
-                    <span class="stem-meta">
-                      {entry.source === 'daw-data' ? 'DAW' : 'Subida'}
-                    </span>
-                  </div>
-                  <button
-                    class="btn-small"
-                    onclick={() => handleImportUploaded(entry)}
-                    disabled={isProcessing}
-                  >
-                    Importar
-                  </button>
+              {#if originalInputs.length > 0}
+                <div class="input-group">
+                  <h4 class="input-group-title">Originales</h4>
+                  {#each originalInputs as entry}
+                    <div class="stem-item">
+                      <div class="stem-info">
+                        <span class="stem-name">{entry.name}</span>
+                        <span class="stem-meta">
+                          {entry.source === 'daw-data' ? 'DAW' : 'Subida'}
+                        </span>
+                      </div>
+                      <button
+                        class="btn-small"
+                        onclick={() => handleImportUploaded(entry)}
+                        disabled={isProcessing}
+                      >
+                        Importar
+                      </button>
+                    </div>
+                  {/each}
                 </div>
-              {/each}
+              {/if}
+              {#if processedInputs.length > 0}
+                <div class="input-group">
+                  <button
+                    class="processed-toggle"
+                    onclick={() => (showProcessedInputs = !showProcessedInputs)}
+                  >
+                    <span class="toggle-icon">{showProcessedInputs ? '▼' : '▶'}</span>
+                    <span class="processed-toggle-text">Procesados por el DAW</span>
+                    <span class="processed-count">({processedInputs.length})</span>
+                  </button>
+                  {#if showProcessedInputs}
+                    <p class="processed-hint">
+                      Resultados intermedios generados por los efectos del DAW (delay, reverb, eq, etc.).
+                    </p>
+                    {#each processedInputs as entry}
+                      <div class="stem-item processed-item">
+                        <div class="stem-info">
+                          <span class="stem-name">{entry.name}</span>
+                          <span class="stem-meta">DAW · procesado</span>
+                        </div>
+                        <button
+                          class="btn-small"
+                          onclick={() => handleImportUploaded(entry)}
+                          disabled={isProcessing}
+                        >
+                          Importar
+                        </button>
+                      </div>
+                    {/each}
+                  {/if}
+                </div>
+              {/if}
             {/if}
           </div>
         {:else if importTab === 'output'}
@@ -1541,5 +1586,64 @@
 
   :global(.tempo-grid-overlay) {
     pointer-events: none;
+  }
+
+  .input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+  }
+
+  .input-group-title {
+    margin: 0;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+  }
+
+  .processed-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.5rem 0.6rem;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    color: var(--text-primary);
+    font-weight: 600;
+    font-size: 0.85rem;
+    cursor: pointer;
+    text-align: left;
+  }
+
+  .processed-toggle:hover {
+    background: var(--bg-hover);
+  }
+
+  .processed-toggle-text {
+    flex: 1;
+  }
+
+  .processed-count {
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-weight: 500;
+  }
+
+  .processed-hint {
+    margin: 0;
+    padding: 0.4rem 0.6rem;
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    background: var(--bg);
+    border-radius: 6px;
+    line-height: 1.4;
+  }
+
+  .processed-item {
+    opacity: 0.85;
   }
 </style>

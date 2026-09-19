@@ -110,6 +110,33 @@ func TestRunSinglePipeline_BlockedNoGPU(t *testing.T) {
 	}
 }
 
+func TestRunSinglePipeline_BlockedNoGPU_PresetFallback(t *testing.T) {
+	orig := gpuInfoProvider
+	defer func() { gpuInfoProvider = orig }()
+	gpuInfoProvider = func() GPUInfoResponse {
+		return GPUInfoResponse{OK: true, VRAMFreeMB: 500}
+	}
+
+	s := &Server{jobs: make(map[string]*JobState)}
+	state := &JobState{Song: "test", Status: "waiting"}
+	job := JobRequest{
+		Song: "test",
+		Config: SeparateRequest{
+			Preset: "fast",
+			Input:  "/app/input/test.wav",
+		},
+	}
+
+	s.runSinglePipeline(job, state)
+
+	if state.Status != "blocked_no_gpu" {
+		t.Errorf("status = %q, want blocked_no_gpu", state.Status)
+	}
+	if !strings.Contains(state.BlockedReasonMsg, `"fast"`) {
+		t.Errorf("blocked reason should mention preset, got %q", state.BlockedReasonMsg)
+	}
+}
+
 func TestRunSinglePipeline_ForceVRAM(t *testing.T) {
 	orig := gpuInfoProvider
 	defer func() { gpuInfoProvider = orig }()

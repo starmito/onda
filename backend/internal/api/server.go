@@ -581,9 +581,10 @@ func (s *Server) handleResults(w http.ResponseWriter, r *http.Request) {
 
 // InputEntry describes an uploaded input file.
 type InputEntry struct {
-	Name   string `json:"name"`
-	Path   string `json:"path"`
-	Source string `json:"source"`
+	Name      string `json:"name"`
+	Path      string `json:"path"`
+	Source    string `json:"source"`
+	Processed bool   `json:"processed,omitempty"`
 }
 
 // audioFileExts lists the extensions considered uploaded audio files.
@@ -593,6 +594,13 @@ var audioFileExts = map[string]bool{
 	".flac": true,
 	".ogg":  true,
 	".m4a":  true,
+}
+
+// isOriginalDAWFile reports whether a file already living in daw-data/ is an
+// original upload/import (as opposed to an intermediate effect output).
+func isOriginalDAWFile(name string) bool {
+	lower := strings.ToLower(name)
+	return strings.HasPrefix(lower, "upload_") || strings.HasPrefix(lower, "import_")
 }
 
 // handleInputs lists uploaded audio files from input/ and, when requested,
@@ -662,24 +670,43 @@ func (s *Server) handleInputs(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				inputs = append(inputs, InputEntry{
-					Name:   name,
-					Path:   "daw-data/" + name,
-					Source: "daw-data",
+					Name:      name,
+					Path:      "daw-data/" + name,
+					Source:    "daw-data",
+					Processed: !isOriginalDAWFile(name),
 				})
 			}
 		}
 	}
 
+	// Most recently modified first; fall back to source and name for stability.
 	sort.Slice(inputs, func(i, j int) bool {
-		if inputs[i].Source != inputs[j].Source {
-			return inputs[i].Source < inputs[j].Source
-		}
-		return inputs[i].Name < inputs[j].Name
+		return inputEntryModTime(projectRoot, inputs[i]).After(inputEntryModTime(projectRoot, inputs[j]))
 	})
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(inputs)
+}
+
+// inputEntryModTime returns the modification time for an input entry. It is
+// used by handleInputs for deterministic ordering; if stat fails it returns
+// the zero time so the entry sorts to the end.
+func inputEntryModTime(projectRoot string, entry InputEntry) time.Time {
+	var dir string
+	switch entry.Source {
+	case "input":
+		dir = "input"
+	case "daw-data":
+		dir = "daw-data"
+	default:
+		return time.Time{}
+	}
+	path := filepath.Join(projectRoot, dir, entry.Name)
+	if info, err := os.Stat(path); err == nil {
+		return info.ModTime()
+	}
+	return time.Time{}
 }
 
 const blockedAutoFailSeconds = 120
@@ -992,6 +1019,12 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	}
 	if modelName == "" {
 		modelName = job.Config.DemucsModel
+	}
+	if modelName == "" && job.Config.Preset != "" {
+		// Fall back to the preset name so the user sees something useful
+		// (e.g. "insufficient VRAM: model \"fast\" needs ...") instead of
+		// the generic "unknown" placeholder.
+		modelName = job.Config.Preset
 	}
 	if modelName == "" {
 		modelName = "unknown"

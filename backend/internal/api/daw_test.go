@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func setupDAWTestRoot(t *testing.T) string {
@@ -22,7 +23,7 @@ func setupDAWTestRoot(t *testing.T) string {
 	t.Setenv("ONDA_ROOT", root)
 	t.Cleanup(func() { os.RemoveAll(root) })
 
-	for _, dir := range []string{"output", "input_rubberband", "daw-data"} {
+	for _, dir := range []string{"output", "input", "input_rubberband", "daw-data"} {
 		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
 			t.Fatalf("failed to create %s: %v", dir, err)
 		}
@@ -34,6 +35,7 @@ func newDAWTestServer(t *testing.T) *Server {
 	t.Helper()
 	s := &Server{mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /api/daw/stems", s.handleListStems)
+	s.mux.HandleFunc("GET /api/inputs", s.handleInputs)
 	s.mux.HandleFunc("POST /api/daw/import", s.handleImportStem)
 	s.mux.HandleFunc("POST /api/daw/upload", s.handleUploadAudio)
 	s.mux.HandleFunc("POST /api/audio/trim", s.handleTrim)
@@ -174,6 +176,7 @@ func TestHandleImportStem_Validation(t *testing.T) {
 		`{"source":"output","stem":"vocals.wav"}`,
 		`{"source":"pitch"}`,
 		`{"source":"input"}`,
+		`{"source":"daw-data"}`,
 		`{"source":"bad"}`,
 	}
 	for _, body := range cases {
@@ -254,6 +257,151 @@ func TestHandleImportStem_InputNotFound_StructuredError(t *testing.T) {
 	}
 	if resp.File != "no_existe.wav" {
 		t.Fatalf("expected file no_existe.wav, got %q", resp.File)
+	}
+}
+
+func TestHandleImportStem_DawData(t *testing.T) {
+	root := setupDAWTestRoot(t)
+	srcContent := []byte("daw-data-song-content")
+	writeTestFile(t, filepath.Join(root, "daw-data", "upload_mi_cancion.wav"), srcContent)
+
+	srv := newDAWTestServer(t)
+	body := `{"source":"daw-data","file":"upload_mi_cancion.wav"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/daw/import", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ImportResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.File != "upload_mi_cancion.wav" {
+		t.Fatalf("expected file upload_mi_cancion.wav, got %s", resp.File)
+	}
+	if resp.Size != int64(len(srcContent)) {
+		t.Fatalf("expected size %d, got %d", len(srcContent), resp.Size)
+	}
+}
+
+func TestHandleImportStem_DawData_NotFound(t *testing.T) {
+	setupDAWTestRoot(t)
+	srv := newDAWTestServer(t)
+
+	body := `{"source":"daw-data","file":"no_existe.wav"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/daw/import", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp dawFileNotFoundResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Code != "file_not_found" {
+		t.Fatalf("expected code file_not_found, got %q", resp.Code)
+	}
+	if resp.File != "no_existe.wav" {
+		t.Fatalf("expected file no_existe.wav, got %q", resp.File)
+	}
+}
+
+func TestHandleImportStem_Input_Traversal(t *testing.T) {
+	root := setupDAWTestRoot(t)
+	writeTestFile(t, filepath.Join(root, "input", "mi_cancion.wav"), []byte("ok"))
+	writeTestFile(t, filepath.Join(root, "secret.txt"), []byte("secret"))
+	srv := newDAWTestServer(t)
+
+	body := `{"source":"input","file":"../secret.txt"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/daw/import", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for traversal, got %d: %s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(rr.Body.String(), "invalid file name") {
+		t.Fatalf("expected invalid file name error, got %s", rr.Body.String())
+	}
+}
+
+func TestHandleInputs_ProcessedAndSorted(t *testing.T) {
+	root := setupDAWTestRoot(t)
+
+	// Create input/ files.
+	writeTestFile(t, filepath.Join(root, "input", "a_input.wav"), []byte("a"))
+	writeTestFile(t, filepath.Join(root, "input", "b_input.wav"), []byte("b"))
+
+	// Create daw-data originals.
+	writeTestFile(t, filepath.Join(root, "daw-data", "upload_original.wav"), []byte("upload"))
+	writeTestFile(t, filepath.Join(root, "daw-data", "import_original.wav"), []byte("import"))
+
+	// Create daw-data processed effect outputs.
+	writeTestFile(t, filepath.Join(root, "daw-data", "reverb_original.wav"), []byte("reverb"))
+	writeTestFile(t, filepath.Join(root, "daw-data", "eq_original.wav"), []byte("eq"))
+
+	// Touch files to enforce a predictable modification order.
+	now := time.Now()
+	_ = os.Chtimes(filepath.Join(root, "input", "a_input.wav"), now, now.Add(-2*time.Hour))
+	_ = os.Chtimes(filepath.Join(root, "input", "b_input.wav"), now, now.Add(-1*time.Hour))
+	_ = os.Chtimes(filepath.Join(root, "daw-data", "upload_original.wav"), now, now.Add(-30*time.Minute))
+	_ = os.Chtimes(filepath.Join(root, "daw-data", "import_original.wav"), now, now)
+	_ = os.Chtimes(filepath.Join(root, "daw-data", "reverb_original.wav"), now, now.Add(-15*time.Minute))
+	_ = os.Chtimes(filepath.Join(root, "daw-data", "eq_original.wav"), now, now.Add(-45*time.Minute))
+
+	srv := newDAWTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/inputs?include=all", nil)
+	rr := httptest.NewRecorder()
+	srv.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp []InputEntry
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(resp) != 6 {
+		t.Fatalf("expected 6 inputs, got %d", len(resp))
+	}
+
+	// Most recently modified first.
+	wantOrder := []string{"import_original.wav", "reverb_original.wav", "upload_original.wav", "eq_original.wav", "b_input.wav", "a_input.wav"}
+	for i, want := range wantOrder {
+		if resp[i].Name != want {
+			t.Fatalf("position %d: expected %q, got %q", i, want, resp[i].Name)
+		}
+	}
+
+	// Verify processed flag.
+	processed := make(map[string]bool)
+	for _, e := range resp {
+		processed[e.Name] = e.Processed
+	}
+	if processed["reverb_original.wav"] != true {
+		t.Fatalf("expected reverb_original.wav to be processed")
+	}
+	if processed["eq_original.wav"] != true {
+		t.Fatalf("expected eq_original.wav to be processed")
+	}
+	if processed["upload_original.wav"] != false {
+		t.Fatalf("expected upload_original.wav to be original")
+	}
+	if processed["import_original.wav"] != false {
+		t.Fatalf("expected import_original.wav to be original")
+	}
+	if processed["a_input.wav"] != false {
+		t.Fatalf("expected input files to be original")
 	}
 }
 

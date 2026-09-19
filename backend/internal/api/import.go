@@ -69,6 +69,14 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to resolve input path"})
 		return
 	}
+	dawBase := filepath.Join(projectRoot, "daw-data")
+	absDawBase, err := filepath.Abs(dawBase)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to resolve daw-data path"})
+		return
+	}
 
 	var srcPath, destFile string
 	var absBase string
@@ -118,10 +126,33 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": "file is required for input source"})
 			return
 		}
+		if strings.ContainsAny(req.File, `/\`) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "invalid file name"})
+			return
+		}
 		safeName := filepath.Base(req.File)
 		srcPath = filepath.Join(inputBase, safeName)
 		absBase = absInputBase
 		destFile = fmt.Sprintf("import_%s", safeName)
+	case "daw-data":
+		if req.File == "" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "file is required for daw-data source"})
+			return
+		}
+		if strings.ContainsAny(req.File, `/\`) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "invalid file name"})
+			return
+		}
+		safeName := filepath.Base(req.File)
+		srcPath = filepath.Join(dawBase, safeName)
+		absBase = absDawBase
+		destFile = safeName
 	default:
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
