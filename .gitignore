@@ -58,3 +58,6 @@ logs/
 
 # Local configuration (contains user settings, secrets, generated model configs)
 config/
+
+# Unified data directory (bind-mounted into the container)
+data/

@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -21,6 +22,8 @@ type ExportRequest struct {
 type ExportResponse struct {
 	File   string `json:"file"`
 	Path   string `json:"path,omitempty"`
+	URL    string `json:"url,omitempty"`
+	Name   string `json:"name,omitempty"`
 	Format string `json:"format"`
 	Size   int64  `json:"size"`
 }
@@ -71,10 +74,10 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
+	projectRoot := dataRoot()
 
 	// Resolve the source inside the daw-data tree first, then fall back to input/.
-	filePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
+	filePath, safeName, song, subdir, err := resolveDAWAudioSource(req.File)
 	if err != nil {
 		// Legacy flat fallback for input files.
 		safeName = filepath.Base(req.File)
@@ -82,6 +85,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
 			filePath = candidate
 			song = ""
+			subdir = ""
 		} else {
 			writeDAWFileNotFound(w, safeName)
 			return
@@ -96,24 +100,66 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Determine the song directory for the converted output.
+	if song == "" {
+		song = songDirName(strings.TrimSuffix(safeName, filepath.Ext(safeName)))
+	}
+
 	if format == "wav" {
+		if configuredExportDir := exportDir(); configuredExportDir != "" {
+			outputName := "export_" + strings.TrimSuffix(safeName, filepath.Ext(safeName)) + ".wav"
+			outputPath := filepath.Join(configuredExportDir, outputName)
+			if err := os.MkdirAll(configuredExportDir, 0o755); err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]string{"error": "failed to create export directory"})
+				return
+			}
+			if err := copyFile(filePath, outputPath); err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]string{"error": "failed to copy exported file: " + err.Error()})
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(ExportResponse{
+				File:   outputName,
+				Path:   outputName,
+				URL:    exportDirFileURL(outputName),
+				Name:   song,
+				Format: format,
+				Size:   info.Size(),
+			})
+			return
+		}
+
+		var relPath, name string
+		if song != "" {
+			if subdir == "" {
+				subdir = dawOriginalSubdir
+			}
+			relPath = filepath.Join(dawDataDirName, song, subdir, safeName)
+			name = song
+		} else {
+			relPath = filepath.Join("input", safeName)
+			name = strings.TrimSuffix(safeName, filepath.Ext(safeName))
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(ExportResponse{
 			File:   safeName,
+			Path:   relPath,
+			URL:    dawDataURL(relPath),
+			Name:   name,
 			Format: format,
 			Size:   info.Size(),
 		})
 		return
 	}
 
-	// Determine the song directory for the converted output.
-	if song == "" {
-		song = songDirName(strings.TrimSuffix(safeName, filepath.Ext(safeName)))
-	}
-
 	// FLAC/MP3 export: convert the source file with ffmpeg and write it to
-	// daw-data/{song}/edits/.
+	// either the configured export directory or daw-data/{song}/edits/.
 	var outputExt, codec string
 	var extraArgs []string
 	switch format {
@@ -126,17 +172,31 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		extraArgs = []string{"-b:a", bitrate}
 	}
 
-	editsDir := filepath.Join(projectRoot, dawDataDirName, song, dawEditsSubdir)
-	if err := os.MkdirAll(editsDir, 0o755); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to create daw-data directory"})
-		return
-	}
-
 	base := strings.TrimSuffix(safeName, filepath.Ext(safeName))
 	outputName := "export_" + base + outputExt
-	outputPath := filepath.Join(editsDir, outputName)
+
+	var outputPath string
+	var relPath string
+	if configuredExportDir := exportDir(); configuredExportDir != "" {
+		if err := os.MkdirAll(configuredExportDir, 0o755); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "failed to create export directory"})
+			return
+		}
+		outputPath = filepath.Join(configuredExportDir, outputName)
+		relPath = outputName
+	} else {
+		editsDir := filepath.Join(projectRoot, dawDataDirName, song, dawEditsSubdir)
+		if err := os.MkdirAll(editsDir, 0o755); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "failed to create daw-data directory"})
+			return
+		}
+		outputPath = filepath.Join(editsDir, outputName)
+		relPath = filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName)
+	}
 
 	args := []string{
 		"-y",
@@ -165,12 +225,42 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	var downloadURL string
+	if exportDir() != "" {
+		downloadURL = exportDirFileURL(outputName)
+	} else {
+		downloadURL = dawDataURL(relPath)
+	}
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(ExportResponse{
 		File:   outputName,
-		Path:   filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
+		Path:   relPath,
+		URL:    downloadURL,
+		Name:   song,
 		Format: format,
 		Size:   outInfo.Size(),
 	})
+}
+
+// copyFile copies src to dst, creating dst's parent directory if needed.
+func copyFile(src, dst string) error {
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return err
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Sync()
 }

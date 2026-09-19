@@ -32,10 +32,14 @@
     activeFile = fileName;
   }
 
-  function handleProcessedFile(fileName: string) {
-    activeFile = fileName;
-    dawPageRef?.setActiveTrackFile?.(fileName);
+  function handleProcessedFile(result: { path: string; url: string; name: string }) {
+    activeFile = result.path;
+    dawPageRef?.setActiveTrackFile?.(result);
   }
+
+  const activeTrackName = $derived(
+    dawPageRef?.tracks?.find((t: any) => t.fileName === activeFile)?.name ?? activeFile,
+  );
 
   // ===== Full mixer state =====
   let dawPageRef = $state<any>(null);
@@ -93,7 +97,7 @@
     id: string;
     name: string;
     params: EffectParam[];
-    apply: (file: string, values: Record<string, number>) => Promise<string>;
+    apply: (file: string, values: Record<string, number>) => Promise<{ path: string; url: string; name: string }>;
   };
 
   const effects: EffectDef[] = [
@@ -116,7 +120,7 @@
           release: values.release,
           makeup: values.makeup,
         });
-        return resp.file;
+        return { path: resp.path, url: resp.url, name: resp.name };
       },
     },
     {
@@ -134,7 +138,7 @@
           decay: values.decay,
           wet_dry: values.wet_dry,
         });
-        return resp.file;
+        return { path: resp.path, url: resp.url, name: resp.name };
       },
     },
     {
@@ -152,7 +156,7 @@
           feedback: values.feedback,
           wet_dry: values.wet_dry,
         });
-        return resp.file;
+        return { path: resp.path, url: resp.url, name: resp.name };
       },
     },
     {
@@ -172,7 +176,7 @@
           delay_ms: values.delay_ms,
           wet_dry: values.wet_dry,
         });
-        return resp.file;
+        return { path: resp.path, url: resp.url, name: resp.name };
       },
     },
     {
@@ -190,7 +194,7 @@
           rate: values.rate,
           wet_dry: values.wet_dry,
         });
-        return resp.file;
+        return { path: resp.path, url: resp.url, name: resp.name };
       },
     },
     {
@@ -208,7 +212,7 @@
           rate: values.rate,
           wet_dry: values.wet_dry,
         });
-        return resp.file;
+        return { path: resp.path, url: resp.url, name: resp.name };
       },
     },
     {
@@ -224,7 +228,7 @@
           speed: values.speed,
           depth: values.depth,
         });
-        return resp.file;
+        return { path: resp.path, url: resp.url, name: resp.name };
       },
     },
     {
@@ -242,7 +246,7 @@
           attack: values.attack,
           release: values.release,
         });
-        return resp.file;
+        return { path: resp.path, url: resp.url, name: resp.name };
       },
     },
   ];
@@ -307,9 +311,9 @@
     insertLoading[key] = true;
     insertResults[key] = '';
     try {
-      const outputFile = await effect.apply(track.fileName, channelInsertValues[trackId][slot]);
-      insertResults[key] = `Aplicado: ${outputFile}`;
-      dawPageRef?.setTrackFile?.(trackId, outputFile);
+      const output = await effect.apply(track.fileName, channelInsertValues[trackId][slot]);
+      insertResults[key] = `Aplicado: ${output.name}`;
+      dawPageRef?.setTrackFile?.(trackId, output);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (err instanceof DAWAudioNotFoundError) {
@@ -372,7 +376,7 @@
       const resp = await applyEQ({ file: track.fileName, filters: channelEqBands[track.id] });
       eqFiltersApplied = resp.filters_applied;
       eqResult = `EQ aplicado: ${resp.file}`;
-      dawPageRef?.setTrackFile?.(track.id, resp.file);
+      dawPageRef?.setTrackFile?.(track.id, { path: resp.path, url: resp.url, name: resp.name });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (err instanceof DAWAudioNotFoundError) {
@@ -397,8 +401,8 @@
       </select>
     </label>
 
-    {#if activeFile}
-      <span class="active-file">Sonando: {activeFile}</span>
+    {#if activeTrackName}
+      <span class="active-file">Sonando: {activeTrackName}</span>
     {:else}
       <span class="active-file empty">Sin pista activa</span>
     {/if}

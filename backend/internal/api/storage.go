@@ -52,9 +52,9 @@ func dirUsage(path string) (files int64, bytes int64) {
 }
 
 // freeDiskSpace returns the available bytes on the filesystem holding the
-// project output directory. It falls back to 0 if Statfs fails.
-func freeDiskSpace(projectRoot string) int64 {
-	outputDir := filepath.Join(projectRoot, "output")
+// data root output directory. It falls back to 0 if Statfs fails.
+func freeDiskSpace(root string) int64 {
+	outputDir := mustSub("output")
 	_ = os.MkdirAll(outputDir, 0o755)
 
 	var stat syscall.Statfs_t
@@ -76,17 +76,17 @@ func (s *Server) handleStorageUsage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
+	root := dataRoot()
 	folders := make(map[string]folderUsage, len(storageFolders))
 	for _, name := range storageFolders {
-		path := filepath.Join(projectRoot, name)
+		path := mustSub(name)
 		files, bytes := dirUsage(path)
 		folders[name] = folderUsage{Files: files, Bytes: bytes}
 	}
 
 	resp := map[string]interface{}{
 		"folders":    folders,
-		"free_bytes": freeDiskSpace(projectRoot),
+		"free_bytes": freeDiskSpace(root),
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -116,17 +116,17 @@ func (s *Server) handleStorageClean(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
+	root := dataRoot()
 	var result cleanResult
 	var err error
 
 	switch req.Action {
 	case "tmp":
-		result, err = cleanTmpFiles(projectRoot)
+		result, err = cleanTmpFiles(root)
 	case "orphan-edits":
-		result, err = cleanOrphanEdits(projectRoot)
+		result, err = cleanOrphanEdits(root)
 	case "all-edits":
-		result, err = cleanAllEdits(projectRoot)
+		result, err = cleanAllEdits(root)
 	default:
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -183,9 +183,9 @@ func removeFilesInDir(dir string) (int64, int64, error) {
 }
 
 // cleanTmpFiles removes files inside daw-data/{song}/tmp for every song.
-func cleanTmpFiles(projectRoot string) (cleanResult, error) {
+func cleanTmpFiles(root string) (cleanResult, error) {
 	result := cleanResult{Action: "tmp"}
-	dawRoot := filepath.Join(projectRoot, dawDataDirName)
+	dawRoot := mustSub(dawDataDirName)
 	entries, err := os.ReadDir(dawRoot)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -198,7 +198,7 @@ func cleanTmpFiles(projectRoot string) (cleanResult, error) {
 		if !entry.IsDir() {
 			continue
 		}
-		songDir, err := safeDAWSongDir(projectRoot, entry.Name())
+		songDir, err := safeDAWSongDir(root, entry.Name())
 		if err != nil {
 			continue
 		}
@@ -211,9 +211,9 @@ func cleanTmpFiles(projectRoot string) (cleanResult, error) {
 
 // cleanAllEdits removes files inside daw-data/{song}/edits for every song,
 // keeping original.* and imports/ untouched.
-func cleanAllEdits(projectRoot string) (cleanResult, error) {
+func cleanAllEdits(root string) (cleanResult, error) {
 	result := cleanResult{Action: "all-edits"}
-	dawRoot := filepath.Join(projectRoot, dawDataDirName)
+	dawRoot := mustSub(dawDataDirName)
 	entries, err := os.ReadDir(dawRoot)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -226,7 +226,7 @@ func cleanAllEdits(projectRoot string) (cleanResult, error) {
 		if !entry.IsDir() {
 			continue
 		}
-		songDir, err := safeDAWSongDir(projectRoot, entry.Name())
+		songDir, err := safeDAWSongDir(root, entry.Name())
 		if err != nil {
 			continue
 		}
@@ -239,9 +239,9 @@ func cleanAllEdits(projectRoot string) (cleanResult, error) {
 
 // cleanOrphanEdits removes files inside daw-data/{song}/edits only for songs
 // that no longer have any original.* file in their original/ subdirectory.
-func cleanOrphanEdits(projectRoot string) (cleanResult, error) {
+func cleanOrphanEdits(root string) (cleanResult, error) {
 	result := cleanResult{Action: "orphan-edits"}
-	dawRoot := filepath.Join(projectRoot, dawDataDirName)
+	dawRoot := mustSub(dawDataDirName)
 	entries, err := os.ReadDir(dawRoot)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -254,7 +254,7 @@ func cleanOrphanEdits(projectRoot string) (cleanResult, error) {
 		if !entry.IsDir() {
 			continue
 		}
-		songDir, err := safeDAWSongDir(projectRoot, entry.Name())
+		songDir, err := safeDAWSongDir(root, entry.Name())
 		if err != nil {
 			continue
 		}

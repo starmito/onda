@@ -45,10 +45,10 @@ func init() {
 	}
 }
 
-// resolveProjectRoot is an alias for findProjectRoot so health.go and the
-// pipeline fixes can use a consistent name without duplicating logic.
+// resolveProjectRoot is an alias for dataRoot so callers that need the
+// effective data root can use a consistent name without duplicating logic.
 func resolveProjectRoot() string {
-	return findProjectRoot()
+	return dataRoot()
 }
 
 // FileEntry describes a generated stem file.
@@ -94,6 +94,8 @@ type JobState struct {
 	TotalSteps       int         `json:"total_steps"`
 	StepName         string      `json:"step_name"`
 	Device           string      `json:"device,omitempty"`
+	CurrentModel     string      `json:"current_model,omitempty"`
+	CurrentFlags     string      `json:"current_flags,omitempty"`
 	BlockedReason    string      `json:"blocked_reason,omitempty"`
 	BlockedReasonMsg string      `json:"blocked_reason_msg,omitempty"`
 	StartedAt        time.Time   `json:"started_at,omitempty"`
@@ -241,6 +243,9 @@ func NewServer(addr string) *http.Server {
 	// Storage API
 	s.mux.HandleFunc("GET /api/storage/usage", s.handleStorageUsage)
 	s.mux.HandleFunc("POST /api/storage/clean", s.handleStorageClean)
+	s.mux.HandleFunc("GET /api/storage/config", s.handleStorageConfigGet)
+	s.mux.HandleFunc("POST /api/storage/config", s.handleStorageConfigPost)
+	s.mux.HandleFunc("GET /api/export/files/{file}", s.handleExportFileServe)
 	s.mux.HandleFunc("GET /api/logs", s.handleGetLogs)
 	s.mux.HandleFunc("GET /api/logs/services", s.handleGetServiceLogs)
 	s.mux.HandleFunc("/api/models", s.handleModels)
@@ -300,19 +305,25 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("DELETE /api/uploads/pitch/{name}", s.handleDeletePitchUpload)
 
 	// Servir archivos estaticos de audio (relativos al project root para no depender de rutas de contenedor)
-	projectRoot := resolveProjectRoot()
-	outputDir := filepath.Join(projectRoot, "output")
-	inputRubberbandDir := filepath.Join(projectRoot, "input_rubberband")
-	dawDataDir := filepath.Join(projectRoot, "daw-data")
+	outputDir := mustSub("output")
+	inputRubberbandDir := mustSub("input_rubberband")
+	dawDataDir := mustSub("daw-data")
 	os.MkdirAll(outputDir, 0o755)
 	os.MkdirAll(inputRubberbandDir, 0o755)
 	os.MkdirAll(dawDataDir, 0o755)
-	s.mux.Handle("GET /output/", http.StripPrefix("/output/", http.FileServer(http.Dir(outputDir))))
-	s.mux.Handle("GET /input_rubberband/", http.StripPrefix("/input_rubberband/", http.FileServer(http.Dir(inputRubberbandDir))))
-	s.mux.Handle("GET /daw-data/", http.StripPrefix("/daw-data/", http.FileServer(http.Dir(dawDataDir))))
+	outputRoute := "/" + filepath.Base(outputDir) + "/"
+	inputRubberbandRoute := "/" + filepath.Base(inputRubberbandDir) + "/"
+	dawDataRoute := "/" + filepath.Base(dawDataDir) + "/"
+	s.mux.Handle("GET "+outputRoute, http.StripPrefix(outputRoute, http.FileServer(http.Dir(outputDir))))
+	s.mux.Handle("GET "+inputRubberbandRoute, http.StripPrefix(inputRubberbandRoute, http.FileServer(http.Dir(inputRubberbandDir))))
+	s.mux.Handle("GET "+dawDataRoute, http.StripPrefix(dawDataRoute, http.FileServer(http.Dir(dawDataDir))))
 
 	// Servir frontend Svelte embebido (catch-all — debe ir al final)
 	s.mux.Handle("/", http.FileServer(http.FS(frontendFS)))
+
+	// Clean up stale DAW temporary files before accepting traffic. No jobs exist
+	// yet, so the only protection is the minimum-age check.
+	s.autoCleanTmpFiles("startup")
 
 	go s.worker()
 
@@ -533,8 +544,7 @@ func (s *Server) handleResults(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
-	outputDir := filepath.Join(projectRoot, "output")
+	outputDir := mustSub("output")
 	entries, err := os.ReadDir(outputDir)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -620,7 +630,6 @@ func (s *Server) handleInputs(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
 	include := r.URL.Query().Get("include")
 	if include == "" {
 		include = "input"
@@ -628,10 +637,12 @@ func (s *Server) handleInputs(w http.ResponseWriter, r *http.Request) {
 	includeInput := include == "input" || include == "all"
 	includeDaw := include == "daw-data" || include == "all"
 
+	inputDir := mustSub("input")
+	dawDir := mustSub("daw-data")
+
 	var inputs []InputEntry
 
 	if includeInput {
-		inputDir := filepath.Join(projectRoot, "input")
 		entries, err := os.ReadDir(inputDir)
 		if err != nil {
 			// Preserve the legacy 404 behaviour when only input/ was requested.
@@ -652,7 +663,7 @@ func (s *Server) handleInputs(w http.ResponseWriter, r *http.Request) {
 				}
 				inputs = append(inputs, InputEntry{
 					Name:   name,
-					Path:   "/app/input/" + name,
+					Path:   filepath.Join(inputDir, name),
 					Source: "input",
 				})
 			}
@@ -660,7 +671,6 @@ func (s *Server) handleInputs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if includeDaw {
-		dawDir := filepath.Join(projectRoot, dawDataDirName)
 		songDirs, err := os.ReadDir(dawDir)
 		if err == nil {
 			for _, songDir := range songDirs {
@@ -700,7 +710,7 @@ func (s *Server) handleInputs(w http.ResponseWriter, r *http.Request) {
 		if inputs[i].Processed != inputs[j].Processed {
 			return !inputs[i].Processed
 		}
-		return inputEntryModTime(projectRoot, inputs[i]).After(inputEntryModTime(projectRoot, inputs[j]))
+		return inputEntryModTime(inputs[i]).After(inputEntryModTime(inputs[j]))
 	})
 
 	w.Header().Set("Content-Type", "application/json")
@@ -711,16 +721,16 @@ func (s *Server) handleInputs(w http.ResponseWriter, r *http.Request) {
 // inputEntryModTime returns the modification time for an input entry. It is
 // used by handleInputs for deterministic ordering; if stat fails it returns
 // the zero time so the entry sorts to the end.
-func inputEntryModTime(projectRoot string, entry InputEntry) time.Time {
+func inputEntryModTime(entry InputEntry) time.Time {
 	var p string
 	switch entry.Source {
 	case "input":
-		p = filepath.Join(projectRoot, "input", entry.Name)
+		p = filepath.Join(mustSub("input"), entry.Name)
 	case "daw-data":
 		if entry.Path != "" && !filepath.IsAbs(entry.Path) {
-			p = filepath.Join(projectRoot, entry.Path)
+			p = filepath.Join(dataRoot(), entry.Path)
 		} else {
-			p = filepath.Join(projectRoot, dawDataDirName, entry.Name)
+			p = filepath.Join(mustSub("daw-data"), entry.Name)
 		}
 	default:
 		return time.Time{}
@@ -772,8 +782,7 @@ func (s *Server) collectQueueJobs() []*JobState {
 	// Auto-fail blocked_no_gpu jobs that have exceeded the retry window.
 	s.expireBlockedJobs()
 
-	projectRoot := resolveProjectRoot()
-	outputDir := filepath.Join(projectRoot, "output")
+	outputDir := mustSub("output")
 
 	// ── Disk is the source of truth for completed jobs ──
 	// Filter out files that no longer exist on disk and drop done jobs whose
@@ -999,10 +1008,8 @@ func (s *Server) worker() {
 		// Remove pipeline_status.json so no field from a previous job bleeds into
 		// the new one. The pipeline will recreate it with a complete, honest state
 		// as soon as it starts.
-		if projectRoot := resolveProjectRoot(); projectRoot != "" {
-			statusPath := filepath.Join(projectRoot, "output", "pipeline_status.json")
-			os.Remove(statusPath)
-		}
+		statusPath := filepath.Join(mustSub("output"), "pipeline_status.json")
+		os.Remove(statusPath)
 
 		// Handle multi-step pipeline chaining
 		steps := job.Steps
@@ -1013,6 +1020,12 @@ func (s *Server) worker() {
 			// Single step (or old format): execute once
 			s.runSinglePipeline(job, state)
 		}
+
+		// Clean up stale DAW temporary files after the job finishes. The song
+		// whose job just ended is no longer active, but its fresh files are
+		// protected by the minimum-age check; active jobs for other songs are
+		// skipped entirely.
+		s.autoCleanTmpFiles("job-finish")
 	}
 }
 
@@ -1090,9 +1103,75 @@ func stepTypeForSinglePipeline(job JobRequest) string {
 	return "vocal"
 }
 
+// compactFlags returns a concise, single-space-separated representation of the
+// pipeline arguments, omitting the output directory, the input file and the
+// --no-clean flag so the result is suitable for logs and UI status.
+//
+// When a model flag (--vocal-model, --viperx-model, --stem-model or
+// --demucs-model) appears more than once, only one occurrence is kept and the
+// shortest value is preferred (typically the model name rather than its
+// resolved directory path).
+func compactFlags(args []string) string {
+	modelFlags := map[string]string{
+		"--vocal-model":  "",
+		"--viperx-model": "",
+		"--stem-model":   "",
+		"--demucs-model": "",
+	}
+
+	// First pass: for repeated model flags keep the shortest value (name over path).
+	for i, a := range args {
+		if _, ok := modelFlags[a]; ok && i+1 < len(args) {
+			val := args[i+1]
+			if existing := modelFlags[a]; existing == "" || len(val) < len(existing) {
+				modelFlags[a] = val
+			}
+		}
+	}
+
+	var parts []string
+	skip := false
+	seenModel := map[string]bool{}
+	for i, a := range args {
+		if skip {
+			skip = false
+			continue
+		}
+		if a == "--output" {
+			skip = true
+			continue
+		}
+		if a == "--no-clean" {
+			continue
+		}
+		// The input file is the last positional argument; skip it.
+		if i == len(args)-1 && !strings.HasPrefix(a, "--") {
+			continue
+		}
+		if _, ok := modelFlags[a]; ok {
+			if seenModel[a] {
+				skip = true
+				continue
+			}
+			seenModel[a] = true
+			val := modelFlags[a]
+			if val == "" {
+				skip = true
+				continue
+			}
+			parts = append(parts, a, val)
+			skip = true
+			continue
+		}
+		parts = append(parts, a)
+	}
+	return strings.Join(parts, " ")
+}
+
 // runSinglePipeline executes a single pipeline.sh invocation.
 func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	// VRAM headroom check before launching.
+	stepType := stepTypeForSinglePipeline(job)
 	modelName := job.Config.VocalModel
 	if modelName == "" {
 		modelName = job.Config.ViperxModel
@@ -1103,6 +1182,11 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	if modelName == "" {
 		modelName = job.Config.DemucsModel
 	}
+	if modelName == "" && len(job.Steps) == 1 {
+		// When the job came from a single-step preset, the real model lives in
+		// the step definition (not in the request fields or the preset name).
+		modelName = stepModelName(job.Steps[0])
+	}
 	if modelName == "" && job.Config.Preset != "" {
 		// Fall back to the preset name so the user sees something useful
 		// (e.g. "insufficient VRAM: model \"fast\" needs ...") instead of
@@ -1112,14 +1196,21 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	if modelName == "" {
 		modelName = "unknown"
 	}
-	stepType := stepTypeForSinglePipeline(job)
 	vramCfg := vramConfigForModelAndRequest(modelName, stepType, job.Config)
+
+	stepName := "pipeline"
+	if len(job.Steps) == 1 {
+		stepName = job.Steps[0].ID
+		if stepName == "" {
+			stepName = job.Steps[0].Type
+		}
+	}
 
 	// Resource headroom checks before launching.
 	if !job.Config.ForceVRAM {
 		gpu := gpuInfoProvider()
 		if gpu.OK {
-			if ok, _, reason := checkVramHeadroom(gpu.VRAMFreeMB, modelName, stepType, vramCfg); !ok {
+			if ok, _, reason, warning := checkVramHeadroom(gpu.VRAMFreeMB, gpu.VRAMTotalMB, modelName, stepType, vramCfg, modelName); !ok {
 				s.jobsMu.Lock()
 				state.Status = "blocked_no_gpu"
 				state.Error = reason
@@ -1129,26 +1220,22 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 				s.jobsMu.Unlock()
 				Log("pipeline", "warn", fmt.Sprintf("Job blocked for %s: %s", job.Song, reason))
 				return
+			} else if warning != "" {
+				Log("pipeline", "warn", fmt.Sprintf("Job %s: %s", job.Song, warning))
 			}
 		}
 	}
 	if !job.Config.ForceRAM {
 		if _, availableMB, ok := hostMemoryProvider(); ok {
 			if ok, _, reason := checkRamHeadroom(availableMB, modelName, stepType); !ok {
-				s.jobsMu.Lock()
-				state.Status = "blocked_no_gpu"
-				state.Error = reason
-				state.BlockedReason = "insufficient_ram"
-				state.BlockedReasonMsg = reason
-				state.Progress = 0
-				s.jobsMu.Unlock()
-				Log("pipeline", "warn", fmt.Sprintf("Job blocked for %s: %s", job.Song, reason))
-				return
+				Log("pipeline", "warn", fmt.Sprintf("Job %s: %s", job.Song, reason))
 			}
 		}
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	// /app/pipeline.sh is the pipeline entrypoint inside the container image, not a
+	// data path, so it stays as an absolute container path.
 	script := "/app/pipeline.sh"
 	pipelineArgs := job.Args
 	// Tests may pass an explicit fake script as the first argument.
@@ -1159,6 +1246,21 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 		}
 	}
 	args := append([]string{script}, pipelineArgs...)
+
+	device := job.Config.Device
+	if device == "" {
+		device = "cuda"
+	}
+	if state.TotalSteps < 1 {
+		state.TotalSteps = 1
+	}
+	state.CurrentStep = 1
+	state.StepName = stepTypeDisplay(stepName)
+	state.Device = device
+	state.CurrentModel = modelName
+	state.CurrentFlags = compactFlags(pipelineArgs)
+	Log("pipeline", "info", fmt.Sprintf("Step %d/%d start: step=%s model=%s flags=\"%s\"", state.CurrentStep, state.TotalSteps, state.StepName, state.CurrentModel, state.CurrentFlags))
+
 	cmd := exec.CommandContext(ctx, "bash", args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Env = append(os.Environ(), "PYTHONUNBUFFERED=1")
@@ -1180,14 +1282,6 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 		s.currentPID = cmd.Process.Pid
 	}
 	s.jobsMu.Unlock()
-
-	stepName := "pipeline"
-	if len(job.Steps) == 1 {
-		stepName = job.Steps[0].ID
-		if stepName == "" {
-			stepName = job.Steps[0].Type
-		}
-	}
 
 	if err == nil {
 		err = waitCmdResult(ctx, cmd)
@@ -1211,6 +1305,8 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	if state, ok := s.jobs[job.Song]; ok {
 		if err != nil {
 			state.Status = "error"
+			state.CurrentModel = ""
+			state.CurrentFlags = ""
 			errMsg := strings.TrimSpace(string(output))
 			if errMsg == "" {
 				errMsg = err.Error()
@@ -1220,16 +1316,16 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 			}
 			tail := tailOutput(errMsg, 40, 8192)
 			state.Error = tail
-			if projectRoot := resolveProjectRoot(); projectRoot != "" {
-				statusPath := filepath.Join(projectRoot, "output", "pipeline_status.json")
-				writePipelineStatusFailed(statusPath, stepName, exitCode, signalName)
-			}
+			statusPath := filepath.Join(mustSub("output"), "pipeline_status.json")
+			writePipelineStatusFailed(statusPath, stepName, exitCode, signalName)
 			logMsg := fmt.Sprintf("Pipeline failed for %s (step=%s, exit=%d, signal=%s, duration=%.1fs): %s",
 				job.Song, stepName, exitCode, signalName, duration.Seconds(), tail)
 			Log("pipeline", "error", logMsg)
 		} else {
 			state.Status = "done"
 			state.Files = listStems(job.Song)
+			state.CurrentModel = ""
+			state.CurrentFlags = ""
 			Log("pipeline", "success", fmt.Sprintf("Pipeline completed: %s (%d stems, duration=%.1fs)", job.Song, len(state.Files), duration.Seconds()))
 		}
 	}
@@ -1239,9 +1335,9 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 // runMultiStepPipeline executes multiple pipeline.sh invocations, one per step,
 // chaining outputs from each step to the next.
 func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, state *JobState) {
-	projectRoot := resolveProjectRoot()
 	song := job.Song
-	outputDir := filepath.Join(projectRoot, "output", song)
+	outputDir := filepath.Join(mustSub("output"), song)
+	containerOutput := outputDir
 
 	// Ensure output directory exists
 	os.MkdirAll(outputDir, 0o755)
@@ -1255,23 +1351,13 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 			continue
 		}
 
-		// Update job state with current step info
-		s.jobsMu.Lock()
-		if state, ok := s.jobs[job.Song]; ok {
-			state.CurrentStep = i + 1
-			state.StepName = stepTypeDisplay(step.Type)
-		}
-		s.jobsMu.Unlock()
-
-		Log("pipeline", "info", fmt.Sprintf("Step %d/%d: %s (%s)", i+1, len(steps), step.ID, step.Type))
-
 		// Resource headroom checks before launching this step.
 		modelName := stepModelName(step)
 		vramCfg := vramConfigForStep(step)
 		if !job.Config.ForceVRAM {
 			gpu := gpuInfoProvider()
 			if gpu.OK {
-				if ok, _, reason := checkVramHeadroom(gpu.VRAMFreeMB, modelName, step.Type, vramCfg); !ok {
+				if ok, _, reason, warning := checkVramHeadroom(gpu.VRAMFreeMB, gpu.VRAMTotalMB, modelName, step.Type, vramCfg, step.Model); !ok {
 					s.jobsMu.Lock()
 					if state, ok := s.jobs[job.Song]; ok {
 						state.Status = "blocked_no_gpu"
@@ -1283,29 +1369,20 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 					s.jobsMu.Unlock()
 					Log("pipeline", "warn", fmt.Sprintf("Job blocked for %s at step %d: %s", job.Song, i+1, reason))
 					return
+				} else if warning != "" {
+					Log("pipeline", "warn", fmt.Sprintf("Job %s at step %d: %s", job.Song, i+1, warning))
 				}
 			}
 		}
 		if !job.Config.ForceRAM {
 			if _, availableMB, ok := hostMemoryProvider(); ok {
 				if ok, _, reason := checkRamHeadroom(availableMB, modelName, step.Type); !ok {
-					s.jobsMu.Lock()
-					if state, ok := s.jobs[job.Song]; ok {
-						state.Status = "blocked_no_gpu"
-						state.Error = reason
-						state.BlockedReason = "insufficient_ram"
-						state.BlockedReasonMsg = reason
-						state.Progress = 0
-					}
-					s.jobsMu.Unlock()
-					Log("pipeline", "warn", fmt.Sprintf("Job blocked for %s at step %d: %s", job.Song, i+1, reason))
-					return
+					Log("pipeline", "warn", fmt.Sprintf("Job %s at step %d: %s", job.Song, i+1, reason))
 				}
 			}
 		}
 
 		// Build args for this specific step
-		containerOutput := "/app/output/" + song
 		stepArgs, stepEnv := buildStepPipelineArgs(step, currentInput, containerOutput, job.Config.Device)
 		stepArgs = append(stepArgs, "--output", containerOutput)
 
@@ -1316,9 +1393,31 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 
 		stepArgs = append(stepArgs, currentInput)
 
-		// Execute this step
+		// Update job state with the effective model/flags for this step.
+		device := job.Config.Device
+		if device == "" {
+			device = "cuda"
+		}
+		if state.TotalSteps < len(steps) {
+			state.TotalSteps = len(steps)
+		}
+		state.CurrentStep = i + 1
+		state.StepName = stepTypeDisplay(step.Type)
+		state.Device = device
+		state.CurrentModel = modelName
+		state.CurrentFlags = compactFlags(stepArgs)
+		Log("pipeline", "info", fmt.Sprintf("Step %d/%d start: step=%s model=%s flags=\"%s\"", state.CurrentStep, state.TotalSteps, state.StepName, state.CurrentModel, state.CurrentFlags))
+
+		// Execute this step (pipeline.sh is the container entrypoint, not data).
 		ctx, cancel := context.WithCancel(context.Background())
-		pipelineArgs := append([]string{"/app/pipeline.sh"}, stepArgs...)
+		script := "/app/pipeline.sh"
+		// Tests may pass an explicit fake script as the first argument.
+		if len(job.Args) > 0 && strings.HasSuffix(job.Args[0], ".sh") {
+			if info, err := os.Stat(job.Args[0]); err == nil && !info.IsDir() {
+				script = job.Args[0]
+			}
+		}
+		pipelineArgs := append([]string{script}, stepArgs...)
 		cmd := exec.CommandContext(ctx, "bash", pipelineArgs...)
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		cmd.Env = append(os.Environ(), "PYTHONUNBUFFERED=1")
@@ -1370,6 +1469,8 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 			s.jobsMu.Lock()
 			if state, ok := s.jobs[job.Song]; ok {
 				state.Status = "error"
+				state.CurrentModel = ""
+				state.CurrentFlags = ""
 				state.Error = fmt.Sprintf("Step %d (%s) failed (exit=%d, signal=%s): %s", i+1, step.ID, exitCode, signalName, tail)
 				Log("pipeline", "error", fmt.Sprintf("Pipeline step %d/%d failed for %s (exit=%d, signal=%s, duration=%.1fs): %s",
 					i+1, len(steps), job.Song, exitCode, signalName, duration.Seconds(), tail))
@@ -1383,8 +1484,9 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 			// Look for the routed stem to use as input for the next step
 			routedInput := findChainedInput(outputDir, step)
 			if routedInput != "" {
-				// Convert host path to container path for next invocation
-				currentInput = toInternalContainerPath(routedInput)
+				// With a single data root the host path is already the path the
+				// pipeline uses, so chain it unchanged.
+				currentInput = routedInput
 				Log("pipeline", "info", fmt.Sprintf("Chaining: step %d output → input for step %d: %s", i+1, i+2, currentInput))
 			} else {
 				// Fallback: if no routed stem found, use the original input
@@ -1420,6 +1522,8 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		state.Status = "done"
 		state.Files = listStems(song)
 		state.CurrentStep = len(steps)
+		state.CurrentModel = ""
+		state.CurrentFlags = ""
 		Log("pipeline", "success", fmt.Sprintf("Pipeline completed: %s (%d stems, %d steps)", job.Song, len(state.Files), len(steps)))
 	}
 	s.jobsMu.Unlock()
@@ -1559,21 +1663,6 @@ func pickInterstem(matches []string) string {
 	return matches[0]
 }
 
-// toInternalContainerPath converts a host path to a container-relative path.
-func toInternalContainerPath(hostPath string) string {
-	// Convert host output dir to container /app/output/
-	projectRoot := resolveProjectRoot()
-	if projectRoot != "" && strings.HasPrefix(hostPath, filepath.Join(projectRoot, "output")) {
-		rel := strings.TrimPrefix(hostPath, filepath.Join(projectRoot, "output"))
-		return "/app/output" + rel
-	}
-	// Convert host input dir to container /app/input/
-	if projectRoot != "" && strings.HasPrefix(hostPath, filepath.Join(projectRoot, "input")) {
-		rel := strings.TrimPrefix(hostPath, filepath.Join(projectRoot, "input"))
-		return "/app/input" + rel
-	}
-	return hostPath
-}
 
 var (
 	// progressLineRe matches progress-bar frames (e.g. tqdm, demucs) so that
@@ -1744,8 +1833,7 @@ func logPipelineOutput(output string) {
 
 // listStems reads the output directory for a song and returns the generated files.
 func listStems(song string) []FileEntry {
-	projectRoot := findProjectRoot()
-	outputDir := filepath.Join(projectRoot, "output", song)
+	outputDir := filepath.Join(mustSub("output"), song)
 	entries, err := os.ReadDir(outputDir)
 	if err != nil {
 		return nil
@@ -1765,20 +1853,17 @@ func listStems(song string) []FileEntry {
 }
 
 // normalizeContainerInput converts a relative filename or a bare input name into
-// the container input path /app/input/<basename>. Paths already under /app/ are
-// left untouched, and other absolute paths are preserved so the caller can pass
-// through explicit host/container paths unchanged.
+// the absolute input path under the data root. Absolute paths and paths already
+// under the input directory are left untouched so callers can pass explicit
+// host/container paths through unchanged.
 func normalizeContainerInput(input string) string {
 	if input == "" {
-		return input
-	}
-	if strings.HasPrefix(input, "/app/") {
 		return input
 	}
 	if filepath.IsAbs(input) {
 		return input
 	}
-	return "/app/input/" + filepath.Base(input)
+	return filepath.Join(mustSub("input"), filepath.Base(input))
 }
 
 // buildPipelineArgs constructs the argument list for pipeline.sh from a SeparateRequest.
@@ -1788,7 +1873,7 @@ func normalizeContainerInput(input string) string {
 func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps []cli.PipelineStep, env []string) {
 	req.Input = normalizeContainerInput(req.Input)
 	song = strings.TrimSuffix(filepath.Base(req.Input), filepath.Ext(req.Input))
-	containerOutput := "/app/output/" + song
+	containerOutput := filepath.Join(mustSub("output"), song)
 
 	// --- Resolve preset steps if a named preset is provided ---
 	if req.Preset != "" {
@@ -2183,7 +2268,11 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	// Enqueue the job (with steps if multi-step)
 	s.jobQueue <- JobRequest{Song: song, Args: pipelineArgs, Config: req, Steps: steps, Env: pipelineEnv}
 
-	Log("backend", "success", "Job queued: "+song+" | "+formatJobConfig(req))
+	preset := req.Preset
+	if preset == "" {
+		preset = "(ninguno)"
+	}
+	Log("backend", "success", fmt.Sprintf("Job queued: %s | preset=%s (modelos y flags se resuelven al arrancar cada paso)", song, preset))
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)
@@ -2193,11 +2282,11 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// resolveModelDir resolves a model name to a directory path usable inside the
-// Docker container. For Demucs PyTorch models (htdemucs_ft, htdemucs, etc.)
-// the name is returned as-is (loaded by name, not path). For all other models
-// (ViperX, Roformer, MDX, etc.), the model is looked up in listModels() and
-// its /models/ path is returned directly (both containers use /models).
+// resolveModelDir resolves a model name to a directory path usable by the
+// pipeline. For Demucs PyTorch models (htdemucs_ft, htdemucs, etc.) the name is
+// returned as-is (loaded by name, not path). For all other models (ViperX,
+// Roformer, MDX, etc.), the model is looked up in listModels() and its path
+// under the data-root models directory is returned directly.
 func resolveModelDir(name string) string {
 	if name == "" {
 		return ""
@@ -2208,17 +2297,7 @@ func resolveModelDir(name string) string {
 	models := listModels()
 	for _, m := range models.Models {
 		if m.Name == name || m.DisplayName == name {
-			modelDir := filepath.Dir(m.Path)
-			// listModels() reports container paths under /app/models; map them
-			// back to the current modelsBasePath so tests that override the
-			// base directory get a real filesystem path.
-			if strings.HasPrefix(modelDir, "/app/models/") {
-				rel, err := filepath.Rel("/app/models", modelDir)
-				if err == nil {
-					modelDir = filepath.Join(modelsBasePath, rel)
-				}
-			}
-			return modelDir
+			return filepath.Dir(m.Path)
 		}
 	}
 	return ""
@@ -2377,7 +2456,7 @@ func isOnnxModel(name string) bool {
 // modelConfigsDir returns the directory where per-model YAML configs are stored
 // for models that do not have an on-disk directory (e.g. built-in Demucs models).
 func modelConfigsDir() string {
-	return filepath.Join(resolveProjectRoot(), "config", "model_configs")
+	return filepath.Join(mustSub("config"), "model_configs")
 }
 
 // modelConfigYamlPath returns the fallback YAML path for a model name.
@@ -2914,10 +2993,8 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Determine input directory: prefer project root /input,
-	// fall back to a temp dir if it doesn't exist.
-	projectRoot := resolveProjectRoot()
-	inputDir := filepath.Join(projectRoot, "input")
+	// Determine input directory from the data-root helper.
+	inputDir := mustSub("input")
 	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
 		os.MkdirAll(inputDir, 0o755)
 	}
@@ -2969,8 +3046,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	Log("backend", "success", "Uploaded: "+safeName)
 
-	// The path inside the container is /app/input/filename
-	containerPath := "/app/input/" + safeName
+	containerPath := filepath.Join(inputDir, safeName)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"path": containerPath})
@@ -2997,8 +3073,7 @@ func (s *Server) handleUploadPitch(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := resolveProjectRoot()
-	inputDir := filepath.Join(projectRoot, "input_rubberband")
+	inputDir := mustSub("input_rubberband")
 	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
 		os.MkdirAll(inputDir, 0o755)
 	}
@@ -3048,7 +3123,7 @@ func (s *Server) handleUploadPitch(w http.ResponseWriter, r *http.Request) {
 
 	Log("backend", "success", "Pitch upload: "+safeName)
 
-	containerPath := "/app/input_rubberband/" + safeName
+	containerPath := filepath.Join(inputDir, safeName)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"path": containerPath})
@@ -3067,19 +3142,16 @@ func (s *Server) handleModelsCatalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Try the container path first, then fall back to the project root
+	// /app/uvr_models.json is the catalog bundled in the container image (not a
+	// data path). It is the only legitimate source for the catalog.
 	data, err := os.ReadFile("/app/uvr_models.json")
 	if err != nil {
-		projectRoot := findProjectRoot()
-		data, err = os.ReadFile(filepath.Join(projectRoot, "uvr_models.json"))
-		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{
-				"error": "failed to read uvr_models.json catalog file",
-			})
-			return
-		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": "failed to read uvr_models.json catalog file",
+		})
+		return
 	}
 
 	var catalog []UVRModelEntry
@@ -3143,8 +3215,7 @@ func (s *Server) handlePitchFileServe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
-	outputBase := filepath.Join(projectRoot, "output")
+	outputBase := mustSub("output")
 
 	// Build path: /output/{song}/{song}_pitch{pitch}/{file}
 	filePath := filepath.Join(outputBase, song, song+"_pitch"+pitchStr, file)
@@ -3168,11 +3239,10 @@ func (s *Server) handleFileServe(w http.ResponseWriter, r *http.Request) {
 	song = filepath.Clean(song)
 	file = filepath.Clean(file)
 
-	projectRoot := findProjectRoot()
-	filePath := filepath.Join(projectRoot, "output", song, file)
+	outputPrefix := mustSub("output")
+	filePath := filepath.Join(outputPrefix, song, file)
 
 	// Verify the file is inside the output directory
-	outputPrefix := filepath.Join(projectRoot, "output")
 	absPath, err := filepath.Abs(filePath)
 	if err != nil || !strings.HasPrefix(absPath, outputPrefix+string(filepath.Separator)) {
 		http.Error(w, "forbidden", http.StatusForbidden)
@@ -3217,11 +3287,10 @@ func (s *Server) handleDeleteSong(w http.ResponseWriter, r *http.Request) {
 	song := r.PathValue("song")
 	song = filepath.Clean(song)
 
-	projectRoot := findProjectRoot()
-	dirPath := filepath.Join(projectRoot, "output", song)
+	outputPrefix := mustSub("output")
+	dirPath := filepath.Join(outputPrefix, song)
 
 	// Verify inside output/
-	outputPrefix := filepath.Join(projectRoot, "output")
 	absPath, err := filepath.Abs(dirPath)
 	if err != nil || !strings.HasPrefix(absPath, outputPrefix+string(filepath.Separator)) {
 		http.Error(w, "forbidden", http.StatusForbidden)
@@ -3276,15 +3345,10 @@ func (s *Server) handleDeleteFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
-	filePath := filepath.Join(projectRoot, "output", file)
+	outputPrefix := mustSub("output")
+	filePath := filepath.Join(outputPrefix, file)
 
 	// Verify inside output/
-	outputPrefix, err := filepath.Abs(filepath.Join(projectRoot, "output"))
-	if err != nil {
-		http.Error(w, "forbidden", http.StatusForbidden)
-		return
-	}
 	absPath, err := filepath.Abs(filePath)
 	if err != nil || !strings.HasPrefix(absPath, outputPrefix+string(filepath.Separator)) {
 		http.Error(w, "forbidden", http.StatusForbidden)
@@ -3351,11 +3415,10 @@ func (s *Server) handleDeleteInput(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	name = filepath.Clean(name)
 
-	projectRoot := findProjectRoot()
-	filePath := filepath.Join(projectRoot, "input", name)
+	inputPrefix := mustSub("input")
+	filePath := filepath.Join(inputPrefix, name)
 
 	// Verify inside input/
-	inputPrefix := filepath.Join(projectRoot, "input")
 	absPath, err := filepath.Abs(filePath)
 	if err != nil || !strings.HasPrefix(absPath, inputPrefix) {
 		http.Error(w, "forbidden", http.StatusForbidden)
@@ -3397,11 +3460,10 @@ func (s *Server) handleDeletePitchUpload(w http.ResponseWriter, r *http.Request)
 	name := r.PathValue("name")
 	name = filepath.Clean(name)
 
-	projectRoot := findProjectRoot()
-	filePath := filepath.Join(projectRoot, "input_rubberband", name)
+	inputPrefix := mustSub("input_rubberband")
+	filePath := filepath.Join(inputPrefix, name)
 
 	// Verify inside input_rubberband/
-	inputPrefix := filepath.Join(projectRoot, "input_rubberband")
 	absPath, err := filepath.Abs(filePath)
 	if err != nil || !strings.HasPrefix(absPath, inputPrefix) {
 		http.Error(w, "forbidden", http.StatusForbidden)

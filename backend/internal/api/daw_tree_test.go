@@ -262,3 +262,38 @@ func TestDAWTree_ServeAudioTraversalRejected(t *testing.T) {
 		t.Fatalf("expected 404 for traversal, got %d", resp.StatusCode)
 	}
 }
+
+func TestDAWTree_EffectWithTreePath(t *testing.T) {
+	skipIfMissingBinary(t, "sox")
+
+	root := setupDAWTestRoot(t)
+	writeSynthWAV(t, filepath.Join(root, "daw-data", "mi_cancion", "original", "original.wav"), 2.0)
+	srv := newDAWTreeTestServer(t)
+
+	body := `{"file":"daw-data/mi_cancion/original/original.wav","room_size":50,"decay":50,"wet_dry":50}`
+	resp, err := http.Post(srv.URL+"/api/daw/reverb", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(b))
+	}
+
+	var effectResp EffectResponse
+	if err := json.NewDecoder(resp.Body).Decode(&effectResp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	wantPath := filepath.Join("daw-data", "mi_cancion", "edits", "reverb_original.wav")
+	if effectResp.Path != wantPath {
+		t.Fatalf("expected path %q, got %q", wantPath, effectResp.Path)
+	}
+	if effectResp.URL != "/daw-data/mi_cancion/edits/reverb_original.wav" {
+		t.Fatalf("expected url %q, got %q", "/daw-data/mi_cancion/edits/reverb_original.wav", effectResp.URL)
+	}
+	if effectResp.Name != "mi_cancion" {
+		t.Fatalf("expected name %q, got %q", "mi_cancion", effectResp.Name)
+	}
+}

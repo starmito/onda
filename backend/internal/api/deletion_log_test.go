@@ -291,15 +291,11 @@ func TestHandleDeletePitchStem_LogsDeletion(t *testing.T) {
 func TestHandleDeleteModel_LogsDeletion(t *testing.T) {
 	setupTestLogStore(t)
 	resetLogBuffer()
-	root := absTestRoot(t, setupDAWTestRoot)
-
-	oldBase := modelsBasePath
-	modelsBasePath = filepath.Join(root, "models")
-	t.Cleanup(func() { modelsBasePath = oldBase })
+	absTestRoot(t, setupDAWTestRoot)
 
 	name := "testmodel"
 	subdir := "VR_Models"
-	writeTestFile(t, filepath.Join(modelsBasePath, subdir, name+".pth"), []byte("modeldata"))
+	writeTestFile(t, filepath.Join(modelsBasePath(), subdir, name+".pth"), []byte("modeldata"))
 
 	srv := newDeletionTestServer(t)
 	req := newDeletionRequest(t, http.MethodDelete, "/api/models/"+name, nil)

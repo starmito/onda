@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"syscall"
 	"time"
@@ -48,8 +47,7 @@ func detectGPUType() string {
 // checkDisk returns disk health for the project output directory.
 // ok=true if > 10 GB free; otherwise ok=false with code "E5".
 func checkDisk() map[string]interface{} {
-	projectRoot := resolveProjectRoot()
-	outputDir := filepath.Join(projectRoot, "output")
+	outputDir := mustSub("output")
 
 	// Ensure the directory exists for Statfs; create if missing.
 	if _, err := os.Stat(outputDir); os.IsNotExist(err) {
@@ -72,7 +70,7 @@ func checkDisk() map[string]interface{} {
 		return map[string]interface{}{
 			"ok":     false,
 			"code":   "E5",
-			"detail": fmt.Sprintf("only %.1f GB free on /app/output", freeGB),
+			"detail": fmt.Sprintf("only %.1f GB free on %s", freeGB, outputDir),
 		}
 	}
 

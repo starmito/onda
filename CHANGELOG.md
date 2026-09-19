@@ -1,5 +1,41 @@
 # Changelog
 
+## [v3.4.13] - 2026-09-19
+
+### Added
+- **Carpeta de exportación configurable**: el usuario puede elegir la carpeta de destino de las exportaciones (audio del DAW, «Unir y exportar», MIDI), con validación real (existe/escribible/sin `..`), persistencia en los ajustes y precedencia entorno > ajustes > defecto. La descarga se sirve por la nueva ruta `GET /api/export/files/{file}`.
+- **UI de carpeta de destino en Ajustes**: nuevo bloque en Ajustes → Almacenamiento para configurar la carpeta de exportaciones.
+- **Limpieza automática de temporales del DAW**: borra solo `daw-data/<canción>/tmp/` (edad mínima 5 min), salta canciones con job en vuelo, se ejecuta en arranque y al terminar cada job, con registro `Deletion: kind=auto-tmp`.
+
+### Removed
+- **Directorio legacy `onda-gui`**: eliminado completamente del repositorio.
+
+## [v3.4.12] - 2026-09-19
+
+### Fixed
+- **Modelo real al lanzar por preset**: `current_model` y el log de arranque del paso muestran el **modelo real** (resuelto con `stepModelName()`), no el nombre del preset.
+- **«Ejecutar» sin preset**: el botón ya no queda silencioso; la UI muestra un aviso claro cuando no hay preset seleccionado.
+
+### Test
+- **Validación de ejecución**: tests con vitest para `executeValidation.ts`.
+
+## [v3.4.11] - 2026-09-19
+
+### Fixed
+- **Directorio de trabajo configurable**: una sola raíz de datos con todo dentro (`input/`, `output/`, `daw-data/`, `input_rubberband/`, `config/`, `logs/`, `models/`). Ninguna ruta de datos fija: backend y `pipeline.sh` resuelven siempre la raíz configurada.
+- **Montajes**: de 13 (con duplicados) a **3** sin duplicidad.
+- **DAW (Importar pistas)**: secciones **Subidas** (sube a `input/`), **Resultados** (stems) y **Cambio de tono**; fuera la pestaña efímera «Subir desde PC». Reproducir y efectos ya no dan 404 (el frontend usa `path`/`url`/`name` que devuelve la API) y se conserva el nombre de la canción.
+- **Ejecución por checks**: se procesan los ficheros **marcados**, no los que simplemente están pendientes.
+- **Guardas**: RAM ya no bloquea (aviso y sigue); VRAM nunca exige más de lo que cabe en la tarjeta.
+- **Observabilidad**: modelo y flags efectivos por paso, en el log y en la UI junto a «Running».
+
+### Added
+- **Selector en Ajustes > Almacenamiento** (`GET/POST /api/storage/config`): raíz actual, de dónde sale (entorno/ajustes/defecto), estado, las carpetas, validación (existe y se puede escribir) y aplicación en caliente; lo que se carga en memoria se recarga al cambiar la raíz.
+- **Test-guardian** que falla si reaparece una ruta de datos fija.
+
+### Test
+- **Tests blindados**: la suite no escribe fuera de su raíz temporal y hay tests de cambio de raíz en caliente.
+
 ## [v3.4.10] - 2026-09-19
 
 ### Fixed

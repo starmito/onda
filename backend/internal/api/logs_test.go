@@ -29,6 +29,8 @@ func setupTestLogStore(t *testing.T) string {
 		t.Fatalf("failed to create test log dir: %v", err)
 	}
 	path := filepath.Join(root, "onda.log")
+	// Pin the default path so currentLogStore() keeps using this test store.
+	t.Setenv("ONDA_SERVICE_LOG_PATH", path)
 	old := defaultLogStore
 	defaultLogStore = newServiceLogStore(path)
 	t.Cleanup(func() {
@@ -39,6 +41,7 @@ func setupTestLogStore(t *testing.T) string {
 }
 
 func TestHandleGetServiceLogs_ReturnsOndaServiceLogs(t *testing.T) {
+	setupTestLogStore(t)
 	resetLogBuffer()
 	Log("backend", "info", "backend message")
 	Log("pipeline", "info", "pipeline message")
@@ -78,6 +81,7 @@ func TestHandleGetServiceLogs_ReturnsOndaServiceLogs(t *testing.T) {
 }
 
 func TestHandleGetServiceLogs_LimitParameter(t *testing.T) {
+	setupTestLogStore(t)
 	resetLogBuffer()
 	for i := 0; i < 10; i++ {
 		Log("backend", "info", "msg")

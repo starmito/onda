@@ -41,6 +41,15 @@ type MidiExportRequest struct {
 	BPM    float64     `json:"bpm"`
 }
 
+// MidiExportResponse is returned by POST /api/daw/midi/export when the export
+// directory is configured and the file is written to disk.
+type MidiExportResponse struct {
+	File string `json:"file"`
+	Path string `json:"path"`
+	URL  string `json:"url"`
+	Size int64  `json:"size"`
+}
+
 // handleMidiParse parses a .mid file into JSON note data.
 // POST /api/daw/midi/parse
 func (s *Server) handleMidiParse(w http.ResponseWriter, r *http.Request) {
@@ -61,7 +70,7 @@ func (s *Server) handleMidiParse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
+	projectRoot := dataRoot()
 	var midiPath string
 
 	// Try the daw-data tree first, then fall back to input/.
@@ -275,6 +284,39 @@ func (s *Server) handleMidiExport(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to encode MIDI: " + err.Error()})
+		return
+	}
+
+	if configuredExportDir := exportDir(); configuredExportDir != "" {
+		if err := os.MkdirAll(configuredExportDir, 0o755); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "failed to create export directory"})
+			return
+		}
+		outputName := "export.mid"
+		outputPath := filepath.Join(configuredExportDir, outputName)
+		if err := os.WriteFile(outputPath, midiBytes, 0o644); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "failed to write MIDI file: " + err.Error()})
+			return
+		}
+		info, err := os.Stat(outputPath)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "failed to stat MIDI file"})
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(MidiExportResponse{
+			File: outputName,
+			Path: outputName,
+			URL:  exportDirFileURL(outputName),
+			Size: info.Size(),
+		})
 		return
 	}
 

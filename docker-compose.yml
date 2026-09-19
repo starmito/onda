@@ -9,8 +9,11 @@
 # O simplemente: bash deploy.sh   (detección automática)
 #
 # Variables de entorno (via .env):
-#   ONDA_PORT    — puerto de la UI (default: 3000)
-#   MODEL_DIR    — ruta local a los modelos (default: ./models)
+#   ONDA_PORT     — puerto de la UI (default: 3000)
+#   ONDA_DATA_DIR — raíz de datos dentro del contenedor (default: /app/data)
+#
+# La raíz de datos se monta desde ./data del host y contiene:
+#   input/ output/ daw-data/ input_rubberband/ config/ logs/ models/
 
 services:
   onda:
@@ -29,25 +32,13 @@ services:
     environment:
       - ONDAP_VERSION=${ONDAP_VERSION:-unknown}
       - GUI_VERSION=${GUI_VERSION:-unknown}
-      - NUMBA_CACHE_DIR=/tmp/numba_cache
-      - XDG_CACHE_HOME=/tmp/xdg_cache
-      - HF_HOME=/tmp/hf_cache
+      - ONDA_DATA_DIR=/app/data
     volumes:
-      - ${MODEL_DIR:-./models}:/app/models:rw
-      - ./input:/input
-      - ./output:/output
-      - ./input_rubberband:/input_rubberband
-      - ./daw-data:/daw-data
-      - ./config:/config
-      - ./logs:/app/logs
       # Bind-mount del script del pipeline: refleja los cambios del host en el
       # contenedor sin rebuild ni `docker cp`, evitando drift silencioso.
       - ./pipeline.sh:/app/pipeline.sh:ro
-      # mounts /app/ para el pipeline de feat (paths unificados bajo /app/)
-      - ./input:/app/input
-      - ./output:/app/output
-      - ./input_rubberband:/app/input_rubberband
-      - ./config:/app/config
+      # Unica raiz de datos: todo bajo /app/data (input/output/daw-data/...)
+      - ./data:/app/data
       - pytorch-cache:/opt/pytorch-backends
     restart: unless-stopped
 

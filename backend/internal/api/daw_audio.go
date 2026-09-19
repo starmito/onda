@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -19,6 +21,19 @@ const (
 	dawEditsSubdir    = "edits"
 	dawTmpSubdir      = "tmp"
 )
+
+// dawDataURL converts a project-relative path (e.g. "daw-data/my song/original.wav")
+// into a browser-servable URL with each path segment URL-encoded separately
+// ("/daw-data/my%20song/original.wav"). It works with both slash and backslash
+// separators so it is safe to use with filepath.Join results.
+func dawDataURL(relPath string) string {
+	rel := filepath.ToSlash(relPath)
+	segments := strings.Split(rel, "/")
+	for i, s := range segments {
+		segments[i] = url.PathEscape(s)
+	}
+	return "/" + path.Join(segments...)
+}
 
 // errDAWAudioNotFound is returned by resolveDAWAudioSource when the requested
 // audio file does not exist in either the input/ or daw-data/ directories.
@@ -165,7 +180,7 @@ func parseDAWTreePath(projectRoot, file string) (dawFileSource, bool) {
 // On success it returns the absolute path, the safe base name, the song
 // directory (when inside daw-data) and the subdirectory (original/imports/edits/tmp).
 func resolveDAWAudioSource(file string) (absPath, safeName, song, subdir string, err error) {
-	projectRoot := findProjectRoot()
+	projectRoot := dataRoot()
 	safeName = filepath.Base(file)
 
 	// 1. Flat input/ lookup.
@@ -331,7 +346,7 @@ func (s *Server) handleDeleteDAWSong(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := findProjectRoot()
+	projectRoot := dataRoot()
 	dir, err := safeDAWSongDir(projectRoot, song)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")

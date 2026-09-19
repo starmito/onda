@@ -22,6 +22,8 @@ type ImportRequest struct {
 type ImportResponse struct {
 	File string `json:"file"`
 	Path string `json:"path"`
+	URL  string `json:"url"`
+	Name string `json:"name"`
 	Size int64  `json:"size"`
 }
 
@@ -161,22 +163,25 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 		} else {
 			song = srcSong
 		}
-		if srcSubdir == dawImportsSubdir {
-			// Already imported: return it where it actually lives.
-			info, err := os.Stat(srcPath)
-			if err != nil {
-				writeDAWFileNotFound(w, srcName)
-				return
-			}
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(ImportResponse{
-				File: srcName,
-				Path: filepath.Join(dawDataDirName, srcSong, dawImportsSubdir, srcName),
-				Size: info.Size(),
-			})
+	if srcSubdir == dawImportsSubdir {
+		// Already imported: return it where it actually lives.
+		info, err := os.Stat(srcPath)
+		if err != nil {
+			writeDAWFileNotFound(w, srcName)
 			return
 		}
+		relPath := filepath.Join(dawDataDirName, srcSong, dawImportsSubdir, srcName)
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(ImportResponse{
+			File: srcName,
+			Path: relPath,
+			URL:  dawDataURL(relPath),
+			Name: srcSong,
+			Size: info.Size(),
+		})
+		return
+	}
 		destFile = srcName
 	default:
 		w.Header().Set("Content-Type", "application/json")
@@ -206,11 +211,14 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 
 	// If already imported, return the existing file.
 	if info, err := os.Stat(destPath); err == nil && !info.IsDir() {
+		relPath := filepath.Join(dawDataDirName, song, dawImportsSubdir, filepath.Base(destPath))
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(ImportResponse{
 			File: filepath.Base(destPath),
-			Path: filepath.Join(dawDataDirName, song, dawImportsSubdir, filepath.Base(destPath)),
+			Path: relPath,
+			URL:  dawDataURL(relPath),
+			Name: song,
 			Size: info.Size(),
 		})
 		return
@@ -237,11 +245,14 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	relPath := filepath.Join(dawDataDirName, song, dawImportsSubdir, filepath.Base(destPath))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(ImportResponse{
 		File: filepath.Base(destPath),
-		Path: filepath.Join(dawDataDirName, song, dawImportsSubdir, filepath.Base(destPath)),
+		Path: relPath,
+		URL:  dawDataURL(relPath),
+		Name: song,
 		Size: info.Size(),
 	})
 }

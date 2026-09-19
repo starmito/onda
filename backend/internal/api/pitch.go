@@ -63,8 +63,7 @@ func (s *Server) handlePitchShift(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := resolveProjectRoot()
-	outputBase := filepath.Join(projectRoot, "output")
+	outputBase := mustSub("output")
 
 	// Source directory: /output/{song}/
 	songDir := filepath.Join(outputBase, req.Song)
@@ -197,8 +196,7 @@ func (s *Server) handleListPitchSubgroups(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	projectRoot := resolveProjectRoot()
-	outputBase := filepath.Join(projectRoot, "output")
+	outputBase := mustSub("output")
 	songDir := filepath.Join(outputBase, song)
 
 	// Path traversal guard
@@ -289,8 +287,7 @@ func (s *Server) handleDeletePitchSubgroup(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	projectRoot := resolveProjectRoot()
-	outputBase := filepath.Join(projectRoot, "output")
+	outputBase := mustSub("output")
 	pitchDir := filepath.Join(outputBase, song, song+"_pitch"+pitchStr)
 
 	// Path traversal guard
@@ -336,8 +333,7 @@ func (s *Server) handleDeletePitchStem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := resolveProjectRoot()
-	outputBase := filepath.Join(projectRoot, "output")
+	outputBase := mustSub("output")
 	filePath := filepath.Join(outputBase, song, song+"_pitch"+pitchStr, file)
 
 	// Path traversal guard
@@ -408,8 +404,7 @@ func (s *Server) handlePitchFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	projectRoot := resolveProjectRoot()
-	inputDir := filepath.Join(projectRoot, "input_rubberband")
+	inputDir := mustSub("input_rubberband")
 
 	safeName := filepath.Base(req.File)
 	inputPath := filepath.Join(inputDir, safeName)
@@ -462,7 +457,7 @@ func (s *Server) handlePitchFile(w http.ResponseWriter, r *http.Request) {
 		Pitch: req.Pitch,
 		Files: []FileEntry{{
 			Name: outputName,
-			Path: "/input_rubberband/" + baseName + pitchSuffix + "/" + outputName,
+			Path: filepath.Join("/", "input_rubberband", baseName+pitchSuffix, outputName),
 		}},
 	})
 }
@@ -486,8 +481,7 @@ func (s *Server) handleListPitchUploads(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	projectRoot := resolveProjectRoot()
-	inputDir := filepath.Join(projectRoot, "input_rubberband")
+	inputDir := mustSub("input_rubberband")
 
 	entries, err := os.ReadDir(inputDir)
 	if err != nil {
@@ -511,7 +505,7 @@ func (s *Server) handleListPitchUploads(w http.ResponseWriter, r *http.Request) 
 		baseName := strings.TrimSuffix(name, ext)
 		upload := PitchUpload{
 			Name: name,
-			Path: "/app/input_rubberband/" + name,
+			Path: filepath.Join(mustSub("input_rubberband"), name),
 		}
 
 		// Look for pitch subgroups for this base name
@@ -544,7 +538,7 @@ func (s *Server) handleListPitchUploads(w http.ResponseWriter, r *http.Request) 
 				}
 				files = append(files, FileEntry{
 					Name: se.Name(),
-					Path: "/input_rubberband/" + dirName + "/" + se.Name(),
+					Path: filepath.Join("/", "input_rubberband", dirName, se.Name()),
 				})
 			}
 			if len(files) > 0 {

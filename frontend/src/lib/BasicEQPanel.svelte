@@ -5,7 +5,7 @@
   interface Props {
     activeFile: string | null;
     onError?: (message: string) => void;
-    onFileProcessed?: (fileName: string) => void;
+    onFileProcessed?: (result: { path: string; url: string; name: string }) => void;
   }
 
   let { activeFile, onError, onFileProcessed }: Props = $props();
@@ -69,7 +69,7 @@
       const resp = await applyEQ({ file: activeFile, filters: bands });
       filtersApplied = resp.filters_applied;
       result = `EQ aplicado: ${resp.file}`;
-      onFileProcessed?.(resp.file);
+      onFileProcessed?.({ path: resp.path, url: resp.url, name: resp.name });
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (err instanceof DAWAudioNotFoundError) {

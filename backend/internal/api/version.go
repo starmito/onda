@@ -16,6 +16,8 @@ func init() {
 		return
 	}
 
+	// /app/VERSION is the application version marker inside the container image,
+	// not a data path, so it is intentionally left as an absolute container path.
 	for _, path := range []string{"VERSION", "/app/VERSION"} {
 		data, err := os.ReadFile(path)
 		if err == nil {

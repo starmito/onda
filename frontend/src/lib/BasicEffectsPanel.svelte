@@ -14,7 +14,7 @@
   interface Props {
     activeFile: string | null;
     onError?: (message: string) => void;
-    onFileProcessed?: (fileName: string) => void;
+    onFileProcessed?: (result: { path: string; url: string; name: string }) => void;
   }
 
   let { activeFile, onError, onFileProcessed }: Props = $props();
@@ -45,7 +45,7 @@
           release: values.release,
           makeup: values.makeup,
         });
-        return resp.file;
+        return { path: resp.path, url: resp.url, name: resp.name };
       },
     },
     {
@@ -65,7 +65,7 @@
           decay: values.decay,
           wet_dry: values.wet_dry,
         });
-        return resp.file;
+        return { path: resp.path, url: resp.url, name: resp.name };
       },
     },
     {
@@ -83,7 +83,7 @@
           feedback: values.feedback,
           wet_dry: values.wet_dry,
         });
-        return resp.file;
+        return { path: resp.path, url: resp.url, name: resp.name };
       },
     },
     {
@@ -103,7 +103,7 @@
           delay_ms: values.delay_ms,
           wet_dry: values.wet_dry,
         });
-        return resp.file;
+        return { path: resp.path, url: resp.url, name: resp.name };
       },
     },
     {
@@ -121,7 +121,7 @@
           rate: values.rate,
           wet_dry: values.wet_dry,
         });
-        return resp.file;
+        return { path: resp.path, url: resp.url, name: resp.name };
       },
     },
     {
@@ -139,7 +139,7 @@
           rate: values.rate,
           wet_dry: values.wet_dry,
         });
-        return resp.file;
+        return { path: resp.path, url: resp.url, name: resp.name };
       },
     },
     {
@@ -155,7 +155,7 @@
           speed: values.speed,
           depth: values.depth,
         });
-        return resp.file;
+        return { path: resp.path, url: resp.url, name: resp.name };
       },
     },
     {
@@ -173,7 +173,7 @@
           attack: values.attack,
           release: values.release,
         });
-        return resp.file;
+        return { path: resp.path, url: resp.url, name: resp.name };
       },
     },
   ];
@@ -198,9 +198,9 @@
     loading[effectId] = true;
     result[effectId] = '';
     try {
-      const outputFile = await effect.apply(activeFile, values[effectId]);
-      result[effectId] = `Aplicado: ${outputFile}`;
-      onFileProcessed?.(outputFile);
+      const output = await effect.apply(activeFile, values[effectId]);
+      result[effectId] = `Aplicado: ${output.name}`;
+      onFileProcessed?.(output);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
       if (err instanceof DAWAudioNotFoundError) {

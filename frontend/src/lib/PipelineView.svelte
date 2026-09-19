@@ -1,5 +1,6 @@
 <script lang="ts">
   import PresetsPanel from './PresetsPanel.svelte';
+  import { validateExecutePreset } from './executeValidation';
   import { uploadAudio, deleteInput, clearQueue, separateAudio, cancelQueue, getProcessesStatus } from './api';
   import type { ProcessStatus, QueueJob } from './api';
   import { IconUpload } from './icons';
@@ -30,6 +31,8 @@
     pipelineSong = '',
     pipelineEta = '',
     inferenceDevice = '',
+    pipelineModel = '',
+    pipelineFlags = '',
     hidePresetSelector = false,
     onPresetChange = (name: string) => {},
     onError = (msg: string) => {},
@@ -49,6 +52,9 @@
   let toastMessage = $state('');
   let toastType = $state<'success' | 'error' | 'info' | 'warning'>('success');
   let toastTimer = $state<ReturnType<typeof setTimeout> | null>(null);
+
+  // ---- Inline execute validation message ----
+  let executeError = $state('');
 
   function showToast(message: string, type: 'success' | 'error' | 'info' | 'warning') {
     toastMessage = message;
@@ -94,6 +100,13 @@
     }
   });
 
+  $effect(() => {
+    // Clear the inline error as soon as the user picks a real preset.
+    if (presetName) {
+      executeError = '';
+    }
+  });
+
   async function handleCancel() {
     try {
       await cancelQueue();
@@ -116,10 +129,10 @@
 
     const selected = savedPresets.find(p => p.name === presetName);
     const preset = selected ? selected.name : presetName || '';
-    const filesToForce = queueFiles.filter(qf => qf.path && qf.status !== 'done');
+    const filesToForce = queueFiles.filter(qf => qf.checked && qf.path);
 
     if (filesToForce.length === 0) {
-      showToast('No hay archivos para continuar', 'error');
+      showToast('Marca al menos un archivo en la cola', 'error');
       return;
     }
 
@@ -133,7 +146,7 @@
     }
 
     blockedMsg = null;
-    showToast('Continuando sin comprobación de recursos', 'warning');
+    showToast('Continuando sin comprobar VRAM', 'warning');
   }
 
   // ---- Drag & Drop state ----
@@ -249,11 +262,15 @@
 
   // ---- Execute handler ----
   function handleExecute() {
-    const selected = savedPresets.find(p => p.name === presetName);
-    if (!selected) {
-      onError(`Preset "${presetName}" no encontrado en el servidor`);
+    const validation = validateExecutePreset(presetName, savedPresets);
+    if (!validation.ok) {
+      executeError = validation.message;
+      console.warn('[PipelineView] Ejecutar bloqueado:', validation.message);
+      onError(validation.message);
       return;
     }
+    executeError = '';
+    const selected = savedPresets.find(p => p.name === presetName)!;
     const config = selected.config;
     config.preset = presetName || undefined;
     onStart(config);
@@ -380,6 +397,12 @@
               {#if inferenceDevice}
                 <span class="progress-device">{inferenceDevice === 'cuda' || inferenceDevice === 'gpu' ? 'GPU' : 'CPU'}</span>
               {/if}
+              {#if pipelineModel}
+                <span class="progress-model" title="Modelo en uso">model: {pipelineModel}</span>
+              {/if}
+              {#if pipelineFlags}
+                <span class="progress-flags" title={pipelineFlags}>flags: {pipelineFlags}</span>
+              {/if}
               {#if processStatus?.gpu}
                 <span class="progress-gpu" class:vram-low={processStatus.gpu.free_mb < 2000}>
                   GPU: {processStatus.gpu.free_mb}/{processStatus.gpu.total_mb} MB libres
@@ -399,6 +422,7 @@
         onExecute={handleExecute}
         onCancel={handleCancel}
         onForce={handleForce}
+        errorMessage={executeError}
 
         progress={currentProgress}
         status={pipelineStatus}
@@ -406,6 +430,8 @@
         song={pipelineSong}
         eta={pipelineEta}
         device={inferenceDevice}
+        model={pipelineModel}
+        flags={pipelineFlags}
       />
     {/if}
   {/if}
@@ -699,6 +725,24 @@
     background: rgba(128,128,128,0.1);
     padding: 2px 8px;
     border-radius: 4px;
+  }
+  .progress-model {
+    color: var(--accent-light);
+    font-size: 11px;
+    background: rgba(128,128,128,0.1);
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .progress-flags {
+    color: var(--text-secondary);
+    font-size: 11px;
+    background: rgba(128,128,128,0.1);
+    padding: 2px 8px;
+    border-radius: 4px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .btn-stop {

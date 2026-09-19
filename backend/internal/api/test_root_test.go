@@ -59,11 +59,40 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	// Snapshot the package directory so we can detect tests that write outside
+	// the temporary test root.
+	packageBefore := map[string]bool{}
+	beforeEntries, err := os.ReadDir(cwd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: cannot read package directory %s: %v\n", cwd, err)
+		os.Exit(1)
+	}
+	for _, e := range beforeEntries {
+		packageBefore[e.Name()] = true
+	}
+
 	code := m.Run()
 
 	if err := os.RemoveAll(ondaTestRoot); err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: cannot remove test root %s: %v\n", ondaTestRoot, err)
 	}
+
+	afterEntries, err := os.ReadDir(cwd)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: cannot read package directory %s after tests: %v\n", cwd, err)
+		os.Exit(1)
+	}
+	var left []string
+	for _, e := range afterEntries {
+		if !packageBefore[e.Name()] {
+			left = append(left, e.Name())
+		}
+	}
+	if len(left) > 0 {
+		fmt.Fprintf(os.Stderr, "FATAL: tests left new entries in package directory %s: %v\n", cwd, left)
+		code = 1
+	}
+
 	os.Exit(code)
 }
 
@@ -122,4 +151,41 @@ func assertTestRoot(t *testing.T) {
 	if ondaTestRoot != "" && !strings.HasPrefix(got, ondaTestRoot) {
 		t.Fatalf("findProjectRoot() = %q is outside the package test root %q", got, ondaTestRoot)
 	}
+}
+
+// fakePipelineScript returns a bash script suitable for tests that need a
+// pipeline stand-in. It parses --output from its arguments, refuses to run if
+// --output is missing or relative, and writes the requested stem files into
+// the output directory. This prevents tests from accidentally writing to the
+// package directory when the output argument shifts position.
+func fakePipelineScript(stems ...string) string {
+	var writes strings.Builder
+	for _, s := range stems {
+		fmt.Fprintf(&writes, "echo \"stem\" > \"$output/%s\"\n", s)
+	}
+	return `#!/bin/bash
+set -euo pipefail
+output=""
+while [[ $# -gt 0 ]]; do
+	case "$1" in
+		--output)
+			shift
+			output="${1:-}"
+			;;
+	esac
+	shift
+done
+if [[ -z "$output" ]]; then
+	echo "fake pipeline: missing required --output" >&2
+	exit 1
+fi
+case "$output" in
+	/*) ;;
+	*)
+		echo "fake pipeline: --output must be an absolute path, got: $output" >&2
+		exit 1
+		;;
+esac
+mkdir -p "$output"
+` + writes.String()
 }

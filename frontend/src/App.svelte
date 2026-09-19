@@ -52,6 +52,8 @@
   let currentProgress = $state(0);
   let pipelineEta = $state('');
   let inferenceDevice = $state('');
+  let pipelineModel = $state('');
+  let pipelineFlags = $state('');
   let savedPresets = $state<{name: string, config: any}[]>([]);
   let selectedPresetName = $state('');
 
@@ -505,10 +507,10 @@
       // Non-fatal — continue even if clear fails
     }
 
-    const checked = queueFiles.filter((qf) => qf.checked && qf.status !== 'done');
+    const checked = queueFiles.filter((qf) => qf.checked);
     if (checked.length === 0) {
       if (queueFiles.length > 0) {
-        showToast('✅ Marca al menos un archivo en la cola', 'success');
+        showToast('Marca al menos un archivo en la cola', 'warning');
       }
       return;
     }
@@ -613,6 +615,8 @@
     currentProgress = 0;
     pipelineEta = '';
     inferenceDevice = '';
+    pipelineModel = '';
+    pipelineFlags = '';
     queueJobs = [];
     processedDoneSongs = new Set();
     activeSongNames = new Set();
@@ -663,6 +667,8 @@
         pipelineStep = processingJob.step_name || 'processing';
         pipelineEta = processingJob.eta || '';
         inferenceDevice = processingJob.device || '';
+        pipelineModel = processingJob.current_model || '';
+        pipelineFlags = processingJob.current_flags || '';
       }
 
       // Calculate total progress across the active batch (or all jobs if no batch is tracked)
@@ -934,6 +940,8 @@
             {pipelineSong}
             {pipelineEta}
             {inferenceDevice}
+            {pipelineModel}
+            {pipelineFlags}
             hidePresetSelector={true}
             onError={(msg) => showToast(msg, 'error')}
             onQueueChange={(files) => queueFiles = files}
@@ -957,6 +965,8 @@
             {pipelineSong}
             {pipelineEta}
             {inferenceDevice}
+            {pipelineModel}
+            {pipelineFlags}
             hidePresetSelector={false}
             onPresetChange={(name) => selectedPresetName = name}
             onError={(msg) => showToast(msg, 'error')}
@@ -993,6 +1003,8 @@
             {pipelineSong}
             {pipelineEta}
             {inferenceDevice}
+            {pipelineModel}
+            {pipelineFlags}
             onQueueChange={(files) => queueFiles = files}
             onStart={handlePipelineStart}
             onCancel={handleCancel}

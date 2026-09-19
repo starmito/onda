@@ -1,6 +1,7 @@
 package api
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/starmito/onda/internal/cli"
@@ -15,7 +16,7 @@ func TestNormalizeContainerInput(t *testing.T) {
 		{
 			name:  "relative filename becomes container input path",
 			input: "fiesta_pagana.flac",
-			want:  "/app/input/fiesta_pagana.flac",
+			want:  filepath.Join(mustSub("input"), "fiesta_pagana.flac"),
 		},
 		{
 			name:  "full container input path is preserved",
@@ -40,6 +41,7 @@ func TestNormalizeContainerInput(t *testing.T) {
 }
 
 func TestBuildPipelineArgs_NormalizesRelativeInput(t *testing.T) {
+	expectedInput := filepath.Join(mustSub("input"), "fiesta_pagana.flac")
 	req := &SeparateRequest{
 		Input:  "fiesta_pagana.flac",
 		Viperx: true,
@@ -52,10 +54,10 @@ func TestBuildPipelineArgs_NormalizesRelativeInput(t *testing.T) {
 	if len(steps) != 0 {
 		t.Errorf("old format should not return steps, got %d", len(steps))
 	}
-	if !contains(args, "/app/input/fiesta_pagana.flac") {
+	if !contains(args, expectedInput) {
 		t.Errorf("expected args to contain normalized input path, got %v", args)
 	}
-	if req.Input != "/app/input/fiesta_pagana.flac" {
+	if req.Input != expectedInput {
 		t.Errorf("expected request input to be normalized, got %q", req.Input)
 	}
 }
@@ -97,6 +99,7 @@ func TestBuildPipelineArgs_KeepsOtherAbsoluteInput(t *testing.T) {
 }
 
 func TestBuildPipelineArgs_MultiStepNormalizesInput(t *testing.T) {
+	expectedInput := filepath.Join(mustSub("input"), "fiesta_pagana.flac")
 	req := &SeparateRequest{
 		Input: "fiesta_pagana.flac",
 		Steps: []cli.PipelineStep{
@@ -105,10 +108,10 @@ func TestBuildPipelineArgs_MultiStepNormalizesInput(t *testing.T) {
 		Device: "cuda",
 	}
 	_, args, _, _ := buildPipelineArgs(req)
-	if !contains(args, "/app/input/fiesta_pagana.flac") {
+	if !contains(args, expectedInput) {
 		t.Errorf("expected multi-step args to contain normalized input path, got %v", args)
 	}
-	if req.Input != "/app/input/fiesta_pagana.flac" {
+	if req.Input != expectedInput {
 		t.Errorf("expected request input to be normalized for multi-step, got %q", req.Input)
 	}
 }

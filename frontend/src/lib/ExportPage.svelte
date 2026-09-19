@@ -80,7 +80,7 @@
     exporting = { ...exporting, [song]: true };
     try {
       const resp = await mergeStems(song, stems, format.toLowerCase(), outputName);
-      const url = downloadUrl(song, resp.file);
+      const url = resp.url || downloadUrl(song, resp.file);
       const a = document.createElement('a');
       a.href = url;
       a.download = resp.file;

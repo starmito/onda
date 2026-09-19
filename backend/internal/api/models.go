@@ -18,10 +18,12 @@ import (
 	"time"
 )
 
-// modelsBasePath is the root directory where models live inside the container.
-// The onda service uses /app/models (bind-mounted from host).
-// It is a variable so tests can override it without touching the real /app/models.
-var modelsBasePath = "/app/models"
+// modelsBasePath returns the root directory where models live. It defaults to
+// the "models" subdirectory under the current data root so the Go backend and
+// the pipeline share a single path space and follow runtime data-root changes.
+func modelsBasePath() string {
+	return mustSub("models")
+}
 
 // modelSubdirs lists the known model subdirectories to scan.
 var modelSubdirs = []string{
@@ -207,7 +209,7 @@ func listModels() ModelsListResponse {
 	categorySet := make(map[string]bool)
 
 	for _, subdir := range modelSubdirs {
-		dirPath := filepath.Join(modelsBasePath, subdir)
+		dirPath := filepath.Join(modelsBasePath(), subdir)
 
 		_ = filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
@@ -222,12 +224,12 @@ func listModels() ModelsListResponse {
 				return nil
 			}
 
-			// Build path relative to /app/models/
-			rel, err := filepath.Rel(modelsBasePath, path)
+			// Build path relative to the models root.
+			rel, err := filepath.Rel(modelsBasePath(), path)
 			if err != nil {
 				rel = filepath.Join(subdir, info.Name())
 			}
-			modelPath := "/app/models/" + filepath.ToSlash(rel)
+			modelPath := filepath.ToSlash(filepath.Join(modelsBasePath(), rel))
 
 			name := strings.TrimSuffix(info.Name(), ext)
 			category := detectCategory(subdir, rel)
@@ -285,9 +287,8 @@ func listModels() ModelsListResponse {
 	}
 }
 
-// loadUVRCatalog reads and parses the UVR model catalog (uvr_models.json).
-// It tries /app/uvr_models.json first (container path), then falls back to
-// the project root.
+// loadUVRCatalog reads and parses the UVR model catalog (uvr_models.json)
+// from the data root.
 func loadUVRCatalog() ([]UVRModelEntry, error) {
 	data, err := readProjectFile("uvr_models.json")
 	if err != nil {
@@ -373,13 +374,13 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(strings.ToLower(req.Repo), "onnx") {
 			targetSubdir = "Demucs_ONNX"
 		}
-		targetDir := filepath.Join(modelsBasePath, targetSubdir)
+		targetDir := filepath.Join(modelsBasePath(), targetSubdir)
 
 		// Register the download job
 		status := &DownloadStatus{
 			Status:   "downloading",
 			Repo:     req.Repo,
-			Target:   "/app/models/" + targetSubdir,
+			Target:   filepath.ToSlash(filepath.Join(modelsBasePath(), targetSubdir)),
 			Source:   "huggingface",
 		}
 		downloadMu.Lock()
@@ -414,13 +415,13 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 		if category == "" {
 			category = detectCategoryFromFilename(req.Filename)
 		}
-		targetDir := filepath.Join(modelsBasePath, category)
+		targetDir := filepath.Join(modelsBasePath(), category)
 
 		// Register the download job keyed by URL
 		status := &DownloadStatus{
 			Status:   "downloading",
 			Repo:     req.URL,
-			Target:   "/app/models/" + category,
+			Target:   filepath.ToSlash(filepath.Join(modelsBasePath(), category)),
 			Filename: req.Filename,
 			Source:   "direct",
 		}
@@ -440,7 +441,7 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				depCategory := detectCategoryFromFilename(dep.Filename)
-				depDir := filepath.Join(modelsBasePath, depCategory)
+				depDir := filepath.Join(modelsBasePath(), depCategory)
 
 				// Register a download job for this dependency.
 				// Use a composite key (filename + "@" + URL) to avoid collisions
@@ -449,7 +450,7 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 				depStatus := &DownloadStatus{
 					Status:   "downloading",
 					Repo:     depKey,
-					Target:   "/app/models/" + depCategory,
+					Target:   filepath.ToSlash(filepath.Join(modelsBasePath(), depCategory)),
 					Filename: dep.Filename,
 					Source:   "direct",
 				}
@@ -873,7 +874,7 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	// Find the model file on disk
 	var foundPath string
 	for _, subdir := range modelSubdirs {
-		dirPath := filepath.Join(modelsBasePath, subdir)
+		dirPath := filepath.Join(modelsBasePath(), subdir)
 		_ = filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() {
 				return nil
@@ -897,7 +898,7 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	// Also check with display name matching (filepath.Base of parent dir)
 	if foundPath == "" {
 		for _, subdir := range modelSubdirs {
-			dirPath := filepath.Join(modelsBasePath, subdir)
+			dirPath := filepath.Join(modelsBasePath(), subdir)
 			_ = filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 				if err != nil || info.IsDir() {
 					return nil
@@ -943,7 +944,7 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	}
 
 	relName := foundPath
-	if projectRoot := findProjectRoot(); projectRoot != "" {
+	if projectRoot := dataRoot(); projectRoot != "" {
 		if r, err := filepath.Rel(projectRoot, foundPath); err == nil {
 			relName = r
 		}

@@ -375,10 +375,7 @@ func TestRunSinglePipeline_MarksDone(t *testing.T) {
 
 	// Create a fake pipeline.sh that writes a stem file.
 	fakePipeline := filepath.Join(root, "pipeline.sh")
-	script := `#!/bin/bash
-mkdir -p "$4"
-echo "stem" > "$4/vocals.wav"
-`
+	script := fakePipelineScript("vocals.wav")
 	if err := os.WriteFile(fakePipeline, []byte(script), 0o755); err != nil {
 		t.Fatalf("failed to write fake pipeline: %v", err)
 	}
@@ -454,10 +451,7 @@ func TestWorker_ProcessesJob(t *testing.T) {
 	mockResourceProviders(t)
 
 	fakePipeline := filepath.Join(root, "pipeline.sh")
-	script := `#!/bin/bash
-mkdir -p "$4"
-echo "stem" > "$4/vocals.wav"
-`
+	script := fakePipelineScript("vocals.wav")
 	if err := os.WriteFile(fakePipeline, []byte(script), 0o755); err != nil {
 		t.Fatalf("failed to write fake pipeline: %v", err)
 	}

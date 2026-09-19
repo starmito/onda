@@ -1,14 +1,15 @@
 package api
 
-import "os"
+import (
+	"os"
+	"path/filepath"
+)
 
 func readProjectFile(name string) ([]byte, error) {
-	paths := []string{"/app/" + name, findProjectRoot() + "/" + name}
-	for _, p := range paths {
-		data, err := os.ReadFile(p)
-		if err == nil {
-			return data, nil
-		}
+	p := filepath.Join(dataRoot(), name)
+	data, err := os.ReadFile(p)
+	if err == nil {
+		return data, nil
 	}
-	return nil, os.ErrNotExist
+	return nil, err
 }

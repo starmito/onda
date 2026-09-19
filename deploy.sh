@@ -50,7 +50,7 @@ source ./build.sh --version
 export ONDAP_VERSION GUI_VERSION
 
 # Directorios montados como bind volumes (deben pertenecer al usuario host)
-BIND_DIRS="output input input_rubberband daw-data config logs"
+BIND_DIRS="data/input data/output data/input_rubberband data/daw-data data/config data/logs data/models"
 
 repair_bind_dir_permissions "$BIND_DIRS"
 
