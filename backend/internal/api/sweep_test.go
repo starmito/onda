@@ -3,6 +3,7 @@ package api
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"testing"
@@ -170,14 +171,14 @@ func TestEnablePipelineProcessSweep_InstallsRealSweep(t *testing.T) {
 	orig := sweepOrphanPipelineProcesses
 	defer func() { sweepOrphanPipelineProcesses = orig }()
 
-	called := false
-	sweepOrphanPipelineProcesses = func() { called = true }
-
 	EnablePipelineProcessSweep()
 
-	// The stub must have been replaced by the production implementation.
-	sweepOrphanPipelineProcesses()
-	if called {
-		t.Error("EnablePipelineProcessSweep did not replace the stub with the real implementation")
+	// Verify that the production implementation was installed without
+	// invoking it against the real /proc. Function values cannot be compared
+	// directly, but their underlying pointers can be compared via reflect.
+	got := reflect.ValueOf(sweepOrphanPipelineProcesses).Pointer()
+	want := reflect.ValueOf(realSweepFunc).Pointer()
+	if got != want {
+		t.Errorf("EnablePipelineProcessSweep installed function at 0x%x, want real implementation at 0x%x", got, want)
 	}
 }
