@@ -116,10 +116,10 @@
 
     const selected = savedPresets.find(p => p.name === presetName);
     const preset = selected ? selected.name : presetName || '';
-    const filesToForce = queueFiles.filter(qf => qf.path && qf.status !== 'done');
+    const filesToForce = queueFiles.filter(qf => qf.checked && qf.path);
 
     if (filesToForce.length === 0) {
-      showToast('No hay archivos para continuar', 'error');
+      showToast('Marca al menos un archivo en la cola', 'error');
       return;
     }
 
@@ -133,7 +133,7 @@
     }
 
     blockedMsg = null;
-    showToast('Continuando sin comprobación de recursos', 'warning');
+    showToast('Continuando sin comprobar VRAM', 'warning');
   }
 
   // ---- Drag & Drop state ----

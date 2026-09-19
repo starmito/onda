@@ -505,10 +505,10 @@
       // Non-fatal — continue even if clear fails
     }
 
-    const checked = queueFiles.filter((qf) => qf.checked && qf.status !== 'done');
+    const checked = queueFiles.filter((qf) => qf.checked);
     if (checked.length === 0) {
       if (queueFiles.length > 0) {
-        showToast('✅ Marca al menos un archivo en la cola', 'success');
+        showToast('Marca al menos un archivo en la cola', 'warning');
       }
       return;
     }
