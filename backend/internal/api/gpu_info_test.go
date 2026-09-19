@@ -154,6 +154,91 @@ func TestParseNvidiaSmiMemory(t *testing.T) {
 	}
 }
 
+func TestCheckVramHeadroom_NeverRequiresMoreThanTotal(t *testing.T) {
+	tests := []struct {
+		name          string
+		freeMB        int
+		totalMB       int
+		model         string
+		stepType      string
+		fallbackModel string
+		cfg           VRAMConfig
+		wantOK        bool
+		wantRequired  int
+		wantReason    string
+		wantWarning   string
+	}{
+		{
+			name:         "viperx ample free warns margin dropped",
+			freeMB:       16000,
+			totalMB:      16311,
+			model:        "BS_Roformer_Viperx",
+			stepType:     "vocal",
+			wantOK:       true,
+			wantRequired: 14944,
+			wantWarning:  `VRAM tight: model "BS_Roformer_Viperx" (step "vocal") needs ~14944 MiB and the card has 16311 MiB total - proceeding without safety margin`,
+		},
+		{
+			name:         "viperx free below base blocks with real requirement",
+			freeMB:       950,
+			totalMB:      16311,
+			model:        "BS_Roformer_Viperx",
+			stepType:     "vocal",
+			wantOK:       false,
+			wantRequired: 14944,
+			wantReason:   `insufficient VRAM: model "BS_Roformer_Viperx" (step "vocal") needs ~14944 MiB, only 950 MiB free`,
+		},
+		{
+			name:         "demucs margin fits free above requirement",
+			freeMB:       1800,
+			totalMB:      8192,
+			model:        "htdemucs_ft",
+			stepType:     "demucs",
+			wantOK:       true,
+			wantRequired: 1800,
+		},
+		{
+			name:         "demucs margin fits free below requirement blocks",
+			freeMB:       1799,
+			totalMB:      8192,
+			model:        "htdemucs_ft",
+			stepType:     "demucs",
+			wantOK:       false,
+			wantRequired: 1800,
+			wantReason:   `insufficient VRAM: model "htdemucs_ft" (step "demucs") needs ~1800 MiB (with 20% margin), only 1799 MiB free`,
+		},
+		{
+			name:          "unknown resolved by fallback model",
+			freeMB:        16000,
+			totalMB:       16311,
+			model:         "unknown",
+			stepType:      "vocal",
+			fallbackModel: "BS_Roformer_Viperx",
+			wantOK:        true,
+			wantRequired:  14944,
+			wantWarning:   `VRAM tight: model "BS_Roformer_Viperx" (step "vocal") needs ~14944 MiB and the card has 16311 MiB total - proceeding without safety margin`,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ok, required, reason, warning := checkVramHeadroom(tt.freeMB, tt.totalMB, tt.model, tt.stepType, tt.cfg, tt.fallbackModel)
+			if ok != tt.wantOK {
+				t.Errorf("ok = %v, want %v", ok, tt.wantOK)
+			}
+			if required != tt.wantRequired {
+				t.Errorf("required = %d, want %d", required, tt.wantRequired)
+			}
+			if reason != tt.wantReason {
+				t.Errorf("reason = %q, want %q", reason, tt.wantReason)
+			}
+			if warning != tt.wantWarning {
+				t.Errorf("warning = %q, want %q", warning, tt.wantWarning)
+			}
+		})
+	}
+}
+
 func TestHandleVRAMCalculator_ClassifiesModelType(t *testing.T) {
 	s := &Server{mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)

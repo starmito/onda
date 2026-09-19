@@ -1154,7 +1154,7 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	if !job.Config.ForceVRAM {
 		gpu := gpuInfoProvider()
 		if gpu.OK {
-			if ok, _, reason := checkVramHeadroom(gpu.VRAMFreeMB, modelName, stepType, vramCfg); !ok {
+			if ok, _, reason, warning := checkVramHeadroom(gpu.VRAMFreeMB, gpu.VRAMTotalMB, modelName, stepType, vramCfg, modelName); !ok {
 				s.jobsMu.Lock()
 				state.Status = "blocked_no_gpu"
 				state.Error = reason
@@ -1164,6 +1164,8 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 				s.jobsMu.Unlock()
 				Log("pipeline", "warn", fmt.Sprintf("Job blocked for %s: %s", job.Song, reason))
 				return
+			} else if warning != "" {
+				Log("pipeline", "warn", fmt.Sprintf("Job %s: %s", job.Song, warning))
 			}
 		}
 	}
@@ -1299,7 +1301,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		if !job.Config.ForceVRAM {
 			gpu := gpuInfoProvider()
 			if gpu.OK {
-				if ok, _, reason := checkVramHeadroom(gpu.VRAMFreeMB, modelName, step.Type, vramCfg); !ok {
+				if ok, _, reason, warning := checkVramHeadroom(gpu.VRAMFreeMB, gpu.VRAMTotalMB, modelName, step.Type, vramCfg, step.Model); !ok {
 					s.jobsMu.Lock()
 					if state, ok := s.jobs[job.Song]; ok {
 						state.Status = "blocked_no_gpu"
@@ -1311,6 +1313,8 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 					s.jobsMu.Unlock()
 					Log("pipeline", "warn", fmt.Sprintf("Job blocked for %s at step %d: %s", job.Song, i+1, reason))
 					return
+				} else if warning != "" {
+					Log("pipeline", "warn", fmt.Sprintf("Job %s at step %d: %s", job.Song, i+1, warning))
 				}
 			}
 		}

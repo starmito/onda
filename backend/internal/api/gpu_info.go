@@ -92,25 +92,70 @@ func findMeasuredVRAMPeak(modelName, stepType string) int {
 	return 0
 }
 
+// resolveModelName returns the most useful model name available. If modelName
+// is empty or "unknown" it falls back to fallbackModel; if neither is usable it
+// returns modelName (which may be "unknown") so the message stays honest.
+func resolveModelName(modelName, fallbackModel string) string {
+	if modelName != "" && !strings.EqualFold(modelName, "unknown") {
+		return modelName
+	}
+	if fallbackModel != "" && !strings.EqualFold(fallbackModel, "unknown") {
+		return fallbackModel
+	}
+	if modelName != "" {
+		return modelName
+	}
+	return "unknown"
+}
+
 // checkVramHeadroom returns whether freeMB can accommodate the peak VRAM
-// expected for modelName/stepType with a 20% safety margin. It prefers a
-// measured peak when one exists; otherwise it falls back to the analytical
-// estimator. It also returns the required memory and a human-readable reason
-// when there is not enough headroom.
-func checkVramHeadroom(freeMB int, modelName, stepType string, cfg VRAMConfig) (bool, int, string) {
+// expected for modelName/stepType. It prefers a measured peak when one exists;
+// otherwise it falls back to the analytical estimator.
+//
+// The safety margin is applied only when it physically fits on the card
+// (base * margin <= totalMB). When it does not fit, the requirement is reduced
+// to base and a warning is returned so the caller can log that the job is
+// proceeding without a safety margin.
+//
+// It returns: ok, requiredMB, blockReason, warning. Only one of blockReason and
+// warning is non-empty: a block reason when ok is false, or a warning when ok
+// is true but the margin could not be applied.
+func checkVramHeadroom(freeMB, totalMB int, modelName, stepType string, cfg VRAMConfig, fallbackModel string) (bool, int, string, string) {
+	effectiveModel := resolveModelName(modelName, fallbackModel)
+
 	var base int
-	if peak := findMeasuredVRAMPeak(modelName, stepType); peak > 0 {
+	if peak := findMeasuredVRAMPeak(effectiveModel, stepType); peak > 0 {
 		base = peak
 	} else {
-		base = estimateVRAMMB(modelName, cfg.SegmentSize, cfg.ChunkSize, cfg.BatchSize, cfg.DemucsSegment)
+		base = estimateVRAMMB(effectiveModel, cfg.SegmentSize, cfg.ChunkSize, cfg.BatchSize, cfg.DemucsSegment)
 	}
-	needed := int(math.Round(float64(base) * vramHeadroomMargin))
-	if freeMB >= needed {
-		return true, needed, ""
+
+	withMargin := int(math.Round(float64(base) * vramHeadroomMargin))
+	required := withMargin
+	marginApplied := true
+	if totalMB > 0 && withMargin > totalMB {
+		required = base
+		marginApplied = false
 	}
-	reason := fmt.Sprintf("insufficient VRAM: model %q (step %q) needs ~%d MiB (with %.0f%% margin), only %d MiB free",
-		modelName, stepType, needed, (vramHeadroomMargin-1.0)*100, freeMB)
-	return false, needed, reason
+
+	if freeMB >= required {
+		if !marginApplied {
+			warning := fmt.Sprintf("VRAM tight: model %q (step %q) needs ~%d MiB and the card has %d MiB total - proceeding without safety margin",
+				effectiveModel, stepType, base, totalMB)
+			return true, required, "", warning
+		}
+		return true, required, "", ""
+	}
+
+	var reason string
+	if marginApplied {
+		reason = fmt.Sprintf("insufficient VRAM: model %q (step %q) needs ~%d MiB (with %.0f%% margin), only %d MiB free",
+			effectiveModel, stepType, required, (vramHeadroomMargin-1.0)*100, freeMB)
+	} else {
+		reason = fmt.Sprintf("insufficient VRAM: model %q (step %q) needs ~%d MiB, only %d MiB free",
+			effectiveModel, stepType, required, freeMB)
+	}
+	return false, required, reason, ""
 }
 
 // fallbackAvailableVRAMMB is used when GPU info cannot be obtained.
