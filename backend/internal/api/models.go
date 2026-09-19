@@ -18,10 +18,12 @@ import (
 	"time"
 )
 
-// modelsBasePath is the root directory where models live. It defaults to the
-// "models" subdirectory under the data root so the Go backend and the pipeline
-// share a single path space. It remains a variable so tests can override it.
-var modelsBasePath = mustSub("models")
+// modelsBasePath returns the root directory where models live. It defaults to
+// the "models" subdirectory under the current data root so the Go backend and
+// the pipeline share a single path space and follow runtime data-root changes.
+func modelsBasePath() string {
+	return mustSub("models")
+}
 
 // modelSubdirs lists the known model subdirectories to scan.
 var modelSubdirs = []string{
@@ -207,7 +209,7 @@ func listModels() ModelsListResponse {
 	categorySet := make(map[string]bool)
 
 	for _, subdir := range modelSubdirs {
-		dirPath := filepath.Join(modelsBasePath, subdir)
+		dirPath := filepath.Join(modelsBasePath(), subdir)
 
 		_ = filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 			if err != nil {
@@ -223,11 +225,11 @@ func listModels() ModelsListResponse {
 			}
 
 			// Build path relative to the models root.
-			rel, err := filepath.Rel(modelsBasePath, path)
+			rel, err := filepath.Rel(modelsBasePath(), path)
 			if err != nil {
 				rel = filepath.Join(subdir, info.Name())
 			}
-			modelPath := filepath.ToSlash(filepath.Join(modelsBasePath, rel))
+			modelPath := filepath.ToSlash(filepath.Join(modelsBasePath(), rel))
 
 			name := strings.TrimSuffix(info.Name(), ext)
 			category := detectCategory(subdir, rel)
@@ -372,13 +374,13 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(strings.ToLower(req.Repo), "onnx") {
 			targetSubdir = "Demucs_ONNX"
 		}
-		targetDir := filepath.Join(modelsBasePath, targetSubdir)
+		targetDir := filepath.Join(modelsBasePath(), targetSubdir)
 
 		// Register the download job
 		status := &DownloadStatus{
 			Status:   "downloading",
 			Repo:     req.Repo,
-			Target:   filepath.ToSlash(filepath.Join(modelsBasePath, targetSubdir)),
+			Target:   filepath.ToSlash(filepath.Join(modelsBasePath(), targetSubdir)),
 			Source:   "huggingface",
 		}
 		downloadMu.Lock()
@@ -413,13 +415,13 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 		if category == "" {
 			category = detectCategoryFromFilename(req.Filename)
 		}
-		targetDir := filepath.Join(modelsBasePath, category)
+		targetDir := filepath.Join(modelsBasePath(), category)
 
 		// Register the download job keyed by URL
 		status := &DownloadStatus{
 			Status:   "downloading",
 			Repo:     req.URL,
-			Target:   filepath.ToSlash(filepath.Join(modelsBasePath, category)),
+			Target:   filepath.ToSlash(filepath.Join(modelsBasePath(), category)),
 			Filename: req.Filename,
 			Source:   "direct",
 		}
@@ -439,7 +441,7 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				depCategory := detectCategoryFromFilename(dep.Filename)
-				depDir := filepath.Join(modelsBasePath, depCategory)
+				depDir := filepath.Join(modelsBasePath(), depCategory)
 
 				// Register a download job for this dependency.
 				// Use a composite key (filename + "@" + URL) to avoid collisions
@@ -448,7 +450,7 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 				depStatus := &DownloadStatus{
 					Status:   "downloading",
 					Repo:     depKey,
-					Target:   filepath.ToSlash(filepath.Join(modelsBasePath, depCategory)),
+					Target:   filepath.ToSlash(filepath.Join(modelsBasePath(), depCategory)),
 					Filename: dep.Filename,
 					Source:   "direct",
 				}
@@ -872,7 +874,7 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	// Find the model file on disk
 	var foundPath string
 	for _, subdir := range modelSubdirs {
-		dirPath := filepath.Join(modelsBasePath, subdir)
+		dirPath := filepath.Join(modelsBasePath(), subdir)
 		_ = filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() {
 				return nil
@@ -896,7 +898,7 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	// Also check with display name matching (filepath.Base of parent dir)
 	if foundPath == "" {
 		for _, subdir := range modelSubdirs {
-			dirPath := filepath.Join(modelsBasePath, subdir)
+			dirPath := filepath.Join(modelsBasePath(), subdir)
 			_ = filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
 				if err != nil || info.IsDir() {
 					return nil

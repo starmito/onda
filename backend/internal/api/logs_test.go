@@ -29,6 +29,8 @@ func setupTestLogStore(t *testing.T) string {
 		t.Fatalf("failed to create test log dir: %v", err)
 	}
 	path := filepath.Join(root, "onda.log")
+	// Pin the default path so currentLogStore() keeps using this test store.
+	t.Setenv("ONDA_SERVICE_LOG_PATH", path)
 	old := defaultLogStore
 	defaultLogStore = newServiceLogStore(path)
 	t.Cleanup(func() {

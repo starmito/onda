@@ -37,12 +37,23 @@ var (
 )
 
 var (
-	defaultLogStore *serviceLogStore
-	logIDSeq        atomic.Uint64
+	defaultLogStore   *serviceLogStore
+	defaultLogStoreMu sync.Mutex
+	logIDSeq          atomic.Uint64
 )
 
-func init() {
-	defaultLogStore = newServiceLogStore(defaultServiceLogPath())
+// currentLogStore returns the default service log store, recreating it when the
+// configured log path changes (for example after a data-root switch). This
+// keeps log persistence tied to the effective data root at call time.
+func currentLogStore() *serviceLogStore {
+	defaultLogStoreMu.Lock()
+	defer defaultLogStoreMu.Unlock()
+	wantPath := defaultServiceLogPath()
+	if defaultLogStore != nil && defaultLogStore.path == wantPath {
+		return defaultLogStore
+	}
+	defaultLogStore = newServiceLogStore(wantPath)
+	return defaultLogStore
 }
 
 // defaultServiceLogPath returns the persistent log file path. It can be
@@ -284,7 +295,7 @@ func Log(service, level, message string) {
 	}
 	logBufferMu.Unlock()
 
-	defaultLogStore.persist(entry)
+	currentLogStore().persist(entry)
 }
 
 // LogWithNano añade una entrada al ring buffer con un timestamp específico y
@@ -305,7 +316,7 @@ func LogWithNano(service, level, message string, nano int64) {
 	}
 	logBufferMu.Unlock()
 
-	defaultLogStore.persist(entry)
+	currentLogStore().persist(entry)
 }
 
 func (s *Server) handleGetLogs(w http.ResponseWriter, r *http.Request) {
@@ -339,7 +350,7 @@ func (s *Server) handleGetServiceLogs(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	persisted := defaultLogStore.readRecent(limit)
+	persisted := currentLogStore().readRecent(limit)
 
 	logBufferMu.RLock()
 	buf := make([]LogEntry, len(logBuffer))

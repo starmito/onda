@@ -544,12 +544,9 @@ func TestBuildStepPipelineArgs_VocalNoChunkSizeOmitsEnv(t *testing.T) {
 }
 
 func TestIsOnnxModel(t *testing.T) {
-	root := newTestRoot(t, "model-config-")
-	oldBase := modelsBasePath
-	modelsBasePath = root
-	t.Cleanup(func() { modelsBasePath = oldBase })
+	root := setTestRoot(t, "model-config-")
 
-	modelDir := filepath.Join(root, "MDX_Net_Models", "MyMDXNet")
+	modelDir := filepath.Join(root, "models", "MDX_Net_Models", "MyMDXNet")
 	if err := os.MkdirAll(modelDir, 0o755); err != nil {
 		t.Fatalf("failed to create model dir: %v", err)
 	}
@@ -566,12 +563,9 @@ func TestIsOnnxModel(t *testing.T) {
 }
 
 func TestBuildPipelineArgs_OnnxModel(t *testing.T) {
-	root := newTestRoot(t, "model-config-")
-	oldBase := modelsBasePath
-	modelsBasePath = root
-	t.Cleanup(func() { modelsBasePath = oldBase })
+	root := setTestRoot(t, "model-config-")
 
-	modelDir := filepath.Join(root, "MDX_Net_Models", "MyMDXNet")
+	modelDir := filepath.Join(root, "models", "MDX_Net_Models", "MyMDXNet")
 	if err := os.MkdirAll(modelDir, 0o755); err != nil {
 		t.Fatalf("failed to create model dir: %v", err)
 	}
@@ -590,12 +584,9 @@ func TestBuildPipelineArgs_OnnxModel(t *testing.T) {
 }
 
 func TestBuildStepPipelineArgs_OnnxModel(t *testing.T) {
-	root := newTestRoot(t, "model-config-")
-	oldBase := modelsBasePath
-	modelsBasePath = root
-	t.Cleanup(func() { modelsBasePath = oldBase })
+	root := setTestRoot(t, "model-config-")
 
-	modelDir := filepath.Join(root, "MDX_Net_Models", "MyMDXNet")
+	modelDir := filepath.Join(root, "models", "MDX_Net_Models", "MyMDXNet")
 	if err := os.MkdirAll(modelDir, 0o755); err != nil {
 		t.Fatalf("failed to create model dir: %v", err)
 	}
