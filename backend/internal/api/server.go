@@ -243,6 +243,8 @@ func NewServer(addr string) *http.Server {
 	// Storage API
 	s.mux.HandleFunc("GET /api/storage/usage", s.handleStorageUsage)
 	s.mux.HandleFunc("POST /api/storage/clean", s.handleStorageClean)
+	s.mux.HandleFunc("GET /api/storage/config", s.handleStorageConfigGet)
+	s.mux.HandleFunc("POST /api/storage/config", s.handleStorageConfigPost)
 	s.mux.HandleFunc("GET /api/logs", s.handleGetLogs)
 	s.mux.HandleFunc("GET /api/logs/services", s.handleGetServiceLogs)
 	s.mux.HandleFunc("/api/models", s.handleModels)

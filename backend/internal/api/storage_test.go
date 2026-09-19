@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -305,5 +306,171 @@ func TestStorageUsage_DataRootFromEnv(t *testing.T) {
 	}
 	if body.FreeBytes <= 0 {
 		t.Errorf("expected positive free_bytes, got %d", body.FreeBytes)
+	}
+}
+
+func newStorageConfigTestServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("GET /api/storage/config", s.handleStorageConfigGet)
+	s.mux.HandleFunc("POST /api/storage/config", s.handleStorageConfigPost)
+	srv := httptest.NewServer(s.mux)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+func TestStorageConfigGet_FromEnv(t *testing.T) {
+	root := setupStorageTestRoot(t)
+	t.Setenv("ONDA_DATA_DIR", root)
+
+	srv := newStorageConfigTestServer(t)
+	resp, err := srv.Client().Get(srv.URL + "/api/storage/config")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(b))
+	}
+
+	var body storageConfigResponse
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if body.CurrentRoot != root {
+		t.Errorf("current_root: expected %q, got %q", root, body.CurrentRoot)
+	}
+	if body.Source != "env" {
+		t.Errorf("source: expected env, got %q", body.Source)
+	}
+	if !body.Exists {
+		t.Errorf("expected exists=true")
+	}
+	if !body.Writable {
+		t.Errorf("expected writable=true")
+	}
+	for _, name := range allStorageFolders {
+		if _, ok := body.Folders[name]; !ok {
+			t.Errorf("missing folder key %q", name)
+		}
+	}
+}
+
+func TestStorageConfigPost_MissingPath(t *testing.T) {
+	setupStorageTestRoot(t)
+	srv := newStorageConfigTestServer(t)
+
+	body := `{"root":"/no/existe/onda-data"}`
+	resp, err := srv.Client().Post(srv.URL+"/api/storage/config", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 400, got %d: %s", resp.StatusCode, string(b))
+	}
+	b, _ := io.ReadAll(resp.Body)
+	if !bytes.Contains(b, []byte("does not exist")) && !bytes.Contains(b, []byte("cannot be accessed")) {
+		t.Errorf("expected clear missing-path error, got %s", string(b))
+	}
+}
+
+func TestStorageConfigPost_ReadOnlyPath(t *testing.T) {
+	root := setTestRoot(t, "storage-config-ro-")
+	if err := os.Chmod(root, 0o555); err != nil {
+		t.Fatalf("failed to chmod root read-only: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(root, 0o755) })
+
+	srv := newStorageConfigTestServer(t)
+	body := fmt.Sprintf(`{"root":%q}`, root)
+	resp, err := srv.Client().Post(srv.URL+"/api/storage/config", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 400, got %d: %s", resp.StatusCode, string(b))
+	}
+	b, _ := io.ReadAll(resp.Body)
+	if !bytes.Contains(b, []byte("not writable")) {
+		t.Errorf("expected clear writable error, got %s", string(b))
+	}
+}
+
+func TestStorageConfigPost_Traversal(t *testing.T) {
+	setupStorageTestRoot(t)
+	srv := newStorageConfigTestServer(t)
+
+	body := `{"root":"/app/../etc"}`
+	resp, err := srv.Client().Post(srv.URL+"/api/storage/config", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusBadRequest {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 400, got %d: %s", resp.StatusCode, string(b))
+	}
+	b, _ := io.ReadAll(resp.Body)
+	if !bytes.Contains(b, []byte("parent references")) && !bytes.Contains(b, []byte("..")) {
+		t.Errorf("expected clear traversal error, got %s", string(b))
+	}
+}
+
+func TestStorageConfigPost_Valid(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("cannot get working directory: %v", err)
+	}
+	root, err := os.MkdirTemp(cwd, "storage-config-valid-")
+	if err != nil {
+		t.Fatalf("failed to create temp root: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+
+	settingsPath := filepath.Join(root, ".onda-settings.json")
+	t.Setenv("ONDA_SETTINGS_FILE", settingsPath)
+	t.Setenv("ONDA_DATA_DIR", "")
+
+	srv := newStorageConfigTestServer(t)
+	body := fmt.Sprintf(`{"root":%q}`, root)
+	resp, err := srv.Client().Post(srv.URL+"/api/storage/config", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(b))
+	}
+
+	var respBody storageConfigResponse
+	if err := json.NewDecoder(resp.Body).Decode(&respBody); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if respBody.CurrentRoot != root {
+		t.Errorf("current_root: expected %q, got %q", root, respBody.CurrentRoot)
+	}
+
+	if got := dataRoot(); got != root {
+		t.Errorf("dataRoot() = %q, want %q", got, root)
+	}
+
+	saved, err := loadStorageSettings()
+	if err != nil {
+		t.Fatalf("failed to load settings: %v", err)
+	}
+	if saved.DataRoot != root {
+		t.Errorf("persisted data_root: expected %q, got %q", root, saved.DataRoot)
 	}
 }

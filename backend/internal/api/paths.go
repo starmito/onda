@@ -9,11 +9,15 @@ import (
 )
 
 // dataRoot returns the single data root directory for the application.
-// If ONDA_DATA_DIR is set, it is used as the root; otherwise the current
-// behaviour (findProjectRoot) is preserved so nothing changes until the
-// variable is configured explicitly.
+// Precedence:
+//   1. ONDA_DATA_DIR environment variable.
+//   2. data_root value persisted in the settings file.
+//   3. Current behaviour (findProjectRoot) as a fallback.
 func dataRoot() string {
 	if root := os.Getenv("ONDA_DATA_DIR"); root != "" {
+		return root
+	}
+	if root := persistedDataRoot(); root != "" {
 		return root
 	}
 	return findProjectRoot()
@@ -37,4 +41,23 @@ func mustSub(name string) string {
 		panic(fmt.Sprintf("invalid data subdirectory %q: %v", name, err))
 	}
 	return p
+}
+
+// isContainerMode reports whether the process is running inside a Docker
+// container by checking for the /.dockerenv marker file.
+func isContainerMode() bool {
+	_, err := os.Stat("/.dockerenv")
+	return err == nil
+}
+
+// appDir returns the application directory where persisted settings are kept.
+// In a container this is /app; otherwise it falls back to the project root.
+func appDir() string {
+	if dir := os.Getenv("ONDA_APP_DIR"); dir != "" {
+		return dir
+	}
+	if isContainerMode() {
+		return "/app"
+	}
+	return findProjectRoot()
 }
