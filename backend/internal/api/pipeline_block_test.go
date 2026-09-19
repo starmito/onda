@@ -316,7 +316,8 @@ func TestCheckRamHeadroom(t *testing.T) {
 		wantReason bool
 	}{
 		{"viperx fits", 8000, "BS_Roformer_Viperx", "vocal", true, false},
-		{"viperx below estimate", 6000, "BS_Roformer_Viperx", "vocal", false, true},
+		{"viperx below measured", 2000, "BS_Roformer_Viperx", "vocal", false, true},
+		{"viperx real measurement 4700 MB", 4700, "BS_Roformer_Viperx", "vocal", true, false},
 		{"demucs fits", 5000, "htdemucs_ft", "demucs", true, false},
 		{"demucs below estimate", 3000, "htdemucs_ft", "demucs", false, true},
 		{"unknown conservative", 5000, "unknown_model", "vocal", true, false},

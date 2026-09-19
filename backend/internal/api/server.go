@@ -186,25 +186,6 @@ func waitWithTimeout(ctx context.Context, wait func() error, timeout time.Durati
 	}
 }
 
-// sweepOrphanPipelineProcesses kills known pipeline orphan processes that may
-// survive after the process group is terminated. It uses specific pkill
-// patterns (never a generic python pkill) so the backend is not affected.
-// It is a variable so tests can substitute a mock implementation and verify
-// that the cleanup sweep is invoked during cancellation.
-var sweepOrphanPipelineProcesses = func() {
-	patterns := []string{
-		"pipeline.sh",
-		"inference_mdx.py",
-		"inference_scnet.py",
-		"inference_universal.py",
-		"inference_onnx.py",
-	}
-	for _, pattern := range patterns {
-		// Ignore errors; this is a best-effort cleanup sweep.
-		_ = exec.Command("pkill", "-9", "-f", pattern).Run()
-	}
-}
-
 // NewServer creates a new http.Server with CORS middleware and routes registered.
 func NewServer(addr string) *http.Server {
 	s := &Server{

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -72,6 +73,16 @@ func TestMain(m *testing.M) {
 	}
 
 	code := m.Run()
+
+	// The suite must leave the global sweep function in its default inert
+	// state. If any test installed the real implementation and forgot to
+	// restore the stub, fail the whole run so that production code cannot
+	// accidentally kill real pipeline processes during later tests.
+	if sweepOrphanPipelineProcesses != nil &&
+		reflect.ValueOf(sweepOrphanPipelineProcesses).Pointer() == reflect.ValueOf(realSweepFunc).Pointer() {
+		fmt.Fprintln(os.Stderr, "FATAL: tests left sweepOrphanPipelineProcesses pointing to the real implementation")
+		code = 1
+	}
 
 	if err := os.RemoveAll(ondaTestRoot); err != nil {
 		fmt.Fprintf(os.Stderr, "WARNING: cannot remove test root %s: %v\n", ondaTestRoot, err)

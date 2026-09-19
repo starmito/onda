@@ -326,9 +326,15 @@ type measuredRAMPeak struct {
 // exists it is used directly; otherwise estimateRAMMB provides a conservative
 // fallback.
 var measuredRAMPeaks = []measuredRAMPeak{
+	// Measured 2026-09-19 on a real job: BS_Roformer_Viperx (preset
+	// "Eliminador de Voz", 1 step, chunk 35 s) on a 60 s stereo 44.1 kHz
+	// synthetic clip. The inference python process peaked at 2,094,200 KB
+	// RSS ≈ 2,045 MiB, sampled at 1 Hz from the host during the whole
+	// pipeline. Because processing is chunked, the RAM usage does not grow
+	// with input duration.
+	{ModelName: "BS_Roformer_Viperx", StepType: "vocal", PeakMB: 2045},
+	{ModelName: "BS_Roformer_Viperx", StepType: "viperx", PeakMB: 2045},
 	// Conservative observed host RAM usage for long audio jobs.
-	{ModelName: "BS_Roformer_Viperx", StepType: "vocal", PeakMB: 6144},
-	{ModelName: "BS_Roformer_Viperx", StepType: "viperx", PeakMB: 6144},
 	{ModelName: "htdemucs_ft", StepType: "demucs", PeakMB: 4096},
 }
 
@@ -353,7 +359,14 @@ func estimateRAMMB(modelName, stepType string) int {
 		return 4096
 	}
 	if isVocalOrRoformer(lower) {
-		return 6144
+		// Conservative fallback for the Vocal/Roformer family when no
+		// measured peak exists. The only measured case so far is
+		// BS_Roformer_Viperx at 2,045 MiB (60 s, chunk 35 s). We keep a
+		// ~50 % headroom above that measured peak (3,072 MiB) so the guard
+		// stays conservative for unknown models in the same family without
+		// reintroducing the previous 6,144 MiB heuristic that produced false
+		// warnings with ~4.7 GB of free RAM.
+		return 3072
 	}
 	if strings.Contains(lower, "mdx") || strings.Contains(lower, "onnx") {
 		return 6144
