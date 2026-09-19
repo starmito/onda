@@ -14,7 +14,7 @@
   import PresetsPanel from './lib/PresetsPanel.svelte';
   import type { ResultStem } from './lib/types';
   import { detectStemType } from './lib/types';
-  import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getPresets, getDefaultPreset, clearQueue, cancelQueue, loadUISettings } from './lib/api';
+  import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getPresets, getDefaultPreset, clearQueue, cancelQueue, loadUISettings, type InputEntry } from './lib/api';
   import type { QueueJob } from './lib/api';
   import { IconOnda, IconStar, IconVoiceRemove, IconSeparate, IconInstruments, IconUser } from './lib/icons';
 
@@ -63,6 +63,14 @@
   let emptyQueueTicks = $state(0);
   const EMPTY_QUEUE_THRESHOLD = 3; // tolerate transient empty status ticks
 
+  // ---- Live inputs refresh state ----
+  let inputsRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  const INPUTS_REFRESH_INTERVAL_MS = 20000; // 20 s
+
+  function isQueueVisible(tab: string): boolean {
+    return tab === 'personalizado' || isPresetTab(tab);
+  }
+
   // ---- Safeguard: if the UI flag gets stuck but there is no real work, fix it next tick ----
   $effect(() => {
     if (!separating) return;
@@ -74,6 +82,12 @@
         pipelineStatus = 'idle';
       }
     }
+  });
+
+  // ---- Live input refresh: react to tab navigation and external uploads ----
+  $effect(() => {
+    activeTab;
+    syncInputsPolling();
   });
 
   // ---- Health / Version from backend ----
@@ -154,6 +168,67 @@
       toastTimer = setTimeout(() => {
         toastMessage = '';
       }, 3000);
+    }
+  }
+
+  /** Merge server-side input files into the queue without losing row state. */
+  function mergeDiskInputs(inputs: InputEntry[]) {
+    if (inputs.length === 0) return;
+
+    const byPath = new Set(queueFiles.map(q => q.path).filter(Boolean));
+    const uploadingNames = new Set(
+      queueFiles.filter(q => q.status === 'uploading' && !q.path).map(q => q.file.name),
+    );
+
+    const newQueueFiles: QueueFile[] = [];
+    for (const input of inputs) {
+      if (byPath.has(input.path)) continue;
+      // Avoid adding a server file that matches an in-progress local upload
+      if (uploadingNames.has(input.name)) continue;
+      newQueueFiles.push({
+        file: new File([], input.name),
+        id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}-${input.name}`,
+        status: 'waiting',
+        checked: true,
+        path: input.path,
+      });
+    }
+
+    if (newQueueFiles.length > 0) {
+      queueFiles = [...queueFiles, ...newQueueFiles];
+      console.log('Merged', newQueueFiles.length, 'inputs from disk');
+    }
+    markDoneRowsFromResults();
+  }
+
+  async function refreshInputsFromDisk() {
+    try {
+      const inputs = await getInputs();
+      mergeDiskInputs(inputs);
+    } catch (err) {
+      console.error('Failed to refresh inputs from disk:', err);
+    }
+  }
+
+  function startInputsPolling() {
+    if (inputsRefreshTimer) return;
+    inputsRefreshTimer = setInterval(() => {
+      refreshInputsFromDisk();
+    }, INPUTS_REFRESH_INTERVAL_MS);
+  }
+
+  function stopInputsPolling() {
+    if (inputsRefreshTimer) {
+      clearInterval(inputsRefreshTimer);
+      inputsRefreshTimer = null;
+    }
+  }
+
+  function syncInputsPolling() {
+    if (isQueueVisible(activeTab) && document.visibilityState !== 'hidden') {
+      startInputsPolling();
+    } else {
+      stopInputsPolling();
     }
   }
 
@@ -283,35 +358,7 @@
       });
 
     // ── Load persisted inputs from filesystem (/input/) ──
-    getInputs()
-      .then((inputs) => {
-        console.log('getInputs response:', inputs.length, 'files');
-        if (inputs.length > 0) {
-          // Create QueueFile entries for pre-existing input files
-          const existingPaths = new Set(queueFiles.map(q => q.path));
-          const newQueueFiles: QueueFile[] = [];
-          for (const input of inputs) {
-            // Avoid duplicates if files were already added via dropzone
-            if (!existingPaths.has(input.path)) {
-              newQueueFiles.push({
-                file: new File([], input.name), // placeholder File (name-only)
-                id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}-${input.name}`,
-                status: 'waiting',
-                checked: true,
-                path: input.path,
-              });
-            }
-          }
-          if (newQueueFiles.length > 0) {
-            queueFiles = [...queueFiles, ...newQueueFiles];
-            console.log('Restored', newQueueFiles.length, 'inputs from filesystem');
-          }
-          markDoneRowsFromResults();
-        }
-      })
-      .catch((err) => {
-        console.error('Failed to load inputs from filesystem:', err);
-      });
+    refreshInputsFromDisk();
 
     // ── Restore active queue jobs ──
     getQueueStatus()
@@ -363,11 +410,17 @@
         }
       });
     }).catch(() => {});
+
+    // ── Start live input refresh while the queue view is visible ──
+    syncInputsPolling();
+    document.addEventListener('visibilitychange', syncInputsPolling);
   });
 
   // Cleanup timers on unmount
   onDestroy(() => {
     if (queuePollingTimer) clearInterval(queuePollingTimer);
+    stopInputsPolling();
+    document.removeEventListener('visibilitychange', syncInputsPolling);
   });
 
   // ---- Presets refresh (called when editor closes) ----
@@ -406,6 +459,8 @@
         );
       }
     }
+    // Pick up files uploaded from other tabs / sources without reloading
+    await refreshInputsFromDisk();
   }
 
   function handleDropZoneFile(f: File) {
@@ -920,7 +975,7 @@
         {:else if activeTab === 'spectrogram'}
           <SpectrogramPage />
         {:else if activeTab === 'bpm'}
-          <BpmPage />
+          <BpmPage onUpload={refreshInputsFromDisk} onNotify={(msg, type) => showToast(msg, type)} />
         {:else if activeTab === 'export'}
           <ExportPage />
         {:else}

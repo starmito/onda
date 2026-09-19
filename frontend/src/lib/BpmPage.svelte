@@ -1,13 +1,19 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { uploadAudio, detectBpm, getInputs, type TempoResponse } from './api';
+  import { uploadAudio, detectBpm, getInputs, deleteInput, type TempoResponse, type InputEntry } from './api';
   import { IconUpload } from './icons';
 
   type InputFile = { name: string; path: string };
 
+  interface Props {
+    onUpload?: () => void;
+    onNotify?: (message: string, type: 'success' | 'error') => void;
+  }
+
+  let { onUpload, onNotify }: Props = $props();
+
   let fileInput: HTMLInputElement | null = $state(null);
   let existingInputs = $state<InputFile[]>([]);
-  let selectedInput = $state('');
   let loading = $state(false);
   let error = $state('');
   let result = $state<TempoResponse | null>(null);
@@ -41,6 +47,8 @@
       const uploaded = await uploadAudio(file);
       uploadedFileName = baseNameFromPath(uploaded.path);
       await runDetection(uploadedFileName);
+      await loadInputs();
+      onUpload?.();
     } catch (err: any) {
       error = err?.message || 'Error al subir el archivo';
     } finally {
@@ -48,17 +56,31 @@
     }
   }
 
-  async function handleSelectExisting() {
-    if (!selectedInput) return;
+  async function handleUseInput(name: string) {
+    if (!name) return;
     resetResult();
     loading = true;
     try {
-      uploadedFileName = selectedInput;
-      await runDetection(selectedInput);
+      uploadedFileName = name;
+      await runDetection(name);
     } catch (err: any) {
       error = err?.message || 'Error al detectar el BPM';
     } finally {
       loading = false;
+    }
+  }
+
+  async function handleDeleteInput(input: InputFile) {
+    if (!confirm(`¿Borrar "${input.name}" de la carpeta de subidas? Esta acción no se puede deshacer.`)) return;
+    try {
+      await deleteInput(baseNameFromPath(input.path));
+      await loadInputs();
+      onUpload?.();
+      uploadedFileName = '';
+      result = null;
+      onNotify?.('Archivo borrado correctamente', 'success');
+    } catch (err: any) {
+      onNotify?.('Error al borrar el archivo: ' + (err?.message || 'desconocido'), 'error');
     }
   }
 
@@ -116,15 +138,30 @@
 
   <div class="bpm-card">
     {#if existingInputs.length > 0}
-      <label class="existing-select">
-        <span>O selecciona un archivo ya cargado:</span>
-        <select bind:value={selectedInput} onchange={handleSelectExisting} disabled={loading}>
-          <option value="">— Seleccionar —</option>
+      <div class="existing-list">
+        <span class="existing-label">Audios ya cargados:</span>
+        <ul>
           {#each existingInputs as input (input.path)}
-            <option value={baseNameFromPath(input.path)}>{input.name}</option>
+            <li class="input-row">
+              <button
+                class="input-name"
+                onclick={() => handleUseInput(baseNameFromPath(input.path))}
+                disabled={loading}
+              >
+                {input.name}
+              </button>
+              <button
+                class="btn-delete"
+                onclick={() => handleDeleteInput(input)}
+                disabled={loading}
+                title="Borrar"
+              >
+                ✕
+              </button>
+            </li>
           {/each}
-        </select>
-      </label>
+        </ul>
+      </div>
     {/if}
 
     {#if loading}
@@ -266,26 +303,6 @@
     overflow-y: auto;
   }
 
-  .existing-select {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    flex-wrap: wrap;
-    margin-bottom: 1rem;
-    color: var(--text-secondary);
-    font-size: 0.9rem;
-  }
-
-  .existing-select select {
-    padding: 0.4rem 0.6rem;
-    border-radius: 6px;
-    border: 1px solid var(--border);
-    background: var(--bg-primary);
-    color: var(--text-primary);
-    font-size: 0.85rem;
-    min-width: 220px;
-  }
-
   .bpm-loading {
     flex: 1;
     display: flex;
@@ -389,5 +406,80 @@
     margin: 0;
     font-size: 0.8rem;
     color: var(--text-muted);
+  }
+
+  .existing-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 1rem;
+  }
+
+  .existing-label {
+    color: var(--text-secondary);
+    font-size: 0.9rem;
+  }
+
+  .existing-list ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .input-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.45rem 0.6rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+  }
+
+  .input-name {
+    flex: 1;
+    background: none;
+    border: none;
+    color: var(--text-primary);
+    font-size: 0.85rem;
+    text-align: left;
+    cursor: pointer;
+    padding: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .input-name:hover:not(:disabled) {
+    color: var(--accent);
+  }
+
+  .input-name:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-delete {
+    background: rgba(244, 67, 54, 0.12);
+    border: 1px solid rgba(244, 67, 54, 0.25);
+    color: #e57373;
+    border-radius: 6px;
+    cursor: pointer;
+    line-height: 1;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.85rem;
+  }
+
+  .btn-delete:hover:not(:disabled) {
+    background: rgba(244, 67, 54, 0.25);
+  }
+
+  .btn-delete:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
   }
 </style>
