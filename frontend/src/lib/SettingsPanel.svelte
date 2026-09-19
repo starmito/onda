@@ -5,7 +5,8 @@
   import PipelineEditor from './PipelineEditor.svelte';
   import InterfaceSettings from './InterfaceSettings.svelte';
   import ExportProfilesPanel from './ExportProfilesPanel.svelte';
-  import { IconModel, IconDownload, IconPresets, IconLogs, IconClose, IconRefresh, IconSettings, IconExport } from './icons';
+  import StoragePanel from './StoragePanel.svelte';
+  import { IconModel, IconDownload, IconPresets, IconLogs, IconClose, IconRefresh, IconSettings, IconExport, IconTrash } from './icons';
   import { API_BASE } from './api';
 
   interface Props {
@@ -153,6 +154,11 @@
       class:active={subtab === 'export'}
       onclick={() => handleSubtabChange('export')}
     >{@html IconExport} <span>Exportación</span></button>
+    <button
+      class="settings-tab"
+      class:active={subtab === 'storage'}
+      onclick={() => handleSubtabChange('storage')}
+    >{@html IconTrash} <span>Almacenamiento</span></button>
   </div>
 
   <!-- Body content -->
@@ -235,6 +241,10 @@
     {:else if subtab === 'export'}
       <div class="subtab-content">
         <ExportProfilesPanel />
+      </div>
+    {:else if subtab === 'storage'}
+      <div class="subtab-content">
+        <StoragePanel />
       </div>
     {/if}
   </div>
