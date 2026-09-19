@@ -12,7 +12,6 @@ func (s *Server) handleServeAudio(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "filename required", http.StatusBadRequest)
 		return
 	}
-	projectRoot := resolveProjectRoot()
 
 	// Resolve inside the daw-data tree first, then fall back to input/.
 	sourcePath, _, _, _, err := resolveDAWAudioSource(filename)
@@ -22,7 +21,7 @@ func (s *Server) handleServeAudio(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Fallback to a flat input lookup for legacy callers.
-	inputPath := filepath.Join(projectRoot, "input", filepath.Base(filename))
+	inputPath := filepath.Join(mustSub("input"), filepath.Base(filename))
 	if _, err := os.Stat(inputPath); err == nil {
 		http.ServeFile(w, r, inputPath)
 		return

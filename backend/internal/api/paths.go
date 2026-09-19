@@ -2,6 +2,7 @@ package api
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,4 +27,14 @@ func sub(name string) (string, error) {
 		return "", errors.New("invalid subpath: must be a simple directory name")
 	}
 	return filepath.Join(dataRoot(), name), nil
+}
+
+// mustSub is like sub but panics with a clear message when the subpath is
+// invalid. It is intended for hardcoded, known-valid subdirectory names.
+func mustSub(name string) string {
+	p, err := sub(name)
+	if err != nil {
+		panic(fmt.Sprintf("invalid data subdirectory %q: %v", name, err))
+	}
+	return p
 }
