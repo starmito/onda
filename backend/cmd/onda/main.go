@@ -26,6 +26,7 @@ func main() {
 		addr := serveFlags.String("addr", ":3000", "Listen address")
 		serveFlags.Parse(os.Args[2:])
 
+		api.EnablePipelineProcessSweep()
 		srv := api.NewServer(*addr)
 		fmt.Printf("Onda API server listening on %s\n", *addr)
 		if err := srv.ListenAndServe(); err != nil {
