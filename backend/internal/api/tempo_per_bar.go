@@ -29,6 +29,7 @@ type BarRatio struct {
 // TempoPerBarResponse is returned by POST /api/audio/tempo-per-bar.
 type TempoPerBarResponse struct {
 	File   string    `json:"file"`
+	Path   string    `json:"path,omitempty"`
 	Bars   []int     `json:"bars"`
 	Ratios []float64 `json:"ratios"`
 }
@@ -98,22 +99,28 @@ func (s *Server) handleTempoPerBar(w http.ResponseWriter, r *http.Request) {
 		seen[br.Bar] = true
 	}
 
-	sourcePath, safeName, err := resolveDAWAudioSource(req.File)
+	sourcePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
 	if err != nil {
 		writeDAWFileNotFound(w, safeName)
 		return
 	}
+	if song == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "file must belong to a song in daw-data"})
+		return
+	}
 
 	projectRoot := findProjectRoot()
-	dawBase := filepath.Join(projectRoot, "daw-data")
+	editsDir := filepath.Join(projectRoot, dawDataDirName, song, dawEditsSubdir)
+	tmpDir := songTempDir(projectRoot, song)
 
-	if err := os.MkdirAll(dawBase, 0o755); err != nil {
+	if err := os.MkdirAll(editsDir, 0o755); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to create output dir: %v", err)})
 		return
 	}
-	tmpDir := filepath.Join(dawBase, "tmp")
 	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -163,7 +170,7 @@ func (s *Server) handleTempoPerBar(w http.ResponseWriter, r *http.Request) {
 		ratioMap[br.Bar] = br.Ratio
 	}
 
-	pcmPath, cleanupInput, err := decodeAudioToPCMWav(sourcePath)
+	pcmPath, cleanupInput, err := decodeAudioToPCMWav(sourcePath, song)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -281,9 +288,9 @@ func (s *Server) handleTempoPerBar(w http.ResponseWriter, r *http.Request) {
 	baseName := safeName[:len(safeName)-len(filepath.Ext(safeName))]
 	ext := filepath.Ext(safeName)
 	outputName := "tempo_per_bar_" + baseName + ext
-	outputPath := filepath.Join(dawBase, outputName)
+	outputPath := filepath.Join(editsDir, outputName)
 
-	if err := writeAudioFile(outputPath, outputBuf, inputFmt); err != nil {
+	if err := writeAudioFile(outputPath, outputBuf, inputFmt, song); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to write output audio: %v", err)})
@@ -304,6 +311,7 @@ func (s *Server) handleTempoPerBar(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(TempoPerBarResponse{
 		File:   outputName,
+		Path:   filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
 		Bars:   bars,
 		Ratios: ratios,
 	})

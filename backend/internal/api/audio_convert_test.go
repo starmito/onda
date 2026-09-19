@@ -31,7 +31,7 @@ func TestDecodeAudioToPCMWav_PCMWAVUsesOriginal(t *testing.T) {
 	wavPath := filepath.Join(root, "daw-data", "test.wav")
 	writeSynthWAV(t, wavPath, 0.5)
 
-	tmpPath, cleanup, err := decodeAudioToPCMWav(wavPath)
+	tmpPath, cleanup, err := decodeAudioToPCMWav(wavPath, "test")
 	if err != nil {
 		t.Fatalf("unexpected error for WAV PCM: %v", err)
 	}
@@ -55,7 +55,7 @@ func TestDecodeAudioToPCMWav_NonWAVReturnsError(t *testing.T) {
 		t.Fatalf("failed to write fake mp3: %v", err)
 	}
 
-	_, cleanup, err := decodeAudioToPCMWav(fakePath)
+	_, cleanup, err := decodeAudioToPCMWav(fakePath, "test")
 	if cleanup != nil {
 		cleanup()
 	}

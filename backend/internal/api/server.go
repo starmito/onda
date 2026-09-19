@@ -584,6 +584,7 @@ type InputEntry struct {
 	Name      string `json:"name"`
 	Path      string `json:"path"`
 	Source    string `json:"source"`
+	Song      string `json:"song,omitempty"`
 	Processed bool   `json:"processed,omitempty"`
 }
 
@@ -596,17 +597,14 @@ var audioFileExts = map[string]bool{
 	".m4a":  true,
 }
 
-// isOriginalDAWFile reports whether a file already living in daw-data/ is an
-// original upload/import (as opposed to an intermediate effect output).
-func isOriginalDAWFile(name string) bool {
-	lower := strings.ToLower(name)
-	return strings.HasPrefix(lower, "upload_") || strings.HasPrefix(lower, "import_")
-}
+// dawAudioSubdirs lists the subdirectories inside each daw-data/{song}/ tree
+// that may contain listable audio files.
+var dawAudioSubdirs = []string{dawOriginalSubdir, dawImportsSubdir, dawEditsSubdir}
 
 // handleInputs lists uploaded audio files from input/ and, when requested,
-// from daw-data/. The "include" query parameter accepts "input" (default),
-// "daw-data" or "all". Each entry includes its source directory so callers
-// can tell where the file lives.
+// from the daw-data/{song}/ tree. The "include" query parameter accepts
+// "input" (default), "daw-data" or "all". Each entry includes its source
+// directory, the song folder and whether it is an edited output.
 // GET /api/inputs
 func (s *Server) handleInputs(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -658,29 +656,46 @@ func (s *Server) handleInputs(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if includeDaw {
-		dawDir := filepath.Join(projectRoot, "daw-data")
-		entries, err := os.ReadDir(dawDir)
+		dawDir := filepath.Join(projectRoot, dawDataDirName)
+		songDirs, err := os.ReadDir(dawDir)
 		if err == nil {
-			for _, entry := range entries {
-				if entry.IsDir() {
+			for _, songDir := range songDirs {
+				if !songDir.IsDir() {
 					continue
 				}
-				name := entry.Name()
-				if !audioFileExts[strings.ToLower(filepath.Ext(name))] {
-					continue
+				song := songDir.Name()
+				for _, subdir := range dawAudioSubdirs {
+					subDirPath := filepath.Join(dawDir, song, subdir)
+					entries, err := os.ReadDir(subDirPath)
+					if err != nil {
+						continue
+					}
+					for _, entry := range entries {
+						if entry.IsDir() {
+							continue
+						}
+						name := entry.Name()
+						if !audioFileExts[strings.ToLower(filepath.Ext(name))] {
+							continue
+						}
+						inputs = append(inputs, InputEntry{
+							Name:      name,
+							Path:      filepath.Join(dawDataDirName, song, subdir, name),
+							Source:    "daw-data",
+							Song:      song,
+							Processed: subdir == dawEditsSubdir,
+						})
+					}
 				}
-				inputs = append(inputs, InputEntry{
-					Name:      name,
-					Path:      "daw-data/" + name,
-					Source:    "daw-data",
-					Processed: !isOriginalDAWFile(name),
-				})
 			}
 		}
 	}
 
-	// Most recently modified first; fall back to source and name for stability.
+	// Originals (non-edits) first, then most recently modified first.
 	sort.Slice(inputs, func(i, j int) bool {
+		if inputs[i].Processed != inputs[j].Processed {
+			return !inputs[i].Processed
+		}
 		return inputEntryModTime(projectRoot, inputs[i]).After(inputEntryModTime(projectRoot, inputs[j]))
 	})
 
@@ -693,17 +708,20 @@ func (s *Server) handleInputs(w http.ResponseWriter, r *http.Request) {
 // used by handleInputs for deterministic ordering; if stat fails it returns
 // the zero time so the entry sorts to the end.
 func inputEntryModTime(projectRoot string, entry InputEntry) time.Time {
-	var dir string
+	var p string
 	switch entry.Source {
 	case "input":
-		dir = "input"
+		p = filepath.Join(projectRoot, "input", entry.Name)
 	case "daw-data":
-		dir = "daw-data"
+		if entry.Path != "" && !filepath.IsAbs(entry.Path) {
+			p = filepath.Join(projectRoot, entry.Path)
+		} else {
+			p = filepath.Join(projectRoot, dawDataDirName, entry.Name)
+		}
 	default:
 		return time.Time{}
 	}
-	path := filepath.Join(projectRoot, dir, entry.Name)
-	if info, err := os.Stat(path); err == nil {
+	if info, err := os.Stat(p); err == nil {
 		return info.ModTime()
 	}
 	return time.Time{}

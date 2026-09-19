@@ -25,7 +25,7 @@ type ImportResponse struct {
 	Size int64  `json:"size"`
 }
 
-// handleImportStem copies a stem from output/ into daw-data/.
+// handleImportStem copies a stem into daw-data/{song}/imports/.
 // POST /api/daw/import
 func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -69,16 +69,8 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to resolve input path"})
 		return
 	}
-	dawBase := filepath.Join(projectRoot, "daw-data")
-	absDawBase, err := filepath.Abs(dawBase)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to resolve daw-data path"})
-		return
-	}
 
-	var srcPath, destFile string
+	var srcPath, destFile, song string
 	var absBase string
 
 	switch req.Source {
@@ -93,6 +85,7 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 		safeStem := filepath.Base(req.Stem)
 		srcPath = filepath.Join(outputBase, safeSong, safeStem)
 		absBase = absOutputBase
+		song = songDirName(safeSong)
 		ext := strings.ToLower(filepath.Ext(safeStem))
 		destFile = fmt.Sprintf("import_%s_%s", safeSong, strings.TrimSuffix(safeStem, ext))
 		if ext != "" {
@@ -114,6 +107,7 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 		}
 		srcPath = resolved
 		absBase = absOutputBase
+		song = songDirName(safeSong)
 		ext := strings.ToLower(filepath.Ext(safeStem))
 		destFile = fmt.Sprintf("import_%s", safeStem)
 		if ext == "" {
@@ -126,7 +120,7 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": "file is required for input source"})
 			return
 		}
-		if strings.ContainsAny(req.File, `/\`) {
+		if strings.Contains(req.File, "..") {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": "invalid file name"})
@@ -135,6 +129,11 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 		safeName := filepath.Base(req.File)
 		srcPath = filepath.Join(inputBase, safeName)
 		absBase = absInputBase
+		if req.Song != "" {
+			song = songDirName(req.Song)
+		} else {
+			song = songDirName(strings.TrimSuffix(safeName, filepath.Ext(safeName)))
+		}
 		destFile = fmt.Sprintf("import_%s", safeName)
 	case "daw-data":
 		if req.File == "" {
@@ -143,16 +142,42 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]string{"error": "file is required for daw-data source"})
 			return
 		}
-		if strings.ContainsAny(req.File, `/\`) {
+		if strings.Contains(req.File, "..") {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{"error": "invalid file name"})
 			return
 		}
-		safeName := filepath.Base(req.File)
-		srcPath = filepath.Join(dawBase, safeName)
-		absBase = absDawBase
-		destFile = safeName
+		// Resolve the source inside the tree to learn its song and subdir.
+		srcAbs, srcName, srcSong, srcSubdir, err := resolveDAWAudioSource(req.File)
+		if err != nil {
+			writeDAWFileNotFound(w, filepath.Base(req.File))
+			return
+		}
+		srcPath = srcAbs
+		absBase, _ = filepath.Abs(filepath.Join(projectRoot, dawDataDirName))
+		if req.Song != "" {
+			song = songDirName(req.Song)
+		} else {
+			song = srcSong
+		}
+		if srcSubdir == dawImportsSubdir {
+			// Already imported: return it where it actually lives.
+			info, err := os.Stat(srcPath)
+			if err != nil {
+				writeDAWFileNotFound(w, srcName)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			json.NewEncoder(w).Encode(ImportResponse{
+				File: srcName,
+				Path: filepath.Join(dawDataDirName, srcSong, dawImportsSubdir, srcName),
+				Size: info.Size(),
+			})
+			return
+		}
+		destFile = srcName
 	default:
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
@@ -169,15 +194,15 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dawDir := filepath.Join(projectRoot, "daw-data")
-	if err := os.MkdirAll(dawDir, 0o755); err != nil {
+	importsDir := filepath.Join(projectRoot, dawDataDirName, song, dawImportsSubdir)
+	if err := os.MkdirAll(importsDir, 0o755); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to create daw-data directory"})
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to create imports directory"})
 		return
 	}
 
-	destPath := filepath.Join(dawDir, filepath.Base(destFile))
+	destPath := filepath.Join(importsDir, filepath.Base(destFile))
 
 	// If already imported, return the existing file.
 	if info, err := os.Stat(destPath); err == nil && !info.IsDir() {
@@ -185,7 +210,7 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(ImportResponse{
 			File: filepath.Base(destPath),
-			Path: "daw-data/" + filepath.Base(destPath),
+			Path: filepath.Join(dawDataDirName, song, dawImportsSubdir, filepath.Base(destPath)),
 			Size: info.Size(),
 		})
 		return
@@ -216,7 +241,7 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(ImportResponse{
 		File: filepath.Base(destPath),
-		Path: "daw-data/" + filepath.Base(destPath),
+		Path: filepath.Join(dawDataDirName, song, dawImportsSubdir, filepath.Base(destPath)),
 		Size: info.Size(),
 	})
 }

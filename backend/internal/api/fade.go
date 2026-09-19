@@ -25,6 +25,7 @@ type FadeRequest struct {
 // FadeResponse is returned by POST /api/audio/fade.
 type FadeResponse struct {
 	File string `json:"file"`
+	Path string `json:"path,omitempty"`
 }
 
 // handleFade applies a linear fade-in or fade-out envelope to a WAV file segment
@@ -78,14 +79,21 @@ func (s *Server) handleFade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sourcePath, safeName, err := resolveDAWAudioSource(req.File)
+	sourcePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
 	if err != nil {
 		writeDAWFileNotFound(w, safeName)
 		return
 	}
+	if song == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "file must belong to a song in daw-data"})
+		return
+	}
 
 	projectRoot := findProjectRoot()
-	dawBase := filepath.Join(projectRoot, "daw-data")
+	editsDir := filepath.Join(projectRoot, dawDataDirName, song, dawEditsSubdir)
+	tmpDir := songTempDir(projectRoot, song)
 
 	duration, err := detectDuration(sourcePath)
 	if err != nil {
@@ -105,14 +113,12 @@ func (s *Server) handleFade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := os.MkdirAll(dawBase, 0o755); err != nil {
+	if err := os.MkdirAll(editsDir, 0o755); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to create output dir: %v", err)})
 		return
 	}
-
-	tmpDir := filepath.Join(dawBase, "tmp")
 	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -190,7 +196,7 @@ func (s *Server) handleFade(w http.ResponseWriter, r *http.Request) {
 
 	// Build the input list for concatenation.
 	outputName := "fade_" + req.Type + "_" + safeName
-	outputPath := filepath.Join(dawBase, outputName)
+	outputPath := filepath.Join(editsDir, outputName)
 
 	var concatInputs []string
 	if req.Start > 0 {
@@ -210,7 +216,10 @@ func (s *Server) handleFade(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(FadeResponse{File: outputName})
+	json.NewEncoder(w).Encode(FadeResponse{
+		File: outputName,
+		Path: filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
+	})
 }
 
 // concatSox concatenates multiple WAV files (with identical format) into one

@@ -35,14 +35,14 @@ func newEffectsTestServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
-// writeEffectsTestWAV creates a tiny stereo PCM WAV in the temporary project root.
+// writeEffectsTestWAV creates a tiny stereo PCM WAV inside the daw-data tree
+// under a fixed test song, returning the absolute path.
 func writeEffectsTestWAV(t *testing.T, root string) string {
 	t.Helper()
-	dawDir := filepath.Join(root, "daw-data")
-	if err := os.MkdirAll(dawDir, 0o755); err != nil {
-		t.Fatalf("failed to create daw-data: %v", err)
+	path := filepath.Join(root, dawDataDirName, "testsong", dawOriginalSubdir, "test.wav")
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("failed to create wav dir: %v", err)
 	}
-	path := filepath.Join(dawDir, "test.wav")
 	f, err := os.Create(path)
 	if err != nil {
 		t.Fatalf("failed to create wav: %v", err)
@@ -445,7 +445,7 @@ func TestCompressorExplicitZeroThreshold(t *testing.T) {
 
 	root := setupFase10TestRoot(t)
 	srv := newEffectsTestServer(t)
-	writeSynthWAV(t, filepath.Join(root, "input", "test.wav"), 2.0)
+	writeSynthWAV(t, filepath.Join(root, dawDataDirName, "testsong", dawOriginalSubdir, "test.wav"), 2.0)
 
 	resp := postJSON(t, srv, "/api/daw/compressor", map[string]any{
 		"file":      "test.wav",
@@ -512,7 +512,7 @@ func TestReverbHighValuesAudible(t *testing.T) {
 
 	root := setupFase10TestRoot(t)
 	srv := newEffectsTestServer(t)
-	inputPath := filepath.Join(root, "daw-data", "reverb_test_input.wav")
+	inputPath := filepath.Join(root, dawDataDirName, "testsong", dawOriginalSubdir, "reverb_test_input.wav")
 	writeSynthWAV(t, inputPath, 2.0)
 
 	resp := postJSON(t, srv, "/api/daw/reverb", map[string]any{
@@ -533,7 +533,7 @@ func TestReverbHighValuesAudible(t *testing.T) {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	outputPath := filepath.Join(root, "daw-data", body.File)
+	outputPath := filepath.Join(root, dawDataDirName, "testsong", dawEditsSubdir, body.File)
 	inInfo, err := os.Stat(inputPath)
 	if err != nil {
 		t.Fatalf("failed to stat input: %v", err)

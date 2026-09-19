@@ -51,37 +51,37 @@ func (s *Server) handleMidiParse(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Look for the file in input/ and daw-data/ (same pattern as trim.go)
-	var midiData []byte
-	var err error
-
 	var req struct {
 		File string `json:"file"`
 	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err == nil && req.File != "" {
-		safeName := filepath.Base(req.File)
-		projectRoot := findProjectRoot()
-		midiPath := filepath.Join(projectRoot, "input", safeName)
-		if _, statErr := os.Stat(midiPath); os.IsNotExist(statErr) {
-			midiPath = filepath.Join(projectRoot, "daw-data", safeName)
-			if _, statErr := os.Stat(midiPath); os.IsNotExist(statErr) {
-				w.Header().Set("Content-Type", "application/json")
-				w.WriteHeader(http.StatusNotFound)
-				json.NewEncoder(w).Encode(map[string]string{"error": "file not found"})
-				return
-			}
-		}
-		midiData, err = os.ReadFile(midiPath)
-		if err != nil {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			json.NewEncoder(w).Encode(map[string]string{"error": "failed to read file: " + err.Error()})
-			return
-		}
-	} else {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.File == "" {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusBadRequest)
 		json.NewEncoder(w).Encode(map[string]string{"error": "file is required"})
+		return
+	}
+
+	projectRoot := findProjectRoot()
+	var midiPath string
+
+	// Try the daw-data tree first, then fall back to input/.
+	if resolved, _, _, _, err := resolveDAWAudioSource(req.File); err == nil {
+		midiPath = resolved
+	} else {
+		midiPath = filepath.Join(projectRoot, "input", filepath.Base(req.File))
+		if _, statErr := os.Stat(midiPath); os.IsNotExist(statErr) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]string{"error": "file not found"})
+			return
+		}
+	}
+
+	midiData, err := os.ReadFile(midiPath)
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to read file: " + err.Error()})
 		return
 	}
 

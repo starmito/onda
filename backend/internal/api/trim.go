@@ -18,9 +18,11 @@ type TrimRequest struct {
 // TrimResponse is returned by POST /api/audio/trim.
 type TrimResponse struct {
 	File string `json:"file"`
+	Path string `json:"path,omitempty"`
 }
 
-// handleTrim extracts a segment from a WAV file and writes it to daw-data/trim_<nombre>.wav.
+// handleTrim extracts a segment from a WAV file and writes it to
+// daw-data/{song}/edits/trim_<nombre>.wav.
 // POST /api/audio/trim
 func (s *Server) handleTrim(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -59,14 +61,20 @@ func (s *Server) handleTrim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sourcePath, safeName, err := resolveDAWAudioSource(req.File)
+	sourcePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
 	if err != nil {
 		writeDAWFileNotFound(w, safeName)
 		return
 	}
+	if song == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "file must belong to a song in daw-data"})
+		return
+	}
 
 	projectRoot := findProjectRoot()
-	dawBase := filepath.Join(projectRoot, "daw-data")
+	editsDir := filepath.Join(projectRoot, dawDataDirName, song, dawEditsSubdir)
 
 	duration, err := detectDuration(sourcePath)
 	if err != nil {
@@ -85,7 +93,7 @@ func (s *Server) handleTrim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := os.MkdirAll(dawBase, 0o755); err != nil {
+	if err := os.MkdirAll(editsDir, 0o755); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to create output dir: %v", err)})
@@ -93,7 +101,7 @@ func (s *Server) handleTrim(w http.ResponseWriter, r *http.Request) {
 	}
 
 	outputName := "trim_" + safeName
-	outputPath := filepath.Join(dawBase, outputName)
+	outputPath := filepath.Join(editsDir, outputName)
 
 	if err := ApplySox(sourcePath, outputPath, []SoxEffect{
 		{Name: "trim", Params: []string{fmt.Sprintf("%f", req.Start), "=" + fmt.Sprintf("%f", req.End)}},
@@ -106,5 +114,8 @@ func (s *Server) handleTrim(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(TrimResponse{File: outputName})
+	json.NewEncoder(w).Encode(TrimResponse{
+		File: outputName,
+		Path: filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
+	})
 }

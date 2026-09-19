@@ -63,7 +63,7 @@ func newFase10TestServer(t *testing.T) *httptest.Server {
 	return srv
 }
 
-// writeTestFile is reused from daw_test.go to drop arbitrary content into the
+// writeFase10TestFile is reused from daw_test.go to drop arbitrary content into the
 // temporary project tree.
 func writeFase10TestFile(t *testing.T, path string, content []byte) {
 	t.Helper()
@@ -166,7 +166,7 @@ func TestHandleTempoPerBar(t *testing.T) {
 		t.Fatalf("expected ratios [1.1], got %v", tr.Ratios)
 	}
 
-	outPath := filepath.Join(root, "daw-data", tr.File)
+	outPath := filepath.Join(root, "daw-data", "beat", "edits", tr.File)
 	if _, err := os.Stat(outPath); err != nil {
 		t.Fatalf("expected output file to exist: %v", err)
 	}
@@ -204,7 +204,7 @@ func TestHandleTrim(t *testing.T) {
 		t.Fatalf("expected trim_source.wav, got %s", tr.File)
 	}
 
-	outPath := filepath.Join(root, "daw-data", tr.File)
+	outPath := filepath.Join(root, "daw-data", "source", "edits", tr.File)
 	if _, err := os.Stat(outPath); err != nil {
 		t.Fatalf("expected output file to exist: %v", err)
 	}
@@ -242,7 +242,7 @@ func TestHandleFade(t *testing.T) {
 		t.Fatalf("expected fade_in_source.wav, got %s", fr.File)
 	}
 
-	outPath := filepath.Join(root, "daw-data", fr.File)
+	outPath := filepath.Join(root, "daw-data", "source", "edits", fr.File)
 	if _, err := os.Stat(outPath); err != nil {
 		t.Fatalf("expected output file to exist: %v", err)
 	}
@@ -251,7 +251,7 @@ func TestHandleFade(t *testing.T) {
 func TestHandleExport(t *testing.T) {
 	root := setupFase10TestRoot(t)
 	content := []byte("exported-audio-content")
-	writeFase10TestFile(t, filepath.Join(root, "daw-data", "mix.wav"), content)
+	writeFase10TestFile(t, filepath.Join(root, "daw-data", "mix", "original", "mix.wav"), content)
 
 	srv := newFase10TestServer(t)
 	body := `{"file":"mix.wav","format":"wav"}`
@@ -351,6 +351,10 @@ func TestHandleImport_Output(t *testing.T) {
 	if ir.File != "import_cancion1_vocals.wav" {
 		t.Fatalf("expected import_cancion1_vocals.wav, got %s", ir.File)
 	}
+	wantPath := filepath.Join("daw-data", "cancion1", "imports", "import_cancion1_vocals.wav")
+	if ir.Path != wantPath {
+		t.Fatalf("expected path %q, got %q", wantPath, ir.Path)
+	}
 	if ir.Size != int64(len(srcContent)) {
 		t.Fatalf("expected size %d, got %d", len(srcContent), ir.Size)
 	}
@@ -386,6 +390,10 @@ func TestHandleImport_Pitch(t *testing.T) {
 	}
 	if ir.File != "import_mi_pitch.wav" {
 		t.Fatalf("expected import_mi_pitch.wav, got %s", ir.File)
+	}
+	wantPath := filepath.Join("daw-data", "cancion1", "imports", "import_mi_pitch.wav")
+	if ir.Path != wantPath {
+		t.Fatalf("expected path %q, got %q", wantPath, ir.Path)
 	}
 	if ir.Size != int64(len(srcContent)) {
 		t.Fatalf("expected size %d, got %d", len(srcContent), ir.Size)
@@ -429,8 +437,12 @@ func TestHandleUpload(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&ur); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if ur.File != "upload_mi_cancion.wav" {
-		t.Fatalf("expected upload_mi_cancion.wav, got %s", ur.File)
+	if ur.File != "original.wav" {
+		t.Fatalf("expected original.wav, got %s", ur.File)
+	}
+	wantPath := filepath.Join("daw-data", "mi_cancion", "original.wav")
+	if ur.Path != wantPath {
+		t.Fatalf("expected path %q, got %q", wantPath, ur.Path)
 	}
 	if ur.Size != int64(len(content)) {
 		t.Fatalf("expected size %d, got %d", len(content), ur.Size)

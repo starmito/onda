@@ -118,6 +118,10 @@ func TestHandleImportStem_Output(t *testing.T) {
 	if resp.File != "import_cancion1_vocals.wav" {
 		t.Fatalf("expected file import_cancion1_vocals.wav, got %s", resp.File)
 	}
+	wantPath := filepath.Join("daw-data", "cancion1", "imports", "import_cancion1_vocals.wav")
+	if resp.Path != wantPath {
+		t.Fatalf("expected path %q, got %q", wantPath, resp.Path)
+	}
 	if resp.Size != int64(len(srcContent)) {
 		t.Fatalf("expected size %d, got %d", len(srcContent), resp.Size)
 	}
@@ -161,6 +165,10 @@ func TestHandleImportStem_Pitch(t *testing.T) {
 	}
 	if resp.File != "import_mi_pitch.wav" {
 		t.Fatalf("expected file import_mi_pitch.wav, got %s", resp.File)
+	}
+	wantPath := filepath.Join("daw-data", "cancion1", "imports", "import_mi_pitch.wav")
+	if resp.Path != wantPath {
+		t.Fatalf("expected path %q, got %q", wantPath, resp.Path)
 	}
 	if resp.Size != int64(len(srcContent)) {
 		t.Fatalf("expected size %d, got %d", len(srcContent), resp.Size)
@@ -213,6 +221,10 @@ func TestHandleImportStem_Input(t *testing.T) {
 	if resp.File != "import_mi_cancion.wav" {
 		t.Fatalf("expected file import_mi_cancion.wav, got %s", resp.File)
 	}
+	wantPath := filepath.Join("daw-data", "mi_cancion", "imports", "import_mi_cancion.wav")
+	if resp.Path != wantPath {
+		t.Fatalf("expected path %q, got %q", wantPath, resp.Path)
+	}
 	if resp.Size != int64(len(srcContent)) {
 		t.Fatalf("expected size %d, got %d", len(srcContent), resp.Size)
 	}
@@ -263,7 +275,7 @@ func TestHandleImportStem_InputNotFound_StructuredError(t *testing.T) {
 func TestHandleImportStem_DawData(t *testing.T) {
 	root := setupDAWTestRoot(t)
 	srcContent := []byte("daw-data-song-content")
-	writeTestFile(t, filepath.Join(root, "daw-data", "upload_mi_cancion.wav"), srcContent)
+	writeTestFile(t, filepath.Join(root, "daw-data", "mi_cancion", "original", "upload_mi_cancion.wav"), srcContent)
 
 	srv := newDAWTestServer(t)
 	body := `{"source":"daw-data","file":"upload_mi_cancion.wav"}`
@@ -282,6 +294,10 @@ func TestHandleImportStem_DawData(t *testing.T) {
 	}
 	if resp.File != "upload_mi_cancion.wav" {
 		t.Fatalf("expected file upload_mi_cancion.wav, got %s", resp.File)
+	}
+	wantPath := filepath.Join("daw-data", "mi_cancion", "imports", "upload_mi_cancion.wav")
+	if resp.Path != wantPath {
+		t.Fatalf("expected path %q, got %q", wantPath, resp.Path)
 	}
 	if resp.Size != int64(len(srcContent)) {
 		t.Fatalf("expected size %d, got %d", len(srcContent), resp.Size)
@@ -341,22 +357,21 @@ func TestHandleInputs_ProcessedAndSorted(t *testing.T) {
 	writeTestFile(t, filepath.Join(root, "input", "a_input.wav"), []byte("a"))
 	writeTestFile(t, filepath.Join(root, "input", "b_input.wav"), []byte("b"))
 
-	// Create daw-data originals.
-	writeTestFile(t, filepath.Join(root, "daw-data", "upload_original.wav"), []byte("upload"))
-	writeTestFile(t, filepath.Join(root, "daw-data", "import_original.wav"), []byte("import"))
-
-	// Create daw-data processed effect outputs.
-	writeTestFile(t, filepath.Join(root, "daw-data", "reverb_original.wav"), []byte("reverb"))
-	writeTestFile(t, filepath.Join(root, "daw-data", "eq_original.wav"), []byte("eq"))
+	// Create daw-data tree for one song.
+	song := "testsong"
+	writeTestFile(t, filepath.Join(root, "daw-data", song, "original", "upload_original.wav"), []byte("upload"))
+	writeTestFile(t, filepath.Join(root, "daw-data", song, "imports", "import_original.wav"), []byte("import"))
+	writeTestFile(t, filepath.Join(root, "daw-data", song, "edits", "reverb_original.wav"), []byte("reverb"))
+	writeTestFile(t, filepath.Join(root, "daw-data", song, "edits", "eq_original.wav"), []byte("eq"))
 
 	// Touch files to enforce a predictable modification order.
 	now := time.Now()
 	_ = os.Chtimes(filepath.Join(root, "input", "a_input.wav"), now, now.Add(-2*time.Hour))
 	_ = os.Chtimes(filepath.Join(root, "input", "b_input.wav"), now, now.Add(-1*time.Hour))
-	_ = os.Chtimes(filepath.Join(root, "daw-data", "upload_original.wav"), now, now.Add(-30*time.Minute))
-	_ = os.Chtimes(filepath.Join(root, "daw-data", "import_original.wav"), now, now)
-	_ = os.Chtimes(filepath.Join(root, "daw-data", "reverb_original.wav"), now, now.Add(-15*time.Minute))
-	_ = os.Chtimes(filepath.Join(root, "daw-data", "eq_original.wav"), now, now.Add(-45*time.Minute))
+	_ = os.Chtimes(filepath.Join(root, "daw-data", song, "original", "upload_original.wav"), now, now.Add(-30*time.Minute))
+	_ = os.Chtimes(filepath.Join(root, "daw-data", song, "imports", "import_original.wav"), now, now)
+	_ = os.Chtimes(filepath.Join(root, "daw-data", song, "edits", "reverb_original.wav"), now, now.Add(-15*time.Minute))
+	_ = os.Chtimes(filepath.Join(root, "daw-data", song, "edits", "eq_original.wav"), now, now.Add(-45*time.Minute))
 
 	srv := newDAWTestServer(t)
 	req := httptest.NewRequest(http.MethodGet, "/api/inputs?include=all", nil)
@@ -375,8 +390,8 @@ func TestHandleInputs_ProcessedAndSorted(t *testing.T) {
 		t.Fatalf("expected 6 inputs, got %d", len(resp))
 	}
 
-	// Most recently modified first.
-	wantOrder := []string{"import_original.wav", "reverb_original.wav", "upload_original.wav", "eq_original.wav", "b_input.wav", "a_input.wav"}
+	// Originals first, then most recently modified first.
+	wantOrder := []string{"import_original.wav", "upload_original.wav", "b_input.wav", "a_input.wav", "reverb_original.wav", "eq_original.wav"}
 	for i, want := range wantOrder {
 		if resp[i].Name != want {
 			t.Fatalf("position %d: expected %q, got %q", i, want, resp[i].Name)
@@ -434,8 +449,12 @@ func TestHandleUploadAudio(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if resp.File != "upload_mi_cancion.wav" {
-		t.Fatalf("expected file upload_mi_cancion.wav, got %s", resp.File)
+	if resp.File != "original.wav" {
+		t.Fatalf("expected file original.wav, got %s", resp.File)
+	}
+	wantPath := filepath.Join("daw-data", "mi_cancion", "original.wav")
+	if resp.Path != wantPath {
+		t.Fatalf("expected path %q, got %q", wantPath, resp.Path)
 	}
 	if resp.Size != int64(len(content)) {
 		t.Fatalf("expected size %d, got %d", len(content), resp.Size)

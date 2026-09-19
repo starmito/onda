@@ -28,7 +28,9 @@ type UploadResponse struct {
 	Size int64  `json:"size"`
 }
 
-// handleUploadAudio accepts a multipart audio upload and saves it to daw-data/.
+// handleUploadAudio accepts a multipart audio upload and saves it to
+// daw-data/{song}/original.<ext>. The song directory is taken from an optional
+// "song" form field, or derived from the uploaded filename.
 // POST /api/daw/upload
 func (s *Server) handleUploadAudio(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
@@ -41,13 +43,6 @@ func (s *Server) handleUploadAudio(w http.ResponseWriter, r *http.Request) {
 	}
 
 	projectRoot := resolveProjectRoot()
-	uploadDir := filepath.Join(projectRoot, "daw-data")
-	if err := os.MkdirAll(uploadDir, 0o755); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to create upload directory"})
-		return
-	}
 
 	if err := r.ParseMultipartForm(500 << 20); err != nil {
 		w.Header().Set("Content-Type", "application/json")
@@ -75,8 +70,21 @@ func (s *Server) handleUploadAudio(w http.ResponseWriter, r *http.Request) {
 	}
 
 	base := strings.TrimSuffix(originalName, ext)
-	destFile := fmt.Sprintf("upload_%s%s", base, ext)
-	destPath := filepath.Join(uploadDir, destFile)
+	song := strings.TrimSpace(r.FormValue("song"))
+	if song == "" {
+		song = base
+	}
+	song = songDirName(song)
+
+	destFile := "original" + ext
+	songDir := filepath.Join(projectRoot, dawDataDirName, song)
+	if err := os.MkdirAll(songDir, 0o755); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "failed to create song directory"})
+		return
+	}
+	destPath := filepath.Join(songDir, destFile)
 
 	dst, err := os.Create(destPath)
 	if err != nil {
@@ -95,13 +103,13 @@ func (s *Server) handleUploadAudio(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	Log("backend", "success", "DAW upload: "+destFile)
+	Log("backend", "success", "DAW upload: "+song+"/"+destFile)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(UploadResponse{
 		File: destFile,
-		Path: "daw-data/" + destFile,
+		Path: filepath.Join(dawDataDirName, song, destFile),
 		Size: written,
 	})
 }

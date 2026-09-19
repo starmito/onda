@@ -18,6 +18,7 @@ type TempoShiftRequest struct {
 // TempoShiftResponse is returned by POST /api/audio/tempo.
 type TempoShiftResponse struct {
 	File  string  `json:"file"`
+	Path  string  `json:"path,omitempty"`
 	Ratio float64 `json:"ratio"`
 }
 
@@ -56,23 +57,30 @@ func (s *Server) handleTempoShift(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sourcePath, safeName, err := resolveDAWAudioSource(req.File)
+	sourcePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
 	if err != nil {
 		writeDAWFileNotFound(w, safeName)
 		return
 	}
+	if song == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "file must belong to a song in daw-data"})
+		return
+	}
 
 	projectRoot := findProjectRoot()
-	dawBase := filepath.Join(projectRoot, "daw-data")
+	editsDir := filepath.Join(projectRoot, dawDataDirName, song, dawEditsSubdir)
+	tmpDir := songTempDir(projectRoot, song)
 
-	// Ensure DAW data directory exists.
-	if err := os.MkdirAll(dawBase, 0o755); err != nil {
+	// Ensure directories exist.
+	if err := os.MkdirAll(editsDir, 0o755); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to create output dir: %v", err)})
 		return
 	}
-	if err := os.MkdirAll(filepath.Join(dawBase, "tmp"), 0o755); err != nil {
+	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to create tmp dir: %v", err)})
@@ -82,8 +90,8 @@ func (s *Server) handleTempoShift(w http.ResponseWriter, r *http.Request) {
 	baseName := safeName[:len(safeName)-len(filepath.Ext(safeName))]
 	ext := filepath.Ext(safeName)
 	outputName := baseName + "_tempo" + ext
-	tmpPath := filepath.Join(dawBase, "tmp", outputName)
-	outputPath := filepath.Join(dawBase, outputName)
+	tmpPath := filepath.Join(tmpDir, outputName)
+	outputPath := filepath.Join(editsDir, outputName)
 
 	cmd := exec.Command("rubberband", "--tempo", fmt.Sprintf("%f", req.Ratio), sourcePath, tmpPath)
 	out, err := cmd.CombinedOutput()
@@ -105,6 +113,7 @@ func (s *Server) handleTempoShift(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(TempoShiftResponse{
 		File:  outputName,
+		Path:  filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
 		Ratio: req.Ratio,
 	})
 }

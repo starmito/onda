@@ -20,6 +20,7 @@ type ExportRequest struct {
 // ExportResponse is returned by POST /api/audio/export.
 type ExportResponse struct {
 	File   string `json:"file"`
+	Path   string `json:"path,omitempty"`
 	Format string `json:"format"`
 	Size   int64  `json:"size"`
 }
@@ -70,27 +71,21 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	safeName := filepath.Base(req.File)
 	projectRoot := findProjectRoot()
 
-	// Search in daw-data first, then fall back to input.
-	searchDirs := []string{
-		filepath.Join(projectRoot, "daw-data"),
-		filepath.Join(projectRoot, "input"),
-	}
-
-	var filePath string
-	for _, dir := range searchDirs {
-		candidate := filepath.Join(dir, safeName)
-		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+	// Resolve the source inside the daw-data tree first, then fall back to input/.
+	filePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
+	if err != nil {
+		// Legacy flat fallback for input files.
+		safeName = filepath.Base(req.File)
+		candidate := filepath.Join(projectRoot, "input", safeName)
+		if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
 			filePath = candidate
-			break
+			song = ""
+		} else {
+			writeDAWFileNotFound(w, safeName)
+			return
 		}
-	}
-
-	if filePath == "" {
-		writeDAWFileNotFound(w, safeName)
-		return
 	}
 
 	info, err := os.Stat(filePath)
@@ -112,7 +107,13 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// FLAC/MP3 export: convert the source file with ffmpeg and write it to daw-data.
+	// Determine the song directory for the converted output.
+	if song == "" {
+		song = songDirName(strings.TrimSuffix(safeName, filepath.Ext(safeName)))
+	}
+
+	// FLAC/MP3 export: convert the source file with ffmpeg and write it to
+	// daw-data/{song}/edits/.
 	var outputExt, codec string
 	var extraArgs []string
 	switch format {
@@ -125,8 +126,8 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		extraArgs = []string{"-b:a", bitrate}
 	}
 
-	dawBase := filepath.Join(projectRoot, "daw-data")
-	if err := os.MkdirAll(dawBase, 0o755); err != nil {
+	editsDir := filepath.Join(projectRoot, dawDataDirName, song, dawEditsSubdir)
+	if err := os.MkdirAll(editsDir, 0o755); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to create daw-data directory"})
@@ -135,7 +136,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 
 	base := strings.TrimSuffix(safeName, filepath.Ext(safeName))
 	outputName := "export_" + base + outputExt
-	outputPath := filepath.Join(dawBase, outputName)
+	outputPath := filepath.Join(editsDir, outputName)
 
 	args := []string{
 		"-y",
@@ -168,6 +169,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(ExportResponse{
 		File:   outputName,
+		Path:   filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
 		Format: format,
 		Size:   outInfo.Size(),
 	})

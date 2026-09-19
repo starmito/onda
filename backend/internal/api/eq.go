@@ -30,6 +30,7 @@ type EqRequest struct {
 // EqResponse is returned by POST /api/daw/eq.
 type EqResponse struct {
 	File           string `json:"file"`
+	Path           string `json:"path,omitempty"`
 	FiltersApplied int    `json:"filters_applied"`
 }
 
@@ -117,14 +118,19 @@ func (s *Server) handleEQ(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	sourcePath, safeName, err := resolveDAWAudioSource(req.File)
+	sourcePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
 	if err != nil {
 		writeDAWFileNotFound(w, safeName)
 		return
 	}
+	if song == "" {
+		writeEQError(w, http.StatusBadRequest, "file must belong to a song in daw-data")
+		return
+	}
 
 	projectRoot := findProjectRoot()
-	dawBase := filepath.Join(projectRoot, "daw-data")
+	editsDir := filepath.Join(projectRoot, dawDataDirName, song, dawEditsSubdir)
+	tmpDir := songTempDir(projectRoot, song)
 
 	_, err = detectDuration(sourcePath)
 	if err != nil {
@@ -134,13 +140,12 @@ func (s *Server) handleEQ(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := os.MkdirAll(dawBase, 0o755); err != nil {
+	if err := os.MkdirAll(editsDir, 0o755); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": fmt.Sprintf("failed to create output dir: %v", err)})
 		return
 	}
-	tmpDir := filepath.Join(dawBase, "tmp")
 	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -148,7 +153,7 @@ func (s *Server) handleEQ(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	pcmPath, cleanupInput, err := decodeAudioToPCMWav(sourcePath)
+	pcmPath, cleanupInput, err := decodeAudioToPCMWav(sourcePath, song)
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -209,9 +214,9 @@ func (s *Server) handleEQ(w http.ResponseWriter, r *http.Request) {
 	}
 
 	outputName := "eq_" + safeName
-	outputPath := filepath.Join(dawBase, outputName)
+	outputPath := filepath.Join(editsDir, outputName)
 
-	if err := writeAudioFile(outputPath, outputBuf, inputFmt); err != nil {
+	if err := writeAudioFile(outputPath, outputBuf, inputFmt, song); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to write output audio: " + err.Error()})
@@ -222,6 +227,7 @@ func (s *Server) handleEQ(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(EqResponse{
 		File:           outputName,
+		Path:           filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
 		FiltersApplied: len(req.Filters),
 	})
 }

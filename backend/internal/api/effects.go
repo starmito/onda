@@ -13,6 +13,7 @@ import (
 // EffectResponse is the common JSON response for all DAW effect endpoints.
 type EffectResponse struct {
 	File       string                 `json:"file"`
+	Path       string                 `json:"path,omitempty"`
 	Parameters map[string]interface{} `json:"parameters,omitempty"`
 }
 
@@ -108,16 +109,19 @@ func writeValidationError(w http.ResponseWriter, err error) {
 	writeEffectError(w, http.StatusBadRequest, err.Error())
 }
 
-// resolveEffectOutput returns the absolute output path in daw-data/ and the
-// generated file name with the given effect prefix.
-func resolveEffectOutput(prefix, safeName string) (string, string, error) {
+// resolveEffectOutput returns the absolute output path in daw-data/{song}/edits/
+// and the generated file name with the given effect prefix.
+func resolveEffectOutput(prefix, song, safeName string) (string, string, error) {
+	if song == "" {
+		return "", "", fmt.Errorf("song is required")
+	}
 	projectRoot := findProjectRoot()
-	dawBase := filepath.Join(projectRoot, "daw-data")
-	if err := os.MkdirAll(dawBase, 0o755); err != nil {
+	editsDir := filepath.Join(projectRoot, dawDataDirName, song, dawEditsSubdir)
+	if err := os.MkdirAll(editsDir, 0o755); err != nil {
 		return "", "", err
 	}
 	outputName := prefix + "_" + safeName
-	return filepath.Join(dawBase, outputName), outputName, nil
+	return filepath.Join(editsDir, outputName), outputName, nil
 }
 
 // writeEffectError sends a JSON error response with the given status code.
@@ -170,13 +174,13 @@ func (s *Server) handleCompressor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sourcePath, safeName, err := resolveDAWAudioSource(req.File)
+	sourcePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
 	if err != nil {
 		writeDAWFileNotFound(w, safeName)
 		return
 	}
 
-	outputPath, outputName, err := resolveEffectOutput("compressor", safeName)
+	outputPath, outputName, err := resolveEffectOutput("compressor", song, safeName)
 	if err != nil {
 		writeEffectError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create output dir: %v", err))
 		return
@@ -214,6 +218,7 @@ func (s *Server) handleCompressor(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(EffectResponse{
 		File: outputName,
+		Path: filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
 		Parameters: map[string]interface{}{
 			"threshold": threshold,
 			"ratio":     ratio,
@@ -254,13 +259,13 @@ func (s *Server) handleReverb(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sourcePath, safeName, err := resolveDAWAudioSource(req.File)
+	sourcePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
 	if err != nil {
 		writeDAWFileNotFound(w, safeName)
 		return
 	}
 
-	outputPath, outputName, err := resolveEffectOutput("reverb", safeName)
+	outputPath, outputName, err := resolveEffectOutput("reverb", song, safeName)
 	if err != nil {
 		writeEffectError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create output dir: %v", err))
 		return
@@ -285,7 +290,10 @@ func (s *Server) handleReverb(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(EffectResponse{File: outputName})
+	json.NewEncoder(w).Encode(EffectResponse{
+		File: outputName,
+		Path: filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
+	})
 }
 
 // handleDelay applies an echo/delay effect using SoX echo.
@@ -321,13 +329,13 @@ func (s *Server) handleDelay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sourcePath, safeName, err := resolveDAWAudioSource(req.File)
+	sourcePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
 	if err != nil {
 		writeDAWFileNotFound(w, safeName)
 		return
 	}
 
-	outputPath, outputName, err := resolveEffectOutput("delay", safeName)
+	outputPath, outputName, err := resolveEffectOutput("delay", song, safeName)
 	if err != nil {
 		writeEffectError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create output dir: %v", err))
 		return
@@ -358,7 +366,10 @@ func (s *Server) handleDelay(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(EffectResponse{File: outputName})
+	json.NewEncoder(w).Encode(EffectResponse{
+		File: outputName,
+		Path: filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
+	})
 }
 
 // handleChorus applies a chorus effect using SoX chorus.
@@ -401,13 +412,13 @@ func (s *Server) handleChorus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sourcePath, safeName, err := resolveDAWAudioSource(req.File)
+	sourcePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
 	if err != nil {
 		writeDAWFileNotFound(w, safeName)
 		return
 	}
 
-	outputPath, outputName, err := resolveEffectOutput("chorus", safeName)
+	outputPath, outputName, err := resolveEffectOutput("chorus", song, safeName)
 	if err != nil {
 		writeEffectError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create output dir: %v", err))
 		return
@@ -437,7 +448,10 @@ func (s *Server) handleChorus(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(EffectResponse{File: outputName})
+	json.NewEncoder(w).Encode(EffectResponse{
+		File: outputName,
+		Path: filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
+	})
 }
 
 // handleFlanger applies a flanger effect using SoX flanger.
@@ -473,13 +487,13 @@ func (s *Server) handleFlanger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sourcePath, safeName, err := resolveDAWAudioSource(req.File)
+	sourcePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
 	if err != nil {
 		writeDAWFileNotFound(w, safeName)
 		return
 	}
 
-	outputPath, outputName, err := resolveEffectOutput("flanger", safeName)
+	outputPath, outputName, err := resolveEffectOutput("flanger", song, safeName)
 	if err != nil {
 		writeEffectError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create output dir: %v", err))
 		return
@@ -489,14 +503,14 @@ func (s *Server) handleFlanger(w http.ResponseWriter, r *http.Request) {
 		{
 			Name: "flanger",
 			Params: []string{
-				"0",                       // delay base (0ms)
-				fmt.Sprintf("%f", depth),  // depth (swept delay)
-				"0",                       // regen (sin feedback)
-				"71",                      // width (default)
-				fmt.Sprintf("%f", rate),   // speed
-				"sine",                    // shape
-				"25",                      // phase
-				"linear",                  // interpolation
+				"0",                      // delay base (0ms)
+				fmt.Sprintf("%f", depth), // depth (swept delay)
+				"0",                      // regen (sin feedback)
+				"71",                     // width (default)
+				fmt.Sprintf("%f", rate),  // speed
+				"sine",                   // shape
+				"25",                     // phase
+				"linear",                 // interpolation
 			},
 		},
 	}
@@ -508,7 +522,10 @@ func (s *Server) handleFlanger(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(EffectResponse{File: outputName})
+	json.NewEncoder(w).Encode(EffectResponse{
+		File: outputName,
+		Path: filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
+	})
 }
 
 // handlePhaser applies a phaser effect using SoX phaser.
@@ -544,13 +561,13 @@ func (s *Server) handlePhaser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sourcePath, safeName, err := resolveDAWAudioSource(req.File)
+	sourcePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
 	if err != nil {
 		writeDAWFileNotFound(w, safeName)
 		return
 	}
 
-	outputPath, outputName, err := resolveEffectOutput("phaser", safeName)
+	outputPath, outputName, err := resolveEffectOutput("phaser", song, safeName)
 	if err != nil {
 		writeEffectError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create output dir: %v", err))
 		return
@@ -570,7 +587,7 @@ func (s *Server) handlePhaser(w http.ResponseWriter, r *http.Request) {
 		{
 			Name: "phaser",
 			Params: []string{
-				fmt.Sprintf("%f", gainIn), // gain-in
+				fmt.Sprintf("%f", gainIn),  // gain-in
 				fmt.Sprintf("%f", gainOut), // gain-out
 				"3",                        // delay (ms)
 				fmt.Sprintf("%f", decay),   // decay
@@ -587,7 +604,10 @@ func (s *Server) handlePhaser(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(EffectResponse{File: outputName})
+	json.NewEncoder(w).Encode(EffectResponse{
+		File: outputName,
+		Path: filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
+	})
 }
 
 // handleTremolo applies a tremolo (amplitude modulation) effect using SoX tremolo.
@@ -618,13 +638,13 @@ func (s *Server) handleTremolo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sourcePath, safeName, err := resolveDAWAudioSource(req.File)
+	sourcePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
 	if err != nil {
 		writeDAWFileNotFound(w, safeName)
 		return
 	}
 
-	outputPath, outputName, err := resolveEffectOutput("tremolo", safeName)
+	outputPath, outputName, err := resolveEffectOutput("tremolo", song, safeName)
 	if err != nil {
 		writeEffectError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create output dir: %v", err))
 		return
@@ -647,7 +667,10 @@ func (s *Server) handleTremolo(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(EffectResponse{File: outputName})
+	json.NewEncoder(w).Encode(EffectResponse{
+		File: outputName,
+		Path: filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
+	})
 }
 
 // handleNoiseGate applies a noise gate using SoX compand.
@@ -683,13 +706,13 @@ func (s *Server) handleNoiseGate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sourcePath, safeName, err := resolveDAWAudioSource(req.File)
+	sourcePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
 	if err != nil {
 		writeDAWFileNotFound(w, safeName)
 		return
 	}
 
-	outputPath, outputName, err := resolveEffectOutput("noisegate", safeName)
+	outputPath, outputName, err := resolveEffectOutput("noisegate", song, safeName)
 	if err != nil {
 		writeEffectError(w, http.StatusInternalServerError, fmt.Sprintf("failed to create output dir: %v", err))
 		return
@@ -717,5 +740,8 @@ func (s *Server) handleNoiseGate(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	json.NewEncoder(w).Encode(EffectResponse{File: outputName})
+	json.NewEncoder(w).Encode(EffectResponse{
+		File: outputName,
+		Path: filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
+	})
 }

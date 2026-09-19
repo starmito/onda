@@ -6,11 +6,24 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
+)
+
+// Subdirectory names inside each daw-data/{song}/ tree.
+const (
+	dawDataDirName    = "daw-data"
+	dawOriginalSubdir = "original"
+	dawImportsSubdir  = "imports"
+	dawEditsSubdir    = "edits"
+	dawTmpSubdir      = "tmp"
 )
 
 // errDAWAudioNotFound is returned by resolveDAWAudioSource when the requested
 // audio file does not exist in either the input/ or daw-data/ directories.
 var errDAWAudioNotFound = errors.New("daw audio file not found")
+
+// errDAWPathTraversal is returned when a user-supplied path escapes daw-data/.
+var errDAWPathTraversal = errors.New("path traversal detected")
 
 // dawFileNotFoundResponse is the structured JSON body returned by DAW audio
 // endpoints when the source file is missing. It keeps the legacy "error" field
@@ -23,25 +36,166 @@ type dawFileNotFoundResponse struct {
 	Help  string `json:"help"`
 }
 
-// resolveDAWAudioSource looks for an audio file by base name first in input/
-// and then in daw-data/ under the project root. It returns the absolute path
-// to the existing file, the safe base name, and nil on success. If the file is
-// not found it returns errDAWAudioNotFound.
-func resolveDAWAudioSource(file string) (sourcePath, safeName string, err error) {
-	safeName = filepath.Base(file)
-	projectRoot := findProjectRoot()
+// dawFileSource describes a file located inside the daw-data/{song}/ tree.
+type dawFileSource struct {
+	Song    string
+	Subdir  string // original, imports, edits or tmp
+	Name    string
+	AbsPath string
+}
 
+// songDirName returns a sanitized directory name for a song. It reuses
+// sanitizeFilenameStem so the naming rules stay consistent with imports.
+func songDirName(name string) string {
+	s := sanitizeFilenameStem(name)
+	s = strings.TrimSpace(s)
+	if s == "" {
+		s = "audio"
+	}
+	return s
+}
+
+// hasPathSeparator reports whether s contains a slash or backslash.
+func hasPathSeparator(s string) bool {
+	return strings.ContainsAny(s, `/\`)
+}
+
+// safeJoinDAWData builds an absolute path inside daw-data/{song}/{subdir}/{name}
+// and verifies that the resolved path stays inside daw-data. Empty subdir means
+// daw-data/{song}/{name}.
+func safeJoinDAWData(projectRoot, song, subdir, name string) (string, error) {
+	if song == "" || song == "." || song == ".." || hasPathSeparator(song) || strings.Contains(song, "..") {
+		return "", errDAWPathTraversal
+	}
+	if subdir != "" && (subdir == "." || subdir == ".." || hasPathSeparator(subdir) || strings.Contains(subdir, "..")) {
+		return "", errDAWPathTraversal
+	}
+	baseName := filepath.Base(name)
+	if baseName == "" || baseName == "." || hasPathSeparator(name) || strings.Contains(name, "..") {
+		return "", errDAWPathTraversal
+	}
+
+	dir := filepath.Join(projectRoot, dawDataDirName, song)
+	if subdir != "" {
+		dir = filepath.Join(dir, subdir)
+	}
+	abs, err := filepath.Abs(filepath.Join(dir, baseName))
+	if err != nil {
+		return "", err
+	}
+	absDaw, err := filepath.Abs(filepath.Join(projectRoot, dawDataDirName))
+	if err != nil {
+		return "", err
+	}
+	if abs == absDaw || !strings.HasPrefix(abs, absDaw+string(filepath.Separator)) {
+		return "", errDAWPathTraversal
+	}
+	return abs, nil
+}
+
+// parseDAWTreePath parses a user-supplied reference that may already be a
+// relative path inside the daw-data tree. Accepted forms:
+//
+//   - "daw-data/{song}/{subdir}/{name}"
+//   - "{song}/{subdir}/{name}"
+//   - "{song}/{name}" (treated as original/{name})
+//
+// It returns the parsed source and true only when the path exists.
+func parseDAWTreePath(projectRoot, file string) (dawFileSource, bool) {
+	file = strings.TrimSpace(file)
+	if file == "" {
+		return dawFileSource{}, false
+	}
+
+	// Strip an optional "daw-data/" or "daw-data\" prefix.
+	rel := file
+	for _, prefix := range []string{dawDataDirName + "/", dawDataDirName + "\\"} {
+		if strings.HasPrefix(rel, prefix) {
+			rel = strings.TrimPrefix(rel, prefix)
+		}
+	}
+
+	parts := strings.Split(rel, string(filepath.Separator))
+	if len(parts) < 2 {
+		return dawFileSource{}, false
+	}
+
+	song := parts[0]
+	if song == "" || song == "." || song == ".." || hasPathSeparator(song) || strings.Contains(song, "..") {
+		return dawFileSource{}, false
+	}
+
+	var subdir, name string
+	if len(parts) == 2 {
+		// "song/name" is treated as the original subdir.
+		subdir = dawOriginalSubdir
+		name = parts[1]
+	} else {
+		subdir = parts[1]
+		if subdir != dawOriginalSubdir && subdir != dawImportsSubdir && subdir != dawEditsSubdir && subdir != dawTmpSubdir {
+			return dawFileSource{}, false
+		}
+		name = filepath.Join(parts[2:]...)
+	}
+
+	abs, err := safeJoinDAWData(projectRoot, song, subdir, name)
+	if err != nil {
+		return dawFileSource{}, false
+	}
+	if _, err := os.Stat(abs); err != nil {
+		return dawFileSource{}, false
+	}
+	return dawFileSource{
+		Song:    song,
+		Subdir:  subdir,
+		Name:    filepath.Base(name),
+		AbsPath: abs,
+	}, true
+}
+
+// resolveDAWAudioSource locates an audio file referenced by name or by a
+// relative path inside the daw-data tree. It searches in this order:
+//
+//  1. input/{name}
+//  2. An explicit daw-data tree path (daw-data/{song}/[subdir]/{name})
+//  3. The daw-data tree, scanning every song directory for the base name
+//
+// On success it returns the absolute path, the safe base name, the song
+// directory (when inside daw-data) and the subdirectory (original/imports/edits/tmp).
+func resolveDAWAudioSource(file string) (absPath, safeName, song, subdir string, err error) {
+	projectRoot := findProjectRoot()
+	safeName = filepath.Base(file)
+
+	// 1. Flat input/ lookup.
 	inputPath := filepath.Join(projectRoot, "input", safeName)
 	if _, err := os.Stat(inputPath); err == nil {
-		return inputPath, safeName, nil
+		return inputPath, safeName, "", "", nil
 	}
 
-	dawPath := filepath.Join(projectRoot, "daw-data", safeName)
-	if _, err := os.Stat(dawPath); err == nil {
-		return dawPath, safeName, nil
+	// 2. Explicit tree path.
+	if src, ok := parseDAWTreePath(projectRoot, file); ok {
+		return src.AbsPath, src.Name, src.Song, src.Subdir, nil
 	}
 
-	return "", safeName, errDAWAudioNotFound
+	// 3. Search the whole daw-data tree for the base name.
+	dawRoot := filepath.Join(projectRoot, dawDataDirName)
+	if entries, readErr := os.ReadDir(dawRoot); readErr == nil {
+		searchOrder := []string{dawOriginalSubdir, dawImportsSubdir, dawEditsSubdir, dawTmpSubdir}
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+			songDir := entry.Name()
+			for _, sd := range searchOrder {
+				candidate := filepath.Join(dawRoot, songDir, sd, safeName)
+				if _, err := os.Stat(candidate); err == nil {
+					return candidate, safeName, songDir, sd, nil
+				}
+			}
+		}
+	}
+
+	return "", safeName, "", "", errDAWAudioNotFound
 }
 
 // writeDAWFileNotFound writes a 404 JSON response with a structured error that
@@ -55,4 +209,32 @@ func writeDAWFileNotFound(w http.ResponseWriter, fileName string) {
 		File:  fileName,
 		Help:  "El archivo de audio no está disponible. Vuelve a subirlo para continuar.",
 	})
+}
+
+// isDAWEditFile reports whether a file living inside daw-data is an effect/edit
+// output, as opposed to an original upload or imported stem.
+func isDAWEditFile(subdir, name string) bool {
+	if subdir == dawEditsSubdir {
+		return true
+	}
+	lower := strings.ToLower(name)
+	return strings.HasPrefix(lower, "eq_") ||
+		strings.HasPrefix(lower, "compressor_") ||
+		strings.HasPrefix(lower, "reverb_") ||
+		strings.HasPrefix(lower, "delay_") ||
+		strings.HasPrefix(lower, "chorus_") ||
+		strings.HasPrefix(lower, "flanger_") ||
+		strings.HasPrefix(lower, "phaser_") ||
+		strings.HasPrefix(lower, "tremolo_") ||
+		strings.HasPrefix(lower, "noisegate_") ||
+		strings.HasPrefix(lower, "trim_") ||
+		strings.HasPrefix(lower, "fade_") ||
+		strings.HasPrefix(lower, "tempo_") ||
+		strings.HasPrefix(lower, "tempo_per_bar_") ||
+		strings.HasPrefix(lower, "export_")
+}
+
+// songTempDir returns the per-song temporary directory path.
+func songTempDir(projectRoot, song string) string {
+	return filepath.Join(projectRoot, dawDataDirName, song, dawTmpSubdir)
 }

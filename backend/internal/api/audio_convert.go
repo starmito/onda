@@ -14,9 +14,9 @@ import (
 // decodeAudioToPCMWav decodes an audio file to a WAV PCM file readable by
 // readWAV. If the file is already a readable WAV PCM, it returns the original
 // path and a no-op cleanup function. Otherwise it decodes the file with ffmpeg
-// to a temporary WAV inside daw-data/tmp/ and returns a cleanup function that
-// removes that temporary file.
-func decodeAudioToPCMWav(path string) (tmpPath string, cleanup func(), err error) {
+// to a temporary WAV inside daw-data/{song}/tmp/ and returns a cleanup function
+// that removes that temporary file.
+func decodeAudioToPCMWav(path string, song string) (tmpPath string, cleanup func(), err error) {
 	nopCleanup := func() {}
 
 	// First try to read the file directly as a WAV PCM.
@@ -34,7 +34,7 @@ func decodeAudioToPCMWav(path string) (tmpPath string, cleanup func(), err error
 	}
 
 	projectRoot := findProjectRoot()
-	tmpDir := filepath.Join(projectRoot, "daw-data", "tmp")
+	tmpDir := songTempDir(projectRoot, song)
 	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
 		return "", nopCleanup, fmt.Errorf("failed to create tmp dir: %w", err)
 	}
@@ -63,19 +63,19 @@ func decodeAudioToPCMWav(path string) (tmpPath string, cleanup func(), err error
 // writeAudioFile writes PCM data to path, preserving the format implied by the
 // file extension. WAV files are written directly; FLAC and MP3 are produced by
 // encoding a temporary WAV with ffmpeg.
-func writeAudioFile(path string, buf *audio.IntBuffer, wf *wavFormat) error {
+func writeAudioFile(path string, buf *audio.IntBuffer, wf *wavFormat, song string) error {
 	ext := strings.ToLower(filepath.Ext(path))
 	if ext == ".wav" {
 		return writeWAV(path, buf, wf)
 	}
-	return writeWAVAndEncode(path, buf, wf)
+	return writeWAVAndEncode(path, buf, wf, song)
 }
 
 // writeWAVAndEncode writes the buffer to a temporary WAV and converts it to the
 // target format with ffmpeg.
-func writeWAVAndEncode(outputPath string, buf *audio.IntBuffer, wf *wavFormat) error {
+func writeWAVAndEncode(outputPath string, buf *audio.IntBuffer, wf *wavFormat, song string) error {
 	projectRoot := findProjectRoot()
-	tmpDir := filepath.Join(projectRoot, "daw-data", "tmp")
+	tmpDir := songTempDir(projectRoot, song)
 	if err := os.MkdirAll(tmpDir, 0o755); err != nil {
 		return fmt.Errorf("failed to create tmp dir: %w", err)
 	}
