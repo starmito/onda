@@ -1,5 +1,22 @@
 # Changelog
 
+## [v3.4.11] - 2026-09-19
+
+### Fixed
+- **Directorio de trabajo configurable**: una sola raíz de datos con todo dentro (`input/`, `output/`, `daw-data/`, `input_rubberband/`, `config/`, `logs/`, `models/`). Ninguna ruta de datos fija: backend y `pipeline.sh` resuelven siempre la raíz configurada.
+- **Montajes**: de 13 (con duplicados) a **3** sin duplicidad.
+- **DAW (Importar pistas)**: secciones **Subidas** (sube a `input/`), **Resultados** (stems) y **Cambio de tono**; fuera la pestaña efímera «Subir desde PC». Reproducir y efectos ya no dan 404 (el frontend usa `path`/`url`/`name` que devuelve la API) y se conserva el nombre de la canción.
+- **Ejecución por checks**: se procesan los ficheros **marcados**, no los que simplemente están pendientes.
+- **Guardas**: RAM ya no bloquea (aviso y sigue); VRAM nunca exige más de lo que cabe en la tarjeta.
+- **Observabilidad**: modelo y flags efectivos por paso, en el log y en la UI junto a «Running».
+
+### Added
+- **Selector en Ajustes > Almacenamiento** (`GET/POST /api/storage/config`): raíz actual, de dónde sale (entorno/ajustes/defecto), estado, las carpetas, validación (existe y se puede escribir) y aplicación en caliente; lo que se carga en memoria se recarga al cambiar la raíz.
+- **Test-guardian** que falla si reaparece una ruta de datos fija.
+
+### Test
+- **Tests blindados**: la suite no escribe fuera de su raíz temporal y hay tests de cambio de raíz en caliente.
+
 ## [v3.4.10] - 2026-09-19
 
 ### Fixed
