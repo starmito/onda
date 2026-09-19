@@ -511,7 +511,7 @@ func (s *Server) handleListPitchUploads(w http.ResponseWriter, r *http.Request) 
 		baseName := strings.TrimSuffix(name, ext)
 		upload := PitchUpload{
 			Name: name,
-			Path: "/app/input_rubberband/" + name,
+			Path: filepath.Join(mustSub("input_rubberband"), name),
 		}
 
 		// Look for pitch subgroups for this base name

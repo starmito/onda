@@ -52,7 +52,7 @@ func defaultServiceLogPath() string {
 	if p := os.Getenv("ONDA_SERVICE_LOG_PATH"); p != "" {
 		return p
 	}
-	return "/app/logs/onda.log"
+	return filepath.Join(mustSub("logs"), "onda.log")
 }
 
 // newServiceLogStore creates a file-backed log store. It attempts to create

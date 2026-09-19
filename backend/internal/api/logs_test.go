@@ -39,6 +39,7 @@ func setupTestLogStore(t *testing.T) string {
 }
 
 func TestHandleGetServiceLogs_ReturnsOndaServiceLogs(t *testing.T) {
+	setupTestLogStore(t)
 	resetLogBuffer()
 	Log("backend", "info", "backend message")
 	Log("pipeline", "info", "pipeline message")
@@ -78,6 +79,7 @@ func TestHandleGetServiceLogs_ReturnsOndaServiceLogs(t *testing.T) {
 }
 
 func TestHandleGetServiceLogs_LimitParameter(t *testing.T) {
+	setupTestLogStore(t)
 	resetLogBuffer()
 	for i := 0; i < 10; i++ {
 		Log("backend", "info", "msg")

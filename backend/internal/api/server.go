@@ -629,7 +629,6 @@ func (s *Server) handleInputs(w http.ResponseWriter, r *http.Request) {
 	includeDaw := include == "daw-data" || include == "all"
 
 	inputDir := mustSub("input")
-	appInputPrefix := "/app/" + filepath.Base(inputDir) + "/"
 	dawDir := mustSub("daw-data")
 
 	var inputs []InputEntry
@@ -655,7 +654,7 @@ func (s *Server) handleInputs(w http.ResponseWriter, r *http.Request) {
 				}
 				inputs = append(inputs, InputEntry{
 					Name:   name,
-					Path:   appInputPrefix + name,
+					Path:   filepath.Join(inputDir, name),
 					Source: "input",
 				})
 			}
@@ -1140,6 +1139,8 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
+	// /app/pipeline.sh is the pipeline entrypoint inside the container image, not a
+	// data path, so it stays as an absolute container path.
 	script := "/app/pipeline.sh"
 	pipelineArgs := job.Args
 	// Tests may pass an explicit fake script as the first argument.
@@ -1230,7 +1231,7 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, state *JobState) {
 	song := job.Song
 	outputDir := filepath.Join(mustSub("output"), song)
-	appOutputPrefix := "/app/" + filepath.Base(mustSub("output")) + "/"
+	containerOutput := outputDir
 
 	// Ensure output directory exists
 	os.MkdirAll(outputDir, 0o755)
@@ -1284,7 +1285,6 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		}
 
 		// Build args for this specific step
-		containerOutput := appOutputPrefix + song
 		stepArgs, stepEnv := buildStepPipelineArgs(step, currentInput, containerOutput, job.Config.Device)
 		stepArgs = append(stepArgs, "--output", containerOutput)
 
@@ -1295,7 +1295,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 
 		stepArgs = append(stepArgs, currentInput)
 
-		// Execute this step
+		// Execute this step (pipeline.sh is the container entrypoint, not data).
 		ctx, cancel := context.WithCancel(context.Background())
 		pipelineArgs := append([]string{"/app/pipeline.sh"}, stepArgs...)
 		cmd := exec.CommandContext(ctx, "bash", pipelineArgs...)
@@ -1362,8 +1362,9 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 			// Look for the routed stem to use as input for the next step
 			routedInput := findChainedInput(outputDir, step)
 			if routedInput != "" {
-				// Convert host path to container path for next invocation
-				currentInput = toInternalContainerPath(routedInput)
+				// With a single data root the host path is already the path the
+				// pipeline uses, so chain it unchanged.
+				currentInput = routedInput
 				Log("pipeline", "info", fmt.Sprintf("Chaining: step %d output → input for step %d: %s", i+1, i+2, currentInput))
 			} else {
 				// Fallback: if no routed stem found, use the original input
@@ -1538,22 +1539,6 @@ func pickInterstem(matches []string) string {
 	return matches[0]
 }
 
-// toInternalContainerPath converts a host path to a container-relative path.
-func toInternalContainerPath(hostPath string) string {
-	outputDir := mustSub("output")
-	appOutputPrefix := "/app/" + filepath.Base(outputDir)
-	if outputDir != "" && strings.HasPrefix(hostPath, outputDir) {
-		rel := strings.TrimPrefix(hostPath, outputDir)
-		return appOutputPrefix + rel
-	}
-	inputDir := mustSub("input")
-	appInputPrefix := "/app/" + filepath.Base(inputDir)
-	if inputDir != "" && strings.HasPrefix(hostPath, inputDir) {
-		rel := strings.TrimPrefix(hostPath, inputDir)
-		return appInputPrefix + rel
-	}
-	return hostPath
-}
 
 var (
 	// progressLineRe matches progress-bar frames (e.g. tqdm, demucs) so that
@@ -1744,20 +1729,17 @@ func listStems(song string) []FileEntry {
 }
 
 // normalizeContainerInput converts a relative filename or a bare input name into
-// the container input path /app/input/<basename>. Paths already under /app/ are
-// left untouched, and other absolute paths are preserved so the caller can pass
-// through explicit host/container paths unchanged.
+// the absolute input path under the data root. Absolute paths and paths already
+// under the input directory are left untouched so callers can pass explicit
+// host/container paths through unchanged.
 func normalizeContainerInput(input string) string {
 	if input == "" {
-		return input
-	}
-	if strings.HasPrefix(input, "/app/") {
 		return input
 	}
 	if filepath.IsAbs(input) {
 		return input
 	}
-	return "/app/" + filepath.Base(mustSub("input")) + "/" + filepath.Base(input)
+	return filepath.Join(mustSub("input"), filepath.Base(input))
 }
 
 // buildPipelineArgs constructs the argument list for pipeline.sh from a SeparateRequest.
@@ -1767,8 +1749,7 @@ func normalizeContainerInput(input string) string {
 func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps []cli.PipelineStep, env []string) {
 	req.Input = normalizeContainerInput(req.Input)
 	song = strings.TrimSuffix(filepath.Base(req.Input), filepath.Ext(req.Input))
-	appOutputPrefix := "/app/" + filepath.Base(mustSub("output")) + "/"
-	containerOutput := appOutputPrefix + song
+	containerOutput := filepath.Join(mustSub("output"), song)
 
 	// --- Resolve preset steps if a named preset is provided ---
 	if req.Preset != "" {
@@ -2173,11 +2154,11 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// resolveModelDir resolves a model name to a directory path usable inside the
-// Docker container. For Demucs PyTorch models (htdemucs_ft, htdemucs, etc.)
-// the name is returned as-is (loaded by name, not path). For all other models
-// (ViperX, Roformer, MDX, etc.), the model is looked up in listModels() and
-// its /models/ path is returned directly (both containers use /models).
+// resolveModelDir resolves a model name to a directory path usable by the
+// pipeline. For Demucs PyTorch models (htdemucs_ft, htdemucs, etc.) the name is
+// returned as-is (loaded by name, not path). For all other models (ViperX,
+// Roformer, MDX, etc.), the model is looked up in listModels() and its path
+// under the data-root models directory is returned directly.
 func resolveModelDir(name string) string {
 	if name == "" {
 		return ""
@@ -2188,17 +2169,7 @@ func resolveModelDir(name string) string {
 	models := listModels()
 	for _, m := range models.Models {
 		if m.Name == name || m.DisplayName == name {
-			modelDir := filepath.Dir(m.Path)
-			// listModels() reports container paths under /app/models; map them
-			// back to the current modelsBasePath so tests that override the
-			// base directory get a real filesystem path.
-			if strings.HasPrefix(modelDir, modelsBasePath+"/") {
-				rel, err := filepath.Rel(modelsBasePath, modelDir)
-				if err == nil {
-					modelDir = filepath.Join(mustSub("models"), rel)
-				}
-			}
-			return modelDir
+			return filepath.Dir(m.Path)
 		}
 	}
 	return ""
@@ -2894,10 +2865,8 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Determine input directory: prefer project root /input,
-	// fall back to a temp dir if it doesn't exist.
+	// Determine input directory from the data-root helper.
 	inputDir := mustSub("input")
-	appInputPrefix := "/app/" + filepath.Base(inputDir) + "/"
 	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
 		os.MkdirAll(inputDir, 0o755)
 	}
@@ -2949,8 +2918,7 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	Log("backend", "success", "Uploaded: "+safeName)
 
-	// The path inside the container is /app/input/filename
-	containerPath := appInputPrefix + safeName
+	containerPath := filepath.Join(inputDir, safeName)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"path": containerPath})
@@ -2978,7 +2946,6 @@ func (s *Server) handleUploadPitch(w http.ResponseWriter, r *http.Request) {
 	}
 
 	inputDir := mustSub("input_rubberband")
-	appInputRubberbandPrefix := "/app/" + filepath.Base(inputDir) + "/"
 	if _, err := os.Stat(inputDir); os.IsNotExist(err) {
 		os.MkdirAll(inputDir, 0o755)
 	}
@@ -3028,7 +2995,7 @@ func (s *Server) handleUploadPitch(w http.ResponseWriter, r *http.Request) {
 
 	Log("backend", "success", "Pitch upload: "+safeName)
 
-	containerPath := appInputRubberbandPrefix + safeName
+	containerPath := filepath.Join(inputDir, safeName)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]string{"path": containerPath})
@@ -3047,7 +3014,8 @@ func (s *Server) handleModelsCatalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Try the container path first, then fall back to the project root
+	// /app/uvr_models.json is the catalog bundled in the container image (not a
+	// data path). Try it first, then fall back to the project root.
 	data, err := os.ReadFile("/app/uvr_models.json")
 	if err != nil {
 		projectRoot := findProjectRoot()

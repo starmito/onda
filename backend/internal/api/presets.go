@@ -5,13 +5,19 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/starmito/onda/internal/cli"
 )
 
-const userPresetsFile = "/app/config/presets_user.json"
-const defaultPresetFile = "/app/config/default_preset.json"
+func userPresetsFile() string {
+	return filepath.Join(mustSub("config"), "presets_user.json")
+}
+
+func defaultPresetFile() string {
+	return filepath.Join(mustSub("config"), "default_preset.json")
+}
 
 var (
 	userPresets      map[string]cli.Preset
@@ -132,7 +138,7 @@ func seedPresets() {
 }
 
 func loadUserPresets() {
-	data, err := os.ReadFile(userPresetsFile)
+	data, err := os.ReadFile(userPresetsFile())
 	if err != nil {
 		return
 	}
@@ -246,7 +252,11 @@ func saveUserPresetsLocked() error {
 	if err != nil {
 		return fmt.Errorf("marshal presets: %w", err)
 	}
-	if err := os.WriteFile(userPresetsFile, data, 0644); err != nil {
+	path := userPresetsFile()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create presets dir: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
 		return fmt.Errorf("write presets: %w", err)
 	}
 	return nil
@@ -343,7 +353,7 @@ func (s *Server) handleDeletePreset(w http.ResponseWriter, r *http.Request) {
 
 // loadDefaultPreset reads the default preset name from disk.
 func loadDefaultPreset() {
-	data, err := os.ReadFile(defaultPresetFile)
+	data, err := os.ReadFile(defaultPresetFile())
 	if err != nil {
 		return
 	}
@@ -398,7 +408,14 @@ func (s *Server) handleSetDefaultPreset(w http.ResponseWriter, r *http.Request) 
 		json.NewEncoder(w).Encode(map[string]string{"error": "marshal error"})
 		return
 	}
-	if err := os.WriteFile(defaultPresetFile, data, 0644); err != nil {
+	path := defaultPresetFile()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": "write error"})
+		return
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{"error": "write error"})

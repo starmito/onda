@@ -18,10 +18,10 @@ import (
 	"time"
 )
 
-// modelsBasePath is the root directory where models live inside the container.
-// The onda service uses /app/models (bind-mounted from host).
-// It is a variable so tests can override it without touching the real /app/models.
-var modelsBasePath = "/app/models"
+// modelsBasePath is the root directory where models live. It defaults to the
+// "models" subdirectory under the data root so the Go backend and the pipeline
+// share a single path space. It remains a variable so tests can override it.
+var modelsBasePath = mustSub("models")
 
 // modelSubdirs lists the known model subdirectories to scan.
 var modelSubdirs = []string{
@@ -222,12 +222,12 @@ func listModels() ModelsListResponse {
 				return nil
 			}
 
-			// Build path relative to /app/models/
+			// Build path relative to the models root.
 			rel, err := filepath.Rel(modelsBasePath, path)
 			if err != nil {
 				rel = filepath.Join(subdir, info.Name())
 			}
-			modelPath := "/app/models/" + filepath.ToSlash(rel)
+			modelPath := filepath.ToSlash(filepath.Join(modelsBasePath, rel))
 
 			name := strings.TrimSuffix(info.Name(), ext)
 			category := detectCategory(subdir, rel)
@@ -285,9 +285,8 @@ func listModels() ModelsListResponse {
 	}
 }
 
-// loadUVRCatalog reads and parses the UVR model catalog (uvr_models.json).
-// It tries /app/uvr_models.json first (container path), then falls back to
-// the project root.
+// loadUVRCatalog reads and parses the UVR model catalog (uvr_models.json)
+// from the data root.
 func loadUVRCatalog() ([]UVRModelEntry, error) {
 	data, err := readProjectFile("uvr_models.json")
 	if err != nil {
@@ -379,7 +378,7 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 		status := &DownloadStatus{
 			Status:   "downloading",
 			Repo:     req.Repo,
-			Target:   "/app/models/" + targetSubdir,
+			Target:   filepath.ToSlash(filepath.Join(modelsBasePath, targetSubdir)),
 			Source:   "huggingface",
 		}
 		downloadMu.Lock()
@@ -420,7 +419,7 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 		status := &DownloadStatus{
 			Status:   "downloading",
 			Repo:     req.URL,
-			Target:   "/app/models/" + category,
+			Target:   filepath.ToSlash(filepath.Join(modelsBasePath, category)),
 			Filename: req.Filename,
 			Source:   "direct",
 		}
@@ -449,7 +448,7 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 				depStatus := &DownloadStatus{
 					Status:   "downloading",
 					Repo:     depKey,
-					Target:   "/app/models/" + depCategory,
+					Target:   filepath.ToSlash(filepath.Join(modelsBasePath, depCategory)),
 					Filename: dep.Filename,
 					Source:   "direct",
 				}

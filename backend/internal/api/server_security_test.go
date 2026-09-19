@@ -467,8 +467,9 @@ func TestHandleUpload_AcceptsRealSongFilename(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("invalid JSON response: %v", err)
 	}
-	if resp["path"] != "/app/input/"+wantSaved {
-		t.Errorf("response path should be %q, got %q", "/app/input/"+wantSaved, resp["path"])
+	expectedPath := filepath.Join(mustSub("input"), wantSaved)
+	if resp["path"] != expectedPath {
+		t.Errorf("response path should be %q, got %q", expectedPath, resp["path"])
 	}
 }
 
