@@ -94,6 +94,8 @@ type JobState struct {
 	TotalSteps       int         `json:"total_steps"`
 	StepName         string      `json:"step_name"`
 	Device           string      `json:"device,omitempty"`
+	CurrentModel     string      `json:"current_model,omitempty"`
+	CurrentFlags     string      `json:"current_flags,omitempty"`
 	BlockedReason    string      `json:"blocked_reason,omitempty"`
 	BlockedReasonMsg string      `json:"blocked_reason_msg,omitempty"`
 	StartedAt        time.Time   `json:"started_at,omitempty"`
@@ -1088,6 +1090,33 @@ func stepTypeForSinglePipeline(job JobRequest) string {
 	return "vocal"
 }
 
+// compactFlags returns a concise, single-space-separated representation of the
+// pipeline arguments, omitting the output directory, the input file and the
+// --no-clean flag so the result is suitable for logs and UI status.
+func compactFlags(args []string) string {
+	var parts []string
+	skip := false
+	for i, a := range args {
+		if skip {
+			skip = false
+			continue
+		}
+		if a == "--output" {
+			skip = true
+			continue
+		}
+		if a == "--no-clean" {
+			continue
+		}
+		// The input file is the last positional argument; skip it.
+		if i == len(args)-1 && !strings.HasPrefix(a, "--") {
+			continue
+		}
+		parts = append(parts, a)
+	}
+	return strings.Join(parts, " ")
+}
+
 // runSinglePipeline executes a single pipeline.sh invocation.
 func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	// VRAM headroom check before launching.
@@ -1112,6 +1141,14 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	}
 	stepType := stepTypeForSinglePipeline(job)
 	vramCfg := vramConfigForModelAndRequest(modelName, stepType, job.Config)
+
+	stepName := "pipeline"
+	if len(job.Steps) == 1 {
+		stepName = job.Steps[0].ID
+		if stepName == "" {
+			stepName = job.Steps[0].Type
+		}
+	}
 
 	// Resource headroom checks before launching.
 	if !job.Config.ForceVRAM {
@@ -1151,6 +1188,21 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 		}
 	}
 	args := append([]string{script}, pipelineArgs...)
+
+	device := job.Config.Device
+	if device == "" {
+		device = "cuda"
+	}
+	if state.TotalSteps < 1 {
+		state.TotalSteps = 1
+	}
+	state.CurrentStep = 1
+	state.StepName = stepTypeDisplay(stepName)
+	state.Device = device
+	state.CurrentModel = modelName
+	state.CurrentFlags = compactFlags(pipelineArgs)
+	Log("pipeline", "info", fmt.Sprintf("Step %d/%d start: step=%s model=%s flags=\"%s\"", state.CurrentStep, state.TotalSteps, state.StepName, state.CurrentModel, state.CurrentFlags))
+
 	cmd := exec.CommandContext(ctx, "bash", args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Env = append(os.Environ(), "PYTHONUNBUFFERED=1")
@@ -1172,14 +1224,6 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 		s.currentPID = cmd.Process.Pid
 	}
 	s.jobsMu.Unlock()
-
-	stepName := "pipeline"
-	if len(job.Steps) == 1 {
-		stepName = job.Steps[0].ID
-		if stepName == "" {
-			stepName = job.Steps[0].Type
-		}
-	}
 
 	if err == nil {
 		err = waitCmdResult(ctx, cmd)
@@ -1203,6 +1247,8 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	if state, ok := s.jobs[job.Song]; ok {
 		if err != nil {
 			state.Status = "error"
+			state.CurrentModel = ""
+			state.CurrentFlags = ""
 			errMsg := strings.TrimSpace(string(output))
 			if errMsg == "" {
 				errMsg = err.Error()
@@ -1220,6 +1266,8 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 		} else {
 			state.Status = "done"
 			state.Files = listStems(job.Song)
+			state.CurrentModel = ""
+			state.CurrentFlags = ""
 			Log("pipeline", "success", fmt.Sprintf("Pipeline completed: %s (%d stems, duration=%.1fs)", job.Song, len(state.Files), duration.Seconds()))
 		}
 	}
@@ -1244,16 +1292,6 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 			Log("pipeline", "info", fmt.Sprintf("Step %d/%d (%s) disabled, skipping", i+1, len(steps), step.ID))
 			continue
 		}
-
-		// Update job state with current step info
-		s.jobsMu.Lock()
-		if state, ok := s.jobs[job.Song]; ok {
-			state.CurrentStep = i + 1
-			state.StepName = stepTypeDisplay(step.Type)
-		}
-		s.jobsMu.Unlock()
-
-		Log("pipeline", "info", fmt.Sprintf("Step %d/%d: %s (%s)", i+1, len(steps), step.ID, step.Type))
 
 		// Resource headroom checks before launching this step.
 		modelName := stepModelName(step)
@@ -1295,9 +1333,31 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 
 		stepArgs = append(stepArgs, currentInput)
 
+		// Update job state with the effective model/flags for this step.
+		device := job.Config.Device
+		if device == "" {
+			device = "cuda"
+		}
+		if state.TotalSteps < len(steps) {
+			state.TotalSteps = len(steps)
+		}
+		state.CurrentStep = i + 1
+		state.StepName = stepTypeDisplay(step.Type)
+		state.Device = device
+		state.CurrentModel = modelName
+		state.CurrentFlags = compactFlags(stepArgs)
+		Log("pipeline", "info", fmt.Sprintf("Step %d/%d start: step=%s model=%s flags=\"%s\"", state.CurrentStep, state.TotalSteps, state.StepName, state.CurrentModel, state.CurrentFlags))
+
 		// Execute this step (pipeline.sh is the container entrypoint, not data).
 		ctx, cancel := context.WithCancel(context.Background())
-		pipelineArgs := append([]string{"/app/pipeline.sh"}, stepArgs...)
+		script := "/app/pipeline.sh"
+		// Tests may pass an explicit fake script as the first argument.
+		if len(job.Args) > 0 && strings.HasSuffix(job.Args[0], ".sh") {
+			if info, err := os.Stat(job.Args[0]); err == nil && !info.IsDir() {
+				script = job.Args[0]
+			}
+		}
+		pipelineArgs := append([]string{script}, stepArgs...)
 		cmd := exec.CommandContext(ctx, "bash", pipelineArgs...)
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		cmd.Env = append(os.Environ(), "PYTHONUNBUFFERED=1")
@@ -1349,6 +1409,8 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 			s.jobsMu.Lock()
 			if state, ok := s.jobs[job.Song]; ok {
 				state.Status = "error"
+				state.CurrentModel = ""
+				state.CurrentFlags = ""
 				state.Error = fmt.Sprintf("Step %d (%s) failed (exit=%d, signal=%s): %s", i+1, step.ID, exitCode, signalName, tail)
 				Log("pipeline", "error", fmt.Sprintf("Pipeline step %d/%d failed for %s (exit=%d, signal=%s, duration=%.1fs): %s",
 					i+1, len(steps), job.Song, exitCode, signalName, duration.Seconds(), tail))
@@ -1400,6 +1462,8 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		state.Status = "done"
 		state.Files = listStems(song)
 		state.CurrentStep = len(steps)
+		state.CurrentModel = ""
+		state.CurrentFlags = ""
 		Log("pipeline", "success", fmt.Sprintf("Pipeline completed: %s (%d stems, %d steps)", job.Song, len(state.Files), len(steps)))
 	}
 	s.jobsMu.Unlock()
@@ -2144,7 +2208,11 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	// Enqueue the job (with steps if multi-step)
 	s.jobQueue <- JobRequest{Song: song, Args: pipelineArgs, Config: req, Steps: steps, Env: pipelineEnv}
 
-	Log("backend", "success", "Job queued: "+song+" | "+formatJobConfig(req))
+	preset := req.Preset
+	if preset == "" {
+		preset = "(ninguno)"
+	}
+	Log("backend", "success", fmt.Sprintf("Job queued: %s | preset=%s (modelos y flags se resuelven al arrancar cada paso)", song, preset))
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)

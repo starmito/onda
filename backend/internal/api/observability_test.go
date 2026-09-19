@@ -226,21 +226,13 @@ func TestHandleSeparate_LogsJobConfig(t *testing.T) {
 		t.Fatalf("expected 202, got %d: %s", rr.Code, rr.Body.String())
 	}
 
-	expectedFields := []string{
-		"preset=",
-		"vocal_model=BS_Roformer_Viperx",
-		"stem_model=htdemucs_ft",
-		"shifts=2",
-		"jobs=4",
-		"segment=7",
-		"device=cuda",
-	}
 	if !containsLog("backend", "success", "Job queued: song") {
 		t.Error("expected backend success log for queued job")
 	}
-	for _, field := range expectedFields {
-		if !containsLog("backend", "success", field) {
-			t.Errorf("expected job config log to contain %q", field)
-		}
+	if !containsLog("backend", "success", "preset=(ninguno)") {
+		t.Error("expected queued log to mention preset")
+	}
+	if !containsLog("backend", "success", "modelos y flags se resuelven al arrancar cada paso") {
+		t.Error("expected queued log to clarify that models/flags are resolved per step")
 	}
 }
