@@ -387,6 +387,8 @@ export interface QueueJob {
   step_name?: string;
   eta?: string;
   device?: string;
+  current_model?: string;
+  current_flags?: string;
   error?: string;
   files?: { name: string; path: string }[];
 }

@@ -30,6 +30,8 @@
     pipelineSong = '',
     pipelineEta = '',
     inferenceDevice = '',
+    pipelineModel = '',
+    pipelineFlags = '',
     hidePresetSelector = false,
     onPresetChange = (name: string) => {},
     onError = (msg: string) => {},
@@ -380,6 +382,12 @@
               {#if inferenceDevice}
                 <span class="progress-device">{inferenceDevice === 'cuda' || inferenceDevice === 'gpu' ? 'GPU' : 'CPU'}</span>
               {/if}
+              {#if pipelineModel}
+                <span class="progress-model" title="Modelo en uso">model: {pipelineModel}</span>
+              {/if}
+              {#if pipelineFlags}
+                <span class="progress-flags" title={pipelineFlags}>flags: {pipelineFlags}</span>
+              {/if}
               {#if processStatus?.gpu}
                 <span class="progress-gpu" class:vram-low={processStatus.gpu.free_mb < 2000}>
                   GPU: {processStatus.gpu.free_mb}/{processStatus.gpu.total_mb} MB libres
@@ -406,6 +414,8 @@
         song={pipelineSong}
         eta={pipelineEta}
         device={inferenceDevice}
+        model={pipelineModel}
+        flags={pipelineFlags}
       />
     {/if}
   {/if}
@@ -699,6 +709,24 @@
     background: rgba(128,128,128,0.1);
     padding: 2px 8px;
     border-radius: 4px;
+  }
+  .progress-model {
+    color: var(--accent-light);
+    font-size: 11px;
+    background: rgba(128,128,128,0.1);
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .progress-flags {
+    color: var(--text-secondary);
+    font-size: 11px;
+    background: rgba(128,128,128,0.1);
+    padding: 2px 8px;
+    border-radius: 4px;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .btn-stop {

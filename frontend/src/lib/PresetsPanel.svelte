@@ -14,6 +14,8 @@
     song = '',
     eta = '',
     device = '',
+    model = '',
+    flags = '',
   } = $props();
 </script>
 
@@ -59,6 +61,12 @@
         {#if device}
           <span class="progress-device">{device === 'cuda' || device === 'gpu' ? 'Ejecutando en GPU' : 'Ejecutando en CPU'}</span>
         {/if}
+        {#if model}
+          <span class="progress-model" title="Modelo en uso">model: {model}</span>
+        {/if}
+        {#if flags}
+          <span class="progress-flags" title={flags}>flags: {flags}</span>
+        {/if}
       </div>
     </div>
   {/if}
@@ -88,4 +96,6 @@
   .progress-song { color: var(--text-secondary); }
   .progress-eta { color: #ff9800; }
   .progress-device { color: var(--text-secondary); font-size: 11px; background: rgba(128,128,128,0.1); padding: 2px 8px; border-radius: 4px; }
+  .progress-model { color: var(--accent-light); font-size: 11px; background: rgba(128,128,128,0.1); padding: 2px 8px; border-radius: 4px; }
+  .progress-flags { color: var(--text-secondary); font-size: 11px; background: rgba(128,128,128,0.1); padding: 2px 8px; border-radius: 4px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

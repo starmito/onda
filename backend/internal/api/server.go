@@ -1093,9 +1093,32 @@ func stepTypeForSinglePipeline(job JobRequest) string {
 // compactFlags returns a concise, single-space-separated representation of the
 // pipeline arguments, omitting the output directory, the input file and the
 // --no-clean flag so the result is suitable for logs and UI status.
+//
+// When a model flag (--vocal-model, --viperx-model, --stem-model or
+// --demucs-model) appears more than once, only one occurrence is kept and the
+// shortest value is preferred (typically the model name rather than its
+// resolved directory path).
 func compactFlags(args []string) string {
+	modelFlags := map[string]string{
+		"--vocal-model":  "",
+		"--viperx-model": "",
+		"--stem-model":   "",
+		"--demucs-model": "",
+	}
+
+	// First pass: for repeated model flags keep the shortest value (name over path).
+	for i, a := range args {
+		if _, ok := modelFlags[a]; ok && i+1 < len(args) {
+			val := args[i+1]
+			if existing := modelFlags[a]; existing == "" || len(val) < len(existing) {
+				modelFlags[a] = val
+			}
+		}
+	}
+
 	var parts []string
 	skip := false
+	seenModel := map[string]bool{}
 	for i, a := range args {
 		if skip {
 			skip = false
@@ -1110,6 +1133,21 @@ func compactFlags(args []string) string {
 		}
 		// The input file is the last positional argument; skip it.
 		if i == len(args)-1 && !strings.HasPrefix(a, "--") {
+			continue
+		}
+		if _, ok := modelFlags[a]; ok {
+			if seenModel[a] {
+				skip = true
+				continue
+			}
+			seenModel[a] = true
+			val := modelFlags[a]
+			if val == "" {
+				skip = true
+				continue
+			}
+			parts = append(parts, a, val)
+			skip = true
 			continue
 		}
 		parts = append(parts, a)

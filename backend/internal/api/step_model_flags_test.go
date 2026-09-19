@@ -196,3 +196,36 @@ func TestHandleProcessStatus_IncludesCurrentModelAndFlags(t *testing.T) {
 		t.Errorf("current_flags should contain --stem-model, got %q", j.CurrentFlags)
 	}
 }
+
+func TestCompactFlags_DeduplicatesModelFlags(t *testing.T) {
+	// ViperX: default model name followed by the resolved directory path.
+	viperxArgs := []string{
+		"--vocal-model", "BS_Roformer_Viperx",
+		"--vocal-model", "/data/models/BS_Roformer_Viperx",
+		"--device", "cuda",
+		"--output", "/data/output/song",
+		"/app/input/song.wav",
+	}
+	viperxFlags := compactFlags(viperxArgs)
+	t.Logf("viperx compacted flags: %s", viperxFlags)
+	want := "--vocal-model BS_Roformer_Viperx --device cuda"
+	if viperxFlags != want {
+		t.Errorf("viperx compactFlags = %q, want %q", viperxFlags, want)
+	}
+
+	// Demucs: single model flag plus other effective flags.
+	demucsArgs := []string{
+		"--stem-model", "htdemucs_ft",
+		"--shifts", "20",
+		"--demucs-segment", "7",
+		"--jobs", "8",
+		"--output", "/data/output/song",
+		"/app/input/song.wav",
+	}
+	demucsFlags := compactFlags(demucsArgs)
+	t.Logf("demucs compacted flags: %s", demucsFlags)
+	want = "--stem-model htdemucs_ft --shifts 20 --demucs-segment 7 --jobs 8"
+	if demucsFlags != want {
+		t.Errorf("demucs compactFlags = %q, want %q", demucsFlags, want)
+	}
+}
