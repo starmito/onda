@@ -1,5 +1,12 @@
 # Changelog
 
+## [v3.4.8] - 2026-09-19
+
+### Fixed
+- **Importar canciones ya subidas en el DAW**: se corrige el error 404 al pinchar un audio de la pestaña nueva; los ficheros de `daw-data/` se envían ahora con su origen real en lugar de forzarlos como `source: input`.
+- **Lista limpia de canciones ya subidas**: los originales (`input/`, `upload_*` e `import_*`) aparecen primero, mientras que los derivados de la cadena de efectos (renders) quedan en un apartado secundario, ordenados por fecha descendente y con texto que indica su procedencia.
+- **Aviso de bloqueo por VRAM**: ya no muestra `model "unknown"`; indica el modelo o preset real que se iba a utilizar.
+
 ## [v3.4.7] - 2026-09-18
 
 ### Fixed
