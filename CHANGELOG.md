@@ -1,5 +1,14 @@
 # Changelog
 
+## [v3.4.12] - 2026-09-19
+
+### Fixed
+- **Modelo real al lanzar por preset**: `current_model` y el log de arranque del paso muestran el **modelo real** (resuelto con `stepModelName()`), no el nombre del preset.
+- **«Ejecutar» sin preset**: el botón ya no queda silencioso; la UI muestra un aviso claro cuando no hay preset seleccionado.
+
+### Test
+- **Validación de ejecución**: tests con vitest para `executeValidation.ts`.
+
 ## [v3.4.11] - 2026-09-19
 
 ### Fixed
