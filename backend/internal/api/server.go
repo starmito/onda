@@ -1160,6 +1160,7 @@ func compactFlags(args []string) string {
 // runSinglePipeline executes a single pipeline.sh invocation.
 func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	// VRAM headroom check before launching.
+	stepType := stepTypeForSinglePipeline(job)
 	modelName := job.Config.VocalModel
 	if modelName == "" {
 		modelName = job.Config.ViperxModel
@@ -1170,6 +1171,11 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	if modelName == "" {
 		modelName = job.Config.DemucsModel
 	}
+	if modelName == "" && len(job.Steps) == 1 {
+		// When the job came from a single-step preset, the real model lives in
+		// the step definition (not in the request fields or the preset name).
+		modelName = stepModelName(job.Steps[0])
+	}
 	if modelName == "" && job.Config.Preset != "" {
 		// Fall back to the preset name so the user sees something useful
 		// (e.g. "insufficient VRAM: model \"fast\" needs ...") instead of
@@ -1179,7 +1185,6 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	if modelName == "" {
 		modelName = "unknown"
 	}
-	stepType := stepTypeForSinglePipeline(job)
 	vramCfg := vramConfigForModelAndRequest(modelName, stepType, job.Config)
 
 	stepName := "pipeline"

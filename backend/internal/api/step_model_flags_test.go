@@ -229,3 +229,48 @@ func TestCompactFlags_DeduplicatesModelFlags(t *testing.T) {
 		t.Errorf("demucs compactFlags = %q, want %q", demucsFlags, want)
 	}
 }
+
+func TestRunSinglePipeline_PresetResolvesRealModel(t *testing.T) {
+	root := setupQueueTestRoot(t)
+	clearLogBuffer(t)
+	mockResourceProviders(t)
+
+	fakePipeline := filepath.Join(root, "pipeline.sh")
+	script := fakePipelineScript("instrumental.wav")
+	if err := os.WriteFile(fakePipeline, []byte(script), 0o755); err != nil {
+		t.Fatalf("failed to write fake pipeline: %v", err)
+	}
+
+	req := SeparateRequest{
+		Preset: "Eliminador de Voz",
+		Input:  "/app/input/song.wav",
+		Device: "cpu",
+	}
+	song, args, steps, _ := buildPipelineArgs(&req)
+
+	state := &JobState{Song: song, Status: "waiting"}
+	s := &Server{jobs: map[string]*JobState{song: state}}
+
+	job := JobRequest{
+		Song:   song,
+		Args:   append([]string{fakePipeline}, args...),
+		Config: req,
+		Steps:  steps,
+	}
+
+	s.runSinglePipeline(job, state)
+
+	if state.Status != "done" {
+		t.Fatalf("expected done status, got %q", state.Status)
+	}
+	if state.CurrentModel != "" || state.CurrentFlags != "" {
+		t.Errorf("current_model/current_flags should be cleared after completion, got model=%q flags=%q", state.CurrentModel, state.CurrentFlags)
+	}
+
+	if !containsLog("pipeline", "info", "model=BS_Roformer_Viperx") {
+		t.Error("expected step start log to show the real model (BS_Roformer_Viperx)")
+	}
+	if containsLog("pipeline", "info", "model=Eliminador de Voz") {
+		t.Error("step start log should not show the preset name as the model")
+	}
+}
