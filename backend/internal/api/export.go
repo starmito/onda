@@ -21,6 +21,8 @@ type ExportRequest struct {
 type ExportResponse struct {
 	File   string `json:"file"`
 	Path   string `json:"path,omitempty"`
+	URL    string `json:"url,omitempty"`
+	Name   string `json:"name,omitempty"`
 	Format string `json:"format"`
 	Size   int64  `json:"size"`
 }
@@ -74,7 +76,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 	projectRoot := dataRoot()
 
 	// Resolve the source inside the daw-data tree first, then fall back to input/.
-	filePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
+	filePath, safeName, song, subdir, err := resolveDAWAudioSource(req.File)
 	if err != nil {
 		// Legacy flat fallback for input files.
 		safeName = filepath.Base(req.File)
@@ -82,6 +84,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		if info, statErr := os.Stat(candidate); statErr == nil && !info.IsDir() {
 			filePath = candidate
 			song = ""
+			subdir = ""
 		} else {
 			writeDAWFileNotFound(w, safeName)
 			return
@@ -97,10 +100,24 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if format == "wav" {
+		var relPath, name string
+		if song != "" {
+			if subdir == "" {
+				subdir = dawOriginalSubdir
+			}
+			relPath = filepath.Join(dawDataDirName, song, subdir, safeName)
+			name = song
+		} else {
+			relPath = filepath.Join("input", safeName)
+			name = strings.TrimSuffix(safeName, filepath.Ext(safeName))
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(ExportResponse{
 			File:   safeName,
+			Path:   relPath,
+			URL:    dawDataURL(relPath),
+			Name:   name,
 			Format: format,
 			Size:   info.Size(),
 		})
@@ -165,11 +182,14 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	relPath := filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(ExportResponse{
 		File:   outputName,
-		Path:   filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
+		Path:   relPath,
+		URL:    dawDataURL(relPath),
+		Name:   song,
 		Format: format,
 		Size:   outInfo.Size(),
 	})

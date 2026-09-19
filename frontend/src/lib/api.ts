@@ -778,6 +778,9 @@ export async function detectBpm(file: string): Promise<TempoResponse> {
 // ---- DAW audio operations ----
 export interface TrimResponse {
   file: string;
+  path: string;
+  url: string;
+  name: string;
 }
 
 export async function trimAudio(file: string, start: number, end: number): Promise<TrimResponse> {
@@ -790,6 +793,9 @@ export async function trimAudio(file: string, start: number, end: number): Promi
 
 export interface FadeResponse {
   file: string;
+  path: string;
+  url: string;
+  name: string;
 }
 
 export async function fadeAudio(
@@ -807,6 +813,9 @@ export async function fadeAudio(
 
 export interface ExportResponse {
   file: string;
+  path: string;
+  url: string;
+  name: string;
   format: string;
   size: number;
 }
@@ -906,6 +915,8 @@ export interface StemsResponse {
 export interface DAWImportResponse {
   file: string;
   path: string;
+  url: string;
+  name: string;
   size: number;
 }
 
@@ -1107,6 +1118,9 @@ export async function midiDevices(): Promise<MidiDevice[]> {
 // ---- DAW Effects ----
 export interface EffectResponse {
   file: string;
+  path: string;
+  url: string;
+  name: string;
   parameters?: Record<string, number>;
 }
 
@@ -1247,6 +1261,9 @@ export interface EqRequest {
 
 export interface EqResponse {
   file: string;
+  path: string;
+  url: string;
+  name: string;
   filters_applied: number;
 }
 

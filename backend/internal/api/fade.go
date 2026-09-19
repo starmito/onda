@@ -26,6 +26,8 @@ type FadeRequest struct {
 type FadeResponse struct {
 	File string `json:"file"`
 	Path string `json:"path,omitempty"`
+	URL  string `json:"url,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
 // handleFade applies a linear fade-in or fade-out envelope to a WAV file segment
@@ -214,11 +216,14 @@ func (s *Server) handleFade(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	relPath := filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(FadeResponse{
 		File: outputName,
-		Path: filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
+		Path: relPath,
+		URL:  dawDataURL(relPath),
+		Name: song,
 	})
 }
 

@@ -14,6 +14,8 @@ import (
 type EffectResponse struct {
 	File       string                 `json:"file"`
 	Path       string                 `json:"path,omitempty"`
+	URL        string                 `json:"url,omitempty"`
+	Name       string                 `json:"name,omitempty"`
 	Parameters map[string]interface{} `json:"parameters,omitempty"`
 }
 
@@ -214,11 +216,14 @@ func (s *Server) handleCompressor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	relPath := filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(EffectResponse{
 		File: outputName,
-		Path: filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
+		Path: relPath,
+		URL:  dawDataURL(relPath),
+		Name: song,
 		Parameters: map[string]interface{}{
 			"threshold": threshold,
 			"ratio":     ratio,
@@ -288,11 +293,14 @@ func (s *Server) handleReverb(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	relPath := filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(EffectResponse{
 		File: outputName,
-		Path: filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
+		Path: relPath,
+		URL:  dawDataURL(relPath),
+		Name: song,
 	})
 }
 
@@ -364,11 +372,14 @@ func (s *Server) handleDelay(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	relPath := filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(EffectResponse{
 		File: outputName,
-		Path: filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
+		Path: relPath,
+		URL:  dawDataURL(relPath),
+		Name: song,
 	})
 }
 
@@ -446,11 +457,14 @@ func (s *Server) handleChorus(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	relPath := filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(EffectResponse{
 		File: outputName,
-		Path: filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
+		Path: relPath,
+		URL:  dawDataURL(relPath),
+		Name: song,
 	})
 }
 
@@ -520,11 +534,14 @@ func (s *Server) handleFlanger(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	relPath := filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(EffectResponse{
 		File: outputName,
-		Path: filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
+		Path: relPath,
+		URL:  dawDataURL(relPath),
+		Name: song,
 	})
 }
 
@@ -602,11 +619,14 @@ func (s *Server) handlePhaser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	relPath := filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(EffectResponse{
 		File: outputName,
-		Path: filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
+		Path: relPath,
+		URL:  dawDataURL(relPath),
+		Name: song,
 	})
 }
 
@@ -665,11 +685,14 @@ func (s *Server) handleTremolo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	relPath := filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(EffectResponse{
 		File: outputName,
-		Path: filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
+		Path: relPath,
+		URL:  dawDataURL(relPath),
+		Name: song,
 	})
 }
 
@@ -738,10 +761,13 @@ func (s *Server) handleNoiseGate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	relPath := filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(EffectResponse{
 		File: outputName,
-		Path: filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
+		Path: relPath,
+		URL:  dawDataURL(relPath),
+		Name: song,
 	})
 }

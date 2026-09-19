@@ -20,13 +20,10 @@ import (
 //
 // Scope (production only, excludes *_test.go, node_modules, .git, dist):
 //   - backend/**/*.go
+//   - frontend/src/**/*.{ts,svelte,js}
 //   - pipeline.sh, entrypoint.sh, deploy.sh
 //   - docker-compose*.yml
 //   - onda/*.py and the inference_*.py, separate.py, UVR.py files at repo root
-//
-// TODO: extend the scan to frontend sources once the DAW hardcoded-path
-// cleanup (tarea separada) is complete. Add frontend/** here and remove this
-// comment.
 func TestNoHardcodedDataPaths(t *testing.T) {
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -52,6 +49,22 @@ func TestNoHardcodedDataPaths(t *testing.T) {
 		return nil
 	}); err != nil {
 		t.Fatalf("walk backend go files: %v", err)
+	}
+
+	// Frontend sources.
+	frontendSrcDir := filepath.Join(repoRoot, "frontend", "src")
+	if err := filepath.Walk(frontendSrcDir, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return err
+		}
+		ext := strings.ToLower(filepath.Ext(p))
+		if ext != ".ts" && ext != ".js" && ext != ".svelte" {
+			return nil
+		}
+		checkFrontendFile(repoRoot, p, &violations)
+		return nil
+	}); err != nil {
+		t.Fatalf("walk frontend source files: %v", err)
 	}
 
 	// Shell scripts.
@@ -236,6 +249,22 @@ func intSliceContains(haystack []int, needle int) bool {
 		}
 	}
 	return false
+}
+
+func checkFrontendFile(repoRoot, path string, violations *[]string) {
+	rel, _ := filepath.Rel(repoRoot, path)
+	content, err := os.ReadFile(path)
+	if err != nil {
+		*violations = append(*violations, fmt.Sprintf("%s:0: cannot read: %v", rel, err))
+		return
+	}
+	lines := strings.Split(string(content), "\n")
+	for i, line := range lines {
+		clean := stripInlineComment(line, "//")
+		if reason := checkStringForDataPath(clean, false); reason != "" {
+			*violations = append(*violations, fmt.Sprintf("%s:%d: %s", rel, i+1, strings.TrimSpace(line)))
+		}
+	}
 }
 
 // shell / python / compose checkers.

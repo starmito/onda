@@ -27,9 +27,9 @@
 
   type Track = {
     id: string;
-    fileName: string;
-    name: string;
-    source: string;
+    fileName: string; // API path (daw-data/...)
+    name: string;     // human-readable song name
+    source: string;   // browser-servable URL
     size: number;
     ws: WaveSurfer | null;
     regionsPlugin: ReturnType<typeof RegionsPlugin.create> | null;
@@ -318,12 +318,12 @@
     status = `${active.name} listo · ${formatTime(duration)} · ${tracks.length} pista${tracks.length === 1 ? '' : 's'}`;
   }
 
-  function addTrack(fileName: string, source: string, size: number): Track {
+  function addTrack(name: string, path: string, source: string, size: number): Track {
     const id = generateId();
     const track: Track = {
       id,
-      fileName,
-      name: fileName,
+      fileName: path,
+      name,
       source,
       size,
       ws: null,
@@ -347,7 +347,8 @@
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
     if (file) {
-      addTrack(file.name, URL.createObjectURL(file), file.size);
+      const source = URL.createObjectURL(file);
+      addTrack(file.name, file.name, source, file.size);
     }
     input.value = '';
   }
@@ -386,10 +387,10 @@
     });
   }
 
-  function loadSource(track: Track, fileName: string, source: string, addRegionFlag: boolean) {
+  function loadSource(track: Track, fileName: string, source: string, name: string, addRegionFlag: boolean) {
     if (!track.ws) return;
     track.fileName = fileName;
-    track.name = fileName;
+    track.name = name;
     track.source = source;
     track.isReady = false;
     status = 'Generando waveform...';
@@ -405,18 +406,17 @@
     }
   }
 
-  export function setTrackFile(trackId: string, fileName: string) {
+  export function setTrackFile(trackId: string, result: { path: string; url: string; name: string }) {
     const track = tracks.find((t) => t.id === trackId);
     if (!track || !track.ws) return;
-    const source = `/daw-data/${fileName}`;
-    loadSource(track, fileName, source, false);
-    pushHistory(fileName, source, getTrackRegions(track));
+    loadSource(track, result.path, result.url, result.name, false);
+    pushHistory(result.path, result.url, getTrackRegions(track));
   }
 
-  export function setActiveTrackFile(fileName: string) {
+  export function setActiveTrackFile(result: { path: string; url: string; name: string }) {
     const track = getActiveTrack();
     if (!track) return;
-    setTrackFile(track.id, fileName);
+    setTrackFile(track.id, result);
   }
 
   function pushHistory(fileName: string, source: string, regions: RegionLike[]) {
@@ -432,7 +432,7 @@
     const track = getActiveTrack();
     if (!state || !track || !track.ws) return;
     historyIndex = index;
-    loadSource(track, state.fileName, state.source, false);
+    loadSource(track, state.fileName, state.source, track.name, false);
     const once = () => {
       setTrackRegions(track, state.regions);
       track.ws?.zoom(zoom);
@@ -579,10 +579,9 @@
     status = 'Recortando...';
     try {
       const resp = await trimAudio(track.fileName, region.start, region.end);
-      const source = `/daw-data/${resp.file}`;
       const newRegions: RegionLike[] = [{ start: 0, end: region.end - region.start }];
-      pushHistory(resp.file, source, newRegions);
-      loadSource(track, resp.file, source, false);
+      pushHistory(resp.path, resp.url, newRegions);
+      loadSource(track, resp.path, resp.url, resp.name, false);
       setTimeout(() => setTrackRegions(track, newRegions), 0);
       status = `Recortado: ${resp.file}`;
     } catch (err) {
@@ -605,10 +604,9 @@
     try {
       const duration = region.end - region.start;
       const resp = await fadeAudio(track.fileName, type, region.start, duration);
-      const source = `/daw-data/${resp.file}`;
       const newRegions: RegionLike[] = [{ start: region.start, end: region.end }];
-      pushHistory(resp.file, source, newRegions);
-      loadSource(track, resp.file, source, false);
+      pushHistory(resp.path, resp.url, newRegions);
+      loadSource(track, resp.path, resp.url, resp.name, false);
       setTimeout(() => setTrackRegions(track, newRegions), 0);
       status = `Fade ${type}: ${resp.file}`;
     } catch (err) {
@@ -683,7 +681,7 @@
     try {
       const resp = await uploadAudioDAW(file);
       uploadResult = { file: resp.file, size: resp.size };
-      addTrack(resp.file, `/daw-data/${resp.file}`, resp.size);
+      addTrack(resp.name, resp.path, resp.url, resp.size);
       status = `Subido: ${resp.file}`;
       await loadUploadedInputs();
     } catch (err) {
@@ -700,7 +698,7 @@
     try {
       const source = entry.source || 'input';
       const resp = await importStem(source, undefined, undefined, undefined, entry.name);
-      addTrack(resp.file, `/daw-data/${resp.file}`, resp.size);
+      addTrack(resp.name, resp.path, resp.url, resp.size);
       status = `Importado: ${resp.file}`;
       await loadUploadedInputs();
     } catch (err) {
@@ -782,7 +780,7 @@
     status = 'Importando...';
     try {
       const resp = await importStem('output', song, stem);
-      addTrack(resp.file, `/daw-data/${resp.file}`, resp.size);
+      addTrack(resp.name, resp.path, resp.url, resp.size);
       status = `Importado: ${resp.file}`;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
@@ -802,7 +800,7 @@
     status = 'Importando pitch...';
     try {
       const resp = await importStem('pitch', entry.song, entry.stem, entry.pitch);
-      addTrack(resp.file, `/daw-data/${resp.file}`, resp.size);
+      addTrack(resp.name, resp.path, resp.url, resp.size);
       status = `Importado: ${resp.file}`;
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

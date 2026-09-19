@@ -25,6 +25,8 @@ var allowedUploadExts = map[string]bool{
 type UploadResponse struct {
 	File string `json:"file"`
 	Path string `json:"path"`
+	URL  string `json:"url"`
+	Name string `json:"name"`
 	Size int64  `json:"size"`
 }
 
@@ -105,11 +107,14 @@ func (s *Server) handleUploadAudio(w http.ResponseWriter, r *http.Request) {
 
 	Log("backend", "success", "DAW upload: "+song+"/"+destFile)
 
+	relPath := filepath.Join(dawDataDirName, song, destFile)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(UploadResponse{
 		File: destFile,
-		Path: filepath.Join(dawDataDirName, song, destFile),
+		Path: relPath,
+		URL:  dawDataURL(relPath),
+		Name: song,
 		Size: written,
 	})
 }

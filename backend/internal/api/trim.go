@@ -19,6 +19,8 @@ type TrimRequest struct {
 type TrimResponse struct {
 	File string `json:"file"`
 	Path string `json:"path,omitempty"`
+	URL  string `json:"url,omitempty"`
+	Name string `json:"name,omitempty"`
 }
 
 // handleTrim extracts a segment from a WAV file and writes it to
@@ -112,10 +114,13 @@ func (s *Server) handleTrim(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	relPath := filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(TrimResponse{
 		File: outputName,
-		Path: filepath.Join(dawDataDirName, song, dawEditsSubdir, outputName),
+		Path: relPath,
+		URL:  dawDataURL(relPath),
+		Name: song,
 	})
 }
