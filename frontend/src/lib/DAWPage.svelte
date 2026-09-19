@@ -9,12 +9,13 @@
     trimAudio,
     importStem,
     uploadAudio,
+    listStems,
     getTempoGrid,
     getInputs,
     deleteDawSong,
     DAWAudioNotFoundError,
   } from './api';
-  import type { TempoGridResponse, InputEntry, DAWSongDeleteResult } from './api';
+  import type { TempoGridResponse, PitchStemEntry, InputEntry, DAWSongDeleteResult } from './api';
   import { IconSkipBack, IconSkipForward } from './icons';
 
   type RegionLike = { start: number; end: number };
@@ -61,6 +62,11 @@
   let uploadedInputs = $state<InputEntry[]>([]);
   let uploadedLoading = $state(false);
   let showProcessedInputs = $state(false);
+  let stemsData = $state<{ output: Record<string, string[]>; pitch: PitchStemEntry[] }>({
+    output: {},
+    pitch: [],
+  });
+  let stemsLoading = $state(false);
   let originalInputs = $derived(uploadedInputs.filter(isOriginalInput));
   let processedInputs = $derived(uploadedInputs.filter((e) => !isOriginalInput(e)));
   let dawOriginalInputs = $derived(originalInputs.filter((e) => e.source === 'daw-data'));
@@ -69,9 +75,10 @@
   let expandedSongs = $state<Record<string, boolean>>({});
 
   $effect(() => {
-    // Refresh the Subidas list whenever the import panel opens.
+    // Refresh the Subidas list and available stems whenever the import panel opens.
     if (!importOpen) return;
     loadUploadedInputs();
+    loadStems();
   });
 
   let zoom = $state(100);
@@ -629,6 +636,17 @@
     }
   }
 
+  async function loadStems() {
+    stemsLoading = true;
+    try {
+      stemsData = await listStems();
+    } catch (err) {
+      status = `Error al cargar stems: ${err instanceof Error ? err.message : String(err)}`;
+    } finally {
+      stemsLoading = false;
+    }
+  }
+
   async function handleSubidasUpload(e: Event) {
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
@@ -726,6 +744,46 @@
         status = `No se encontró la canción: ${msg}`;
       } else {
         status = `Error al borrar ${song}: ${msg}`;
+      }
+    } finally {
+      isProcessing = false;
+    }
+  }
+
+  async function handleImportOutput(song: string, stem: string) {
+    isProcessing = true;
+    status = 'Importando...';
+    try {
+      const resp = await importStem('output', song, stem);
+      addTrack(resp.name, resp.path, resp.url, resp.size);
+      status = `Importado: ${resp.file}`;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof DAWAudioNotFoundError) {
+        onError?.(msg);
+        status = `Archivo no encontrado: ${msg}`;
+      } else {
+        status = `Error al importar: ${msg}`;
+      }
+    } finally {
+      isProcessing = false;
+    }
+  }
+
+  async function handleImportPitch(entry: PitchStemEntry) {
+    isProcessing = true;
+    status = 'Importando pitch...';
+    try {
+      const resp = await importStem('pitch', entry.song, entry.stem, entry.pitch);
+      addTrack(resp.name, resp.path, resp.url, resp.size);
+      status = `Importado: ${resp.file}`;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof DAWAudioNotFoundError) {
+        onError?.(msg);
+        status = `Archivo no encontrado: ${msg}`;
+      } else {
+        status = `Error al importar: ${msg}`;
       }
     } finally {
       isProcessing = false;
@@ -1032,6 +1090,72 @@
                 {/if}
               </div>
             {/if}
+          {/if}
+        </div>
+
+        <div class="import-section">
+          <div class="subidas-header">
+            <h4>Resultados</h4>
+          </div>
+          {#if stemsLoading}
+            <div class="loading">Cargando stems...</div>
+          {:else if Object.keys(stemsData.output).length === 0}
+            <div class="empty">No hay stems disponibles en output.</div>
+          {:else}
+            {#each Object.entries(stemsData.output) as [song, stems]}
+              <div class="song-item">
+                <button
+                  class="song-toggle"
+                  onclick={() => toggleExpandedSong(song)}
+                >
+                  <span class="toggle-icon">{expandedSongs[song] ? '▼' : '▶'}</span>
+                  <span class="song-name">{song}</span>
+                </button>
+                {#if expandedSongs[song]}
+                  <div class="stem-list">
+                    {#each stems as stem}
+                      <div class="stem-item">
+                        <span class="stem-name">{stem}</span>
+                        <button
+                          class="btn-small"
+                          onclick={() => handleImportOutput(song, stem)}
+                          disabled={isProcessing}
+                        >
+                          Importar
+                        </button>
+                      </div>
+                    {/each}
+                  </div>
+                {/if}
+              </div>
+            {/each}
+          {/if}
+        </div>
+
+        <div class="import-section">
+          <div class="subidas-header">
+            <h4>Cambio de tono</h4>
+          </div>
+          {#if stemsLoading}
+            <div class="loading">Cargando stems...</div>
+          {:else if stemsData.pitch.length === 0}
+            <div class="empty">No hay archivos de cambio de tono disponibles.</div>
+          {:else}
+            {#each stemsData.pitch as entry}
+              <div class="stem-item">
+                <div class="stem-info">
+                  <span class="stem-name">{entry.stem}</span>
+                  <span class="stem-meta">{entry.song} · {entry.pitch}</span>
+                </div>
+                <button
+                  class="btn-small"
+                  onclick={() => handleImportPitch(entry)}
+                  disabled={isProcessing}
+                >
+                  Importar
+                </button>
+              </div>
+            {/each}
           {/if}
         </div>
       </div>
