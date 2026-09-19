@@ -4,115 +4,36 @@
   import type { ResultStem } from './types';
   import { detectStemType, stemEmoji } from './types';
   import { IconUpload, IconSkipBack, IconSkipForward } from './icons';
+  import {
+    playerState,
+    stemStateKey,
+    getStemState,
+    subgroupStemKey,
+    getSubgroupStemState,
+    type UploadPlayer,
+    type GroupPlayer,
+    type Subgroup,
+    type SubgroupPlayer,
+    type SubgroupStem,
+  } from './playerStore.svelte';
 
-  // ── Each uploaded file player (standalone, simple) ──
-  interface UploadPlayer {
-    id: string;
-    name: string;
-    status: 'uploading' | 'ready' | 'error';
-    errorMsg?: string;
-    audioCtx: AudioContext | null;
-    playing: boolean;
-    paused: boolean;
-    currentTime: number;
-    duration: number;
-    seekValue: number;
-    sourceNode: AudioBufferSourceNode | null;
-    gainNode: GainNode | null;
-    buffer: AudioBuffer | null;
-    startTime: number;
-    pauseOffset: number;
-    animFrame: number | null;
-    loaded: boolean;
-    volume: number;
-  }
-
-  // ── Per-group combined player (like ResultsPanel) ──
-  interface GroupPlayer {
-    audioCtx: AudioContext | null;
-    playing: boolean;
-    paused: boolean;
-    currentTime: number;
-    duration: number;
-    seekValue: number;
-    sourceNodes: Map<string, AudioBufferSourceNode>;
-    gainNodes: Map<string, GainNode>;
-    buffers: Map<string, AudioBuffer>;
-    analysers: Map<string, AnalyserNode[]>;
-    startTime: number;
-    pauseOffset: number;
-    animFrame: number | null;
-    loaded: boolean;
-  }
-
-  // ── Pitch subgroup ──
-  interface SubgroupStem {
-    name: string;
-    path: string;
-    stemType: string;
-  }
-  interface Subgroup {
-    pitch: number;
-    stems: SubgroupStem[];
-  }
-  interface SubgroupPlayer {
-    audioCtx: AudioContext | null;
-    playing: boolean;
-    paused: boolean;
-    currentTime: number;
-    duration: number;
-    seekValue: number;
-    sourceNodes: Map<string, AudioBufferSourceNode>;
-    gainNodes: Map<string, GainNode>;
-    analysers: Map<string, AnalyserNode[]>;
-    buffers: Map<string, AudioBuffer>;
-    startTime: number;
-    pauseOffset: number;
-    animFrame: number | null;
-    loaded: boolean;
-  }
-
-  // ── State ──
-
-  let uploadPlayers = $state<UploadPlayer[]>([]);
+  // ── Local transient UI state ──
   let dragCounter = $state(0);
   let toast = $state<{ message: string; type: 'success' | 'error' } | null>(null);
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
-
-  // Per-stem mute/solo/volume (shared between groups and subgroups)
-  let stemStates = $state<Record<string, { muted: boolean; solo: boolean; volume: number }>>({});
-
-  // Per-song group combined players
-  let groupPlayers = $state<Record<string, GroupPlayer>>({});
-
-  // Pitch subgroups
-  let pitchSubgroups = $state<Record<string, Subgroup[]>>({});
-  let subgroupPlayers = $state<Record<string, SubgroupPlayer>>({});
-  let loadingSubgroups = $state<Record<string, boolean>>({});
   let abortController = new AbortController();
 
+  // Canvas refs are local DOM nodes and are recreated on mount.
   let waveformCanvases = $state<Record<string, HTMLCanvasElement>>({});
-  let wavePeaksCache = $state<Record<string, number[]>>({});
-  const WAVEFORM_H = 80;
+  let subgroupWaveformCanvases = $state<Record<string, HTMLCanvasElement>>({});
 
-  // Drag state for waveform seek
+  // Drag state for waveform seek (local interaction state)
   let dragging = $state<Record<string, boolean>>({});
   let dragPreview = $state<Record<string, number>>({}); // 0-1 fraction during drag
-
-  // Per-stem real-time peak levels (for peak meters)
-  let stemLevels = $state<Record<string, { l: number; r: number }>>({});
-  // Per-stem peak hold (highest value reached during playback)
-  let stemPeaks = $state<Record<string, { l: number; r: number }>>({});
-
-  // Subgroup peak levels and peaks
-  let subgroupLevels = $state<Record<string, { l: number; r: number }>>({});
-  let subgroupPeaks = $state<Record<string, { l: number; r: number }>>({});
-
-  // Subgroup waveform state
-  let subgroupWaveformCanvases = $state<Record<string, HTMLCanvasElement>>({});
-  let subgroupWavePeaksCache = $state<Record<string, number[]>>({});
   let subgroupDragging = $state<Record<string, boolean>>({});
   let subgroupDragPreview = $state<Record<string, number>>({});
+
+  const WAVEFORM_H = 80;
 
   function rmsToDb(rms: number): number {
     if (rms < 0.001) return -60;
@@ -139,16 +60,9 @@
     return results.filter(r => r.song === song);
   }
 
-  function stemStateKey(song: string, name: string): string {
-    return `${song}/${name}`;
-  }
-  function getStemState(song: string, name: string) {
-    const key = stemStateKey(song, name);
-    return stemStates[key] || { muted: false, solo: false, volume: 100 };
-  }
   function anySolo(song: string): boolean {
     const stems = stemsForSong(song);
-    return stems.some(s => stemStates[stemStateKey(song, s.name)]?.solo);
+    return stems.some(s => playerState.stemStates[stemStateKey(song, s.name)]?.solo);
   }
   function effectiveGain(song: string, name: string): number {
     const state = getStemState(song, name);
@@ -159,17 +73,17 @@
 
   function toggleMute(song: string, name: string) {
     const key = stemStateKey(song, name);
-    stemStates[key] = { ...getStemState(song, name), muted: !(stemStates[key]?.muted ?? false) };
+    playerState.stemStates[key] = { ...getStemState(song, name), muted: !(playerState.stemStates[key]?.muted ?? false) };
     syncGains(song);
   }
   function toggleSolo(song: string, name: string) {
     const key = stemStateKey(song, name);
-    stemStates[key] = { ...getStemState(song, name), solo: !(stemStates[key]?.solo ?? false) };
+    playerState.stemStates[key] = { ...getStemState(song, name), solo: !(playerState.stemStates[key]?.solo ?? false) };
     syncGains(song);
   }
   function setVolume(song: string, name: string, vol: number) {
     const key = stemStateKey(song, name);
-    stemStates[key] = { ...getStemState(song, name), volume: vol };
+    playerState.stemStates[key] = { ...getStemState(song, name), volume: vol };
     syncGains(song);
   }
   function handleVolumeChange(e: Event, song: string, name: string) {
@@ -177,7 +91,7 @@
   }
 
   function syncGains(song: string) {
-    const p = groupPlayers[song];
+    const p = playerState.groupPlayers[song];
     if (!p || !p.playing) return;
     const stems = stemsForSong(song);
     for (const stem of stems) {
@@ -188,17 +102,10 @@
   }
 
   // ── Subgroup stem state (same pattern, different key) ──
-  function subgroupStemKey(song: string, pitchIdx: number, name: string): string {
-    return `subgroup:${song}:${pitchIdx}:${name}`;
-  }
-  function getSubgroupStemState(song: string, pitchIdx: number, name: string) {
-    const key = subgroupStemKey(song, pitchIdx, name);
-    return stemStates[key] || { muted: false, solo: false, volume: 100 };
-  }
   function anySubgroupSolo(song: string, pitchIdx: number): boolean {
-    const subs = pitchSubgroups[song];
+    const subs = playerState.pitchSubgroups[song];
     if (!subs || !subs[pitchIdx]) return false;
-    return subs[pitchIdx].stems.some(s => stemStates[subgroupStemKey(song, pitchIdx, s.name)]?.solo);
+    return subs[pitchIdx].stems.some(s => playerState.stemStates[subgroupStemKey(song, pitchIdx, s.name)]?.solo);
   }
   function effectiveSubgroupGain(song: string, pitchIdx: number, name: string): number {
     const state = getSubgroupStemState(song, pitchIdx, name);
@@ -208,17 +115,17 @@
   }
   function toggleSubgroupMute(song: string, pitchIdx: number, name: string) {
     const key = subgroupStemKey(song, pitchIdx, name);
-    stemStates[key] = { ...getSubgroupStemState(song, pitchIdx, name), muted: !(stemStates[key]?.muted ?? false) };
+    playerState.stemStates[key] = { ...getSubgroupStemState(song, pitchIdx, name), muted: !(playerState.stemStates[key]?.muted ?? false) };
     syncSubgroupGains(song, pitchIdx);
   }
   function toggleSubgroupSolo(song: string, pitchIdx: number, name: string) {
     const key = subgroupStemKey(song, pitchIdx, name);
-    stemStates[key] = { ...getSubgroupStemState(song, pitchIdx, name), solo: !(stemStates[key]?.solo ?? false) };
+    playerState.stemStates[key] = { ...getSubgroupStemState(song, pitchIdx, name), solo: !(playerState.stemStates[key]?.solo ?? false) };
     syncSubgroupGains(song, pitchIdx);
   }
   function setSubgroupVolume(song: string, pitchIdx: number, name: string, vol: number) {
     const key = subgroupStemKey(song, pitchIdx, name);
-    stemStates[key] = { ...getSubgroupStemState(song, pitchIdx, name), volume: vol };
+    playerState.stemStates[key] = { ...getSubgroupStemState(song, pitchIdx, name), volume: vol };
     syncSubgroupGains(song, pitchIdx);
   }
   function handleSubgroupVolumeChange(e: Event, song: string, pitchIdx: number, name: string) {
@@ -226,12 +133,11 @@
   }
   function syncSubgroupGains(song: string, pitchIdx: number) {
     const key = getSubgroupKey(song, pitchIdx);
-    const p = subgroupPlayers[key];
+    const p = playerState.subgroupPlayers[key];
     if (!p || !p.playing) return;
-    const subs = pitchSubgroups[song];
+    const subs = playerState.pitchSubgroups[song];
     if (!subs || !subs[pitchIdx]) return;
     for (const stem of subs[pitchIdx].stems) {
-      const gKey = subgroupStemKey(song, pitchIdx, stem.name);
       const gain = p.gainNodes.get(stem.name);
       if (gain) gain.gain.value = effectiveSubgroupGain(song, pitchIdx, stem.name);
     }
@@ -240,15 +146,15 @@
   // ── Group player functions ──
 
   function getPlayer(song: string): GroupPlayer {
-    if (!groupPlayers[song]) {
-      groupPlayers[song] = {
+    if (!playerState.groupPlayers[song]) {
+      playerState.groupPlayers[song] = {
         audioCtx: null, playing: false, paused: false,
         currentTime: 0, duration: 0, seekValue: 0,
         sourceNodes: new Map(), gainNodes: new Map(), buffers: new Map(), analysers: new Map(),
         startTime: 0, pauseOffset: 0, animFrame: null, loaded: false,
       };
     }
-    return groupPlayers[song];
+    return playerState.groupPlayers[song];
   }
 
   function getCtx(song: string): AudioContext {
@@ -277,7 +183,7 @@
   }
 
   function stopAllSources(song: string) {
-    const p = groupPlayers[song];
+    const p = playerState.groupPlayers[song];
     if (!p) return;
     p.sourceNodes.forEach(src => { try { src.stop(); } catch {} });
     p.sourceNodes.clear();
@@ -329,7 +235,7 @@
     p.playing = true;
     p.paused = false;
     function tick() {
-      const pl = groupPlayers[song];
+      const pl = playerState.groupPlayers[song];
       if (!pl || !pl.playing || pl.paused) return;
       const elapsed = ctx.currentTime - pl.startTime;
       pl.currentTime = elapsed;
@@ -351,15 +257,15 @@
             sumL += normL * normL;
             sumR += normR * normR;
           }
-          stemLevels = { ...stemLevels, [key]: {
+          playerState.stemLevels = { ...playerState.stemLevels, [key]: {
             l: Math.sqrt(sumL / dataL.length),
             r: Math.sqrt(sumR / dataR.length),
           }};
           // Accumulate peak hold
           const curRmsL = Math.sqrt(sumL / dataL.length);
           const curRmsR = Math.sqrt(sumR / dataR.length);
-          const prevPeak = stemPeaks[key] || { l: 0, r: 0 };
-          stemPeaks = { ...stemPeaks, [key]: {
+          const prevPeak = playerState.stemPeaks[key] || { l: 0, r: 0 };
+          playerState.stemPeaks = { ...playerState.stemPeaks, [key]: {
             l: Math.max(prevPeak.l, curRmsL),
             r: Math.max(prevPeak.r, curRmsR),
           }};
@@ -375,19 +281,19 @@
   }
 
   function skipBack(song: string) {
-    const p = groupPlayers[song];
+    const p = playerState.groupPlayers[song];
     if (!p || !p.loaded || p.duration <= 0) return;
     seekGroup(song, Math.max(0, p.currentTime - 10));
   }
 
   function skipForward(song: string) {
-    const p = groupPlayers[song];
+    const p = playerState.groupPlayers[song];
     if (!p || !p.loaded || p.duration <= 0) return;
     seekGroup(song, Math.min(p.duration, p.currentTime + 10));
   }
 
   function pauseGroup(song: string) {
-    const p = groupPlayers[song];
+    const p = playerState.groupPlayers[song];
     if (!p || !p.playing || p.paused) return;
     if (!p.audioCtx) return;
     p.pauseOffset = p.audioCtx.currentTime - p.startTime;
@@ -396,7 +302,7 @@
   }
 
   function stopGroup(song: string) {
-    const p = groupPlayers[song];
+    const p = playerState.groupPlayers[song];
     if (!p) return;
     stopAllSources(song);
     p.audioCtx?.suspend();
@@ -406,8 +312,8 @@
     const stems = stemsForSong(song);
     for (const stem of stems) {
       const key = stemStateKey(song, stem.name);
-      stemLevels = { ...stemLevels, [key]: { l: 0, r: 0 } };
-      stemPeaks = { ...stemPeaks, [key]: { l: 0, r: 0 } };
+      playerState.stemLevels = { ...playerState.stemLevels, [key]: { l: 0, r: 0 } };
+      playerState.stemPeaks = { ...playerState.stemPeaks, [key]: { l: 0, r: 0 } };
     }
   }
 
@@ -451,7 +357,7 @@
     p.duration = maxDur;
     p.playing = true; p.paused = false;
     function tick() {
-      const pl = groupPlayers[song];
+      const pl = playerState.groupPlayers[song];
       if (!pl || !pl.playing || pl.paused) return;
       const elapsed = ctx.currentTime - pl.startTime;
       pl.currentTime = elapsed; pl.seekValue = elapsed;
@@ -469,12 +375,12 @@
             sL += ((dL[j] - 128) / 128) ** 2;
             sR += ((dR[j] - 128) / 128) ** 2;
           }
-          stemLevels = { ...stemLevels, [key]: { l: Math.sqrt(sL / dL.length), r: Math.sqrt(sR / dR.length) }};
+          playerState.stemLevels = { ...playerState.stemLevels, [key]: { l: Math.sqrt(sL / dL.length), r: Math.sqrt(sR / dR.length) }};
           // Accumulate peak hold
           const curRmsL = Math.sqrt(sL / dL.length);
           const curRmsR = Math.sqrt(sR / dR.length);
-          const prevPeak = stemPeaks[key] || { l: 0, r: 0 };
-          stemPeaks = { ...stemPeaks, [key]: {
+          const prevPeak = playerState.stemPeaks[key] || { l: 0, r: 0 };
+          playerState.stemPeaks = { ...playerState.stemPeaks, [key]: {
             l: Math.max(prevPeak.l, curRmsL),
             r: Math.max(prevPeak.r, curRmsR),
           }};
@@ -490,30 +396,23 @@
 
   function handleSeekInput(e: Event, song: string) {
     const time = parseFloat((e.target as HTMLInputElement).value);
-    const p = groupPlayers[song];
+    const p = playerState.groupPlayers[song];
     if (p) { p.seekValue = time; p.currentTime = time; p.pauseOffset = time; }
   }
   function handleSeekChange(e: Event, song: string) {
     seekGroup(song, parseFloat((e.target as HTMLInputElement).value));
   }
 
-  // ── Pitch shift ──
-  let pitchValues = $state<Record<string, number>>({});
-  let pitchProcessing = $state<Record<string, boolean>>({});
-
-  // ── Pitch shift for uploaded files ──
-  let uploadPitchValues = $state<Record<string, number>>({});
-  let uploadPitchProcessing = $state<Record<string, boolean>>({});
-  let uploadSubgroups = $state<Record<string, Subgroup[]>>({});
+  // ── Pitch shift state lives in playerStore.svelte.ts ──
 
   function getPitchValue(song: string): number {
-    return pitchValues[song] ?? 0;
+    return playerState.pitchValues[song] ?? 0;
   }
 
   async function handlePitch(song: string) {
     const pitch = getPitchValue(song);
     if (pitch === 0) return;
-    pitchProcessing = { ...pitchProcessing, [song]: true };
+    playerState.pitchProcessing = { ...playerState.pitchProcessing, [song]: true };
     try {
       await pitchStems(song, pitch);
       await onResultsChange();
@@ -523,12 +422,12 @@
     } catch (err: any) {
       showToast(`Error: ${err.message || 'unknown'}`, 'error');
     } finally {
-      pitchProcessing = { ...pitchProcessing, [song]: false };
+      playerState.pitchProcessing = { ...playerState.pitchProcessing, [song]: false };
     }
   }
 
   function getUploadPitchValue(name: string): number {
-    return uploadPitchValues[name] ?? 0;
+    return playerState.uploadPitchValues[name] ?? 0;
   }
 
   async function handleUploadPitch(id: string) {
@@ -536,7 +435,7 @@
     if (!p) return;
     const pitch = getUploadPitchValue(p.name);
     if (pitch === 0) return;
-    uploadPitchProcessing = { ...uploadPitchProcessing, [p.name]: true };
+    playerState.uploadPitchProcessing = { ...playerState.uploadPitchProcessing, [p.name]: true };
     try {
       await pitchFile(p.name, pitch);
       showToast(`Tono cambiado: ${pitch > 0 ? '+' : ''}${pitch} semitonos`, 'success');
@@ -544,7 +443,7 @@
     } catch (err: any) {
       showToast(`Error: ${err.message || 'unknown'}`, 'error');
     } finally {
-      uploadPitchProcessing = { ...uploadPitchProcessing, [p.name]: false };
+      playerState.uploadPitchProcessing = { ...playerState.uploadPitchProcessing, [p.name]: false };
     }
   }
 
@@ -552,12 +451,12 @@
     try {
       const uploads = await getPitchUploads();
       for (const u of uploads) {
-        const existing = uploadPlayers.find(up => up.name === u.name);
+        const existing = playerState.uploadPlayers.find(up => up.name === u.name);
         if (!existing) {
           const id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}-${u.name}`;
           const p = newUploadPlayer(id, u.name);
           p.status = 'ready';
-          uploadPlayers = [...uploadPlayers, p];
+          playerState.uploadPlayers = [...playerState.uploadPlayers, p];
         }
         const mapped: Subgroup[] = (u.subgroups || []).map(s => ({
           pitch: s.pitch,
@@ -567,7 +466,7 @@
             stemType: detectStemType(f.name),
           })),
         }));
-        uploadSubgroups = { ...uploadSubgroups, [u.name]: mapped };
+        playerState.uploadSubgroups = { ...playerState.uploadSubgroups, [u.name]: mapped };
       }
     } catch (err) {
       console.error('Failed to load pitch uploads:', err);
@@ -576,7 +475,7 @@
 
   // ── Pitch subgroups ──
   async function loadPitchSubgroups(song: string) {
-    loadingSubgroups = { ...loadingSubgroups, [song]: true };
+    playerState.loadingSubgroups = { ...playerState.loadingSubgroups, [song]: true };
     try {
       const subs = await getPitchSubgroups(song, abortController.signal);
       const mapped: Subgroup[] = subs.map(s => ({
@@ -585,15 +484,17 @@
           name: f.name, path: f.path, stemType: detectStemType(f.name),
         })),
       }));
-      pitchSubgroups = { ...pitchSubgroups, [song]: mapped };
+      playerState.pitchSubgroups = { ...playerState.pitchSubgroups, [song]: mapped };
     } catch (err) {
       console.error(`Failed to load pitch subgroups for ${song}:`, err);
     } finally {
-      loadingSubgroups = { ...loadingSubgroups, [song]: false };
+      playerState.loadingSubgroups = { ...playerState.loadingSubgroups, [song]: false };
     }
   }
 
   onMount(async () => {
+    // Reference to the store id ensures the shared store is included in the served bundle.
+    void playerState.__storeId;
     // Load subgroups for all existing songs
     for (const song of groupSongs) {
       loadPitchSubgroups(song);
@@ -611,15 +512,15 @@
   }
 
   function getSubPlayer(key: string): SubgroupPlayer {
-    if (!subgroupPlayers[key]) {
-      subgroupPlayers[key] = {
+    if (!playerState.subgroupPlayers[key]) {
+      playerState.subgroupPlayers[key] = {
         audioCtx: null, playing: false, paused: false,
         currentTime: 0, duration: 0, seekValue: 0,
         sourceNodes: new Map(), gainNodes: new Map(), analysers: new Map(), buffers: new Map(),
         startTime: 0, pauseOffset: 0, animFrame: null, loaded: false,
       };
     }
-    return subgroupPlayers[key];
+    return playerState.subgroupPlayers[key];
   }
 
   function getSubCtx(key: string): AudioContext {
@@ -632,7 +533,7 @@
     const key = getSubgroupKey(song, pitchIdx);
     const p = getSubPlayer(key);
     if (p.loaded) return;
-    const subs = pitchSubgroups[song];
+    const subs = playerState.pitchSubgroups[song];
     if (!subs || !subs[pitchIdx]) return;
     const ctx = getSubCtx(key);
     for (const stem of subs[pitchIdx].stems) {
@@ -650,7 +551,7 @@
   }
 
   function stopAllSubSources(key: string) {
-    const p = subgroupPlayers[key];
+    const p = playerState.subgroupPlayers[key];
     if (!p) return;
     p.sourceNodes.forEach(src => { try { src.stop(); } catch {} });
     p.sourceNodes.clear(); p.gainNodes.clear(); p.analysers.clear();
@@ -661,7 +562,7 @@
     const key = getSubgroupKey(song, pitchIdx);
     const p = getSubPlayer(key);
     if (p.playing && !p.paused) return;
-    const subs = pitchSubgroups[song];
+    const subs = playerState.pitchSubgroups[song];
     if (!subs || !subs[pitchIdx]) return;
     const ctx = getSubCtx(key);
     if (ctx.state === 'suspended') await ctx.resume();
@@ -699,7 +600,7 @@
     p.duration = maxDur;
     p.playing = true; p.paused = false;
     function tick() {
-      const pl = subgroupPlayers[key];
+      const pl = playerState.subgroupPlayers[key];
       if (!pl || !pl.playing || pl.paused) return;
       const elapsed = ctx.currentTime - pl.startTime;
       pl.currentTime = elapsed; pl.seekValue = elapsed;
@@ -719,14 +620,14 @@
             sumL += normL * normL;
             sumR += normR * normR;
           }
-          subgroupLevels = { ...subgroupLevels, [stKey]: {
+          playerState.subgroupLevels = { ...playerState.subgroupLevels, [stKey]: {
             l: Math.sqrt(sumL / dataL.length),
             r: Math.sqrt(sumR / dataR.length),
           }};
           const curRmsL = Math.sqrt(sumL / dataL.length);
           const curRmsR = Math.sqrt(sumR / dataR.length);
-          const prevPeak = subgroupPeaks[stKey] || { l: 0, r: 0 };
-          subgroupPeaks = { ...subgroupPeaks, [stKey]: {
+          const prevPeak = playerState.subgroupPeaks[stKey] || { l: 0, r: 0 };
+          playerState.subgroupPeaks = { ...playerState.subgroupPeaks, [stKey]: {
             l: Math.max(prevPeak.l, curRmsL),
             r: Math.max(prevPeak.r, curRmsR),
           }};
@@ -742,7 +643,7 @@
   }
 
   function pauseSubgroup(key: string) {
-    const p = subgroupPlayers[key];
+    const p = playerState.subgroupPlayers[key];
     if (!p || !p.playing || p.paused) return;
     if (!p.audioCtx) return;
     p.pauseOffset = p.audioCtx.currentTime - p.startTime;
@@ -751,7 +652,7 @@
   }
 
   function stopSubgroup(key: string) {
-    const p = subgroupPlayers[key];
+    const p = playerState.subgroupPlayers[key];
     if (!p) return;
     stopAllSubSources(key);
     p.audioCtx?.suspend();
@@ -761,12 +662,12 @@
     const parts = key.split('::');
     const song = parts[0];
     const pitchIdx = parseInt(parts[1]);
-    const subs = pitchSubgroups[song];
+    const subs = playerState.pitchSubgroups[song];
     if (subs && subs[pitchIdx]) {
       for (const stem of subs[pitchIdx].stems) {
         const stKey = subgroupStemKey(song, pitchIdx, stem.name);
-        subgroupLevels = { ...subgroupLevels, [stKey]: { l: 0, r: 0 } };
-        subgroupPeaks = { ...subgroupPeaks, [stKey]: { l: 0, r: 0 } };
+        playerState.subgroupLevels = { ...playerState.subgroupLevels, [stKey]: { l: 0, r: 0 } };
+        playerState.subgroupPeaks = { ...playerState.subgroupPeaks, [stKey]: { l: 0, r: 0 } };
       }
     }
   }
@@ -781,7 +682,7 @@
     const parts = key.split('::');
     const song = parts[0];
     const pitchIdx = parseInt(parts[1]);
-    const subs = pitchSubgroups[song];
+    const subs = playerState.pitchSubgroups[song];
     if (!subs || !subs[pitchIdx]) return;
     // We need to reload buffers
     const p2 = getSubPlayer(key);
@@ -818,7 +719,7 @@
     p2.duration = maxDur;
     p2.playing = true; p2.paused = false;
     function tick() {
-      const pl = subgroupPlayers[key];
+      const pl = playerState.subgroupPlayers[key];
       if (!pl || !pl.playing || pl.paused) return;
       const elapsed = ctx.currentTime - pl.startTime;
       pl.currentTime = elapsed; pl.seekValue = elapsed;
@@ -836,11 +737,11 @@
             sL += ((dL[j] - 128) / 128) ** 2;
             sR += ((dR[j] - 128) / 128) ** 2;
           }
-          subgroupLevels = { ...subgroupLevels, [stKey]: { l: Math.sqrt(sL / dL.length), r: Math.sqrt(sR / dR.length) }};
+          playerState.subgroupLevels = { ...playerState.subgroupLevels, [stKey]: { l: Math.sqrt(sL / dL.length), r: Math.sqrt(sR / dR.length) }};
           const curRmsL = Math.sqrt(sL / dL.length);
           const curRmsR = Math.sqrt(sR / dR.length);
-          const prevPeak = subgroupPeaks[stKey] || { l: 0, r: 0 };
-          subgroupPeaks = { ...subgroupPeaks, [stKey]: { l: Math.max(prevPeak.l, curRmsL), r: Math.max(prevPeak.r, curRmsR) }};
+          const prevPeak = playerState.subgroupPeaks[stKey] || { l: 0, r: 0 };
+          playerState.subgroupPeaks = { ...playerState.subgroupPeaks, [stKey]: { l: Math.max(prevPeak.l, curRmsL), r: Math.max(prevPeak.r, curRmsR) }};
         }
       }
       const cv = subgroupWaveformCanvases[key];
@@ -853,7 +754,7 @@
 
   function handleSubSeekInput(e: Event, key: string) {
     const time = parseFloat((e.target as HTMLInputElement).value);
-    const p = subgroupPlayers[key];
+    const p = playerState.subgroupPlayers[key];
     if (p) { p.seekValue = time; p.currentTime = time; p.pauseOffset = time; }
   }
   function handleSubSeekChange(e: Event, key: string) {
@@ -861,18 +762,18 @@
   }
 
   function subgroupSkipBack(key: string) {
-    const p = subgroupPlayers[key];
+    const p = playerState.subgroupPlayers[key];
     if (!p || !p.loaded || p.duration <= 0) return;
     seekSubgroup(key, Math.max(0, p.currentTime - 10));
   }
   function subgroupSkipForward(key: string) {
-    const p = subgroupPlayers[key];
+    const p = playerState.subgroupPlayers[key];
     if (!p || !p.loaded || p.duration <= 0) return;
     seekSubgroup(key, Math.min(p.duration, p.currentTime + 10));
   }
 
   async function handleDeleteSubgroup(song: string, pitchIdx: number) {
-    const subs = pitchSubgroups[song];
+    const subs = playerState.pitchSubgroups[song];
     if (!subs || !subs[pitchIdx]) return;
     const pitch = subs[pitchIdx].pitch;
     if (!confirm(`Eliminar grupo de tono ${pitch > 0 ? '+' : ''}${pitch} semitonos?`)) return;
@@ -882,10 +783,10 @@
       const remaining = [...subs];
       remaining.splice(pitchIdx, 1);
       if (remaining.length === 0) {
-        const { [song]: _, ...rest } = pitchSubgroups;
-        pitchSubgroups = rest;
+        const { [song]: _, ...rest } = playerState.pitchSubgroups;
+        playerState.pitchSubgroups = rest;
       } else {
-        pitchSubgroups = { ...pitchSubgroups, [song]: remaining };
+        playerState.pitchSubgroups = { ...playerState.pitchSubgroups, [song]: remaining };
       }
       showToast('Grupo eliminado', 'success');
     } catch (err: any) {
@@ -897,7 +798,7 @@
     if (!confirm(`Eliminar "${fileName}"?`)) return;
     try {
       await deletePitchStem(song, pitch, fileName);
-      const subs = pitchSubgroups[song];
+      const subs = playerState.pitchSubgroups[song];
       if (!subs) return;
       const idx = subs.findIndex(s => s.pitch === pitch);
       if (idx < 0) return;
@@ -906,15 +807,15 @@
         const remaining = [...subs];
         remaining.splice(idx, 1);
         if (remaining.length === 0) {
-          const { [song]: _, ...rest } = pitchSubgroups;
-          pitchSubgroups = rest;
+          const { [song]: _, ...rest } = playerState.pitchSubgroups;
+          playerState.pitchSubgroups = rest;
         } else {
-          pitchSubgroups = { ...pitchSubgroups, [song]: remaining };
+          playerState.pitchSubgroups = { ...playerState.pitchSubgroups, [song]: remaining };
         }
       } else {
         const updated = [...subs];
         updated[idx] = { ...updated[idx], stems: remainingStems };
-        pitchSubgroups = { ...pitchSubgroups, [song]: updated };
+        playerState.pitchSubgroups = { ...playerState.pitchSubgroups, [song]: updated };
       }
       showToast('Stem eliminado', 'success');
     } catch (err: any) {
@@ -933,7 +834,7 @@
   }
 
   function handleExportSubgroup(song: string, pitchIdx: number) {
-    const subs = pitchSubgroups[song];
+    const subs = playerState.pitchSubgroups[song];
     if (!subs || !subs[pitchIdx]) return;
     for (const stem of subs[pitchIdx].stems) {
       const a = document.createElement('a');
@@ -980,12 +881,12 @@
   function handleDropZoneFile(f: File) {
     const id = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
     const p = newUploadPlayer(id, f.name);
-    uploadPlayers = [...uploadPlayers, p];
+    playerState.uploadPlayers = [...playerState.uploadPlayers, p];
     uploadPitchAudio(f).then(() => {
-      uploadPlayers = uploadPlayers.map(up => up.id === id ? { ...up, status: 'ready' as const } : up);
+      playerState.uploadPlayers = playerState.uploadPlayers.map(up => up.id === id ? { ...up, status: 'ready' as const } : up);
       return loadUploads();
     }).catch((err) => {
-      uploadPlayers = uploadPlayers.map(up => up.id === id ? { ...up, status: 'error' as const, errorMsg: err.message } : up);
+      playerState.uploadPlayers = playerState.uploadPlayers.map(up => up.id === id ? { ...up, status: 'error' as const, errorMsg: err.message } : up);
     });
   }
   function handleDrop() { dragCounter = 0; }
@@ -1028,7 +929,7 @@
   }
 
   function getUploadPlayer(id: string): UploadPlayer | undefined {
-    return uploadPlayers.find(p => p.id === id);
+    return playerState.uploadPlayers.find(p => p.id === id);
   }
 
   async function toggleUploadPlay(id: string) {
@@ -1123,7 +1024,7 @@
     if (!confirm(`Eliminar "${p.name}"?`)) return;
     try { await deletePitchUpload(p.name); } catch {}
     cleanupUploadPlayer(p);
-    uploadPlayers = uploadPlayers.filter(pl => pl.id !== id);
+    playerState.uploadPlayers = playerState.uploadPlayers.filter(pl => pl.id !== id);
   }
 
   // ── Waveform ──
@@ -1139,7 +1040,7 @@
 
   async function computeWavePeaks(song: string): Promise<number[]> {
     // Return cached peaks if already computed
-    if (wavePeaksCache[song]) return wavePeaksCache[song];
+    if (playerState.wavePeaksCache[song]) return playerState.wavePeaksCache[song];
 
     const stems = stemsForSong(song);
     if (stems.length === 0) return [];
@@ -1164,7 +1065,7 @@
         data.push(max);
       }
       audioCtx.close();
-      wavePeaksCache = { ...wavePeaksCache, [song]: data };
+      playerState.wavePeaksCache = { ...playerState.wavePeaksCache, [song]: data };
       return data;
     } catch {
       // Fallback synthetic peaks
@@ -1172,7 +1073,7 @@
       for (let i = 0; i < 2000; i++) {
         data.push(((Math.abs((song.length + i * 31)) % 80) / 100) * 0.8 + 0.1);
       }
-      wavePeaksCache = { ...wavePeaksCache, [song]: data };
+      playerState.wavePeaksCache = { ...playerState.wavePeaksCache, [song]: data };
       return data;
     }
   }
@@ -1197,13 +1098,13 @@
     const lineCol = isLight ? '#000' : '#fff';
 
     // Get playback progress (or drag preview when scrubbing)
-    const p = groupPlayers[song];
+    const p = playerState.groupPlayers[song];
     const isDragging = dragging[song];
     const rawProgress = p && p.loaded && p.duration > 0 ? (p.currentTime / p.duration) : 0;
     const progress = isDragging ? (dragPreview[song] ?? rawProgress) : rawProgress;
 
     // Get cached peaks or compute them (first call only)
-    const peaks = wavePeaksCache[song];
+    const peaks = playerState.wavePeaksCache[song];
     if (!peaks || peaks.length === 0) {
       // Schedule async computation, draw placeholder
       ctx.fillStyle = dimAccentCol;
@@ -1250,7 +1151,7 @@
     waveformCanvases[song] = node;
     drawWaveform(node, song);
     // Start computing peaks asynchronously if not already cached
-    if (!wavePeaksCache[song]) {
+    if (!playerState.wavePeaksCache[song]) {
       computeWavePeaks(song).then(() => drawWaveform(node, song));
     }
   }
@@ -1286,7 +1187,7 @@
     if (!dragging[song]) return;
     dragging = { ...dragging, [song]: false };
     const frac = dragPreview[song] ?? 0;
-    const p = groupPlayers[song];
+    const p = playerState.groupPlayers[song];
     if (p && p.loaded && p.duration > 0) {
       seekGroup(song, frac * p.duration);
     }
@@ -1304,7 +1205,7 @@
       if (dragging[song]) {
         dragging = { ...dragging, [song]: false };
         const frac = dragPreview[song] ?? 0;
-        const p = groupPlayers[song];
+        const p = playerState.groupPlayers[song];
         if (p && p.loaded && p.duration > 0) {
           seekGroup(song, frac * p.duration);
         }
@@ -1316,11 +1217,11 @@
 
   // ── Subgroup waveform (same as main group) ──
   async function computeSubgroupWavePeaks(key: string): Promise<number[]> {
-    if (subgroupWavePeaksCache[key]) return subgroupWavePeaksCache[key];
+    if (playerState.subgroupWavePeaksCache[key]) return playerState.subgroupWavePeaksCache[key];
     const parts = key.split('::');
     const song = parts[0];
     const pitchIdx = parseInt(parts[1]);
-    const subs = pitchSubgroups[song];
+    const subs = playerState.pitchSubgroups[song];
     if (!subs || !subs[pitchIdx] || subs[pitchIdx].stems.length === 0) return [];
     try {
       const url = subs[pitchIdx].stems[0].path;
@@ -1340,14 +1241,14 @@
         data.push(max);
       }
       audioCtx.close();
-      subgroupWavePeaksCache = { ...subgroupWavePeaksCache, [key]: data };
+      playerState.subgroupWavePeaksCache = { ...playerState.subgroupWavePeaksCache, [key]: data };
       return data;
     } catch {
       const data: number[] = [];
       for (let i = 0; i < 2000; i++) {
         data.push(((Math.abs((key.length + i * 31)) % 80) / 100) * 0.8 + 0.1);
       }
-      subgroupWavePeaksCache = { ...subgroupWavePeaksCache, [key]: data };
+      playerState.subgroupWavePeaksCache = { ...playerState.subgroupWavePeaksCache, [key]: data };
       return data;
     }
   }
@@ -1366,11 +1267,11 @@
     const dimAccentCol = darkenColor(accentCol, 60);
     const isLight = typeof document !== 'undefined' && document.body.classList.contains('light-theme');
     const lineCol = isLight ? '#000' : '#fff';
-    const p = subgroupPlayers[key];
+    const p = playerState.subgroupPlayers[key];
     const isDragging = subgroupDragging[key];
     const rawProgress = p && p.loaded && p.duration > 0 ? (p.currentTime / p.duration) : 0;
     const progress = isDragging ? (subgroupDragPreview[key] ?? rawProgress) : rawProgress;
-    const peaks = subgroupWavePeaksCache[key];
+    const peaks = playerState.subgroupWavePeaksCache[key];
     if (!peaks || peaks.length === 0) {
       ctx.fillStyle = dimAccentCol;
       ctx.fillRect(0, 0, w, h);
@@ -1407,7 +1308,7 @@
   function subgroupWaveformAction(node: HTMLCanvasElement, key: string) {
     subgroupWaveformCanvases[key] = node;
     drawSubgroupWaveform(node, key);
-    if (!subgroupWavePeaksCache[key]) {
+    if (!playerState.subgroupWavePeaksCache[key]) {
       computeSubgroupWavePeaks(key).then(() => drawSubgroupWaveform(node, key));
     }
   }
@@ -1442,7 +1343,7 @@
     if (!subgroupDragging[key]) return;
     subgroupDragging = { ...subgroupDragging, [key]: false };
     const frac = subgroupDragPreview[key] ?? 0;
-    const p = subgroupPlayers[key];
+    const p = playerState.subgroupPlayers[key];
     if (p && p.loaded && p.duration > 0) {
       seekSubgroup(key, frac * p.duration);
     }
@@ -1459,7 +1360,7 @@
       if (subgroupDragging[key]) {
         subgroupDragging = { ...subgroupDragging, [key]: false };
         const frac = subgroupDragPreview[key] ?? 0;
-        const p = subgroupPlayers[key];
+        const p = playerState.subgroupPlayers[key];
         if (p && p.loaded && p.duration > 0) {
           seekSubgroup(key, frac * p.duration);
         }
@@ -1496,8 +1397,8 @@
     window.removeEventListener('mouseup', handleGlobalMouseUp);
     window.removeEventListener('mouseup', handleSubgroupGlobalMouseUp);
     // Do NOT abort abortController — keeps background fetch alive
-    // Do NOT close AudioContexts for groups/subgroups — keeps playback alive
-    for (const p of uploadPlayers) cleanupUploadPlayer(p);
+    // Do NOT close AudioContexts for groups/subgroups/uploads — keeps playback alive
+    // when the user switches tabs. The shared module state in playerStore survives remount.
   });
 
   function formatPitchStemName(name: string): string {
@@ -1530,19 +1431,19 @@
               <div class="group-player-bar">
                 <div class="playback-controls">
                   <button class="ctrl-btn skip-btn" onclick={() => skipBack(song)}
-                    disabled={!groupPlayers[song]?.loaded} title="-10 segundos">{@html IconSkipBack}</button>
+                    disabled={!playerState.groupPlayers[song]?.loaded} title="-10 segundos">{@html IconSkipBack}</button>
                   <button class="ctrl-btn play-btn" onclick={() => playGroup(song)}
-                    disabled={groupPlayers[song]?.playing && !groupPlayers[song]?.paused}
-                    title={groupPlayers[song]?.playing && !groupPlayers[song]?.paused ? 'Reproduciendo' : 'Reproducir todo'}>▶</button>
+                    disabled={playerState.groupPlayers[song]?.playing && !playerState.groupPlayers[song]?.paused}
+                    title={playerState.groupPlayers[song]?.playing && !playerState.groupPlayers[song]?.paused ? 'Reproduciendo' : 'Reproducir todo'}>▶</button>
                   <button class="ctrl-btn pause-btn" onclick={() => pauseGroup(song)}
-                    disabled={!groupPlayers[song]?.playing || groupPlayers[song]?.paused} title="Pausa">⏸</button>
+                    disabled={!playerState.groupPlayers[song]?.playing || playerState.groupPlayers[song]?.paused} title="Pausa">⏸</button>
                   <button class="ctrl-btn stop-btn" onclick={() => stopGroup(song)}
-                    disabled={!groupPlayers[song]?.playing && !groupPlayers[song]?.paused} title="Parar">⏹</button>
+                    disabled={!playerState.groupPlayers[song]?.playing && !playerState.groupPlayers[song]?.paused} title="Parar">⏹</button>
                   <button class="ctrl-btn skip-btn" onclick={() => skipForward(song)}
-                    disabled={!groupPlayers[song]?.loaded} title="+10 segundos">{@html IconSkipForward}</button>
+                    disabled={!playerState.groupPlayers[song]?.loaded} title="+10 segundos">{@html IconSkipForward}</button>
                 </div>
                 <div class="seek-area">
-                  <span class="time-display">{fmtTime(groupPlayers[song]?.currentTime)}/{fmtTime(groupPlayers[song]?.duration)}</span>
+                  <span class="time-display">{fmtTime(playerState.groupPlayers[song]?.currentTime)}/{fmtTime(playerState.groupPlayers[song]?.duration)}</span>
                 </div>
                 <div class="vol-slider-wrap">
                   <label class="vol-label-small">Vol:</label>
@@ -1575,8 +1476,8 @@
               <div class="output-stems">
                 {#each stems as stem}
                   {@const state = getStemState(song, stem.name)}
-                  {@const sLevel = stemLevels[stemStateKey(song, stem.name)] || { l: 0, r: 0 }}
-                  {@const pLevel = stemPeaks[stemStateKey(song, stem.name)] || { l: 0, r: 0 }}
+                  {@const sLevel = playerState.stemLevels[stemStateKey(song, stem.name)] || { l: 0, r: 0 }}
+                  {@const pLevel = playerState.stemPeaks[stemStateKey(song, stem.name)] || { l: 0, r: 0 }}
                   <div class="stem-row" class:muted={state.muted}>
                     <span class="stem-emoji">{stemEmoji(stem.stemType)}</span>
                     <div class="stem-left-controls">
@@ -1610,20 +1511,20 @@
                 <label class="pitch-label">Tono:</label>
                 <input type="range" min="-12" max="12" step="1"
                   value={getPitchValue(song)}
-                  oninput={(e) => { pitchValues = { ...pitchValues, [song]: parseFloat((e.target as HTMLInputElement).value) }; }}
+                  oninput={(e) => { playerState.pitchValues = { ...playerState.pitchValues, [song]: parseFloat((e.target as HTMLInputElement).value) }; }}
                   class="pitch-slider" />
                 <span class="pitch-value">{getPitchValue(song) > 0 ? '+' : ''}{getPitchValue(song)}</span>
                 <button class="pitch-btn" onclick={() => handlePitch(song)}
-                  disabled={pitchProcessing[song] || getPitchValue(song) === 0}>
-                  {pitchProcessing[song] ? '⏳' : '🎵 Cambiar tono'}
+                  disabled={playerState.pitchProcessing[song] || getPitchValue(song) === 0}>
+                  {playerState.pitchProcessing[song] ? '⏳' : '🎵 Cambiar tono'}
                 </button>
               </div>
 
               <!-- ── Pitch subgroups ── -->
-              {#if pitchSubgroups[song] && pitchSubgroups[song].length > 0}
+              {#if playerState.pitchSubgroups[song] && playerState.pitchSubgroups[song].length > 0}
                 <div class="pitch-subgroups-section">
                   <h4 class="subgroups-title">Subgrupos de tono</h4>
-                  {#each pitchSubgroups[song] as subs, idx}
+                  {#each playerState.pitchSubgroups[song] as subs, idx}
                     {@const subKey = getSubgroupKey(song, idx)}
                     {@const subStems = subs.stems}
                     <div class="pitch-subgroup-card">
@@ -1637,19 +1538,19 @@
                       <div class="group-player-bar">
                         <div class="playback-controls">
                           <button class="ctrl-btn skip-btn" onclick={() => subgroupSkipBack(subKey)}
-                            disabled={!subgroupPlayers[subKey]?.loaded} title="-10 segundos">{@html IconSkipBack}</button>
+                            disabled={!playerState.subgroupPlayers[subKey]?.loaded} title="-10 segundos">{@html IconSkipBack}</button>
                           <button class="ctrl-btn play-btn" onclick={() => playSubgroup(song, idx)}
-                            disabled={subgroupPlayers[subKey]?.playing && !subgroupPlayers[subKey]?.paused}
-                            title={subgroupPlayers[subKey]?.playing && !subgroupPlayers[subKey]?.paused ? 'Reproduciendo' : 'Reproducir'}>▶</button>
+                            disabled={playerState.subgroupPlayers[subKey]?.playing && !playerState.subgroupPlayers[subKey]?.paused}
+                            title={playerState.subgroupPlayers[subKey]?.playing && !playerState.subgroupPlayers[subKey]?.paused ? 'Reproduciendo' : 'Reproducir'}>▶</button>
                           <button class="ctrl-btn pause-btn" onclick={() => pauseSubgroup(subKey)}
-                            disabled={!subgroupPlayers[subKey]?.playing || subgroupPlayers[subKey]?.paused} title="Pausa">⏸</button>
+                            disabled={!playerState.subgroupPlayers[subKey]?.playing || playerState.subgroupPlayers[subKey]?.paused} title="Pausa">⏸</button>
                           <button class="ctrl-btn stop-btn" onclick={() => stopSubgroup(subKey)}
-                            disabled={!subgroupPlayers[subKey]?.playing && !subgroupPlayers[subKey]?.paused} title="Parar">⏹</button>
+                            disabled={!playerState.subgroupPlayers[subKey]?.playing && !playerState.subgroupPlayers[subKey]?.paused} title="Parar">⏹</button>
                           <button class="ctrl-btn skip-btn" onclick={() => subgroupSkipForward(subKey)}
-                            disabled={!subgroupPlayers[subKey]?.loaded} title="+10 segundos">{@html IconSkipForward}</button>
+                            disabled={!playerState.subgroupPlayers[subKey]?.loaded} title="+10 segundos">{@html IconSkipForward}</button>
                         </div>
                         <div class="seek-area">
-                          <span class="time-display">{fmtTime(subgroupPlayers[subKey]?.currentTime)}/{fmtTime(subgroupPlayers[subKey]?.duration)}</span>
+                          <span class="time-display">{fmtTime(playerState.subgroupPlayers[subKey]?.currentTime)}/{fmtTime(playerState.subgroupPlayers[subKey]?.duration)}</span>
                         </div>
                         <div class="vol-slider-wrap">
                           <label class="vol-label-small">Vol:</label>
@@ -1677,8 +1578,8 @@
                       <div class="output-stems">
                         {#each subStems as sstem}
                           {@const sgState = getSubgroupStemState(song, idx, sstem.name)}
-                          {@const sLevel = subgroupLevels[subgroupStemKey(song, idx, sstem.name)] || { l: 0, r: 0 }}
-                          {@const pLevel = subgroupPeaks[subgroupStemKey(song, idx, sstem.name)] || { l: 0, r: 0 }}
+                          {@const sLevel = playerState.subgroupLevels[subgroupStemKey(song, idx, sstem.name)] || { l: 0, r: 0 }}
+                          {@const pLevel = playerState.subgroupPeaks[subgroupStemKey(song, idx, sstem.name)] || { l: 0, r: 0 }}
                           <div class="stem-row" class:muted={sgState.muted}>
                             <span class="stem-emoji">{stemEmoji(sstem.stemType)}</span>
                             <div class="stem-left-controls">
@@ -1738,11 +1639,11 @@
   </section>
 
   <!-- ═══════ Uploaded files with players ═══════ -->
-  {#if uploadPlayers.length > 0}
+  {#if playerState.uploadPlayers.length > 0}
     <section class="pitch-players-section">
-      <h3 class="section-title">Archivos subidos ({uploadPlayers.length})</h3>
+      <h3 class="section-title">Archivos subidos ({playerState.uploadPlayers.length})</h3>
       <div class="pitch-players-list">
-        {#each uploadPlayers as p (p.id)}
+        {#each playerState.uploadPlayers as p (p.id)}
           <div class="song-group" class:loading={p.status === 'uploading'}>
             {#if p.status === 'uploading'}
               <div class="song-header">
@@ -1795,20 +1696,20 @@
                 <label class="pitch-label">Tono:</label>
                 <input type="range" min="-12" max="12" step="1"
                   value={getUploadPitchValue(p.name)}
-                  oninput={(e) => { uploadPitchValues = { ...uploadPitchValues, [p.name]: parseFloat((e.target as HTMLInputElement).value) }; }}
+                  oninput={(e) => { playerState.uploadPitchValues = { ...playerState.uploadPitchValues, [p.name]: parseFloat((e.target as HTMLInputElement).value) }; }}
                   class="pitch-slider" />
                 <span class="pitch-value">{getUploadPitchValue(p.name) > 0 ? '+' : ''}{getUploadPitchValue(p.name)}</span>
                 <button class="pitch-btn" onclick={() => handleUploadPitch(p.id)}
-                  disabled={uploadPitchProcessing[p.name] || getUploadPitchValue(p.name) === 0}>
-                  {uploadPitchProcessing[p.name] ? '⏳' : '🎵 Cambiar tono'}
+                  disabled={playerState.uploadPitchProcessing[p.name] || getUploadPitchValue(p.name) === 0}>
+                  {playerState.uploadPitchProcessing[p.name] ? '⏳' : '🎵 Cambiar tono'}
                 </button>
               </div>
 
               <!-- ── Pitch subgroups for uploaded file (read-only list) ── -->
-              {#if uploadSubgroups[p.name] && uploadSubgroups[p.name].length > 0}
+              {#if playerState.uploadSubgroups[p.name] && playerState.uploadSubgroups[p.name].length > 0}
                 <div class="pitch-subgroups-section">
                   <h4 class="subgroups-title">Subgrupos de tono</h4>
-                  {#each uploadSubgroups[p.name] as subs}
+                  {#each playerState.uploadSubgroups[p.name] as subs}
                     <div class="pitch-subgroup-card">
                       <div class="subgroup-header">
                         <span class="subgroup-pitch-label">Tono: {subs.pitch > 0 ? '+' : ''}{subs.pitch}</span>

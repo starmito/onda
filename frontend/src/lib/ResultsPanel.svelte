@@ -4,6 +4,7 @@
   import type { ResultStem, ResultGroup } from './types';
   import type { PitchResponse, PitchSubgroup } from './api';
   import { stemEmoji, detectStemType } from './types';
+  import { playerState, type PitchedSubgroup } from './playerStore.svelte';
 
 
   export type { ResultStem };
@@ -46,34 +47,30 @@
   // Group files by song
   let songGroups = $derived(groupFiles(files));
 
-  // State for mute/solo/volume per stem
-  let stemStates = $state<Record<string, { muted: boolean; solo: boolean; volume: number }>>({});
-
-  // Per-group Web Audio player state
-  let groupPlayers = $state<Record<string, {
-    audioCtx: AudioContext | null;
-    playing: boolean;
-    paused: boolean;
-    currentTime: number;
-    duration: number;
-    seekValue: number;
-    sourceNodes: Map<string, AudioBufferSourceNode>;
-    gainNodes: Map<string, GainNode>;
-    buffers: Map<string, AudioBuffer>;
-    startTime: number;
-    pauseOffset: number;
-    animFrame: number | null;
-    loaded: boolean;
-  }>>({});
+  // Persistent player state for this component lives in playerStore.svelte.ts
+  // so playback survives when the user navigates to another tab.
 
   // Canvas refs for waveform drawing
   let waveformCanvases = $state<Record<string, HTMLCanvasElement>>({});
-  
+
   // Read accent color from CSS for canvas fills
   function accent(): string {
     if (typeof document === 'undefined') return '#6c5ce7';
     const c = getComputedStyle(document.body).getPropertyValue('--accent').trim();
     return c || '#6c5ce7';
+  }
+
+  // Peak meter helpers
+  function rmsToDb(rms: number): number {
+    if (rms < 0.001) return -60;
+    return Math.max(-60, 20 * Math.log10(rms));
+  }
+  function toDbStr(rms: number): string {
+    const db = rmsToDb(rms);
+    return db <= -60 ? '-∞' : db.toFixed(1);
+  }
+  function dbToPct(db: number): number {
+    return Math.min(100, Math.max(0, ((db + 60) / 60) * 100));
   }
 
   // Pitch shift state
@@ -83,38 +80,7 @@
   // AbortController for cancelling in-flight fetch requests on destroy
   let abortController = new AbortController();
 
-  // Pitched subgroup state with independent player
-  interface PitchedSubgroupStem {
-    name: string;
-    path: string;
-    stemType: string;
-  }
-
-  interface PitchedSubgroup {
-    pitch: number;
-    stems: PitchedSubgroupStem[];
-    player: {
-      audioCtx: AudioContext | null;
-      playing: boolean;
-      paused: boolean;
-      currentTime: number;
-      duration: number;
-      seekValue: number;
-      sourceNodes: Map<string, AudioBufferSourceNode>;
-      gainNodes: Map<string, GainNode>;
-      analysers: Map<string, AnalyserNode[]>;
-      buffers: Map<string, AudioBuffer>;
-      startTime: number;
-      pauseOffset: number;
-      animFrame: number | null;
-      loaded: boolean;
-    } | null;
-  }
-  let pitchSubgroups = $state<Record<string, PitchedSubgroup[]>>({});
-
-  // Peak levels for pitched subgroup stems
-  let pitchedLevels = $state<Record<string, { l: number; r: number }>>({});
-  let pitchedPeaks = $state<Record<string, { l: number; r: number }>>({});
+  // Peak levels for pitched subgroup stems live in playerStore.svelte.ts
 
   // Waveform state for pitched subgroup seek
   let pitchedWaveformCanvases = $state<Record<string, HTMLCanvasElement>>({});
@@ -134,8 +100,8 @@
         })),
         player: null,
       }));
-      pitchSubgroups[song] = mapped;
-      pitchSubgroups = { ...pitchSubgroups };
+      playerState.resultsPitchSubgroups[song] = mapped;
+      playerState.resultsPitchSubgroups = { ...playerState.resultsPitchSubgroups };
     } catch (err) {
       console.error(`Failed to load pitch subgroups for ${song}:`, err);
       showToast(`Error loading pitch groups: ${err instanceof Error ? err.message : String(err)}`, 'error');
@@ -156,7 +122,7 @@
       stems: stems.map((s) => {
         const key = stemKey(s.song || song, s.name);
         // Read-only: never mutate $state inside $derived
-        const state = stemStates[key] || { muted: false, solo: false, volume: 100 };
+        const state = playerState.resultsStemStates[key] || { muted: false, solo: false, volume: 100 };
         return { ...s, stemType: s.stemType || 'other', ...state, id: key };
       }),
     }));
@@ -178,28 +144,28 @@
 
   function toggleMute(song: string, name: string) {
     const key = stemKey(song, name);
-    stemStates[key] = {
-      ...stemStates[key],
-      muted: !(stemStates[key]?.muted ?? false),
-      volume: stemStates[key]?.volume ?? 100,
+    playerState.resultsStemStates[key] = {
+      ...playerState.resultsStemStates[key],
+      muted: !(playerState.resultsStemStates[key]?.muted ?? false),
+      volume: playerState.resultsStemStates[key]?.volume ?? 100,
     };
     syncGains(song);
   }
 
   function toggleSolo(song: string, name: string) {
     const key = stemKey(song, name);
-    stemStates[key] = {
-      ...stemStates[key],
-      solo: !(stemStates[key]?.solo ?? false),
-      volume: stemStates[key]?.volume ?? 100,
+    playerState.resultsStemStates[key] = {
+      ...playerState.resultsStemStates[key],
+      solo: !(playerState.resultsStemStates[key]?.solo ?? false),
+      volume: playerState.resultsStemStates[key]?.volume ?? 100,
     };
     syncGains(song);
   }
 
   function setVolume(song: string, name: string, vol: number) {
     const key = stemKey(song, name);
-    stemStates[key] = {
-      ...stemStates[key],
+    playerState.resultsStemStates[key] = {
+      ...playerState.resultsStemStates[key],
       volume: vol,
     };
     syncGains(song);
@@ -212,8 +178,8 @@
   // ---- Per-group player management ----
 
   function getPlayer(song: string) {
-    if (!groupPlayers[song]) {
-      groupPlayers[song] = {
+    if (!playerState.resultsGroupPlayers[song]) {
+      playerState.resultsGroupPlayers[song] = {
         audioCtx: null,
         playing: false,
         paused: false,
@@ -223,13 +189,14 @@
         sourceNodes: new Map(),
         gainNodes: new Map(),
         buffers: new Map(),
+        analysers: new Map(),
         startTime: 0,
         pauseOffset: 0,
         animFrame: null,
         loaded: false,
       };
     }
-    return groupPlayers[song];
+    return playerState.resultsGroupPlayers[song];
   }
 
   function getCtx(song: string): AudioContext {
@@ -247,12 +214,12 @@
   function anySolo(song: string): boolean {
     const group = getGroup(song);
     if (!group) return false;
-    return group.stems.some((s) => stemStates[stemKey(song, s.name)]?.solo);
+    return group.stems.some((s) => playerState.resultsStemStates[stemKey(song, s.name)]?.solo);
   }
 
   function effectiveGain(song: string, name: string): number {
     const key = stemKey(song, name);
-    const state = stemStates[key] || { muted: false, solo: false, volume: 100 };
+    const state = playerState.resultsStemStates[key] || { muted: false, solo: false, volume: 100 };
     if (state.muted) return 0;
     const hasAnySolo = anySolo(song);
     if (hasAnySolo && !state.solo) return 0;
@@ -260,7 +227,7 @@
   }
 
   function syncGains(song: string) {
-    const p = groupPlayers[song];
+    const p = playerState.resultsGroupPlayers[song];
     if (!p || !p.playing) return;
     const group = getGroup(song);
     if (!group) return;
@@ -295,7 +262,7 @@
   }
 
   function stopAllSources(song: string) {
-    const p = groupPlayers[song];
+    const p = playerState.resultsGroupPlayers[song];
     if (!p) return;
     p.sourceNodes.forEach((src: AudioBufferSourceNode) => {
       try { src.stop(); } catch { /* already stopped */ }
@@ -352,7 +319,7 @@
     p.paused = false;
 
     function tick() {
-      const player = groupPlayers[song];
+      const player = playerState.resultsGroupPlayers[song];
       if (!player || !player.playing || player.paused) return;
       const elapsed = ctx.currentTime - player.startTime;
       player.currentTime = elapsed;
@@ -368,7 +335,7 @@
   }
 
   function pauseGroup(song: string) {
-    const p = groupPlayers[song];
+    const p = playerState.resultsGroupPlayers[song];
     if (!p || !p.playing || p.paused) return;
     const ctx = p.audioCtx;
     if (!ctx) return;
@@ -378,7 +345,7 @@
   }
 
   function stopGroup(song: string) {
-    const p = groupPlayers[song];
+    const p = playerState.resultsGroupPlayers[song];
     if (!p) return;
     stopAllSources(song);
     p.audioCtx?.suspend();
@@ -436,7 +403,7 @@
     p.paused = false;
 
     function tick() {
-      const player = groupPlayers[song];
+      const player = playerState.resultsGroupPlayers[song];
       if (!player || !player.playing || player.paused) return;
       const elapsed = ctx.currentTime - player.startTime;
       player.currentTime = elapsed;
@@ -454,7 +421,7 @@
   function handleSeekInput(e: Event, song: string) {
     const target = e.target as HTMLInputElement;
     const time = parseFloat(target.value);
-    const p = groupPlayers[song];
+    const p = playerState.resultsGroupPlayers[song];
     if (p) {
       p.seekValue = time;
       p.currentTime = time;
@@ -519,7 +486,7 @@
     if (value === 0) return;
 
     // Check if already exists
-    const existing = pitchSubgroups[song] || [];
+    const existing = playerState.resultsPitchSubgroups[song] || [];
     if (existing.some(s => s.pitch === value)) return;
 
     pitchProcessing[song] = true;
@@ -533,8 +500,8 @@
         stemType: detectStemType(f.name),
       }));
 
-      pitchSubgroups[song] = [...existing, { pitch: value, stems, player: null }];
-      pitchSubgroups = { ...pitchSubgroups };
+      playerState.resultsPitchSubgroups[song] = [...existing, { pitch: value, stems, player: null }];
+      playerState.resultsPitchSubgroups = { ...playerState.resultsPitchSubgroups };
     } catch (e) {
       showToast(`Error al cambiar tono: ${e instanceof Error ? e.message : String(e)}`, 'error');
     } finally {
@@ -547,8 +514,8 @@
     if (!confirm(`¿Eliminar subgrupo ${song} (${pitch > 0 ? '+' : ''}${pitch})?`)) return;
     try {
       await deletePitchSubgroup(song, pitch);
-      pitchSubgroups[song] = (pitchSubgroups[song] || []).filter(s => s.pitch !== pitch);
-      pitchSubgroups = { ...pitchSubgroups };
+      playerState.resultsPitchSubgroups[song] = (playerState.resultsPitchSubgroups[song] || []).filter(s => s.pitch !== pitch);
+      playerState.resultsPitchSubgroups = { ...playerState.resultsPitchSubgroups };
       showToast(`Subgrupo ${pitch > 0 ? '+' : ''}${pitch} eliminado`, 'success');
     } catch (e) {
       showToast(`Error: ${e instanceof Error ? e.message : String(e)}`, 'error');
@@ -562,7 +529,7 @@
   }
 
   function getOrCreateSubgroupPlayer(song: string, pitch: number): NonNullable<PitchedSubgroup['player']> {
-    const subs = pitchSubgroups[song] || [];
+    const subs = playerState.resultsPitchSubgroups[song] || [];
     const idx = subs.findIndex(s => s.pitch === pitch);
     if (idx === -1) throw new Error('Subgroup not found');
     const sg = subs[idx];
@@ -572,15 +539,15 @@
         seekValue: 0, sourceNodes: new Map(), gainNodes: new Map(), analysers: new Map(), buffers: new Map(),
         startTime: 0, pauseOffset: 0, animFrame: null, loaded: false,
       };
-      pitchSubgroups[song] = [...subs];
-      pitchSubgroups = { ...pitchSubgroups };
+      playerState.resultsPitchSubgroups[song] = [...subs];
+      playerState.resultsPitchSubgroups = { ...playerState.resultsPitchSubgroups };
     }
     return sg.player!;
   }
 
   async function playSubgroup(song: string, pitch: number) {
     const player = getOrCreateSubgroupPlayer(song, pitch);
-    const subs = pitchSubgroups[song] || [];
+    const subs = playerState.resultsPitchSubgroups[song] || [];
     const sg = subs.find(s => s.pitch === pitch)!;
 
     // Stop all other subgroup players for this song
@@ -604,7 +571,7 @@
           const source = player.audioCtx.createBufferSource();
           source.buffer = buffer;
           const gain = player.gainNodes.get(name) || player.audioCtx.createGain();
-          const stemState = stemStates[`pitch:${song}:${pitch}:${name}`] || { muted: false, solo: false, volume: 100 };
+          const stemState = playerState.resultsStemStates[`pitch:${song}:${pitch}:${name}`] || { muted: false, solo: false, volume: 100 };
           gain.gain.value = stemState.muted ? 0 : stemState.volume / 100;
           const splitter = player.audioCtx.createChannelSplitter(2);
           const aL = player.audioCtx.createAnalyser(); aL.fftSize = 64;
@@ -647,7 +614,7 @@
         const source = player.audioCtx.createBufferSource();
         source.buffer = buffer;
         const gain = player.audioCtx.createGain();
-        const stemState = stemStates[`pitch:${song}:${pitch}:${name}`] || { muted: false, solo: false, volume: 100 };
+        const stemState = playerState.resultsStemStates[`pitch:${song}:${pitch}:${name}`] || { muted: false, solo: false, volume: 100 };
         gain.gain.value = stemState.muted ? 0 : stemState.volume / 100;
         const splitter = player.audioCtx.createChannelSplitter(2);
         const aL = player.audioCtx.createAnalyser(); aL.fftSize = 64;
@@ -669,7 +636,7 @@
   }
 
   function pauseSubgroup(song: string, pitch: number) {
-    const subs = pitchSubgroups[song] || [];
+    const subs = playerState.resultsPitchSubgroups[song] || [];
     const sg = subs.find(s => s.pitch === pitch);
     const player = sg?.player;
     if (!player || !player.playing || player.paused) return;
@@ -682,7 +649,7 @@
   }
 
   function stopSubgroup(song: string, pitch: number) {
-    const subs = pitchSubgroups[song] || [];
+    const subs = playerState.resultsPitchSubgroups[song] || [];
     const sg = subs.find(s => s.pitch === pitch);
     const player = sg?.player;
     if (!player) return;
@@ -703,18 +670,18 @@
     // Reset peak levels
     for (const stem of (sg?.stems || [])) {
       const stKey = `pitch:${song}:${pitch}:${stem.name}`;
-      pitchedLevels = { ...pitchedLevels, [stKey]: { l: 0, r: 0 } };
-      pitchedPeaks = { ...pitchedPeaks, [stKey]: { l: 0, r: 0 } };
+      playerState.resultsPitchedLevels = { ...playerState.resultsPitchedLevels, [stKey]: { l: 0, r: 0 } };
+      playerState.resultsPitchedPeaks = { ...playerState.resultsPitchedPeaks, [stKey]: { l: 0, r: 0 } };
     }
-    pitchSubgroups[song] = [...subs];
-    pitchSubgroups = { ...pitchSubgroups };
+    playerState.resultsPitchSubgroups[song] = [...subs];
+    playerState.resultsPitchSubgroups = { ...playerState.resultsPitchSubgroups };
   }
 
   function startSubgroupTimer(song: string, pitch: number) {
-    const subs = pitchSubgroups[song] || [];
+    const subs = playerState.resultsPitchSubgroups[song] || [];
     const sg = subs.find(s => s.pitch === pitch);
-    const player = sg?.player;
-    if (!player) return;
+    if (!sg?.player) return;
+    const player = sg.player;
 
     const pitchedKey = `${song}:${pitch}`;
 
@@ -737,11 +704,11 @@
             const nR = (dR[j] - 128) / 128;
             sumL += nL * nL; sumR += nR * nR;
           }
-          pitchedLevels = { ...pitchedLevels, [stKey]: { l: Math.sqrt(sumL / dL.length), r: Math.sqrt(sumR / dR.length) }};
+          playerState.resultsPitchedLevels = { ...playerState.resultsPitchedLevels, [stKey]: { l: Math.sqrt(sumL / dL.length), r: Math.sqrt(sumR / dR.length) }};
           const curL = Math.sqrt(sumL / dL.length);
           const curR = Math.sqrt(sumR / dR.length);
-          const prevPk = pitchedPeaks[stKey] || { l: 0, r: 0 };
-          pitchedPeaks = { ...pitchedPeaks, [stKey]: { l: Math.max(prevPk.l, curL), r: Math.max(prevPk.r, curR) }};
+          const prevPk = playerState.resultsPitchedPeaks[stKey] || { l: 0, r: 0 };
+          playerState.resultsPitchedPeaks = { ...playerState.resultsPitchedPeaks, [stKey]: { l: Math.max(prevPk.l, curL), r: Math.max(prevPk.r, curR) }};
         }
       }
       // Redraw waveform
@@ -751,15 +718,15 @@
         stopSubgroup(song, pitch);
         return;
       }
-      pitchSubgroups[song] = [...subs];
-      pitchSubgroups = { ...pitchSubgroups };
+      playerState.resultsPitchSubgroups[song] = [...subs];
+      playerState.resultsPitchSubgroups = { ...playerState.resultsPitchSubgroups };
       player.animFrame = requestAnimationFrame(tick);
     }
     player.animFrame = requestAnimationFrame(tick);
   }
 
   function handleSubgroupSeekInput(e: Event, song: string, pitch: number) {
-    const subs = pitchSubgroups[song] || [];
+    const subs = playerState.resultsPitchSubgroups[song] || [];
     const sg = subs.find(s => s.pitch === pitch);
     const player = sg?.player;
     if (!player) return;
@@ -767,7 +734,7 @@
   }
 
   async function handleSubgroupSeekChange(e: Event, song: string, pitch: number) {
-    const subs = pitchSubgroups[song] || [];
+    const subs = playerState.resultsPitchSubgroups[song] || [];
     const sg = subs.find(s => s.pitch === pitch);
     const player = sg?.player;
     if (!player) return;
@@ -787,7 +754,7 @@
         const source = player.audioCtx!.createBufferSource();
         source.buffer = buffer;
         const gain = player.gainNodes.get(name) || player.audioCtx!.createGain();
-        const stemState = stemStates[`pitch:${song}:${pitch}:${name}`] || { muted: false, solo: false, volume: 100 };
+        const stemState = playerState.resultsStemStates[`pitch:${song}:${pitch}:${name}`] || { muted: false, solo: false, volume: 100 };
         gain.gain.value = stemState.muted ? 0 : stemState.volume / 100;
         const splitter = player.audioCtx!.createChannelSplitter(2);
         const aL = player.audioCtx!.createAnalyser(); aL.fftSize = 64;
@@ -807,40 +774,40 @@
   // Subgroup stem controls
   function toggleSubgroupMute(song: string, pitch: number, stemName: string) {
     const key = `pitch:${song}:${pitch}:${stemName}`;
-    const current = stemStates[key] || { muted: false, solo: false, volume: 100 };
-    stemStates[key] = { ...current, muted: !current.muted };
-    stemStates = { ...stemStates };
+    const current = playerState.resultsStemStates[key] || { muted: false, solo: false, volume: 100 };
+    playerState.resultsStemStates[key] = { ...current, muted: !current.muted };
+    playerState.resultsStemStates = { ...playerState.resultsStemStates };
     syncSubgroupGains(song, pitch);
   }
 
   function toggleSubgroupSolo(song: string, pitch: number, stemName: string) {
     const key = `pitch:${song}:${pitch}:${stemName}`;
-    const current = stemStates[key] || { muted: false, solo: false, volume: 100 };
-    stemStates[key] = { ...current, solo: !current.solo };
-    stemStates = { ...stemStates };
+    const current = playerState.resultsStemStates[key] || { muted: false, solo: false, volume: 100 };
+    playerState.resultsStemStates[key] = { ...current, solo: !current.solo };
+    playerState.resultsStemStates = { ...playerState.resultsStemStates };
     syncSubgroupGains(song, pitch);
   }
 
   function handleSubgroupVolume(e: Event, song: string, pitch: number, stemName: string) {
     const key = `pitch:${song}:${pitch}:${stemName}`;
     const val = parseInt((e.target as HTMLInputElement).value);
-    const current = stemStates[key] || { muted: false, solo: false, volume: 100 };
-    stemStates[key] = { ...current, volume: val };
-    stemStates = { ...stemStates };
+    const current = playerState.resultsStemStates[key] || { muted: false, solo: false, volume: 100 };
+    playerState.resultsStemStates[key] = { ...current, volume: val };
+    playerState.resultsStemStates = { ...playerState.resultsStemStates };
     syncSubgroupGains(song, pitch);
   }
 
   function syncSubgroupGains(song: string, pitch: number) {
-    const subs = pitchSubgroups[song] || [];
+    const subs = playerState.resultsPitchSubgroups[song] || [];
     const sg = subs.find(s => s.pitch === pitch);
     const player = sg?.player;
     if (!player) return; // solo retornar si no hay player, aunque no esté playing
-    const hasSolo = sg.stems.some(s => stemStates[`pitch:${song}:${pitch}:${s.name}`]?.solo);
+    const hasSolo = sg.stems.some(s => playerState.resultsStemStates[`pitch:${song}:${pitch}:${s.name}`]?.solo);
     for (const stem of sg.stems) {
       const key = `pitch:${song}:${pitch}:${stem.name}`;
       const gain = player.gainNodes.get(stem.name);
       if (gain) {
-        const state = stemStates[key] || { muted: false, solo: false, volume: 100 };
+        const state = playerState.resultsStemStates[key] || { muted: false, solo: false, volume: 100 };
         if (state.muted) gain.gain.value = 0;
         else if (hasSolo && !state.solo) gain.gain.value = 0;
         else gain.gain.value = (state.volume ?? 100) / 100;
@@ -852,17 +819,17 @@
     if (!confirm(`Delete "${stemName}"?`)) return;
     try {
       await deletePitchStem(song, pitch, stemName);
-      const subs = pitchSubgroups[song] || [];
+      const subs = playerState.resultsPitchSubgroups[song] || [];
       const sg = subs.find(s => s.pitch === pitch);
       if (sg) {
         sg.stems = sg.stems.filter(s => s.name !== stemName);
         if (sg.stems.length === 0) {
           // Eliminar subgrupo entero
-          pitchSubgroups[song] = (pitchSubgroups[song] || []).filter(s => s.pitch !== pitch);
+          playerState.resultsPitchSubgroups[song] = (playerState.resultsPitchSubgroups[song] || []).filter(s => s.pitch !== pitch);
         } else {
-          pitchSubgroups[song] = [...subs];
+          playerState.resultsPitchSubgroups[song] = [...subs];
         }
-        pitchSubgroups = { ...pitchSubgroups };
+        playerState.resultsPitchSubgroups = { ...playerState.resultsPitchSubgroups };
       }
       showToast(`Stem "${stemName}" eliminado`, 'success');
     } catch (e) {
@@ -891,8 +858,8 @@
           })),
           player: null,
         }));
-        pitchSubgroups[song] = mapped;
-        pitchSubgroups = { ...pitchSubgroups };
+        playerState.resultsPitchSubgroups[song] = mapped;
+        playerState.resultsPitchSubgroups = { ...playerState.resultsPitchSubgroups };
       }).catch((err) => {
         console.error(`Failed to load pitch subgroups for ${song}:`, err);
         showToast(`Error loading pitch groups: ${err instanceof Error ? err.message : String(err)}`, 'error');
@@ -1031,7 +998,7 @@
 
   // ── Pitched subgroup skip ──
   function pitchedSkipBack(song: string, pitch: number) {
-    const subs = pitchSubgroups[song] || [];
+    const subs = playerState.resultsPitchSubgroups[song] || [];
     const sg = subs.find(s => s.pitch === pitch);
     const player = sg?.player;
     if (!player || !player.loaded || player.duration <= 0) return;
@@ -1039,7 +1006,7 @@
     pitchedSeek(song, pitch, newTime);
   }
   function pitchedSkipForward(song: string, pitch: number) {
-    const subs = pitchSubgroups[song] || [];
+    const subs = playerState.resultsPitchSubgroups[song] || [];
     const sg = subs.find(s => s.pitch === pitch);
     const player = sg?.player;
     if (!player || !player.loaded || player.duration <= 0) return;
@@ -1047,7 +1014,7 @@
     pitchedSeek(song, pitch, newTime);
   }
   async function pitchedSeek(song: string, pitch: number, time: number) {
-    const subs = pitchSubgroups[song] || [];
+    const subs = playerState.resultsPitchSubgroups[song] || [];
     const sg = subs.find(s => s.pitch === pitch);
     const player = sg?.player;
     if (!player) return;
@@ -1065,7 +1032,7 @@
         const source = player.audioCtx!.createBufferSource();
         source.buffer = buffer;
         const gain = player.gainNodes.get(name) || player.audioCtx!.createGain();
-        const stemState = stemStates[`pitch:${song}:${pitch}:${name}`] || { muted: false, solo: false, volume: 100 };
+        const stemState = playerState.resultsStemStates[`pitch:${song}:${pitch}:${name}`] || { muted: false, solo: false, volume: 100 };
         gain.gain.value = stemState.muted ? 0 : stemState.volume / 100;
         const splitter = player.audioCtx!.createChannelSplitter(2);
         const aL = player.audioCtx!.createAnalyser(); aL.fftSize = 64;
@@ -1086,7 +1053,7 @@
   async function computePitchedWavePeaks(song: string, pitch: number): Promise<number[]> {
     const pitchedKey = `${song}:${pitch}`;
     if (pitchedWavePeaksCache[pitchedKey]) return pitchedWavePeaksCache[pitchedKey];
-    const subs = pitchSubgroups[song] || [];
+    const subs = playerState.resultsPitchSubgroups[song] || [];
     const sg = subs.find(s => s.pitch === pitch);
     if (!sg || sg.stems.length === 0) return [];
     try {
@@ -1133,7 +1100,7 @@
     const isLight = typeof document !== 'undefined' && document.body.classList.contains('light-theme');
     const lineCol = isLight ? '#000' : '#fff';
     const pitchedKey = `${song}:${pitch}`;
-    const subs = pitchSubgroups[song] || [];
+    const subs = playerState.resultsPitchSubgroups[song] || [];
     const sg = subs.find(s => s.pitch === pitch);
     const player = sg?.player;
     const isDragging = pitchedDragging[pitchedKey];
@@ -1224,7 +1191,7 @@
     if (!pitchedDragging[pitchedKey]) return;
     pitchedDragging = { ...pitchedDragging, [pitchedKey]: false };
     const frac = pitchedDragPreview[pitchedKey] ?? 0;
-    const subs = pitchSubgroups[song] || [];
+    const subs = playerState.resultsPitchSubgroups[song] || [];
     const sg = subs.find(s => s.pitch === pitch);
     const player = sg?.player;
     if (player && player.loaded && player.duration > 0) {
@@ -1245,7 +1212,7 @@
         const parts = pitchedKey.split(':');
         const song = parts[0];
         const pitch = parseInt(parts[1]);
-        const subs = pitchSubgroups[song] || [];
+        const subs = playerState.resultsPitchSubgroups[song] || [];
         const sg = subs.find(s => s.pitch === pitch);
         const player = sg?.player;
         if (player && player.loaded && player.duration > 0) {
@@ -1260,12 +1227,12 @@
     if (toastTimer) clearTimeout(toastTimer);
     // Do NOT abort abortController — keeps background fetch alive
     // Do NOT close AudioContexts for groups/subgroups — keeps playback alive
-    for (const [key, player] of Object.entries(groupPlayers)) {
+    for (const [key, player] of Object.entries(playerState.resultsGroupPlayers)) {
       player.sourceNodes.forEach(s => { try { s.stop(); } catch(e) {} });
       if (player.animFrame) cancelAnimationFrame(player.animFrame);
     }
     // Cleanup subgroup players (stop sources, keep AudioContexts alive)
-    for (const subs of Object.values(pitchSubgroups)) {
+    for (const subs of Object.values(playerState.resultsPitchSubgroups)) {
       for (const sg of subs) {
         const p = sg.player;
         if (p) {
@@ -1291,7 +1258,7 @@
     <h2 class="results-title">📀 Results</h2>
 
     {#each songGroups as group (group.song)}
-      {@const player = groupPlayers[group.song]}
+      {@const player = playerState.resultsGroupPlayers[group.song]}
       <div class="song-group">
         <!-- Song header with transport controls -->
         <div class="song-header">
@@ -1387,7 +1354,7 @@
         <div class="stems-list">
           {#each group.stems as stem (stem.id)}
             {@const key = stemKey(group.song, stem.name)}
-            {@const state = stemStates[key] ?? { muted: false, solo: false, volume: 100 }}
+            {@const state = playerState.resultsStemStates[key] ?? { muted: false, solo: false, volume: 100 }}
             <div class="stem-row" class:muted={state.muted}>
               <!-- Waveform -->
               <canvas
@@ -1452,8 +1419,8 @@
         </div>
 
         <!-- Pitch subgroups -->
-        {#if pitchSubgroups[group.song]?.length}
-          {#each pitchSubgroups[group.song] as sg (sg.pitch)}
+        {#if playerState.resultsPitchSubgroups[group.song]?.length}
+          {#each playerState.resultsPitchSubgroups[group.song] as sg (sg.pitch)}
             {@const subPlayer = sg.player}
             {@const subsStems = sg.stems}
             <div class="pitched-group">
@@ -1489,10 +1456,10 @@
                       const vol = parseInt((e.target as HTMLInputElement).value);
                       for (const st of subsStems) {
                         const key = `pitch:${group.song}:${sg.pitch}:${st.name}`;
-                        const cur = stemStates[key] || { muted: false, solo: false, volume: 100 };
-                        stemStates[key] = { ...cur, volume: vol };
+                        const cur = playerState.resultsStemStates[key] || { muted: false, solo: false, volume: 100 };
+                        playerState.resultsStemStates[key] = { ...cur, volume: vol };
                       }
-                      stemStates = { ...stemStates };
+                      playerState.resultsStemStates = { ...playerState.resultsStemStates };
                       syncSubgroupGains(group.song, sg.pitch);
                     }}
                     class="vol-slider" style="width:80px" title="Master volume" />
@@ -1517,9 +1484,9 @@
               <div class="stems-list">
                 {#each sg.stems as stem}
                   {@const stemId = `pitch:${group.song}:${sg.pitch}:${stem.name}`}
-                  {@const subState = stemStates[stemId] ?? { muted: false, solo: false, volume: 100 }}
-                  {@const sLevel = pitchedLevels[stemId] || { l: 0, r: 0 }}
-                  {@const pLevel = pitchedPeaks[stemId] || { l: 0, r: 0 }}
+                  {@const subState = playerState.resultsStemStates[stemId] ?? { muted: false, solo: false, volume: 100 }}
+                  {@const sLevel = playerState.resultsPitchedLevels[stemId] || { l: 0, r: 0 }}
+                  {@const pLevel = playerState.resultsPitchedPeaks[stemId] || { l: 0, r: 0 }}
                   <div class="stem-row pitched-stem" class:muted={subState.muted}>
                     <span class="stem-emoji">{stemEmoji(stem.stemType)}</span>
                     <span class="stem-name" title={stem.name}>{formatPitchStemName(stem.name)}</span>
