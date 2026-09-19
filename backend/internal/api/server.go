@@ -1059,8 +1059,9 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	args := append([]string{script}, pipelineArgs...)
 	cmd := exec.CommandContext(ctx, "bash", args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Env = append(os.Environ(), "PYTHONUNBUFFERED=1")
 	if len(job.Env) > 0 {
-		cmd.Env = append(os.Environ(), job.Env...)
+		cmd.Env = append(cmd.Env, job.Env...)
 	}
 
 	var out bytes.Buffer
@@ -1078,6 +1079,14 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	}
 	s.jobsMu.Unlock()
 
+	stepName := "pipeline"
+	if len(job.Steps) == 1 {
+		stepName = job.Steps[0].ID
+		if stepName == "" {
+			stepName = job.Steps[0].Type
+		}
+	}
+
 	if err == nil {
 		err = waitCmdResult(ctx, cmd)
 	}
@@ -1093,6 +1102,9 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	// Log all pipeline output to ring buffer with distinct timestamps
 	logPipelineOutput(string(output))
 
+	duration := time.Since(state.StartedAt)
+	exitCode, signalName, _ := extractExitInfo(err)
+
 	s.jobsMu.Lock()
 	if state, ok := s.jobs[job.Song]; ok {
 		if err != nil {
@@ -1104,12 +1116,19 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 					errMsg = "pipeline failed"
 				}
 			}
-			state.Error = errMsg
-			Log("pipeline", "error", "Pipeline failed for "+job.Song+": "+errMsg)
+			tail := tailOutput(errMsg, 40, 8192)
+			state.Error = tail
+			if projectRoot := resolveProjectRoot(); projectRoot != "" {
+				statusPath := filepath.Join(projectRoot, "output", "pipeline_status.json")
+				writePipelineStatusFailed(statusPath, stepName, exitCode, signalName)
+			}
+			logMsg := fmt.Sprintf("Pipeline failed for %s (step=%s, exit=%d, signal=%s, duration=%.1fs): %s",
+				job.Song, stepName, exitCode, signalName, duration.Seconds(), tail)
+			Log("pipeline", "error", logMsg)
 		} else {
 			state.Status = "done"
 			state.Files = listStems(job.Song)
-			Log("pipeline", "success", fmt.Sprintf("Pipeline completed: %s (%d stems)", job.Song, len(state.Files)))
+			Log("pipeline", "success", fmt.Sprintf("Pipeline completed: %s (%d stems, duration=%.1fs)", job.Song, len(state.Files), duration.Seconds()))
 		}
 	}
 	s.jobsMu.Unlock()
@@ -1183,8 +1202,9 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		pipelineArgs := append([]string{"/app/pipeline.sh"}, stepArgs...)
 		cmd := exec.CommandContext(ctx, "bash", pipelineArgs...)
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+		cmd.Env = append(os.Environ(), "PYTHONUNBUFFERED=1")
 		if len(stepEnv) > 0 {
-			cmd.Env = append(os.Environ(), stepEnv...)
+			cmd.Env = append(cmd.Env, stepEnv...)
 		}
 
 		var out bytes.Buffer
@@ -1219,15 +1239,21 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 
 		// Check for errors
 		if err != nil {
+			duration := time.Since(state.StartedAt)
+			exitCode, signalName, _ := extractExitInfo(err)
+			errMsg := strings.TrimSpace(string(output))
+			if errMsg == "" {
+				errMsg = err.Error()
+			}
+			tail := tailOutput(errMsg, 40, 8192)
+			statusPath := filepath.Join(outputDir, "pipeline_status.json")
+			writePipelineStatusFailed(statusPath, step.ID, exitCode, signalName)
 			s.jobsMu.Lock()
 			if state, ok := s.jobs[job.Song]; ok {
 				state.Status = "error"
-				errMsg := strings.TrimSpace(string(output))
-				if errMsg == "" {
-					errMsg = err.Error()
-				}
-				state.Error = fmt.Sprintf("Step %d (%s) failed: %s", i+1, step.ID, errMsg)
-				Log("pipeline", "error", fmt.Sprintf("Pipeline step %d/%d failed for %s: %s", i+1, len(steps), job.Song, errMsg))
+				state.Error = fmt.Sprintf("Step %d (%s) failed (exit=%d, signal=%s): %s", i+1, step.ID, exitCode, signalName, tail)
+				Log("pipeline", "error", fmt.Sprintf("Pipeline step %d/%d failed for %s (exit=%d, signal=%s, duration=%.1fs): %s",
+					i+1, len(steps), job.Song, exitCode, signalName, duration.Seconds(), tail))
 			}
 			s.jobsMu.Unlock()
 			return
@@ -1437,6 +1463,122 @@ var (
 	// pipelineErrorRe matches lines that look like errors or failures.
 	pipelineErrorRe = regexp.MustCompile(`(?i)\b(error|failed|fatal|traceback)\b|❌`)
 )
+
+// tailOutput returns the last maxLines of output, limited to roughly maxBytes.
+// It is used to capture the trailing context when a pipeline step fails so the
+// log shows what happened right before the exit instead of the very beginning.
+func tailOutput(output string, maxLines, maxBytes int) string {
+	if maxLines <= 0 {
+		maxLines = 40
+	}
+	if maxBytes <= 0 {
+		maxBytes = 8192
+	}
+	lines := strings.Split(output, "\n")
+	if len(lines) > maxLines {
+		lines = lines[len(lines)-maxLines:]
+	}
+	trimmed := strings.TrimSpace(strings.Join(lines, "\n"))
+	if len(trimmed) > maxBytes {
+		trimmed = trimmed[len(trimmed)-maxBytes:]
+		if idx := strings.Index(trimmed, "\n"); idx > 0 {
+			trimmed = trimmed[idx+1:]
+		}
+	}
+	return trimmed
+}
+
+// extractExitInfo returns the exit code and signal name from a process wait
+// error. If the error does not represent a process exit it returns ok=false.
+func extractExitInfo(err error) (exitCode int, signalName string, ok bool) {
+	var exitErr *exec.ExitError
+	if !errors.As(err, &exitErr) {
+		return 0, "", false
+	}
+	status, ok := exitErr.Sys().(syscall.WaitStatus)
+	if !ok {
+		return exitErr.ExitCode(), "", true
+	}
+	if status.Signaled() {
+		return 128 + int(status.Signal()), status.Signal().String(), true
+	}
+	return status.ExitStatus(), "", true
+}
+
+// writePipelineStatusFailed writes an honest failed status to
+// output/pipeline_status.json when a step exits or is killed. This prevents
+// the UI from showing a stale "running" state after a crash.
+func writePipelineStatusFailed(statusPath, step string, exitCode int, signalName string) {
+	type failedStatus struct {
+		Status   string `json:"status"`
+		Step     string `json:"step"`
+		ExitCode int    `json:"exit_code"`
+		Signal   string `json:"signal,omitempty"`
+	}
+	st := failedStatus{Status: "failed", Step: step, ExitCode: exitCode}
+	if signalName != "" {
+		st.Signal = signalName
+	}
+	data, err := json.Marshal(st)
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(statusPath, data, 0644)
+}
+
+// formatJobConfig builds a single-line summary of the effective job
+// configuration so queued jobs can be compared later from the log.
+func formatJobConfig(req SeparateRequest) string {
+	vocalModel := req.VocalModel
+	if vocalModel == "" {
+		vocalModel = req.ViperxModel
+	}
+	stemModel := req.StemModel
+	if stemModel == "" {
+		stemModel = req.DemucsModel
+	}
+	if stemModel == "" && req.Demucs {
+		stemModel = "htdemucs_ft"
+	}
+
+	vocalCfg := readModelConfigFromYaml(vocalModel)
+	stemCfg := readModelConfigFromYaml(stemModel)
+
+	device := req.Device
+	if device == "" {
+		device = "cuda"
+	}
+
+	shifts := req.Shifts
+	if shifts <= 0 {
+		shifts = stemCfg.Shifts
+	}
+	segment := req.DemucsSegment
+	if segment <= 0 {
+		segment = stemCfg.Segment
+	}
+	jobs := req.Jobs
+	if jobs <= 0 {
+		jobs = stemCfg.Jobs
+	}
+
+	return fmt.Sprintf(
+		"preset=%s vocal_model=%s stem_model=%s dim_t=%d segment_size=%d overlap=%.4f num_overlap=%d batch=%d chunk=%d shifts=%d segment=%.0f jobs=%d device=%s",
+		req.Preset,
+		vocalModel,
+		stemModel,
+		vocalCfg.DimT,
+		vocalCfg.SegmentSize,
+		vocalCfg.Overlap,
+		vocalCfg.NumOverlap,
+		vocalCfg.BatchSize,
+		vocalCfg.ChunkSize,
+		shifts,
+		segment,
+		jobs,
+		device,
+	)
+}
 
 // logPipelineOutput logs the lines printed by pipeline.sh. Consecutive
 // progress-bar frames are collapsed to the last frame to avoid flooding the
@@ -1919,7 +2061,7 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	// Enqueue the job (with steps if multi-step)
 	s.jobQueue <- JobRequest{Song: song, Args: pipelineArgs, Config: req, Steps: steps, Env: pipelineEnv}
 
-	Log("backend", "success", "Job queued: "+song)
+	Log("backend", "success", "Job queued: "+song+" | "+formatJobConfig(req))
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusAccepted)

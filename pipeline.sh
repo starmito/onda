@@ -37,6 +37,10 @@
 
 set -euo pipefail
 
+# Ensure Python scripts flush stdout/stderr line-by-line even when stdout is
+# not a tty, so live progress and the last error lines are visible immediately.
+export PYTHONUNBUFFERED=1
+
 # PYTHONPATH para docker exec (entrypoint no se ejecuta)
 export PYTHONPATH="${PYTHONPATH:-}:/app/lib_v5"
 
@@ -515,7 +519,7 @@ run_vocal_step() {
             mdx_overlap=$(python3 -c "import yaml; print(yaml.load(open('$mdx_yaml'), Loader=yaml.FullLoader).get('inference',{}).get('num_overlap',8))" 2>/dev/null || echo "8")
             mdx_batch_size=$(python3 -c "import yaml; print(yaml.load(open('$mdx_yaml'), Loader=yaml.FullLoader).get('inference',{}).get('batch_size',1))" 2>/dev/null || echo "1")
         fi
-        run_with_elapsed python3 /app/inference_mdx.py \
+        run_with_elapsed python3 -u /app/inference_mdx.py \
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
             --batch-size "${mdx_batch_size}" \
@@ -526,7 +530,7 @@ run_vocal_step() {
             exit 2
         fi
         echo "   ℹ️  Detected SCNet vocal model"
-        run_with_elapsed python3 /app/inference_scnet.py \
+        run_with_elapsed python3 -u /app/inference_scnet.py \
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
             "${model_dir}" "${input_file}" "${output_dir}"
@@ -542,7 +546,7 @@ run_vocal_step() {
         if [ -n "$onnx_json" ]; then
             onnx_overlap=$(python3 -c "import json; print(json.load(open('$onnx_json')).get('overlap',4))" 2>/dev/null || echo "4")
         fi
-        run_with_elapsed python3 /app/inference_onnx.py \
+        run_with_elapsed python3 -u /app/inference_onnx.py \
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
             "${model_dir}" "${input_file}" "${output_dir}" "${onnx_overlap}"
@@ -562,7 +566,7 @@ run_vocal_step() {
         fi
 
         # Pass chunk size to inference via environment (0 = whole song)
-        ONDA_CHUNK_SIZE="${yaml_chunk_size}" run_with_elapsed python3 /app/inference_universal.py \
+        ONDA_CHUNK_SIZE="${yaml_chunk_size}" run_with_elapsed python3 -u /app/inference_universal.py \
             --pipeline-status "$STATUS_FILE" \
             "${model_dir}" "${input_file}" "${output_dir}" "${yaml_num_overlap}"
     fi
@@ -642,7 +646,7 @@ apply_demucs_fallback_config() {
     # buffered until the process ends.  Fall back to plain demucs if stdbuf is
     # not available (progress will be less granular but still functional).
     if command -v stdbuf >/dev/null 2>&1; then
-        stdbuf -eL demucs "${demucs_args[@]}" "${input_file}" 2> "${progress_log}" &
+        stdbuf -oL -eL demucs "${demucs_args[@]}" "${input_file}" 2> "${progress_log}" &
     else
         demucs "${demucs_args[@]}" "${input_file}" 2> "${progress_log}" &
     fi
@@ -1208,7 +1212,7 @@ if $VOCAL || $VIPERX; then
         echo "   ℹ️  Using MDX-C inference"
         VOCAL_OVERLAP_INT="${VOCAL_NUM_OVERLAP:-${VIPERX_NUM_OVERLAP:-8}}"
         VOCAL_BATCH_SIZE_INT="${VOCAL_BATCH_SIZE:-${VIPERX_BATCH_SIZE:-1}}"
-        run_with_elapsed python3 /app/inference_mdx.py \
+        run_with_elapsed python3 -u /app/inference_mdx.py \
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
             --batch-size "${VOCAL_BATCH_SIZE_INT}" \
@@ -1219,7 +1223,7 @@ if $VOCAL || $VIPERX; then
             exit 2
         fi
         echo "   ℹ️  Using SCNet inference"
-        run_with_elapsed python3 /app/inference_scnet.py \
+        run_with_elapsed python3 -u /app/inference_scnet.py \
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
             "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}"
@@ -1234,7 +1238,7 @@ if $VOCAL || $VIPERX; then
         if [ -n "$onnx_json" ]; then
             onnx_overlap=$(python3 -c "import json; print(json.load(open('$onnx_json')).get('overlap',4))" 2>/dev/null || echo "4")
         fi
-        run_with_elapsed python3 /app/inference_onnx.py \
+        run_with_elapsed python3 -u /app/inference_onnx.py \
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
             "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}" "${onnx_overlap}"
@@ -1244,7 +1248,7 @@ if $VOCAL || $VIPERX; then
             exit 2
         fi
         echo "   ℹ️  Using RoFormer inference"
-        run_with_elapsed python3 /app/inference_universal.py \
+        run_with_elapsed python3 -u /app/inference_universal.py \
             --pipeline-status "$STATUS_FILE" \
             "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}" ${VOCAL_OVERLAP_INT}
     fi
