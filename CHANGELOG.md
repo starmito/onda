@@ -1,5 +1,12 @@
 # Changelog
 
+## [v3.4.14] - 2026-09-19
+
+### Fixed
+- **Sweep de huérfanos limitado al propio contenedor**: el sweep de procesos huérfanos ahora es seguro en entornos cgroup y no invoca `/proc` fuera de su contexto.
+- **Sweep inerte en tests**: la suite de tests ya no ejecuta el sweep real contra `/proc`; el sweep es inerte por defecto durante los tests.
+- **Calibración del estimador de RAM del guard**: el estimador de RAM del guard se ha calibrado con mediciones reales (`BS_Roformer_Viperx`).
+
 ## [v3.4.13] - 2026-09-19
 
 ### Added
