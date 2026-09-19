@@ -7,15 +7,14 @@
     fadeAudio,
     exportAudio,
     trimAudio,
-    listStems,
     importStem,
-    uploadAudioDAW,
+    uploadAudio,
     getTempoGrid,
     getInputs,
     deleteDawSong,
     DAWAudioNotFoundError,
   } from './api';
-  import type { TempoGridResponse, PitchStemEntry, InputEntry, DAWSongDeleteResult } from './api';
+  import type { TempoGridResponse, InputEntry, DAWSongDeleteResult } from './api';
   import { IconSkipBack, IconSkipForward } from './icons';
 
   type RegionLike = { start: number; end: number };
@@ -50,22 +49,15 @@
 
   let { onActiveTrackChange, onError }: Props = $props();
 
-  let fileInput: HTMLInputElement | null = $state(null);
   let exportFormat = $state<'wav' | 'mp3' | 'flac'>('wav');
   let exportBitrate = $state<'128k' | '192k' | '320k'>('192k');
-  let importUploadInput: HTMLInputElement | null = $state(null);
+  let subidasUploadInput: HTMLInputElement | null = $state(null);
 
   let tracks: Track[] = $state([]);
   let activeTrackId = $state<string>('');
   let trackContainers: Record<string, HTMLDivElement> = $state({});
 
   let importOpen = $state(false);
-  let importTab = $state<'upload' | 'uploaded' | 'output' | 'pitch'>('upload');
-  let stemsData = $state<{ output: Record<string, string[]>; pitch: PitchStemEntry[] }>({
-    output: {},
-    pitch: [],
-  });
-  let stemsLoading = $state(false);
   let uploadedInputs = $state<InputEntry[]>([]);
   let uploadedLoading = $state(false);
   let showProcessedInputs = $state(false);
@@ -75,16 +67,11 @@
   let otherOriginalInputs = $derived(originalInputs.filter((e) => e.source !== 'daw-data'));
   let originalSongs = $derived(groupInputsBySong(dawOriginalInputs));
   let expandedSongs = $state<Record<string, boolean>>({});
-  let uploadResult = $state<{ file: string; size: number } | null>(null);
 
   $effect(() => {
-    // Ensure stems or uploaded inputs are loaded whenever the import panel is open.
+    // Refresh the Subidas list whenever the import panel opens.
     if (!importOpen) return;
-    if (importTab === 'uploaded') {
-      loadUploadedInputs();
-    } else if (importTab !== 'upload') {
-      loadStems();
-    }
+    loadUploadedInputs();
   });
 
   let zoom = $state(100);
@@ -341,16 +328,6 @@
     activeTrackId = id;
     updateStatus();
     return track;
-  }
-
-  function handleFileSelect(e: Event) {
-    const input = e.target as HTMLInputElement;
-    const file = input.files?.[0];
-    if (file) {
-      const source = URL.createObjectURL(file);
-      addTrack(file.name, file.name, source, file.size);
-    }
-    input.value = '';
   }
 
   function getTrackRegions(track: Track): RegionLike[] {
@@ -640,26 +617,6 @@
     }
   }
 
-  async function loadStems() {
-    stemsLoading = true;
-    try {
-      stemsData = await listStems();
-    } catch (err) {
-      status = `Error al cargar stems: ${err instanceof Error ? err.message : String(err)}`;
-    } finally {
-      stemsLoading = false;
-    }
-  }
-
-  function openImportTab(tab: 'upload' | 'uploaded' | 'output' | 'pitch') {
-    importTab = tab;
-    if (tab === 'uploaded') {
-      loadUploadedInputs();
-    } else if (tab !== 'upload') {
-      loadStems();
-    }
-  }
-
   async function loadUploadedInputs() {
     uploadedLoading = true;
     try {
@@ -672,20 +629,20 @@
     }
   }
 
-  async function handleImportUpload(e: Event) {
+  async function handleSubidasUpload(e: Event) {
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
     isProcessing = true;
     status = 'Subiendo...';
     try {
-      const resp = await uploadAudioDAW(file);
-      uploadResult = { file: resp.file, size: resp.size };
-      addTrack(resp.name, resp.path, resp.url, resp.size);
-      status = `Subido: ${resp.file}`;
+      await uploadAudio(file);
+      status = `Subido: ${file.name}`;
       await loadUploadedInputs();
     } catch (err) {
-      status = `Error al subir: ${err instanceof Error ? err.message : String(err)}`;
+      const msg = err instanceof Error ? err.message : String(err);
+      status = `Error al subir: ${msg}`;
+      onError?.(`Error al subir: ${msg}`);
     } finally {
       isProcessing = false;
       input.value = '';
@@ -775,46 +732,6 @@
     }
   }
 
-  async function handleImportOutput(song: string, stem: string) {
-    isProcessing = true;
-    status = 'Importando...';
-    try {
-      const resp = await importStem('output', song, stem);
-      addTrack(resp.name, resp.path, resp.url, resp.size);
-      status = `Importado: ${resp.file}`;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (err instanceof DAWAudioNotFoundError) {
-        onError?.(msg);
-        status = `Archivo no encontrado: ${msg}`;
-      } else {
-        status = `Error al importar: ${msg}`;
-      }
-    } finally {
-      isProcessing = false;
-    }
-  }
-
-  async function handleImportPitch(entry: PitchStemEntry) {
-    isProcessing = true;
-    status = 'Importando pitch...';
-    try {
-      const resp = await importStem('pitch', entry.song, entry.stem, entry.pitch);
-      addTrack(resp.name, resp.path, resp.url, resp.size);
-      status = `Importado: ${resp.file}`;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (err instanceof DAWAudioNotFoundError) {
-        onError?.(msg);
-        status = `Archivo no encontrado: ${msg}`;
-      } else {
-        status = `Error al importar: ${msg}`;
-      }
-    } finally {
-      isProcessing = false;
-    }
-  }
-
   function toggleExpandedSong(song: string) {
     expandedSongs[song] = !expandedSongs[song];
   }
@@ -845,9 +762,6 @@
     </header>
 
     <div class="toolbar">
-      <button class="btn-primary" onclick={() => fileInput?.click()}>
-        Cargar audio
-      </button>
       <div class="transport-controls">
         <button class="ctrl-btn skip-btn" onclick={() => skipAll(-10)} disabled={!isReady} title="-10 segundos">
           {@html IconSkipBack}
@@ -930,7 +844,7 @@
       {#if tracks.length === 0}
         <div class="empty-state">
           <p>No hay pistas cargadas.</p>
-          <p>Usa "Cargar audio" o "Importar" para añadir pistas.</p>
+          <p>Usa "Importar" para añadir pistas desde Subidas.</p>
         </div>
       {:else}
         {#each tracks as track (track.id)}
@@ -995,122 +909,116 @@
         <button class="btn" onclick={() => (importOpen = false)}>Cerrar</button>
       </div>
 
-      <div class="import-tabs">
-        <button
-          class="import-tab"
-          class:active={importTab === 'upload'}
-          onclick={() => openImportTab('upload')}
-        >
-          Subir desde PC
-        </button>
-        <button
-          class="import-tab"
-          class:active={importTab === 'uploaded'}
-          onclick={() => openImportTab('uploaded')}
-        >
-          Canciones ya subidas
-        </button>
-        <button
-          class="import-tab"
-          class:active={importTab === 'output'}
-          onclick={() => openImportTab('output')}
-        >
-          Stems de Onda
-        </button>
-        <button
-          class="import-tab"
-          class:active={importTab === 'pitch'}
-          onclick={() => openImportTab('pitch')}
-        >
-          Pitch shift
-        </button>
-      </div>
-
       <div class="import-body">
-        {#if importTab === 'upload'}
-          <div class="import-section">
+        <div class="import-section">
+          <div class="subidas-header">
+            <h4>Subidas</h4>
             <input
-              bind:this={importUploadInput}
+              bind:this={subidasUploadInput}
               type="file"
               accept=".wav,.mp3,.flac,.ogg,.m4a,.aiff"
-              onchange={handleImportUpload}
+              onchange={handleSubidasUpload}
               class="file-input"
             />
-            <button class="btn-primary" onclick={() => importUploadInput?.click()}>
-              Seleccionar archivo
+            <button class="btn-primary" onclick={() => subidasUploadInput?.click()} disabled={isProcessing}>
+              Subir archivo
             </button>
-            {#if uploadResult}
-              <div class="upload-result">
-                <span class="upload-name">{uploadResult.file}</span>
-                <span class="upload-size">{formatBytes(uploadResult.size)}</span>
+          </div>
+
+          {#if uploadedLoading}
+            <div class="loading">Cargando canciones...</div>
+          {:else if uploadedInputs.length === 0}
+            <div class="empty">No hay canciones subidas todavía.</div>
+          {:else}
+            {#if originalInputs.length > 0}
+              <div class="input-group">
+                <h4 class="input-group-title">Originales</h4>
+                {#each Object.entries(originalSongs) as [song, entries]}
+                  <div class="song-item">
+                    <div class="song-header">
+                      <button
+                        class="song-toggle"
+                        onclick={() => toggleExpandedSong(song)}
+                      >
+                        <span class="toggle-icon">{expandedSongs[song] ? '▼' : '▶'}</span>
+                        <span class="song-name">{song}</span>
+                      </button>
+                      <div class="song-actions">
+                        <button
+                          class="btn-small"
+                          onclick={() => handleImportUploaded(entries[0])}
+                          disabled={isProcessing}
+                        >
+                          Importar
+                        </button>
+                        <button
+                          class="btn-small btn-danger"
+                          onclick={() => handleDeleteUploadedSong(song)}
+                          disabled={isProcessing}
+                          title="Borrar canción"
+                          aria-label="Borrar canción {song}"
+                        >
+                          🗑
+                        </button>
+                      </div>
+                    </div>
+                    {#if expandedSongs[song]}
+                      <div class="stem-list">
+                        {#each entries as entry}
+                          <div class="stem-item">
+                            <div class="stem-info">
+                              <span class="stem-name">{entry.name}</span>
+                              <span class="stem-meta">DAW</span>
+                            </div>
+                            <button
+                              class="btn-small"
+                              onclick={() => handleImportUploaded(entry)}
+                              disabled={isProcessing}
+                            >
+                              Importar
+                            </button>
+                          </div>
+                        {/each}
+                      </div>
+                    {/if}
+                  </div>
+                {/each}
+                {#each otherOriginalInputs as entry}
+                  <div class="stem-item">
+                    <div class="stem-info">
+                      <span class="stem-name">{entry.name}</span>
+                      <span class="stem-meta">Subida</span>
+                    </div>
+                    <button
+                      class="btn-small"
+                      onclick={() => handleImportUploaded(entry)}
+                      disabled={isProcessing}
+                    >
+                      Importar
+                    </button>
+                  </div>
+                {/each}
               </div>
             {/if}
-          </div>
-        {:else if importTab === 'uploaded'}
-          <div class="import-section">
-            {#if uploadedLoading}
-              <div class="loading">Cargando canciones...</div>
-            {:else if uploadedInputs.length === 0}
-              <div class="empty">No hay canciones subidas todavía.</div>
-            {:else}
-              {#if originalInputs.length > 0}
-                <div class="input-group">
-                  <h4 class="input-group-title">Originales</h4>
-                  {#each Object.entries(originalSongs) as [song, entries]}
-                    <div class="song-item">
-                      <div class="song-header">
-                        <button
-                          class="song-toggle"
-                          onclick={() => toggleExpandedSong(song)}
-                        >
-                          <span class="toggle-icon">{expandedSongs[song] ? '▼' : '▶'}</span>
-                          <span class="song-name">{song}</span>
-                        </button>
-                        <div class="song-actions">
-                          <button
-                            class="btn-small"
-                            onclick={() => handleImportUploaded(entries[0])}
-                            disabled={isProcessing}
-                          >
-                            Importar
-                          </button>
-                          <button
-                            class="btn-small btn-danger"
-                            onclick={() => handleDeleteUploadedSong(song)}
-                            disabled={isProcessing}
-                            title="Borrar canción"
-                            aria-label="Borrar canción {song}"
-                          >
-                            🗑
-                          </button>
-                        </div>
-                      </div>
-                      {#if expandedSongs[song]}
-                        <div class="stem-list">
-                          {#each entries as entry}
-                            <div class="stem-item">
-                              <div class="stem-info">
-                                <span class="stem-name">{entry.name}</span>
-                                <span class="stem-meta">DAW</span>
-                              </div>
-                              <button
-                                class="btn-small"
-                                onclick={() => handleImportUploaded(entry)}
-                                disabled={isProcessing}
-                              >
-                                Importar
-                              </button>
-                            </div>
-                          {/each}
-                        </div>
-                      {/if}
-                    </div>
-                  {/each}
-                  {#each otherOriginalInputs as entry}
-                    <div class="stem-item">
+            {#if processedInputs.length > 0}
+              <div class="input-group">
+                <button
+                  class="processed-toggle"
+                  onclick={() => (showProcessedInputs = !showProcessedInputs)}
+                >
+                  <span class="toggle-icon">{showProcessedInputs ? '▼' : '▶'}</span>
+                  <span class="processed-toggle-text">Procesados por el DAW</span>
+                  <span class="processed-count">({processedInputs.length})</span>
+                </button>
+                {#if showProcessedInputs}
+                  <p class="processed-hint">
+                    Resultados intermedios generados por los efectos del DAW (delay, reverb, eq, etc.).
+                  </p>
+                  {#each processedInputs as entry}
+                    <div class="stem-item processed-item">
                       <div class="stem-info">
                         <span class="stem-name">{entry.name}</span>
-                        <span class="stem-meta">Subida</span>
+                        <span class="stem-meta">DAW · procesado</span>
                       </div>
                       <button
                         class="btn-small"
@@ -1121,115 +1029,15 @@
                       </button>
                     </div>
                   {/each}
-                </div>
-              {/if}
-              {#if processedInputs.length > 0}
-                <div class="input-group">
-                  <button
-                    class="processed-toggle"
-                    onclick={() => (showProcessedInputs = !showProcessedInputs)}
-                  >
-                    <span class="toggle-icon">{showProcessedInputs ? '▼' : '▶'}</span>
-                    <span class="processed-toggle-text">Procesados por el DAW</span>
-                    <span class="processed-count">({processedInputs.length})</span>
-                  </button>
-                  {#if showProcessedInputs}
-                    <p class="processed-hint">
-                      Resultados intermedios generados por los efectos del DAW (delay, reverb, eq, etc.).
-                    </p>
-                    {#each processedInputs as entry}
-                      <div class="stem-item processed-item">
-                        <div class="stem-info">
-                          <span class="stem-name">{entry.name}</span>
-                          <span class="stem-meta">DAW · procesado</span>
-                        </div>
-                        <button
-                          class="btn-small"
-                          onclick={() => handleImportUploaded(entry)}
-                          disabled={isProcessing}
-                        >
-                          Importar
-                        </button>
-                      </div>
-                    {/each}
-                  {/if}
-                </div>
-              {/if}
+                {/if}
+              </div>
             {/if}
-          </div>
-        {:else if importTab === 'output'}
-          <div class="import-section">
-            {#if stemsLoading}
-              <div class="loading">Cargando stems...</div>
-            {:else if Object.keys(stemsData.output).length === 0}
-              <div class="empty">No hay stems disponibles en output.</div>
-            {:else}
-              {#each Object.entries(stemsData.output) as [song, stems]}
-                <div class="song-item">
-                  <button
-                    class="song-toggle"
-                    onclick={() => toggleExpandedSong(song)}
-                  >
-                    <span class="toggle-icon">{expandedSongs[song] ? '▼' : '▶'}</span>
-                    <span class="song-name">{song}</span>
-                  </button>
-                  {#if expandedSongs[song]}
-                    <div class="stem-list">
-                      {#each stems as stem}
-                        <div class="stem-item">
-                          <span class="stem-name">{stem}</span>
-                          <button
-                            class="btn-small"
-                            onclick={() => handleImportOutput(song, stem)}
-                            disabled={isProcessing}
-                          >
-                            Importar
-                          </button>
-                        </div>
-                      {/each}
-                    </div>
-                  {/if}
-                </div>
-              {/each}
-            {/if}
-          </div>
-        {:else if importTab === 'pitch'}
-          <div class="import-section">
-            {#if stemsLoading}
-              <div class="loading">Cargando stems...</div>
-            {:else if stemsData.pitch.length === 0}
-              <div class="empty">No hay archivos de pitch disponibles.</div>
-            {:else}
-              {#each stemsData.pitch as entry}
-                <div class="stem-item">
-                  <div class="stem-info">
-                    <span class="stem-name">{entry.stem}</span>
-                    <span class="stem-meta">{entry.song} · {entry.pitch}</span>
-                  </div>
-                  <button
-                    class="btn-small"
-                    onclick={() => handleImportPitch(entry)}
-                    disabled={isProcessing}
-                  >
-                    Importar
-                  </button>
-                </div>
-              {/each}
-            {/if}
-          </div>
-        {/if}
+          {/if}
+        </div>
       </div>
     </div>
   {/if}
 </div>
-
-<input
-  bind:this={fileInput}
-  type="file"
-  accept="audio/*"
-  onchange={handleFileSelect}
-  class="file-input"
-/>
 
 <style>
   .daw-page {
@@ -1563,28 +1371,6 @@
     color: var(--text-primary);
   }
 
-  .import-tabs {
-    display: flex;
-    border-bottom: 1px solid var(--border);
-  }
-
-  .import-tab {
-    flex: 1;
-    padding: 0.7rem 0.4rem;
-    background: var(--bg);
-    border: none;
-    border-bottom: 2px solid transparent;
-    color: var(--text-secondary);
-    font-size: 0.8rem;
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .import-tab.active {
-    color: var(--accent);
-    border-bottom-color: var(--accent);
-  }
-
   .import-body {
     flex: 1;
     overflow-y: auto;
@@ -1597,25 +1383,17 @@
     gap: 0.8rem;
   }
 
-  .upload-result {
+  .subidas-header {
     display: flex;
-    flex-direction: column;
-    gap: 0.25rem;
-    padding: 0.6rem;
-    background: var(--accent-bg);
-    border: 1px solid var(--accent-border);
-    border-radius: 8px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
   }
 
-  .upload-name {
-    font-size: 0.85rem;
+  .subidas-header h4 {
+    margin: 0;
+    font-size: 1rem;
     color: var(--text-primary);
-    word-break: break-all;
-  }
-
-  .upload-size {
-    font-size: 0.75rem;
-    color: var(--text-secondary);
   }
 
   .loading,
