@@ -11,12 +11,7 @@ import (
 // so findProjectRoot() resolves to it during the test.
 func setupAudioConvertTestRoot(t *testing.T) string {
 	t.Helper()
-	root, err := os.MkdirTemp(".", "audio-convert-test-")
-	if err != nil {
-		t.Fatalf("failed to create test root: %v", err)
-	}
-	t.Setenv("ONDA_ROOT", root)
-	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	root := setTestRoot(t, "audio-convert-test-")
 
 	for _, dir := range []string{"input", "daw-data", "daw-data/tmp"} {
 		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {

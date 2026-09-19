@@ -14,12 +14,7 @@ import (
 
 func setupStorageTestRoot(t *testing.T) string {
 	t.Helper()
-	root, err := os.MkdirTemp(".", "storage-test-")
-	if err != nil {
-		t.Fatalf("failed to create test root: %v", err)
-	}
-	t.Setenv("ONDA_ROOT", root)
-	t.Cleanup(func() { os.RemoveAll(root) })
+	root := setTestRoot(t, "storage-test-")
 
 	for _, dir := range []string{"input", "input_rubberband", "daw-data", "output", "models", "logs"} {
 		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {

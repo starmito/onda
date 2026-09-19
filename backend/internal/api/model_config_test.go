@@ -15,8 +15,7 @@ import (
 )
 
 func TestWriteModelConfigToYaml_CreatesFallbackForHtdemucsFt(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	root := setTestRoot(t, "model-config-")
 
 	cfg := ModelConfigResponse{
 		SegmentSize: 256,
@@ -76,8 +75,7 @@ func TestWriteModelConfigToYaml_CreatesFallbackForHtdemucsFt(t *testing.T) {
 }
 
 func TestWriteModelConfigToYaml_PreservesValidSegment(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	root := setTestRoot(t, "model-config-")
 
 	cfg := ModelConfigResponse{
 		SegmentSize: 256,
@@ -125,8 +123,7 @@ func TestWriteModelConfigToYaml_PreservesValidSegment(t *testing.T) {
 }
 
 func TestBuildPipelineArgs_DemucsUsesSavedConfig(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	setTestRoot(t, "model-config-")
 
 	cfg := ModelConfigResponse{
 		SegmentSize: 256,
@@ -162,8 +159,7 @@ func TestBuildPipelineArgs_DemucsUsesSavedConfig(t *testing.T) {
 }
 
 func TestBuildPipelineArgs_DemucsDefaultModelUsesSavedConfig(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	setTestRoot(t, "model-config-")
 
 	cfg := ModelConfigResponse{
 		SegmentSize: 256,
@@ -201,8 +197,7 @@ func TestBuildPipelineArgs_DemucsDefaultModelUsesSavedConfig(t *testing.T) {
 }
 
 func TestBuildPipelineArgs_DemucsRequestOverridesConfig(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	setTestRoot(t, "model-config-")
 
 	cfg := ModelConfigResponse{
 		SegmentSize: 256,
@@ -238,8 +233,7 @@ func TestBuildPipelineArgs_DemucsRequestOverridesConfig(t *testing.T) {
 }
 
 func TestBuildPipelineArgs_DemucsDecimalSegmentClamped(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	setTestRoot(t, "model-config-")
 
 	cfg := ModelConfigResponse{
 		SegmentSize: 256,
@@ -267,8 +261,7 @@ func TestBuildPipelineArgs_DemucsDecimalSegmentClamped(t *testing.T) {
 }
 
 func TestBuildStepPipelineArgs_DemucsUsesSavedConfig(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	setTestRoot(t, "model-config-")
 
 	cfg := ModelConfigResponse{
 		SegmentSize: 256,
@@ -312,8 +305,7 @@ func argValue(args []string, flag string) string {
 }
 
 func TestHandleModelsConfig_DecimalSegment(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	setTestRoot(t, "model-config-")
 
 	s := &Server{mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /api/models/{name}/config", s.handleModelsConfig)
@@ -388,8 +380,7 @@ func TestClampDemucsSegment(t *testing.T) {
 }
 
 func TestBuildPipelineArgs_DemucsSegmentRequestClamped(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	setTestRoot(t, "model-config-")
 
 	cfg := ModelConfigResponse{
 		SegmentSize: 256,
@@ -417,8 +408,7 @@ func TestBuildPipelineArgs_DemucsSegmentRequestClamped(t *testing.T) {
 }
 
 func TestBuildStepPipelineArgs_DemucsSegmentClamped(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	setTestRoot(t, "model-config-")
 
 	cfg := ModelConfigResponse{
 		SegmentSize: 256,
@@ -446,8 +436,7 @@ func TestBuildStepPipelineArgs_DemucsSegmentClamped(t *testing.T) {
 }
 
 func TestReadModelConfigFromYaml_ReadsChunkSize(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	setTestRoot(t, "model-config-")
 
 	cfg := ModelConfigResponse{
 		SegmentSize: 256,
@@ -466,8 +455,7 @@ func TestReadModelConfigFromYaml_ReadsChunkSize(t *testing.T) {
 }
 
 func TestBuildPipelineArgs_LegacyVocalChunkSizeEnv(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	setTestRoot(t, "model-config-")
 
 	cfg := ModelConfigResponse{
 		SegmentSize: 256,
@@ -495,8 +483,7 @@ func TestBuildPipelineArgs_LegacyVocalChunkSizeEnv(t *testing.T) {
 }
 
 func TestBuildStepPipelineArgs_VocalChunkSizeEnv(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	setTestRoot(t, "model-config-")
 
 	cfg := ModelConfigResponse{
 		SegmentSize: 256,
@@ -529,8 +516,7 @@ func TestBuildStepPipelineArgs_VocalChunkSizeEnv(t *testing.T) {
 }
 
 func TestBuildStepPipelineArgs_VocalNoChunkSizeOmitsEnv(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	setTestRoot(t, "model-config-")
 
 	cfg := ModelConfigResponse{
 		SegmentSize: 256,
@@ -558,7 +544,7 @@ func TestBuildStepPipelineArgs_VocalNoChunkSizeOmitsEnv(t *testing.T) {
 }
 
 func TestIsOnnxModel(t *testing.T) {
-	root := t.TempDir()
+	root := newTestRoot(t, "model-config-")
 	oldBase := modelsBasePath
 	modelsBasePath = root
 	t.Cleanup(func() { modelsBasePath = oldBase })
@@ -580,7 +566,7 @@ func TestIsOnnxModel(t *testing.T) {
 }
 
 func TestBuildPipelineArgs_OnnxModel(t *testing.T) {
-	root := t.TempDir()
+	root := newTestRoot(t, "model-config-")
 	oldBase := modelsBasePath
 	modelsBasePath = root
 	t.Cleanup(func() { modelsBasePath = oldBase })
@@ -604,7 +590,7 @@ func TestBuildPipelineArgs_OnnxModel(t *testing.T) {
 }
 
 func TestBuildStepPipelineArgs_OnnxModel(t *testing.T) {
-	root := t.TempDir()
+	root := newTestRoot(t, "model-config-")
 	oldBase := modelsBasePath
 	modelsBasePath = root
 	t.Cleanup(func() { modelsBasePath = oldBase })

@@ -13,8 +13,7 @@ import (
 )
 
 func TestHandleStemsMerge_Validation(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	setTestRoot(t, "merge-")
 
 	s := &Server{mux: http.NewServeMux()}
 	s.mux.HandleFunc("POST /api/stems/merge", s.handleStemsMerge)
@@ -68,8 +67,7 @@ func TestHandleStemsMerge_Validation(t *testing.T) {
 func TestHandleStemsMerge_DefaultFormat(t *testing.T) {
 	skipIfMissingBinary(t, "ffmpeg")
 
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	root := setTestRoot(t, "merge-")
 
 	songDir := filepath.Join(root, "output", "cancion1")
 	if err := os.MkdirAll(songDir, 0o755); err != nil {
@@ -109,8 +107,7 @@ func TestHandleStemsMerge_DefaultFormat(t *testing.T) {
 func TestHandleStemsMerge_OutputName(t *testing.T) {
 	skipIfMissingBinary(t, "ffmpeg")
 
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	root := setTestRoot(t, "merge-")
 
 	songDir := filepath.Join(root, "output", "Mi Canción")
 	if err := os.MkdirAll(songDir, 0o755); err != nil {
@@ -184,8 +181,7 @@ func TestHandleStemsMerge_OutputName(t *testing.T) {
 func TestHandleStemsMerge_HappyPath(t *testing.T) {
 	skipIfMissingBinary(t, "ffmpeg")
 
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	root := setTestRoot(t, "merge-")
 
 	songDir := filepath.Join(root, "output", "cancion1")
 	if err := os.MkdirAll(songDir, 0o755); err != nil {
@@ -241,8 +237,7 @@ func TestHandleStemsMerge_HappyPath(t *testing.T) {
 func TestHandleStemsMerge_PitchSubgroup(t *testing.T) {
 	skipIfMissingBinary(t, "ffmpeg")
 
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	root := setTestRoot(t, "merge-")
 
 	songDir := filepath.Join(root, "output", "Base", "Base_pitch-1")
 	if err := os.MkdirAll(songDir, 0o755); err != nil {
@@ -294,8 +289,7 @@ func TestHandleStemsMerge_PitchSubgroup(t *testing.T) {
 func TestHandleStemsMerge_PitchSubgroupWithoutPitchStemsStillWorks(t *testing.T) {
 	skipIfMissingBinary(t, "ffmpeg")
 
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	root := setTestRoot(t, "merge-")
 
 	songDir := filepath.Join(root, "output", "Normal")
 	if err := os.MkdirAll(songDir, 0o755); err != nil {

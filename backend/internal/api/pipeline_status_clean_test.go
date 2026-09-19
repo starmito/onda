@@ -13,12 +13,7 @@ import (
 // required directory layout and sets ONDA_ROOT.
 func setupPipelineStatusTestRoot(t *testing.T) string {
 	t.Helper()
-	root, err := os.MkdirTemp(".", "status-test-")
-	if err != nil {
-		t.Fatalf("failed to create test root: %v", err)
-	}
-	t.Setenv("ONDA_ROOT", root)
-	t.Cleanup(func() { os.RemoveAll(root) })
+	root := setTestRoot(t, "status-test-")
 
 	for _, dir := range []string{"input", "output"} {
 		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {

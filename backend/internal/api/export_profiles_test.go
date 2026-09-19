@@ -11,8 +11,7 @@ import (
 )
 
 func TestExportProfilesDefaults(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	root := setTestRoot(t, "export-profiles-")
 
 	// Ensure the file does not exist so loadExportProfilesAt uses defaults.
 	tmpPath := filepath.Join(root, "audio_export_profiles.json")
@@ -63,8 +62,7 @@ func TestExportProfilesDefaults(t *testing.T) {
 }
 
 func TestExportProfilesRoundTrip(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	root := setTestRoot(t, "export-profiles-")
 
 	tmpPath := filepath.Join(root, "audio_export_profiles.json")
 
@@ -132,8 +130,7 @@ func TestExportProfilesRoundTrip(t *testing.T) {
 }
 
 func TestHandleGetExportProfiles(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	setTestRoot(t, "export-profiles-")
 
 	s := &Server{mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /api/export/profiles", s.handleGetExportProfiles)
@@ -159,8 +156,7 @@ func TestHandleGetExportProfiles(t *testing.T) {
 }
 
 func TestHandleSaveExportProfiles_InvalidJSON(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	setTestRoot(t, "export-profiles-")
 
 	s := &Server{mux: http.NewServeMux()}
 	s.mux.HandleFunc("POST /api/export/profiles", s.handleSaveExportProfiles)

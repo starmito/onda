@@ -44,8 +44,7 @@ func TestSeparadorCompletoPresetRouting(t *testing.T) {
 }
 
 func TestBuildStepPipelineArgs_SeparadorCompletoDemucsKeepsOnlyInstruments(t *testing.T) {
-	root := t.TempDir()
-	t.Setenv("ONDA_ROOT", root)
+	setTestRoot(t, "pipeline-complete-")
 
 	demucs := cli.PipelineStep{
 		ID:      "demucs",
@@ -69,7 +68,7 @@ func TestBuildStepPipelineArgs_SeparadorCompletoDemucsKeepsOnlyInstruments(t *te
 }
 
 func TestFindChainedInput_PrefersInstrumental(t *testing.T) {
-	dir := t.TempDir()
+	dir := newTestRoot(t, "pipeline-complete-")
 	for _, name := range []string{"vocals.wav", "instrumental.wav", "drums.wav"} {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte("fake"), 0o644); err != nil {
 			t.Fatalf("failed to create %s: %v", name, err)
@@ -93,7 +92,7 @@ func TestFindChainedInput_PrefersInstrumental(t *testing.T) {
 }
 
 func TestCleanupIntermediateStems_KeepsOnlyFinalResult(t *testing.T) {
-	dir := t.TempDir()
+	dir := newTestRoot(t, "pipeline-complete-")
 	files := []string{
 		"drums.wav",
 		"bass.wav",

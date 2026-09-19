@@ -29,12 +29,7 @@ func skipIfMissingBinary(t *testing.T, name string) {
 // findProjectRoot() resolves to it during the test.
 func setupFase10TestRoot(t *testing.T) string {
 	t.Helper()
-	root, err := os.MkdirTemp(".", "fase10-test-")
-	if err != nil {
-		t.Fatalf("failed to create test root: %v", err)
-	}
-	t.Setenv("ONDA_ROOT", root)
-	t.Cleanup(func() { os.RemoveAll(root) })
+	root := setTestRoot(t, "fase10-test-")
 
 	for _, dir := range []string{"input", "output", "input_rubberband", "daw-data"} {
 		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
