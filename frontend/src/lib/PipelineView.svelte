@@ -125,7 +125,7 @@
 
     for (const qf of filesToForce) {
       try {
-        await separateAudio({ preset, input: qf.path!, force_vram: true });
+        await separateAudio({ preset, input: qf.path!, force_vram: true, force_ram: true });
       } catch (err: any) {
         showToast(`Error al forzar: ${err.message || 'unknown'}`, 'error');
         return;
@@ -133,7 +133,7 @@
     }
 
     blockedMsg = null;
-    showToast('Continuando sin comprobación de VRAM', 'warning');
+    showToast('Continuando sin comprobación de recursos', 'warning');
   }
 
   // ---- Drag & Drop state ----

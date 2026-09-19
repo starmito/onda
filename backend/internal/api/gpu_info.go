@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -48,16 +49,67 @@ const defaultVRAMMB = 2000
 // vramHeadroomMargin is the safety margin applied on top of the model estimate.
 const vramHeadroomMargin = 1.20 // +20%
 
+// VRAMConfig holds the inference parameters that influence VRAM usage. It is
+// used both for analytical estimates and for matching measured peaks.
+type VRAMConfig struct {
+	SegmentSize   int
+	ChunkSize     int
+	BatchSize     int
+	DemucsSegment int
+}
+
+// measuredVRAMPeak stores an observed real peak for a model/step combination.
+type measuredVRAMPeak struct {
+	ModelName string
+	StepType  string
+	PeakMB    int
+}
+
+// measuredVRAMPeaks is the live table of observed VRAM peaks. Values are
+// conservative maxima measured on real jobs; when a match exists they override
+// the analytical estimator so the guard reflects reality instead of an
+// optimistic formula.
+var measuredVRAMPeaks = []measuredVRAMPeak{
+	// Measured 2026-09-19 on a real job: BS_Roformer_Viperx (dim_t 3105,
+	// overlap 2, batch 2, chunk 35) peaked at 14.944 MiB of pipeline VRAM.
+	{ModelName: "BS_Roformer_Viperx", StepType: "vocal", PeakMB: 14944},
+	{ModelName: "BS_Roformer_Viperx", StepType: "viperx", PeakMB: 14944},
+	// Measured 2026-09-19: htdemucs_ft with --shifts 20 --segment 7 -j 8
+	// stays around 1.5 GiB after the vocal model is released.
+	{ModelName: "htdemucs_ft", StepType: "demucs", PeakMB: 1500},
+}
+
+// findMeasuredVRAMPeak returns the measured peak in MiB for a model/step
+// combination, or 0 when no measurement is available.
+func findMeasuredVRAMPeak(modelName, stepType string) int {
+	lowerModel := strings.ToLower(modelName)
+	lowerStep := strings.ToLower(stepType)
+	for _, m := range measuredVRAMPeaks {
+		if strings.ToLower(m.ModelName) == lowerModel && strings.ToLower(m.StepType) == lowerStep {
+			return m.PeakMB
+		}
+	}
+	return 0
+}
+
 // checkVramHeadroom returns whether freeMB can accommodate the peak VRAM
-// expected for modelName with a 20% safety margin. It also returns the required
-// memory and a human-readable reason when there is not enough headroom.
-func checkVramHeadroom(freeMB int, modelName string) (bool, int, string) {
-	needed := int(math.Round(float64(estimateVRAMMB(modelName, 0, 0, 0, 0)) * vramHeadroomMargin))
+// expected for modelName/stepType with a 20% safety margin. It prefers a
+// measured peak when one exists; otherwise it falls back to the analytical
+// estimator. It also returns the required memory and a human-readable reason
+// when there is not enough headroom.
+func checkVramHeadroom(freeMB int, modelName, stepType string, cfg VRAMConfig) (bool, int, string) {
+	var base int
+	if peak := findMeasuredVRAMPeak(modelName, stepType); peak > 0 {
+		base = peak
+	} else {
+		base = estimateVRAMMB(modelName, cfg.SegmentSize, cfg.ChunkSize, cfg.BatchSize, cfg.DemucsSegment)
+	}
+	needed := int(math.Round(float64(base) * vramHeadroomMargin))
 	if freeMB >= needed {
 		return true, needed, ""
 	}
-	reason := fmt.Sprintf("insufficient VRAM: model %q needs ~%d MiB (with %.0f%% margin), only %d MiB free",
-		modelName, needed, (vramHeadroomMargin-1.0)*100, freeMB)
+	reason := fmt.Sprintf("insufficient VRAM: model %q (step %q) needs ~%d MiB (with %.0f%% margin), only %d MiB free",
+		modelName, stepType, needed, (vramHeadroomMargin-1.0)*100, freeMB)
 	return false, needed, reason
 }
 
@@ -214,6 +266,119 @@ func estimateVRAMMB(modelName string, segmentSize, chunkSize, batchSize, demucsS
 
 	return defaultVRAMMB
 }
+
+// ramHeadroomMargin is the safety margin applied on top of the RAM estimate.
+const ramHeadroomMargin = 1.15 // +15%
+
+// measuredRAMPeak stores an observed real RAM peak for a model/step combination.
+type measuredRAMPeak struct {
+	ModelName string
+	StepType  string
+	PeakMB    int
+}
+
+// measuredRAMPeaks is the live table of observed host RAM peaks. When a match
+// exists it is used directly; otherwise estimateRAMMB provides a conservative
+// fallback.
+var measuredRAMPeaks = []measuredRAMPeak{
+	// Conservative observed host RAM usage for long audio jobs.
+	{ModelName: "BS_Roformer_Viperx", StepType: "vocal", PeakMB: 6144},
+	{ModelName: "BS_Roformer_Viperx", StepType: "viperx", PeakMB: 6144},
+	{ModelName: "htdemucs_ft", StepType: "demucs", PeakMB: 4096},
+}
+
+// findMeasuredRAMPeak returns the measured RAM peak in MiB for a model/step
+// combination, or 0 when no measurement is available.
+func findMeasuredRAMPeak(modelName, stepType string) int {
+	lowerModel := strings.ToLower(modelName)
+	lowerStep := strings.ToLower(stepType)
+	for _, m := range measuredRAMPeaks {
+		if strings.ToLower(m.ModelName) == lowerModel && strings.ToLower(m.StepType) == lowerStep {
+			return m.PeakMB
+		}
+	}
+	return 0
+}
+
+// estimateRAMMB returns a conservative host RAM estimate in MB for a model
+// name and step type. It is used as a fallback when no measured peak exists.
+func estimateRAMMB(modelName, stepType string) int {
+	lower := strings.ToLower(modelName)
+	if isDemucsModel(lower) || stepType == "demucs" {
+		return 4096
+	}
+	if isVocalOrRoformer(lower) {
+		return 6144
+	}
+	if strings.Contains(lower, "mdx") || strings.Contains(lower, "onnx") {
+		return 6144
+	}
+	if strings.Contains(lower, "scnet") {
+		return 4096
+	}
+	return 4096
+}
+
+// ramRequiredMB returns the host RAM required for a model/step, preferring a
+// measured peak and applying the RAM safety margin.
+func ramRequiredMB(modelName, stepType string) int {
+	var base int
+	if peak := findMeasuredRAMPeak(modelName, stepType); peak > 0 {
+		base = peak
+	} else {
+		base = estimateRAMMB(modelName, stepType)
+	}
+	return int(math.Round(float64(base) * ramHeadroomMargin))
+}
+
+// checkRamHeadroom returns whether availableMB can accommodate the host RAM
+// expected for modelName/stepType. It returns the required memory and a
+// human-readable reason when there is not enough headroom.
+func checkRamHeadroom(availableMB int, modelName, stepType string) (bool, int, string) {
+	needed := ramRequiredMB(modelName, stepType)
+	if availableMB >= needed {
+		return true, needed, ""
+	}
+	reason := fmt.Sprintf("insufficient RAM: model %q (step %q) needs ~%d MiB, only %d MiB available",
+		modelName, stepType, needed, availableMB)
+	return false, needed, reason
+}
+
+// getHostMemoryInfo reads /proc/meminfo and returns total and available RAM
+// in MiB. It returns ok=false when /proc/meminfo cannot be parsed.
+func getHostMemoryInfo() (totalMB int, availableMB int, ok bool) {
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0, 0, false
+	}
+	lines := strings.Split(string(data), "\n")
+	for _, line := range lines {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		valKB, err := strconv.Atoi(fields[1])
+		if err != nil {
+			continue
+		}
+		switch fields[0] {
+		case "MemTotal:":
+			totalMB = valKB / 1024
+		case "MemAvailable:":
+			availableMB = valKB / 1024
+		}
+	}
+	if availableMB == 0 && totalMB > 0 {
+		// /proc/meminfo very old kernels may lack MemAvailable. Use a
+		// conservative fallback so the guard does not silently pass.
+		availableMB = totalMB / 4
+	}
+	return totalMB, availableMB, totalMB > 0
+}
+
+// hostMemoryProvider is the function used by the pipeline workers to query
+// host RAM. It is a variable so tests can substitute a mock implementation.
+var hostMemoryProvider = getHostMemoryInfo
 
 // getGPUInfo queries GPU details. It prefers nvidia-smi because the onda
 // container has torch without CUDA. If nvidia-smi is unavailable it returns an

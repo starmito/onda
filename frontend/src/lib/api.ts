@@ -87,6 +87,7 @@ export interface SeparateOptions {
   steps?: PipelineStep[];
   output?: string;
   force_vram?: boolean;
+  force_ram?: boolean;
 }
 
 export interface StatusResponse {
@@ -193,6 +194,9 @@ export async function separateAudio(opts: SeparateOptions): Promise<SeparateResp
     }
     if (opts.force_vram) {
       body.force_vram = true;
+    }
+    if (opts.force_ram) {
+      body.force_ram = true;
     }
     const res = await fetch(`${API_BASE}/api/separate`, {
       method: 'POST',

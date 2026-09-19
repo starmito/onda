@@ -102,11 +102,7 @@ func TestRunSinglePipeline_ErrorIncludesOutputTail(t *testing.T) {
 	root := setupQueueTestRoot(t)
 	clearLogBuffer(t)
 
-	origGPU := gpuInfoProvider
-	defer func() { gpuInfoProvider = origGPU }()
-	gpuInfoProvider = func() GPUInfoResponse {
-		return GPUInfoResponse{OK: true, VRAMTotalMB: 16000, VRAMFreeMB: 16000}
-	}
+	mockResourceProviders(t)
 
 	fakePipeline := filepath.Join(root, "pipeline.sh")
 	script := `#!/bin/bash
@@ -166,11 +162,7 @@ func TestRunSinglePipeline_SignalWritesFailedStatus(t *testing.T) {
 	root := setupQueueTestRoot(t)
 	clearLogBuffer(t)
 
-	origGPU := gpuInfoProvider
-	defer func() { gpuInfoProvider = origGPU }()
-	gpuInfoProvider = func() GPUInfoResponse {
-		return GPUInfoResponse{OK: true, VRAMTotalMB: 16000, VRAMFreeMB: 16000}
-	}
+	mockResourceProviders(t)
 
 	fakePipeline := filepath.Join(root, "pipeline.sh")
 	script := "#!/bin/bash\necho 'about to die'\nkill -9 $$\n"

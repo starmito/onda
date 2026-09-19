@@ -730,7 +730,11 @@ func (s *Server) expireBlockedJobs() {
 		elapsed := int(time.Since(job.StartedAt).Seconds())
 		if shouldAutoFailBlocked(elapsed) {
 			job.Status = "error"
-			job.Error = "Cancelado automáticamente: VRAM insuficiente durante 2 min"
+			if job.BlockedReason == "insufficient_ram" {
+				job.Error = "Cancelado automáticamente: RAM insuficiente durante 2 min"
+			} else {
+				job.Error = "Cancelado automáticamente: VRAM insuficiente durante 2 min"
+			}
 			job.BlockedReason = ""
 			job.BlockedReasonMsg = ""
 			job.Progress = 0
@@ -970,10 +974,12 @@ func (s *Server) worker() {
 		state.Status = "processing"
 		s.jobsMu.Unlock()
 
-		// Reset pipeline_status.json so stale progress from a cancelled job doesn't bleed in
+		// Remove pipeline_status.json so no field from a previous job bleeds into
+		// the new one. The pipeline will recreate it with a complete, honest state
+		// as soon as it starts.
 		if projectRoot := resolveProjectRoot(); projectRoot != "" {
 			statusPath := filepath.Join(projectRoot, "output", "pipeline_status.json")
-			os.WriteFile(statusPath, []byte(`{}`), 0644)
+			os.Remove(statusPath)
 		}
 
 		// Handle multi-step pipeline chaining
@@ -1007,6 +1013,61 @@ func stepModelName(step cli.PipelineStep) string {
 	return "BS_Roformer_Viperx"
 }
 
+// vramConfigForStep builds a VRAMConfig for a multi-step pipeline step.
+func vramConfigForStep(step cli.PipelineStep) VRAMConfig {
+	if step.Type == "demucs" {
+		cfg := readModelConfigFromYaml(step.Model)
+		seg := int(cfg.Segment)
+		if seg <= 0 {
+			seg = 7
+		}
+		return VRAMConfig{DemucsSegment: seg}
+	}
+	cfg := readModelConfigFromYaml(step.Model)
+	return VRAMConfig{
+		SegmentSize: cfg.SegmentSize,
+		ChunkSize:   cfg.ChunkSize,
+		BatchSize:   cfg.BatchSize,
+	}
+}
+
+// vramConfigForModelAndRequest builds a VRAMConfig for the legacy single-step
+// path from the effective model name and the request overrides.
+func vramConfigForModelAndRequest(modelName, stepType string, req SeparateRequest) VRAMConfig {
+	if stepType == "demucs" {
+		seg := int(req.DemucsSegment)
+		if seg <= 0 {
+			cfg := readModelConfigFromYaml(modelName)
+			seg = int(cfg.Segment)
+		}
+		if seg <= 0 {
+			seg = 7
+		}
+		return VRAMConfig{DemucsSegment: seg}
+	}
+	cfg := readModelConfigFromYaml(modelName)
+	return VRAMConfig{
+		SegmentSize: cfg.SegmentSize,
+		ChunkSize:   cfg.ChunkSize,
+		BatchSize:   cfg.BatchSize,
+	}
+}
+
+// stepTypeForSinglePipeline guesses the step type for a legacy single-step job
+// from the request fields. It defaults to "vocal" when nothing is conclusive.
+func stepTypeForSinglePipeline(job JobRequest) string {
+	if len(job.Steps) == 1 {
+		return job.Steps[0].Type
+	}
+	if job.Config.VocalModel != "" || job.Config.ViperxModel != "" {
+		return "vocal"
+	}
+	if job.Config.StemModel != "" || job.Config.DemucsModel != "" {
+		return "demucs"
+	}
+	return "vocal"
+}
+
 // runSinglePipeline executes a single pipeline.sh invocation.
 func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	// VRAM headroom check before launching.
@@ -1029,14 +1090,33 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	if modelName == "" {
 		modelName = "unknown"
 	}
+	stepType := stepTypeForSinglePipeline(job)
+	vramCfg := vramConfigForModelAndRequest(modelName, stepType, job.Config)
+
+	// Resource headroom checks before launching.
 	if !job.Config.ForceVRAM {
 		gpu := gpuInfoProvider()
 		if gpu.OK {
-			if ok, _, reason := checkVramHeadroom(gpu.VRAMFreeMB, modelName); !ok {
+			if ok, _, reason := checkVramHeadroom(gpu.VRAMFreeMB, modelName, stepType, vramCfg); !ok {
 				s.jobsMu.Lock()
 				state.Status = "blocked_no_gpu"
 				state.Error = reason
 				state.BlockedReason = "insufficient_vram"
+				state.BlockedReasonMsg = reason
+				state.Progress = 0
+				s.jobsMu.Unlock()
+				Log("pipeline", "warn", fmt.Sprintf("Job blocked for %s: %s", job.Song, reason))
+				return
+			}
+		}
+	}
+	if !job.Config.ForceRAM {
+		if _, availableMB, ok := hostMemoryProvider(); ok {
+			if ok, _, reason := checkRamHeadroom(availableMB, modelName, stepType); !ok {
+				s.jobsMu.Lock()
+				state.Status = "blocked_no_gpu"
+				state.Error = reason
+				state.BlockedReason = "insufficient_ram"
 				state.BlockedReasonMsg = reason
 				state.Progress = 0
 				s.jobsMu.Unlock()
@@ -1163,21 +1243,38 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 
 		Log("pipeline", "info", fmt.Sprintf("Step %d/%d: %s (%s)", i+1, len(steps), step.ID, step.Type))
 
-		// VRAM headroom check before launching this step.
+		// Resource headroom checks before launching this step.
+		modelName := stepModelName(step)
+		vramCfg := vramConfigForStep(step)
 		if !job.Config.ForceVRAM {
 			gpu := gpuInfoProvider()
 			if gpu.OK {
-				modelName := stepModelName(step)
-				if ok, _, reason := checkVramHeadroom(gpu.VRAMFreeMB, modelName); !ok {
+				if ok, _, reason := checkVramHeadroom(gpu.VRAMFreeMB, modelName, step.Type, vramCfg); !ok {
 					s.jobsMu.Lock()
-				if state, ok := s.jobs[job.Song]; ok {
-					state.Status = "blocked_no_gpu"
-					state.Error = reason
-					state.BlockedReason = "insufficient_vram"
-					state.BlockedReasonMsg = reason
-					state.Progress = 0
+					if state, ok := s.jobs[job.Song]; ok {
+						state.Status = "blocked_no_gpu"
+						state.Error = reason
+						state.BlockedReason = "insufficient_vram"
+						state.BlockedReasonMsg = reason
+						state.Progress = 0
+					}
+					s.jobsMu.Unlock()
+					Log("pipeline", "warn", fmt.Sprintf("Job blocked for %s at step %d: %s", job.Song, i+1, reason))
+					return
 				}
-
+			}
+		}
+		if !job.Config.ForceRAM {
+			if _, availableMB, ok := hostMemoryProvider(); ok {
+				if ok, _, reason := checkRamHeadroom(availableMB, modelName, step.Type); !ok {
+					s.jobsMu.Lock()
+					if state, ok := s.jobs[job.Song]; ok {
+						state.Status = "blocked_no_gpu"
+						state.Error = reason
+						state.BlockedReason = "insufficient_ram"
+						state.BlockedReasonMsg = reason
+						state.Progress = 0
+					}
 					s.jobsMu.Unlock()
 					Log("pipeline", "warn", fmt.Sprintf("Job blocked for %s at step %d: %s", job.Song, i+1, reason))
 					return
@@ -1967,6 +2064,9 @@ type SeparateRequest struct {
 	// ForceVRAM skips the VRAM headroom check and lets the user launch the
 	// pipeline even when the GPU appears to be low on memory.
 	ForceVRAM bool `json:"force_vram,omitempty"`
+	// ForceRAM skips the host RAM headroom check and lets the user launch the
+	// pipeline even when the host appears to be low on memory.
+	ForceRAM bool `json:"force_ram,omitempty"`
 }
 
 // ModelConfigResponse is what the config API returns (read from model YAML or defaults).

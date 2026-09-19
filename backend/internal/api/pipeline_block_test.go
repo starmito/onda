@@ -18,22 +18,35 @@ func TestCheckVramHeadroom(t *testing.T) {
 		name       string
 		freeMB     int
 		model      string
+		stepType   string
+		cfg        VRAMConfig
 		wantOK     bool
 		wantMin    int
 		wantReason bool
 	}{
 		{
-			name:       "viperx fits",
-			freeMB:     15475,
+			name:       "viperx fits with margin over measured peak",
+			freeMB:     20000,
 			model:      "BS_Roformer_Viperx",
+			stepType:   "vocal",
 			wantOK:     true,
 			wantMin:    1,
 			wantReason: false,
 		},
 		{
-			name:       "viperx blocked",
+			name:       "viperx blocked by measured peak",
+			freeMB:     15475,
+			model:      "BS_Roformer_Viperx",
+			stepType:   "vocal",
+			wantOK:     false,
+			wantMin:    14900,
+			wantReason: true,
+		},
+		{
+			name:       "viperx blocked low vram",
 			freeMB:     500,
 			model:      "BS_Roformer_Viperx",
+			stepType:   "vocal",
 			wantOK:     false,
 			wantMin:    1,
 			wantReason: true,
@@ -42,6 +55,7 @@ func TestCheckVramHeadroom(t *testing.T) {
 			name:       "unknown model conservative",
 			freeMB:     3000,
 			model:      "not_a_known_model_v1",
+			stepType:   "vocal",
 			wantOK:     true,
 			wantMin:    2000,
 			wantReason: false,
@@ -50,26 +64,46 @@ func TestCheckVramHeadroom(t *testing.T) {
 			name:       "unknown model blocked",
 			freeMB:     1000,
 			model:      "not_a_known_model_v1",
+			stepType:   "vocal",
 			wantOK:     false,
 			wantMin:    2000,
 			wantReason: true,
+		},
+		{
+			name:       "measured peak overrides estimate for demucs",
+			freeMB:     1800,
+			model:      "htdemucs_ft",
+			stepType:   "demucs",
+			wantOK:     true,
+			wantMin:    1400,
+			wantReason: false,
+		},
+		{
+			name:       "analytical fallback when no measured peak",
+			freeMB:     3000,
+			model:      "MDX23C",
+			stepType:   "vocal",
+			cfg:        VRAMConfig{SegmentSize: 128, BatchSize: 1},
+			wantOK:     true,
+			wantMin:    2000,
+			wantReason: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ok, needed, reason := checkVramHeadroom(tt.freeMB, tt.model)
+			ok, needed, reason := checkVramHeadroom(tt.freeMB, tt.model, tt.stepType, tt.cfg)
 			if ok != tt.wantOK {
-				t.Errorf("checkVramHeadroom(%d, %q) ok = %v, want %v", tt.freeMB, tt.model, ok, tt.wantOK)
+				t.Errorf("checkVramHeadroom(%d, %q, %q) ok = %v, want %v", tt.freeMB, tt.model, tt.stepType, ok, tt.wantOK)
 			}
 			if needed < tt.wantMin {
-				t.Errorf("checkVramHeadroom(%d, %q) needed = %d, want >= %d", tt.freeMB, tt.model, needed, tt.wantMin)
+				t.Errorf("checkVramHeadroom(%d, %q, %q) needed = %d, want >= %d", tt.freeMB, tt.model, tt.stepType, needed, tt.wantMin)
 			}
 			if tt.wantReason && reason == "" {
-				t.Errorf("checkVramHeadroom(%d, %q) reason empty, want non-empty", tt.freeMB, tt.model)
+				t.Errorf("checkVramHeadroom(%d, %q, %q) reason empty, want non-empty", tt.freeMB, tt.model, tt.stepType)
 			}
 			if !tt.wantReason && reason != "" {
-				t.Errorf("checkVramHeadroom(%d, %q) reason = %q, want empty", tt.freeMB, tt.model, reason)
+				t.Errorf("checkVramHeadroom(%d, %q, %q) reason = %q, want empty", tt.freeMB, tt.model, tt.stepType, reason)
 			}
 		})
 	}
@@ -81,6 +115,7 @@ func TestRunSinglePipeline_BlockedNoGPU(t *testing.T) {
 	gpuInfoProvider = func() GPUInfoResponse {
 		return GPUInfoResponse{OK: true, VRAMFreeMB: 500}
 	}
+	mockLowRAMProvider(t, 32000)
 
 	s := &Server{jobs: make(map[string]*JobState)}
 	state := &JobState{Song: "test", Status: "waiting"}
@@ -116,6 +151,7 @@ func TestRunSinglePipeline_BlockedNoGPU_PresetFallback(t *testing.T) {
 	gpuInfoProvider = func() GPUInfoResponse {
 		return GPUInfoResponse{OK: true, VRAMFreeMB: 500}
 	}
+	mockLowRAMProvider(t, 32000)
 
 	s := &Server{jobs: make(map[string]*JobState)}
 	state := &JobState{Song: "test", Status: "waiting"}
@@ -163,6 +199,7 @@ func TestRunSinglePipeline_ForceVRAM(t *testing.T) {
 		Config: SeparateRequest{
 			VocalModel: "BS_Roformer_Viperx",
 			ForceVRAM:  true,
+			ForceRAM:   true,
 		},
 	}
 
@@ -179,6 +216,7 @@ func TestRunMultiStepPipeline_BlockedNoGPU(t *testing.T) {
 	gpuInfoProvider = func() GPUInfoResponse {
 		return GPUInfoResponse{OK: true, VRAMFreeMB: 500}
 	}
+	mockLowRAMProvider(t, 32000)
 
 	s := &Server{jobs: make(map[string]*JobState)}
 	state := &JobState{Song: "test", Status: "waiting"}
@@ -243,6 +281,127 @@ func TestHandleQueueStatus_BlockedNoGPUFields(t *testing.T) {
 	}
 	if j.BlockedReasonMsg == "" {
 		t.Errorf("blocked_reason_msg empty")
+	}
+}
+
+func TestCheckRamHeadroom(t *testing.T) {
+	tests := []struct {
+		name       string
+		available  int
+		model      string
+		stepType   string
+		wantOK     bool
+		wantReason bool
+	}{
+		{"viperx fits", 8000, "BS_Roformer_Viperx", "vocal", true, false},
+		{"viperx blocked", 6000, "BS_Roformer_Viperx", "vocal", false, true},
+		{"demucs fits", 5000, "htdemucs_ft", "demucs", true, false},
+		{"demucs blocked", 3000, "htdemucs_ft", "demucs", false, true},
+		{"unknown conservative", 5000, "unknown_model", "vocal", true, false},
+		{"unknown blocked", 2000, "unknown_model", "vocal", false, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ok, needed, reason := checkRamHeadroom(tt.available, tt.model, tt.stepType)
+			if ok != tt.wantOK {
+				t.Errorf("checkRamHeadroom(%d, %q, %q) ok = %v, want %v", tt.available, tt.model, tt.stepType, ok, tt.wantOK)
+			}
+			if needed <= 0 {
+				t.Errorf("checkRamHeadroom(%d, %q, %q) needed = %d, want > 0", tt.available, tt.model, tt.stepType, needed)
+			}
+			if tt.wantReason && reason == "" {
+				t.Errorf("checkRamHeadroom(%d, %q, %q) reason empty, want non-empty", tt.available, tt.model, tt.stepType)
+			}
+			if !tt.wantReason && reason != "" {
+				t.Errorf("checkRamHeadroom(%d, %q, %q) reason = %q, want empty", tt.available, tt.model, tt.stepType, reason)
+			}
+		})
+	}
+}
+
+func TestRunSinglePipeline_BlockedInsufficientRAM(t *testing.T) {
+	mockResourceProviders(t)
+	mockLowRAMProvider(t, 1024)
+
+	s := &Server{jobs: make(map[string]*JobState)}
+	state := &JobState{Song: "test", Status: "waiting"}
+	job := JobRequest{
+		Song: "test",
+		Config: SeparateRequest{
+			VocalModel: "BS_Roformer_Viperx",
+		},
+	}
+
+	s.runSinglePipeline(job, state)
+
+	if state.Status != "blocked_no_gpu" {
+		t.Errorf("status = %q, want blocked_no_gpu", state.Status)
+	}
+	if state.BlockedReason != "insufficient_ram" {
+		t.Errorf("blocked_reason = %q, want insufficient_ram", state.BlockedReason)
+	}
+	if !strings.Contains(state.BlockedReasonMsg, "insufficient RAM") {
+		t.Errorf("blocked reason should mention RAM, got %q", state.BlockedReasonMsg)
+	}
+}
+
+func TestRunSinglePipeline_ForceRAM(t *testing.T) {
+	mockResourceProviders(t)
+	mockLowRAMProvider(t, 1024)
+
+	scriptPath := filepath.Join("testdata", "fake_pipeline_force_ram.sh")
+	if err := os.MkdirAll("testdata", 0o755); err != nil {
+		t.Fatalf("failed to create testdata: %v", err)
+	}
+	if err := os.WriteFile(scriptPath, []byte("#!/bin/bash\necho ok\n"), 0o755); err != nil {
+		t.Fatalf("failed to write fake script: %v", err)
+	}
+	defer os.Remove(scriptPath)
+
+	s := &Server{jobs: make(map[string]*JobState)}
+	state := &JobState{Song: "test", Status: "waiting"}
+	job := JobRequest{
+		Song: "test",
+		Args: []string{scriptPath},
+		Config: SeparateRequest{
+			VocalModel: "BS_Roformer_Viperx",
+			ForceRAM:   true,
+		},
+	}
+
+	s.runSinglePipeline(job, state)
+
+	if state.Status == "blocked_no_gpu" {
+		t.Errorf("ForceRAM=true should not block the job")
+	}
+}
+
+func TestRunMultiStepPipeline_BlockedInsufficientRAM(t *testing.T) {
+	mockResourceProviders(t)
+	mockLowRAMProvider(t, 1024)
+
+	s := &Server{jobs: make(map[string]*JobState)}
+	state := &JobState{Song: "test", Status: "waiting"}
+	s.jobs["test"] = state
+	steps := []cli.PipelineStep{
+		{ID: "vocal", Type: "vocal", Model: "BS_Roformer_Viperx", Enabled: true},
+	}
+	job := JobRequest{
+		Song:   "test",
+		Config: SeparateRequest{Input: "/app/input/test.wav"},
+		Steps:  steps,
+	}
+
+	s.runMultiStepPipeline(job, steps, state)
+
+	if state.Status != "blocked_no_gpu" {
+		t.Errorf("status = %q, want blocked_no_gpu", state.Status)
+	}
+	if state.BlockedReason != "insufficient_ram" {
+		t.Errorf("blocked_reason = %q, want insufficient_ram", state.BlockedReason)
+	}
+	if !strings.Contains(state.BlockedReasonMsg, "insufficient RAM") {
+		t.Errorf("blocked reason should mention RAM, got %q", state.BlockedReasonMsg)
 	}
 }
 
