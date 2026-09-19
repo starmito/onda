@@ -11,7 +11,7 @@
 #
 # Flags:
 #   --steps JSON          Chained mode: JSON array of step objects
-#   --vocal-model PATH    Vocal model path (default: /app/models/VR_Models/BS_Roformer_Viperx)
+#   --vocal-model PATH    Vocal model path (default: $MODELS_DIR/VR_Models/BS_Roformer_Viperx)
 #   --vocal-type TYPE     Vocal model type: mdx | mdxnet | roformer | auto (default: auto)
 #   --vocal-keep WHAT     What to save: instrumental | vocals | both (default) (alias: --viperx-keep)
 #   --viperx-model PATH   Same as --vocal-model (deprecated)
@@ -19,7 +19,7 @@
 #   --demucs-keep LIST    Stems to keep: drums,bass,other,vocals or all (default)
 #   --stem-model NAME     Demucs stem model name (default: htdemucs_ft)
 #   --pitch N             Semitones for rubberband (default: 0)
-#   --output DIR          Output directory (default: /app/output/<song_name>)
+#   --output DIR          Output directory (default: $OUTPUT_DIR/<song_name>)
 #   --device NAME         Inference device: cpu | cuda (default: cuda)
 #   --shifts N            Demucs shift-averaging passes (default: 1)
 #   --demucs-segment N    Demucs segment duration in seconds (default: 0 = auto)
@@ -60,32 +60,22 @@ if [ "$GPU_BACKEND" != 'cpu' ] && [ -d "/opt/pytorch-backends/$GPU_BACKEND" ]; t
     export PYTHONPATH="$PYTHONPATH:/opt/pytorch-backends/$GPU_BACKEND"
 fi
 
-# ── Docker container ────────────────────────────
-ONDA_CONTAINER="onda"
+# ── Data root ───────────────────────────────────
+# All data paths (input, output, models, configs) resolve from a single root
+# controlled by ONDA_DATA_DIR. The backend passes absolute paths already under
+# this root, so no host-to-container translation is needed.
+ONDA_DATA_DIR="${ONDA_DATA_DIR:-/app/data}"
+INPUT_DIR="$ONDA_DATA_DIR/input"
+OUTPUT_DIR="$ONDA_DATA_DIR/output"
+MODELS_DIR="$ONDA_DATA_DIR/models"
+CONFIG_DIR="$ONDA_DATA_DIR/config"
 
-# ── Path conversion for Docker ──────────────────
-# pipeline.sh runs on the HOST and receives host paths (e.g. /home/.../onda/input/file.wav).
-# Docker exec commands run INSIDE the container and need container paths
-# because the bind mounts are: ./input -> /app/input, ./output -> /app/output.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-to_container() {
-    local p="$1"
-    # Normalize relative paths to absolute so prefix matching works
-    [[ "$p" != /* ]] && p="${SCRIPT_DIR}/${p}"
-    # Strip the host input dir prefix
-    if [[ "$p" == "${SCRIPT_DIR}/input/"* ]]; then
-        echo "/app/input/${p#${SCRIPT_DIR}/input/}"
-    elif [[ "$p" == "${SCRIPT_DIR}/output/"* ]]; then
-        echo "/app/output/${p#${SCRIPT_DIR}/output/}"
-    else
-        echo "$p"
-    fi
-}
 
 # ── Progress reporting ──────────────────────────
 START_TIME=$(date +%s)
 LAST_ETA=""  # cap ETA so it never increases between steps
-STATUS_FILE="${PIPELINE_STATUS_FILE:-/app/output/pipeline_status.json}"
+STATUS_FILE="${PIPELINE_STATUS_FILE:-$OUTPUT_DIR/pipeline_status.json}"
 rm -f "$STATUS_FILE"
 CURRENT_STEP=""
 
@@ -589,7 +579,7 @@ apply_demucs_fallback_config() {
 
     local config_dir="${SCRIPT_DIR}/config/model_configs"
     if [ ! -d "$config_dir" ]; then
-        config_dir="/app/config/model_configs"
+        config_dir="$CONFIG_DIR/model_configs"
     fi
     local yaml_file="${config_dir}/${model_name}.yaml"
     if [ ! -f "$yaml_file" ]; then
@@ -722,8 +712,8 @@ VOCAL=false             # auto-detected: true when vocal-specific flags are pass
 VIPERX=false            # alias for backward compatibility
 VOCAL_KEEP="both"
 VIPERX_KEEP="both"      # alias for backward compatibility
-VOCAL_MODEL="/app/models/VR_Models/BS_Roformer_Viperx"
-VIPERX_MODEL="/app/models/VR_Models/BS_Roformer_Viperx"  # alias for backward compatibility
+VOCAL_MODEL="$MODELS_DIR/VR_Models/BS_Roformer_Viperx"
+VIPERX_MODEL="$MODELS_DIR/VR_Models/BS_Roformer_Viperx"  # alias for backward compatibility
 VOCAL_TYPE="auto"       # mdx | roformer | auto
 DEMUCS=false           # auto-detected: true when demucs-specific flags are passed
 DEMUCS_KEEP="all"
@@ -792,7 +782,7 @@ if [ ! -f "$INPUT" ]; then
 fi
 
 SONG=$(basename "${INPUT%.*}")
-OUTPUT="${OUTPUT:-/app/output/${SONG}}"
+OUTPUT="${OUTPUT:-$OUTPUT_DIR/${SONG}}"
 
 # Ensure temporary vocal/demucs dirs are always removed, even on error or cancellation.
 cleanup_legacy_temps() {
@@ -926,7 +916,7 @@ print('ENDSTEMS')
         step_rc=0
         case "$STEP_TYPE" in
             viperx|vocal)
-                run_vocal_step "${STEP_MODEL:-/app/models/VR_Models/BS_Roformer_Viperx}" "${CURRENT_INPUT}" "${STEP_TMP}"
+                run_vocal_step "${STEP_MODEL:-$MODELS_DIR/VR_Models/BS_Roformer_Viperx}" "${CURRENT_INPUT}" "${STEP_TMP}"
                 echo "   ✅ ${STEP_TYPE} done"
                 ;;
             demucs)
