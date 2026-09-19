@@ -50,6 +50,8 @@ func defaultExportProfiles() AudioExportProfiles {
 }
 
 func loadExportProfiles() error {
+	exportProfilesMu.Lock()
+	defer exportProfilesMu.Unlock()
 	return loadExportProfilesAt(exportProfilesFile(), &exportProfiles)
 }
 

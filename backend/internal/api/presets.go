@@ -138,6 +138,15 @@ func seedPresets() {
 }
 
 func loadUserPresets() {
+	userPresetsMu.Lock()
+	defer userPresetsMu.Unlock()
+	userPresets = make(map[string]cli.Preset)
+	loadUserPresetsLocked()
+}
+
+// loadUserPresetsLocked reads user presets from disk into the already-reset
+// userPresets map. The caller must hold userPresetsMu (write lock).
+func loadUserPresetsLocked() {
 	data, err := os.ReadFile(userPresetsFile())
 	if err != nil {
 		return

@@ -269,6 +269,8 @@ func (s *Server) handleStorageConfigPost(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	reloadDataRootConfig()
+
 	resp := buildStorageConfigResponse()
 	if isContainerMode() {
 		resp.Note = "Data root updated. Remember: the Docker compose volume mount takes precedence when the container is recreated."
@@ -276,6 +278,21 @@ func (s *Server) handleStorageConfigPost(w http.ResponseWriter, r *http.Request)
 		resp.Note = "Data root updated and persisted."
 	}
 	writeJSON(w, http.StatusOK, resp)
+}
+
+// reloadDataRootConfig reloads all in-memory configuration that is normally
+// read once at startup from files under the current data root. It must be
+// called after the data root has been changed at runtime so the app uses the
+// new root's presets, default preset, UI settings and export profiles.
+func reloadDataRootConfig() {
+	loadUserPresets()
+	loadDefaultPreset()
+	if err := loadUISettings(); err != nil {
+		Log("backend", "warn", "Failed to reload UI settings after data-root change: "+err.Error())
+	}
+	if err := loadExportProfiles(); err != nil {
+		Log("backend", "warn", "Failed to reload export profiles after data-root change: "+err.Error())
+	}
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload interface{}) {
