@@ -1266,6 +1266,10 @@ export interface StorageConfig {
   mode: 'container' | 'standalone';
   candidates: string[];
   note: string;
+  export_dir: string;
+  export_source: 'env' | 'settings' | 'default';
+  export_exists: boolean;
+  export_writable: boolean;
 }
 
 export async function getStorageConfig(): Promise<StorageConfig> {
@@ -1281,6 +1285,25 @@ export async function setStorageConfig(root: string): Promise<StorageConfig> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ root }),
+  });
+  if (!res.ok) {
+    let detail = `Request failed with status ${res.status}: ${res.statusText}`;
+    try {
+      const data = (await res.json()) as { error?: string };
+      if (data.error) detail = data.error;
+    } catch {
+      // keep default detail
+    }
+    throw new Error(detail);
+  }
+  return (await res.json()) as StorageConfig;
+}
+
+export async function setExportDir(exportDir: string): Promise<StorageConfig> {
+  const res = await fetch(`${API_BASE}/api/storage/config`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ export_dir: exportDir }),
   });
   if (!res.ok) {
     let detail = `Request failed with status ${res.status}: ${res.statusText}`;

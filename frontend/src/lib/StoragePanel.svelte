@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { API_BASE, getStorageConfig, setStorageConfig, type StorageConfig } from './api';
+  import { API_BASE, getStorageConfig, setStorageConfig, setExportDir, type StorageConfig } from './api';
   import { IconRefresh, IconTrash, IconFolder } from './icons';
 
   interface FolderUsage {
@@ -30,6 +30,10 @@
   let rootError = $state<string | null>(null);
   let rootSuccess = $state<string | null>(null);
   let savingRoot = $state(false);
+  let exportInput = $state('');
+  let exportError = $state<string | null>(null);
+  let exportSuccess = $state<string | null>(null);
+  let savingExport = $state(false);
 
   const folderOrder = ['input', 'input_rubberband', 'daw-data', 'output', 'models', 'logs'];
   const folderLabels: Record<string, string> = {
@@ -75,9 +79,11 @@
   async function loadConfig() {
     configLoading = true;
     rootError = null;
+    exportError = null;
     try {
       config = await getStorageConfig();
       rootInput = config.current_root;
+      exportInput = config.export_dir;
     } catch (e: any) {
       rootError = e.message || 'No se pudo cargar la configuración del directorio de trabajo';
     } finally {
@@ -107,6 +113,46 @@
 
   function chooseCandidate(path: string) {
     rootInput = path;
+  }
+
+  async function saveExport() {
+    if (!config) return;
+    savingExport = true;
+    exportError = null;
+    exportSuccess = null;
+    try {
+      const updated = await setExportDir(exportInput);
+      config = updated;
+      exportInput = updated.export_dir;
+      exportSuccess = `Carpeta de exportaciones actualizada a ${updated.export_dir || 'la ubicación por defecto'}.`;
+      await loadConfig();
+    } catch (e: any) {
+      exportError = e.message || 'No se pudo guardar la carpeta de exportaciones';
+      // Do not mutate config or exportInput on error so the UI stays unchanged.
+    } finally {
+      savingExport = false;
+    }
+  }
+
+  function chooseExportCandidate(path: string) {
+    exportInput = path;
+  }
+
+  function supportsNativeFolderPicker(): boolean {
+    if (typeof window === 'undefined') return false;
+    return !!(window as any).__TAURI__;
+  }
+
+  async function pickExportFolder() {
+    const tauri = (window as any).__TAURI__;
+    if (!tauri?.core?.invoke) return;
+    exportError = null;
+    try {
+      const path: string | undefined = await tauri.core.invoke('select_folder');
+      if (path) exportInput = path;
+    } catch (e: any) {
+      exportError = e.message || 'No se pudo elegir la carpeta';
+    }
   }
 
   async function clean(action: string, label: string) {
@@ -276,6 +322,89 @@
   </section>
 
   <section class="storage-section">
+    <h3>Carpeta de destino de las exportaciones</h3>
+    <p class="storage-hint">Aquí se guardan los archivos resultantes de Unir y exportar, las exportaciones del DAW y los MIDI.</p>
+
+    {#if exportError}
+      <p class="storage-error">{exportError}</p>
+    {/if}
+    {#if exportSuccess}
+      <p class="storage-success">{exportSuccess}</p>
+    {/if}
+
+    {#if config}
+      <div class="root-summary">
+        <div class="root-row">
+          <span class="root-label">Carpeta actual</span>
+          <code class="root-path">{config.export_dir || '(ubicación por defecto)'}</code>
+        </div>
+        <div class="root-row">
+          <span class="root-label">Origen</span>
+          <span>{sourceLabels[config.export_source] ?? config.export_source}</span>
+        </div>
+        <div class="root-row">
+          <span class="root-label">Estado</span>
+          <span class="root-status">
+            {#if config.export_dir === ''}
+              <span class="status-info">ℹ️ Por defecto: cada exportación se guarda en su ubicación habitual.</span>
+            {:else if config.export_exists && config.export_writable}
+              <span class="status-ok">✅ Existe y se puede escribir</span>
+            {:else if config.export_exists}
+              <span class="status-warn">⚠️ Existe pero no se puede escribir</span>
+            {:else}
+              <span class="status-warn">⚠️ No existe o no es accesible</span>
+            {/if}
+          </span>
+        </div>
+      </div>
+
+      <div class="root-editor">
+        <label for="export-dir-path" class="root-label">Nueva carpeta de exportaciones</label>
+        <div class="root-input-row">
+          <input
+            id="export-dir-path"
+            type="text"
+            class="root-input"
+            bind:value={exportInput}
+            disabled={savingExport}
+            placeholder="/ruta/absoluta/de/exportaciones"
+          />
+          <button class="btn-primary" onclick={saveExport} disabled={savingExport || exportInput === (config.export_dir || '')}>
+            Guardar
+          </button>
+        </div>
+
+        {#if supportsNativeFolderPicker()}
+          <button class="btn-secondary" onclick={pickExportFolder} disabled={savingExport}>
+            {@html IconFolder} Elegir carpeta…
+          </button>
+        {:else}
+          <p class="storage-hint">
+            En navegador no está disponible un explorador de carpetas del servidor.
+            Elige entre las rutas visibles o escribe la ruta a mano.
+          </p>
+        {/if}
+
+        <div class="candidate-picker">
+          <span class="root-label">Carpetas visibles</span>
+          <select onchange={(e) => chooseExportCandidate(e.currentTarget.value)} disabled={savingExport}>
+            <option value="">-- selecciona una carpeta visible --</option>
+            {#each config.candidates as candidate}
+              <option value={candidate}>{candidate}</option>
+            {/each}
+          </select>
+          <p class="storage-hint">
+            En la app empaquetada este selector se sustituirá por el explorador nativo.
+            Desde navegador solo están disponibles las rutas visibles para el backend.
+          </p>
+        </div>
+      </div>
+    {:else if configLoading}
+      <p class="storage-empty">Cargando configuración de exportaciones…</p>
+    {/if}
+  </section>
+
+  <section class="storage-section">
     <h3>Uso de disco</h3>
     {#if usage}
       <table class="storage-table">
@@ -417,6 +546,10 @@
     color: #ffa94d;
   }
 
+  .status-info {
+    color: var(--text-secondary);
+  }
+
   .root-note {
     font-size: 13px;
     color: var(--text-secondary);
@@ -469,6 +602,29 @@
   }
 
   .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-secondary {
+    background: transparent;
+    border: 1px solid var(--accent);
+    color: var(--accent-light);
+    padding: 8px 16px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 13px;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.15s ease;
+  }
+
+  .btn-secondary:hover:not(:disabled) {
+    background: var(--accent-bg);
+  }
+
+  .btn-secondary:disabled {
     opacity: 0.5;
     cursor: not-allowed;
   }
