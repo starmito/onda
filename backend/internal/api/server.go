@@ -321,6 +321,10 @@ func NewServer(addr string) *http.Server {
 	// Servir frontend Svelte embebido (catch-all — debe ir al final)
 	s.mux.Handle("/", http.FileServer(http.FS(frontendFS)))
 
+	// Clean up stale DAW temporary files before accepting traffic. No jobs exist
+	// yet, so the only protection is the minimum-age check.
+	s.autoCleanTmpFiles("startup")
+
 	go s.worker()
 
 	return &http.Server{
@@ -1016,6 +1020,12 @@ func (s *Server) worker() {
 			// Single step (or old format): execute once
 			s.runSinglePipeline(job, state)
 		}
+
+		// Clean up stale DAW temporary files after the job finishes. The song
+		// whose job just ended is no longer active, but its fresh files are
+		// protected by the minimum-age check; active jobs for other songs are
+		// skipped entirely.
+		s.autoCleanTmpFiles("job-finish")
 	}
 }
 
