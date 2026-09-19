@@ -482,6 +482,7 @@ export interface InputEntry {
   path: string;
   source?: string;
   processed?: boolean;
+  song?: string;
 }
 
 export async function getInputs(include?: 'input' | 'daw-data' | 'all'): Promise<InputEntry[]> {
@@ -950,6 +951,23 @@ export async function uploadAudioDAW(file: File): Promise<DAWImportResponse> {
     throw new Error(`DAW upload failed with status ${res.status}: ${res.statusText}`);
   }
   return (await res.json()) as DAWImportResponse;
+}
+
+export interface DAWSongDeleteResult {
+  deleted: boolean;
+  song: string;
+  files: number;
+  bytes: number;
+}
+
+export async function deleteDawSong(song: string): Promise<DAWSongDeleteResult> {
+  const res = await fetch(`${API_BASE}/api/daw/songs/${encodeURIComponent(song)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    throw await parseDAWError(res);
+  }
+  return (await res.json()) as DAWSongDeleteResult;
 }
 
 // ---- VRAM Calculator ----

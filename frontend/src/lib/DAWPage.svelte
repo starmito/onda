@@ -12,9 +12,10 @@
     uploadAudioDAW,
     getTempoGrid,
     getInputs,
+    deleteDawSong,
     DAWAudioNotFoundError,
   } from './api';
-  import type { TempoGridResponse, PitchStemEntry, InputEntry } from './api';
+  import type { TempoGridResponse, PitchStemEntry, InputEntry, DAWSongDeleteResult } from './api';
   import { IconSkipBack, IconSkipForward } from './icons';
 
   type RegionLike = { start: number; end: number };
@@ -70,6 +71,9 @@
   let showProcessedInputs = $state(false);
   let originalInputs = $derived(uploadedInputs.filter(isOriginalInput));
   let processedInputs = $derived(uploadedInputs.filter((e) => !isOriginalInput(e)));
+  let dawOriginalInputs = $derived(originalInputs.filter((e) => e.source === 'daw-data'));
+  let otherOriginalInputs = $derived(originalInputs.filter((e) => e.source !== 'daw-data'));
+  let originalSongs = $derived(groupInputsBySong(dawOriginalInputs));
   let expandedSongs = $state<Record<string, boolean>>({});
   let uploadResult = $state<{ file: string; size: number } | null>(null);
 
@@ -716,6 +720,63 @@
     return entry.source === 'input' || (entry.source === 'daw-data' && !entry.processed);
   }
 
+  function groupInputsBySong(entries: InputEntry[]): Record<string, InputEntry[]> {
+    const groups: Record<string, InputEntry[]> = {};
+    for (const entry of entries) {
+      const song = entry.song || entry.name;
+      if (!groups[song]) {
+        groups[song] = [];
+      }
+      groups[song].push(entry);
+    }
+    return groups;
+  }
+
+  function trackBelongsToSong(track: Track, song: string): boolean {
+    return track.fileName === song || track.fileName.startsWith(`${song}/`);
+  }
+
+  function removeTracksForSong(song: string) {
+    const toRemove = new Set(tracks.filter((t) => trackBelongsToSong(t, song)).map((t) => t.id));
+    if (toRemove.size === 0) return;
+    for (const track of tracks) {
+      if (toRemove.has(track.id)) {
+        destroyTrack(track);
+      }
+    }
+    tracks = tracks.filter((t) => !toRemove.has(t.id));
+    if (activeTrackId && toRemove.has(activeTrackId)) {
+      activeTrackId = tracks.length > 0 ? tracks[tracks.length - 1].id : '';
+    }
+    updateStatus();
+  }
+
+  async function handleDeleteUploadedSong(song: string) {
+    const confirmed = window.confirm(
+      `¿Borrar la canción "${song}"?\n\nSe eliminará la canción completa del DAW, incluyendo el archivo original y todas sus ediciones. Esta acción no se puede deshacer.`
+    );
+    if (!confirmed) return;
+
+    isProcessing = true;
+    status = `Borrando ${song}...`;
+    try {
+      const result: DAWSongDeleteResult = await deleteDawSong(song);
+      removeTracksForSong(song);
+      await loadUploadedInputs();
+      status = `Borrada ${result.song}: ${result.files} fichero${result.files === 1 ? '' : 's'} liberado${result.files === 1 ? '' : 's'} (${formatBytes(result.bytes)})`;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      if (err instanceof DAWAudioNotFoundError) {
+        onError?.(msg);
+        status = `No se encontró la canción: ${msg}`;
+      } else {
+        status = `Error al borrar ${song}: ${msg}`;
+      }
+    } finally {
+      isProcessing = false;
+    }
+  }
+
   async function handleImportOutput(song: string, stem: string) {
     isProcessing = true;
     status = 'Importando...';
@@ -997,13 +1058,61 @@
               {#if originalInputs.length > 0}
                 <div class="input-group">
                   <h4 class="input-group-title">Originales</h4>
-                  {#each originalInputs as entry}
+                  {#each Object.entries(originalSongs) as [song, entries]}
+                    <div class="song-item">
+                      <div class="song-header">
+                        <button
+                          class="song-toggle"
+                          onclick={() => toggleExpandedSong(song)}
+                        >
+                          <span class="toggle-icon">{expandedSongs[song] ? '▼' : '▶'}</span>
+                          <span class="song-name">{song}</span>
+                        </button>
+                        <div class="song-actions">
+                          <button
+                            class="btn-small"
+                            onclick={() => handleImportUploaded(entries[0])}
+                            disabled={isProcessing}
+                          >
+                            Importar
+                          </button>
+                          <button
+                            class="btn-small btn-danger"
+                            onclick={() => handleDeleteUploadedSong(song)}
+                            disabled={isProcessing}
+                            title="Borrar canción"
+                            aria-label="Borrar canción {song}"
+                          >
+                            🗑
+                          </button>
+                        </div>
+                      </div>
+                      {#if expandedSongs[song]}
+                        <div class="stem-list">
+                          {#each entries as entry}
+                            <div class="stem-item">
+                              <div class="stem-info">
+                                <span class="stem-name">{entry.name}</span>
+                                <span class="stem-meta">DAW</span>
+                              </div>
+                              <button
+                                class="btn-small"
+                                onclick={() => handleImportUploaded(entry)}
+                                disabled={isProcessing}
+                              >
+                                Importar
+                              </button>
+                            </div>
+                          {/each}
+                        </div>
+                      {/if}
+                    </div>
+                  {/each}
+                  {#each otherOriginalInputs as entry}
                     <div class="stem-item">
                       <div class="stem-info">
                         <span class="stem-name">{entry.name}</span>
-                        <span class="stem-meta">
-                          {entry.source === 'daw-data' ? 'DAW' : 'Subida'}
-                        </span>
+                        <span class="stem-meta">Subida</span>
                       </div>
                       <button
                         class="btn-small"
@@ -1645,5 +1754,38 @@
 
   .processed-item {
     opacity: 0.85;
+  }
+
+  .song-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.4rem 0.4rem 0.4rem 0;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .song-header .song-toggle {
+    flex: 1;
+    min-width: 0;
+  }
+
+  .song-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-shrink: 0;
+  }
+
+  .btn-danger {
+    background: #f44336;
+    border-color: #f44336;
+    color: #fff;
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background: #d32f2f;
+    border-color: #d32f2f;
   }
 </style>
