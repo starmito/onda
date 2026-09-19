@@ -239,6 +239,30 @@ func TestCheckVramHeadroom_NeverRequiresMoreThanTotal(t *testing.T) {
 	}
 }
 
+func TestRamRequiredMB_MeasuredViperx(t *testing.T) {
+	got := ramRequiredMB("BS_Roformer_Viperx", "vocal")
+	want := 2352 // round(2045 * 1.15)
+	if got != want {
+		t.Errorf("ramRequiredMB(%q, %q) = %d, want %d", "BS_Roformer_Viperx", "vocal", got, want)
+	}
+
+	ok, _, reason := checkRamHeadroom(4700, "BS_Roformer_Viperx", "vocal")
+	if !ok {
+		t.Errorf("checkRamHeadroom(4700, viperx, vocal) ok = false, want true")
+	}
+	if reason != "" {
+		t.Errorf("checkRamHeadroom(4700, viperx, vocal) reason = %q, want empty", reason)
+	}
+}
+
+func TestRamRequiredMB_UnknownVocalUsesConservativeHeuristic(t *testing.T) {
+	got := ramRequiredMB("unknown_vocal_model", "vocal")
+	want := 3533 // round(3072 * 1.15)
+	if got != want {
+		t.Errorf("ramRequiredMB(%q, %q) = %d, want %d", "unknown_vocal_model", "vocal", got, want)
+	}
+}
+
 func TestHandleVRAMCalculator_ClassifiesModelType(t *testing.T) {
 	s := &Server{mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)
