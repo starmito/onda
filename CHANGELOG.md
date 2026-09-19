@@ -1,5 +1,15 @@
 # Changelog
 
+## [v3.4.13] - 2026-09-19
+
+### Added
+- **Carpeta de exportación configurable**: el usuario puede elegir la carpeta de destino de las exportaciones (audio del DAW, «Unir y exportar», MIDI), con validación real (existe/escribible/sin `..`), persistencia en los ajustes y precedencia entorno > ajustes > defecto. La descarga se sirve por la nueva ruta `GET /api/export/files/{file}`.
+- **UI de carpeta de destino en Ajustes**: nuevo bloque en Ajustes → Almacenamiento para configurar la carpeta de exportaciones.
+- **Limpieza automática de temporales del DAW**: borra solo `daw-data/<canción>/tmp/` (edad mínima 5 min), salta canciones con job en vuelo, se ejecuta en arranque y al terminar cada job, con registro `Deletion: kind=auto-tmp`.
+
+### Removed
+- **Directorio legacy `onda-gui`**: eliminado completamente del repositorio.
+
 ## [v3.4.12] - 2026-09-19
 
 ### Fixed
