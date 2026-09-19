@@ -1,5 +1,24 @@
 # Changelog
 
+## [v3.4.10] - 2026-09-19
+
+### Fixed
+- **Guard de VRAM con picos reales medidos**: el guard usa el pico real del modelo (`BS_Roformer_Viperx = 14.944 MiB`) y añade un guard de RAM del host para evitar lanzar jobs que no caben en memoria.
+- **`pipeline_status.json` limpio al arrancar el job**: el fichero de estado se limpia al inicio de cada job, evitando estados residuales de ejecuciones anteriores.
+- **Cola en vivo desde disco**: la cola se refresca cada 20 s y al volver a la pestaña, reconstruyendo el estado real desde el disco.
+- **Subidas de `input/` borrables**: los archivos subidos a **Detectar velocidad** muestran botón de borrado.
+- **Reproductor mantiene el estado al volver a la pestaña**: se aplica un store de módulo para conservar el estado del reproductor en **Cambio de tono** y **Resultados**.
+
+### Added
+- **Árbol por canción en `daw-data/`**: los datos del DAW se organizan en `daw-data/{canción}/original|edits|imports|tmp`.
+- **Borrar una canción entera del DAW**: nuevo endpoint `DELETE /api/daw/songs/{song}` con validación anti-traversal y registro en el log.
+- **Botón de borrar canción en la lista de subidas**: la lista **Canciones ya subidas** permite borrar una canción completa del DAW, con confirmación, refresco y aviso del espacio liberado.
+- **Panel Almacenamiento en Ajustes**: muestra el uso por carpeta y permite limpieza manual de temporales, ediciones huérfanas y todas las ediciones.
+- **Cada borrado queda en el log**: el registro incluye tipo, nombre, ficheros, bytes, IP y User-Agent.
+
+### Test
+- **Suite API hermética con `TestMain`**: los tests nunca tocan datos reales gracias a un root de test aislado.
+
 ## [v3.4.9] - 2026-09-19
 
 ### Added
