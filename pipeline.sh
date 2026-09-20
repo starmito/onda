@@ -106,7 +106,76 @@ report_progress() {
 {"status":"$status","step":"$step","progress":$progress_float,"song":"${SONG:-}","elapsed":$elapsed,"eta":$eta,"vocal_model":"${VOCAL_MODEL_DISPLAY:-${VIPERX_MODEL_DISPLAY:-}}","stem_model":"${DEMUCS_MODEL_DISPLAY:-}","segment_size":${VIPERX_DIM_T:-0},"overlap":${VIPERX_NUM_OVERLAP:-0},"chunk_size":${ONDA_CHUNK_SIZE:-0},"batch_size":${VIPERX_BATCH_SIZE:-0},"device":"${DEVICE:-cpu}","gpu_type":"${GPU_TYPE:-unknown}","shifts":${SHIFTS:-1},"demucs_segment":${DEMUCS_SEGMENT:-0},"jobs":${JOBS:-0}}
 JSONEOF
 }
-trap 'report_progress "error" "${CURRENT_STEP:-unknown}" 0' ERR
+# Report a step failure, persist its stderr log, and print the last lines.
+# Args: step_name exit_code [stderr_log_file] [fallback_message]
+report_step_failure() {
+    local step_name="${1:-unknown}"
+    local exit_code="${2:-1}"
+    local stderr_file="${3:-}"
+    local fallback_message="${4:-}"
+    local failed_dir=""
+    local persisted_stderr=""
+    local error_message=""
+    local last_lines=""
+
+    if [ -n "${OUTPUT:-}" ]; then
+        failed_dir="${OUTPUT}/_failed_${step_name}"
+        persisted_stderr="${failed_dir}/stderr.log"
+        mkdir -p "${failed_dir}"
+    fi
+
+    if [ -n "${stderr_file}" ] && [ -f "${stderr_file}" ] && [ -s "${stderr_file}" ]; then
+        if [ -n "${persisted_stderr}" ]; then
+            cp "${stderr_file}" "${persisted_stderr}"
+        fi
+        last_lines=$(tail -n 20 "${stderr_file}" 2>/dev/null || true)
+        error_message=$(tail -n 1 "${stderr_file}" 2>/dev/null | tr -d '\r\n' | head -c 200 || true)
+    elif [ -n "${fallback_message}" ]; then
+        error_message="${fallback_message}"
+        last_lines="${fallback_message}"
+        if [ -n "${persisted_stderr}" ]; then
+            echo "${fallback_message}" > "${persisted_stderr}"
+        fi
+    fi
+
+    if [ -z "${error_message}" ]; then
+        error_message="Paso ${step_name} fallo con codigo de salida ${exit_code}"
+    fi
+
+    echo ""
+    echo "❌ Paso ${step_name} fallo. Ultimas lineas:"
+    if [ -n "${last_lines}" ]; then
+        echo "${last_lines}" | sed 's/^/   /'
+    else
+        echo "   (stderr no disponible)"
+    fi
+
+    # Update status with failure details.
+    python3 -c "
+import json, os, sys
+status_file = '${STATUS_FILE}'
+error_message = sys.argv[1]
+try:
+    if os.path.exists(status_file):
+        with open(status_file) as f:
+            d = json.load(f)
+    else:
+        d = {}
+except Exception:
+    d = {}
+d['status'] = 'failed'
+d['step'] = '${step_name}'
+d['error'] = error_message
+d['exit_code'] = ${exit_code}
+try:
+    with open(status_file, 'w') as f:
+        json.dump(d, f)
+except Exception:
+    pass
+" "${error_message}" 2>/dev/null || true
+}
+
+trap 'report_step_failure "${CURRENT_STEP:-unknown}" $?' ERR
 
 # Clear stale pipeline status from previous run and signal that a new pipeline has started
 report_progress "running" "starting" 0
@@ -697,7 +766,12 @@ apply_demucs_fallback_config() {
     # function can return the real demucs exit code without blocking.
     kill_wait "${elapsed_pid:-}"
     eval "${prev_exit_trap:-trap - EXIT}"
-    rm -f "${progress_log}"
+
+    if [ $demucs_rc -ne 0 ]; then
+        report_step_failure "demucs" "$demucs_rc" "${progress_log}"
+    else
+        rm -f "${progress_log}"
+    fi
 
     return $demucs_rc
 }
@@ -1183,7 +1257,9 @@ if $VOCAL || $VIPERX; then
         vocal_model_dir="$(dirname "${vocal_model_dir}")"
     fi
     if [ ! -d "${vocal_model_dir}" ]; then
-        echo "❌ Vocal model not found: ${VOCAL_MODEL:-${VIPERX_MODEL}}" >&2
+        vocal_err="Vocal model not found: ${VOCAL_MODEL:-${VIPERX_MODEL}}"
+        echo "❌ ${vocal_err}" >&2
+        report_step_failure "vocal" 2 "" "${vocal_err}"
         exit 2
     fi
     # Launch inference — Python writes pipeline_status.json directly on each chunk.
