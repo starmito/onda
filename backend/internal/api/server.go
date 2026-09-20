@@ -1304,7 +1304,7 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 			Log("pipeline", "error", logMsg)
 		} else {
 			state.Status = "done"
-			state.Files = listStems(job.Song)
+			state.Files = listResultStems(job.Song, job.Steps)
 			state.CurrentModel = ""
 			state.CurrentFlags = ""
 			Log("pipeline", "success", fmt.Sprintf("Pipeline completed: %s (%d stems, duration=%.1fs)", job.Song, len(state.Files), duration.Seconds()))
@@ -1501,7 +1501,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 	s.jobsMu.Lock()
 	if state, ok := s.jobs[job.Song]; ok {
 		state.Status = "done"
-		state.Files = listStems(song)
+		state.Files = listResultStems(song, steps)
 		state.CurrentStep = len(steps)
 		state.CurrentModel = ""
 		state.CurrentFlags = ""
@@ -1825,6 +1825,55 @@ func listStems(song string) []FileEntry {
 			continue
 		}
 		name := entry.Name()
+		files = append(files, FileEntry{
+			Name: name,
+			Path: "/api/files/" + song + "/" + name,
+		})
+	}
+	return files
+}
+
+// listResultStems returns the stems that should be exposed as final results for
+// a song. When steps are provided, only stems explicitly marked with
+// action: save and target: result are included; routed/discarded intermediates
+// (e.g. instrumental chained into another step) are omitted even if they still
+// exist on disk.
+func listResultStems(song string, steps []cli.PipelineStep) []FileEntry {
+	outputDir := filepath.Join(mustSub("output"), song)
+	entries, err := os.ReadDir(outputDir)
+	if err != nil {
+		return nil
+	}
+
+	finalNames := make(map[string]struct{})
+	for _, step := range steps {
+		for stem, route := range step.Stems {
+			if route.Action == cli.StemSave && route.Target == "result" {
+				finalNames[stem] = struct{}{}
+			}
+		}
+	}
+
+	var files []FileEntry
+	// Only enforce the final-result filter when the steps actually declare
+	// result stems. This keeps tests and legacy callers that pass bare steps
+	// (no Stems metadata) behaving the same as before.
+	hasFinalNames := len(steps) > 0 && len(finalNames) > 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		ext := strings.ToLower(filepath.Ext(name))
+		if ext != ".wav" && ext != ".mp3" && ext != ".flac" && ext != ".ogg" && ext != ".m4a" {
+			continue
+		}
+		base := strings.TrimSuffix(name, filepath.Ext(name))
+		if hasFinalNames {
+			if _, ok := finalNames[base]; !ok {
+				continue
+			}
+		}
 		files = append(files, FileEntry{
 			Name: name,
 			Path: "/api/files/" + song + "/" + name,

@@ -374,23 +374,9 @@
           pipelineStatus = 'running';
           startQueuePolling();
         }
-        // Also accumulate results from any done jobs in the queue
-        for (const job of (status.jobs || [])) {
-          if (job.status === 'done' && job.files && job.files.length > 0) {
-            const alreadyLoaded = new Set(results.map(r => `${r.song}/${r.name}`));
-            const newResults: ResultStem[] = job.files
-              .filter((f: any) => !alreadyLoaded.has(`${job.song}/${f.name}`))
-              .map((f: any) => ({
-                name: f.name,
-                path: f.path,
-                song: job.song,
-                stemType: detectStemType(f.name),
-              }));
-            if (newResults.length > 0) {
-              results = [...results, ...newResults];
-            }
-          }
-        }
+        // Rebuild results from the current authoritative job.files, replacing
+        // any previous stems for songs that are now done.
+        rebuildResultsFromJobs(status.jobs || []);
       })
       .catch((err) => {
         console.error('Failed to restore queue status:', err);
@@ -691,25 +677,10 @@
         }
       }
 
-      // Accumulate results and surface per-job errors once per song
+      // Rebuild results from the current authoritative job.files and surface
+      // per-job errors once per song.
+      rebuildResultsFromJobs(jobs);
       for (const job of jobs) {
-        if (job.status === 'done' && !processedDoneSongs.has(job.song)) {
-          processedDoneSongs.add(job.song);
-          if (job.files && job.files.length > 0) {
-            const alreadyLoaded = new Set(results.map(r => `${r.song}/${r.name}`));
-            const newResults: ResultStem[] = job.files
-              .filter((f: any) => !alreadyLoaded.has(`${job.song}/${f.name}`))
-              .map((f: any) => ({
-                name: f.name,
-                path: f.path,
-                song: job.song,
-                stemType: detectStemType(f.name),
-              }));
-            if (newResults.length > 0) {
-              results = [...results, ...newResults];
-            }
-          }
-        }
         if (job.status === 'error' && job.error && !processedDoneSongs.has(job.song)) {
           processedDoneSongs.add(job.song);
           showToast(`Error en "${job.song}": ${job.error.slice(0, 200)}`, 'error');
@@ -815,6 +786,34 @@
     } catch {
       // silently ignore
     }
+  }
+
+  // Rebuild the results list from the current authoritative job.files.
+  // Stems for any song reported as done are replaced entirely, so
+  // intermediate/discarded stems that disappeared from the backend do not
+  // become ghosts in the UI.  Songs not present in the queue are left intact
+  // (e.g. results loaded from disk on mount).  Mute/solo/volume state is keyed
+  // by song/name in the player store and survives the rebuild.
+  function rebuildResultsFromJobs(jobs: QueueJob[]) {
+    const doneJobs = jobs.filter(j => j.status === 'done' && j.files && j.files.length > 0);
+    if (doneJobs.length === 0) return;
+
+    const songsToReplace = new Set(doneJobs.map(j => j.song));
+    const keptResults = results.filter(r => !songsToReplace.has(r.song));
+
+    const rebuilt: ResultStem[] = [];
+    for (const job of doneJobs) {
+      for (const f of job.files!) {
+        rebuilt.push({
+          name: f.name,
+          path: f.path,
+          song: job.song,
+          stemType: detectStemType(f.name),
+        });
+      }
+    }
+
+    results = [...keptResults, ...rebuilt];
   }
 
   // ---- DropZone + FileQueue helpers ----
