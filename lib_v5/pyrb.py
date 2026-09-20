@@ -34,8 +34,8 @@ def __rubberband(y, sr, **kwargs):
     sf.write(infile, y, sr)
 
     try:
-        # Execute rubberband
-        arguments = [__RUBBERBAND_UTIL, '-q']
+        # Execute rubberband (R3 fine engine by default for quality)
+        arguments = [__RUBBERBAND_UTIL, '-q', '--fine']
 
         for key, value in six.iteritems(kwargs):
             arguments.append(str(key))

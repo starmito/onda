@@ -1122,7 +1122,7 @@ for k in s.get('stems', {}).keys():
                     fi
                     SRC=$(find "${PARENT_TMP}" -maxdepth 3 -iname "*${stem_name}*" -type f 2>/dev/null | head -1)
                     if [ -n "$SRC" ]; then
-                        run_with_elapsed rubberband --pitch "${PITCH}" --quiet "${SRC}" "${STEP_TMP}/${stem_name}.wav"
+                        run_with_elapsed rubberband --fine --pitch "${PITCH}" --quiet "${SRC}" "${STEP_TMP}/${stem_name}.wav"
                         echo "   ✅ ${stem_name} pitched → ${STEP_TMP}/${stem_name}.wav"
                     else
                         echo "   ⚠️  Stem '${stem_name}' not found for rubberband"
@@ -1512,7 +1512,7 @@ if $RUBBERBAND; then
             if [[ "${DEMUCS_KEEP}" == "all" ]] || [[ ",${DEMUCS_KEEP}," == *",${stem},"* ]]; then
                 SRC=$(find "${STEM_DIR}" -maxdepth 1 -iname "*${stem}*" | head -1)
                 if [ -n "${SRC}" ]; then
-                    run_with_elapsed rubberband --pitch "${PITCH}" --quiet "${SRC}" "${OUTPUT}/${stem}.wav"
+                    run_with_elapsed rubberband --fine --pitch "${PITCH}" --quiet "${SRC}" "${OUTPUT}/${stem}.wav"
                     echo "   ✅ ${stem} → ${OUTPUT}/${stem}.wav"
                 fi
             else
@@ -1534,7 +1534,7 @@ if $RUBBERBAND; then
         # Only pitch if it's a mono/stereo track (not stems)
         OUT_FILE="${OUTPUT}/${SONG}_pitch${PITCH}.wav"
         CURRENT_STEP="rubberband"
-        run_with_elapsed rubberband --pitch "${PITCH}" --quiet "${INPUT}" "${OUT_FILE}"
+        run_with_elapsed rubberband --fine --pitch "${PITCH}" --quiet "${INPUT}" "${OUT_FILE}"
         echo "   ✅ pitch shift → ${OUT_FILE}"
     fi
 fi
