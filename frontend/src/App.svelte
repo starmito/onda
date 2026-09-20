@@ -104,7 +104,8 @@
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Persistent error banner
-  let errorBanner = $state<{ message: string } | null>(null);
+  let errorBanner = $state<{ message: string; log?: string } | null>(null);
+  let errorLogDetail = $state<string | null>(null);
 
   // ---- New layout state ----
   let activeTab = $state('personalizado');
@@ -582,6 +583,14 @@
     return raw.replace(/\.[^.]+$/, '');
   }
 
+  function formatJobFailureMessage(job: QueueJob): string {
+    const d = job.failure_details;
+    if (!d) return job.error || 'Error desconocido';
+    let msg = `Error en "${job.song}" — paso ${d.step} (código ${d.exit_code})`;
+    if (d.error) msg += `: ${d.error}`;
+    return msg;
+  }
+
   /** Mark queue rows as done when their song already has stems on disk. */
   function markDoneRowsFromResults() {
     const songsWithResults = new Set(results.map(r => r.song));
@@ -681,9 +690,11 @@
       // per-job errors once per song.
       rebuildResultsFromJobs(jobs);
       for (const job of jobs) {
-        if (job.status === 'error' && job.error && !processedDoneSongs.has(job.song)) {
+        if (job.status === 'error' && !processedDoneSongs.has(job.song)) {
           processedDoneSongs.add(job.song);
-          showToast(`Error en "${job.song}": ${job.error.slice(0, 200)}`, 'error');
+          const message = formatJobFailureMessage(job);
+          const log = job.failure_details?.stderr || job.error || '';
+          errorBanner = { message, log };
         }
       }
 
@@ -699,7 +710,7 @@
           current_step: job.current_step,
           total_steps: job.total_steps,
           step_name: job.step_name,
-          errorMsg: job.status === 'error' ? (job.error || qf.errorMsg) : qf.errorMsg,
+          errorMsg: job.status === 'error' ? (job.failure_details?.error || job.error || qf.errorMsg) : qf.errorMsg,
         };
       });
 
@@ -1025,10 +1036,18 @@
     <div class="error-banner">
       <span class="error-banner-text">{errorBanner.message}</span>
       <div class="error-banner-actions">
+        {#if errorBanner.log}
+          <button class="btn-icon" title="Ver log completo" onclick={() => errorLogDetail = errorLogDetail ? null : errorBanner!.log || null}>
+            {errorLogDetail ? 'Ocultar log' : 'Ver log'}
+          </button>
+        {/if}
         <button class="btn-icon" title="Copiar error" onclick={() => copyToClipboard(errorBanner!.message)}>Copiar</button>
-        <button class="btn-icon" title="Cerrar" onclick={() => errorBanner = null}>✕</button>
+        <button class="btn-icon" title="Cerrar" onclick={() => { errorBanner = null; errorLogDetail = null; }}>✕</button>
       </div>
     </div>
+    {#if errorLogDetail}
+      <pre class="error-log-detail">{errorLogDetail}</pre>
+    {/if}
   {/if}
 </main>
 
@@ -1491,6 +1510,23 @@
   }
   .btn-icon:hover {
     background: rgba(255,255,255,0.3);
+  }
+  .error-log-detail {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1a1a2e;
+    color: #e0e0e0;
+    border: 1px solid #2a2a4a;
+    border-radius: 8px;
+    padding: 16px;
+    max-width: 90vw;
+    max-height: 40vh;
+    overflow: auto;
+    white-space: pre-wrap;
+    z-index: 9999;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   }
 
   .btn-refresh {

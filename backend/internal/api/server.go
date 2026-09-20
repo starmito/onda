@@ -87,8 +87,9 @@ type JobState struct {
 	Song             string      `json:"song"`
 	Status           string      `json:"status"` // waiting, processing, done, error, blocked_no_gpu
 	Progress         int         `json:"progress"`
-	Error            string      `json:"error,omitempty"`
-	Files            []FileEntry `json:"files,omitempty"`
+	Error            string                `json:"error,omitempty"`
+	FailureDetails   *FailureDiagnostics   `json:"failure_details,omitempty"`
+	Files            []FileEntry           `json:"files,omitempty"`
 	Index            int         `json:"index"`
 	CurrentStep      int         `json:"current_step"`
 	TotalSteps       int         `json:"total_steps"`
@@ -861,6 +862,8 @@ func (s *Server) collectQueueJobs() []*JobState {
 			j.Progress = 100
 			j.StepName = "Completado"
 			j.CurrentStep = j.TotalSteps
+		} else if j.Status == "error" {
+			j.FailureDetails = readFailureDiagnostics(filepath.Join(outputDir, j.Song))
 		}
 		jobList = append(jobList, j)
 	}
@@ -1188,6 +1191,9 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 		}
 	}
 
+	songDir := filepath.Join(mustSub("output"), job.Song)
+	_ = cleanupOldFailedDirs(songDir, maxFailedDiagnosticsDirs, "")
+
 	// Resource headroom checks before launching.
 	if !job.Config.ForceVRAM {
 		gpu := gpuInfoProvider()
@@ -1300,6 +1306,7 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 			state.Error = tail
 			statusPath := filepath.Join(mustSub("output"), "pipeline_status.json")
 			writePipelineStatusFailed(statusPath, stepName, exitCode, signalName)
+			_ = cleanupOldFailedDirs(songDir, maxFailedDiagnosticsDirs, stepName)
 			logMsg := fmt.Sprintf("Pipeline failed for %s (step=%s, exit=%d, signal=%s, duration=%.1fs): %s",
 				job.Song, stepName, exitCode, signalName, duration.Seconds(), tail)
 			Log("pipeline", "error", logMsg)
@@ -1323,6 +1330,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 
 	// Ensure output directory exists
 	os.MkdirAll(outputDir, 0o755)
+	_ = cleanupOldFailedDirs(outputDir, maxFailedDiagnosticsDirs, "")
 
 	currentInput := job.Config.Input
 	allStems := make([]FileEntry, 0)
@@ -1448,6 +1456,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 			tail := tailOutput(errMsg, 40, 8192)
 			statusPath := filepath.Join(outputDir, "pipeline_status.json")
 			writePipelineStatusFailed(statusPath, step.ID, exitCode, signalName)
+			_ = cleanupOldFailedDirs(outputDir, maxFailedDiagnosticsDirs, step.ID)
 			s.jobsMu.Lock()
 			if state, ok := s.jobs[job.Song]; ok {
 				state.Status = "error"
