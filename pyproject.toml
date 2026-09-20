@@ -4,9 +4,10 @@ version = "3.4.4"
 description = "Audio source separation pipeline: BS-Roformer → HTDemucs → Rubberband"
 requires-python = ">=3.10"
 dependencies = [
-    "torch>=2.0",
-    "torchaudio",
-    "demucs",
+    "torch==2.14.0",
+    "torchvision==0.29.0",
+    "demucs==4.1.0",
+    "sphn>=0.1.12",
     "librosa",
     "soundfile",
     "numpy",

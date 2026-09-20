@@ -18,7 +18,7 @@ if [ "$GPU" != "cpu" ]; then
         mkdir -p "$CACHE_DIR"
         case $GPU in
             cuda)
-                pip install --target "$CACHE_DIR" torch==2.11.0 torchaudio==2.11.0 torchvision==0.26.0 onnxruntime-gpu==1.26.0
+                pip install --target "$CACHE_DIR" torch==2.14.0 torchvision==0.29.0 onnxruntime-gpu==1.26.0
                 ;;
         esac
         echo "✅ $GPU backend installed"

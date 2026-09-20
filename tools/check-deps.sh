@@ -137,7 +137,7 @@ for rel in "${REQ_FILES[@]}"; do
     if [[ "$v" == "$lockv" ]]; then
       :
     elif [[ "${lockv%%+*}" == "${v%%+*}" ]]; then
-      info "$rel:$lineno  '$n==$v' -> instalado '$lockv' (difiere solo en el sufijo local '+...'; esperado para torch/torchaudio/torchvision)"
+      info "$rel:$lineno  '$n==$v' -> instalado '$lockv' (difiere solo en el sufijo local '+...'; esperado para torch/torchvision)"
     else
       err "$rel:$lineno  '$n==$v' -> INSTALADO: '$n==$lockv'  MISMATCH"
       file_mismatch=$((file_mismatch + 1))

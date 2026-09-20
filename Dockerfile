@@ -1,4 +1,4 @@
-# Onda v3.4.4 — Contenedor unificado (Python + Go + Svelte)
+# Onda v3.5.0 — Contenedor unificado (Python + Go + Svelte)
 # GPU auto-detect en runtime via entrypoint.sh
 # Build: docker compose build
 # Deploy: docker compose up -d  (o bash deploy.sh para auto-detectar GPU)
@@ -42,10 +42,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python3.14 -m venv /opt/venv && \
     /opt/venv/bin/pip install --no-cache-dir --upgrade pip setuptools wheel
 
-RUN /opt/venv/bin/pip install --no-cache-dir torch==2.11.0+cpu torchaudio==2.11.0+cpu torchvision==0.26.0+cpu --index-url https://download.pytorch.org/whl/cpu
+RUN /opt/venv/bin/pip install --no-cache-dir torch==2.14.0+cpu torchvision==0.29.0+cpu --index-url https://download.pytorch.org/whl/cpu
 
-# Demucs con --no-deps (no necesita torch en build)
-RUN /opt/venv/bin/pip install --no-cache-dir demucs==4.0.1 --no-deps
+# Demucs 4.1.0 con --no-deps (torch ya esta instalado; sphn es su nueva dependencia)
+RUN /opt/venv/bin/pip install --no-cache-dir demucs==4.1.0 --no-deps sphn==0.2.1
 RUN printf '#!/bin/bash\ncd /tmp\nexec python -m demucs "$@"\n' > /opt/venv/bin/demucs && \
     chmod +x /opt/venv/bin/demucs
 
@@ -55,12 +55,13 @@ RUN SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True \
     /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements-common.txt
 
 # Paquetes que dependen de torch (torch CPU ya está instalado, pip NO descargará CUDA)
+# NOTA: no se instalan asteroid/openunmix/torch_audiomentations porque arrastran torchaudio,
+# y Onda v3.5.0 usa demucs 4.1.0 que no lo necesita.
 RUN /opt/venv/bin/pip install --no-cache-dir \
     diffq pytorch_lightning ml_collections onnx2pytorch \
     rotary_embedding_torch segmentation_models_pytorch \
     transformers timm torchmetrics spafe julius \
-    torch_audiomentations asteroid openunmix dora-search \
-    torchcodec==0.16.0
+    dora-search torchcodec==0.16.0
 
 # ── Stage 4: Imagen final ────────────────────────────────
 FROM ubuntu:26.04 AS runtime
