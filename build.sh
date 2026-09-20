@@ -1,6 +1,16 @@
 #!/usr/bin/env bash
 # Onda — centralized build script with per-service automatic versioning from git tags.
 #
+# Version policy:
+#   Git tags are the single source of truth for releases.
+#   Prefer a service-specific tag (onda-vX.Y.Z / gui-vX.Y.Z); if none exists,
+#   fall back to the most recent reachable tag.  The VERSION file and the
+#   Python/frontend manifests are *generated* from this resolution so the
+#   three consumers (Go binary ldflags, frontend badge/dist/VERSION, and the
+#   health-checked files) always agree.
+#
+#   build.sh and deploy.sh share the same resolution via `source ./build.sh`.
+#
 # Tags:
 #   onda-vX.Y.Z  → backend Go + Python pipeline
 #   gui-vX.Y.Z   → frontend Svelte
@@ -42,6 +52,11 @@ generate_version_files() {
     PY_VERSION="${ONDAP_VERSION#v}"
     if [ "$PY_VERSION" != "unknown" ]; then
         sed -i "s/^version = \"[^\"]*\"/version = \"$PY_VERSION\"/" pyproject.toml
+    fi
+
+    # Frontend package manifest (kept in sync so npm/build tooling report it)
+    if [ -f frontend/package.json ]; then
+        sed -i 's/"version": "[^"]*"/"version": "'"$GUI_VERSION"'"/' frontend/package.json
     fi
 
     # Native VERSION file used by backend fallback and health endpoint
@@ -88,6 +103,7 @@ native_build() {
 docker_build() {
     echo "🐳 Onda Docker build"
     print_versions
+    generate_version_files
 
     # docker compose will use the ARG values passed below.
     docker compose build \

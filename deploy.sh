@@ -45,9 +45,13 @@ echo "🎯 Hardware detectado: $GPU"
 # Resolver versiones desde los tags de git (misma lógica que build.sh).
 # Es necesario exportarlas porque docker-compose.yml las inyecta como ARG
 # en build time y .dockerignore excluye .git, por lo que el contenedor no
-# puede calcularlas por sí solo.
+# puede calcularlas por sí mismo.
 source ./build.sh --version
 export ONDAP_VERSION GUI_VERSION
+
+# Regenerar los ficheros de versión que consumen el health check y el build
+# de la imagen, para que coincidan con la versión resuelta por los tags.
+generate_version_files
 
 # Directorios montados como bind volumes (deben pertenecer al usuario host)
 BIND_DIRS="data/input data/output data/input_rubberband data/daw-data data/config data/logs data/models"
