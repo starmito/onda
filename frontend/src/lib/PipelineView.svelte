@@ -4,19 +4,8 @@
   import { uploadAudio, deleteInput, clearQueue, separateAudio, cancelQueue, getProcessesStatus } from './api';
   import type { ProcessStatus, QueueJob } from './api';
   import { IconUpload } from './icons';
-
-  interface QueueFile {
-    file: File;
-    id: string;
-    status: string;
-    checked: boolean;
-    progress?: number;
-    path?: string;
-    errorMsg?: string;
-    current_step?: number;
-    total_steps?: number;
-    step_name?: string;
-  }
+  import { getDefaultChecked, withToggledCheck, withToggledAll } from './queueDefaults';
+  import type { QueueFile } from './queueDefaults';
 
   let {
     presetName = '',
@@ -161,7 +150,8 @@
         file: f,
         id,
         status: 'uploading',
-        checked: true,
+        checked: getDefaultChecked('uploading'),
+        userTouched: false,
       };
       updated.push(qf);
       onQueueChange([...updated]);
@@ -169,13 +159,17 @@
         const res = await uploadAudio(f);
         const idx = updated.findIndex(q => q.id === id);
         if (idx !== -1) {
-          updated[idx] = { ...updated[idx], status: 'waiting', path: res.path };
+          const q = updated[idx];
+          const checked = q.userTouched ? q.checked : getDefaultChecked('waiting');
+          updated[idx] = { ...q, status: 'waiting', path: res.path, checked };
           onQueueChange([...updated]);
         }
       } catch (err: any) {
         const idx = updated.findIndex(q => q.id === id);
         if (idx !== -1) {
-          updated[idx] = { ...updated[idx], status: 'error', errorMsg: err.message || 'Upload failed' };
+          const q = updated[idx];
+          const checked = q.userTouched ? q.checked : getDefaultChecked('error');
+          updated[idx] = { ...q, status: 'error', errorMsg: err.message || 'Upload failed', checked };
           onQueueChange([...updated]);
         }
       }
@@ -214,16 +208,11 @@
   }
 
   function handleToggleQueueFile(id: string) {
-    const updated = queueFiles.map((qf) =>
-      qf.id === id ? { ...qf, checked: !qf.checked } : qf,
-    );
-    onQueueChange(updated);
+    onQueueChange(withToggledCheck(queueFiles, id));
   }
 
   function handleToggleAll() {
-    const allChecked = queueFiles.every(qf => qf.checked);
-    const updated = queueFiles.map(qf => ({ ...qf, checked: !allChecked }));
-    onQueueChange(updated);
+    onQueueChange(withToggledAll(queueFiles));
   }
 
   async function handleClearQueue() {
