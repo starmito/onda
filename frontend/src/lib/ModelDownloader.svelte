@@ -7,6 +7,7 @@
     downloadModel,
     downloadModelDirect,
     getDownloadStatus,
+    cancelDownload,
     uploadModel,
     deleteModel,
     type UVRModelEntry,
@@ -62,8 +63,9 @@
   // Track progress per model: key = model.filename || model.name
   interface DownloadProgressInfo {
     percentage: number;
-    status: string;      // "downloading", "done", "error"
+    status: string;      // "downloading", "done", "error", "cancelled"
     pollKeys: string[];  // repo/URL keys to poll on backend
+    pollByUrl?: Set<string>; // which pollKeys are direct URLs
     intervalId?: ReturnType<typeof setInterval>;
     error?: string;
   }
@@ -400,7 +402,7 @@
       // Update progress with poll keys
       downloadProgress = {
         ...downloadProgress,
-        [key]: { ...downloadProgress[key], pollKeys }
+        [key]: { ...downloadProgress[key], pollKeys, pollByUrl }
       };
 
       // Start polling
@@ -411,11 +413,15 @@
         let bestError = '';
         let completedCount = 0;
 
+        let cancelledCount = 0;
         for (const pk of pollKeys) {
           try {
             const st = await getDownloadStatus(pk, { byUrl: pollByUrl.has(pk) });
             if (st.percentage > bestPct) bestPct = st.percentage;
             if (st.status === 'done') completedCount++;
+            if (st.status === 'cancelled') {
+              cancelledCount++;
+            }
             if (st.status === 'error') {
               bestStatus = 'error';
               bestError = st.error || 'Download failed';
@@ -426,22 +432,29 @@
           }
         }
 
-        // All done or first error
-        const finalStatus = completedCount === pollKeys.length ? 'done' : bestStatus;
+        // All done, first error, or all cancelled
+        let finalStatus = bestStatus;
+        if (bestStatus !== 'error') {
+          if (cancelledCount === pollKeys.length) {
+            finalStatus = 'cancelled';
+          } else if (completedCount === pollKeys.length) {
+            finalStatus = 'done';
+          }
+        }
 
         downloadProgress = {
           ...downloadProgress,
           [key]: { ...downloadProgress[key], percentage: bestPct, status: finalStatus, intervalId, error: bestError }
         };
 
-        if (finalStatus === 'done' || finalStatus === 'error') {
+        if (finalStatus === 'done' || finalStatus === 'error' || finalStatus === 'cancelled') {
           clearInterval(intervalId);
           if (finalStatus === 'done') {
             await refreshCatalog();
-            // Clean up progress after a short delay
-            const { [key]: _, ...rest } = downloadProgress;
-            setTimeout(() => { downloadProgress = rest; }, 2000);
           }
+          // Clean up progress after a short delay
+          const { [key]: _, ...rest } = downloadProgress;
+          setTimeout(() => { downloadProgress = rest; }, 2000);
         }
       }, 1500);
 
@@ -457,6 +470,42 @@
       const { [key]: _, ...rest } = downloadProgress;
       downloadProgress = rest;
     }
+  }
+
+  async function cancelDownloadHandler(model: CombinedModel) {
+    const key = model.filename || model.name;
+    const prog = downloadProgress[key];
+    if (!prog) return;
+
+    // Stop polling immediately so the UI doesn't flicker back to downloading.
+    if (prog.intervalId) {
+      clearInterval(prog.intervalId);
+    }
+
+    downloadProgress = {
+      ...downloadProgress,
+      [key]: { ...prog, status: 'cancelled', percentage: 0 }
+    };
+
+    try {
+      for (const pk of prog.pollKeys) {
+        await cancelDownload(pk, { byUrl: prog.pollByUrl?.has(pk) ?? false });
+      }
+    } catch (err: any) {
+      const errors = new Map(downloadErrors);
+      errors.set(key, err.message || 'No se pudo cancelar la descarga');
+      downloadErrors = errors;
+      downloadProgress = {
+        ...downloadProgress,
+        [key]: { ...downloadProgress[key], status: 'error', error: err.message || 'Cancel failed' }
+      };
+    }
+
+    // Clean up the cancelled entry after a short delay.
+    setTimeout(() => {
+      const { [key]: _, ...rest } = downloadProgress;
+      downloadProgress = rest;
+    }, 2000);
   }
 
   function formatSize(mb: number): string {
@@ -661,12 +710,19 @@
                         {/if}
                       {:else if prog.status === 'done'}
                         <span class="check-icon" title="Completado">✅</span>
+                      {:else if prog.status === 'cancelled'}
+                        <span class="download-cancelled" title="Descarga cancelada">🚫 Cancelada</span>
                       {:else}
                         <div class="progress-bar-wrap">
                           <div class="progress-bar">
                             <div class="progress-fill" style="width: {prog.percentage}%"></div>
                           </div>
                           <span class="progress-text">{Math.round(prog.percentage)}%</span>
+                          <button
+                            class="btn-cancel"
+                            onclick={() => cancelDownloadHandler(model)}
+                            title="Cancelar descarga"
+                          >✕</button>
                         </div>
                       {/if}
                     {:else}
@@ -1032,12 +1088,38 @@
   }
 
   .error-detail {
-    font-size: 0.65rem;
+    font-size: 0.7rem;
     color: #e57373;
-    max-width: 120px;
+    max-width: 180px;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .download-cancelled {
+    font-size: 0.7rem;
+    color: #ffb74d;
+    white-space: nowrap;
+  }
+
+  .btn-cancel {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: #e57373;
+    font-size: 0.65rem;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+  }
+  .btn-cancel:hover {
+    background: rgba(229, 115, 115, 0.15);
+    border-color: #e57373;
   }
 
   /* Progress bar */

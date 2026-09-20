@@ -341,6 +341,20 @@ export async function getDownloadStatus(
   return (await res.json()) as DownloadStatusResponse;
 }
 
+export async function cancelDownload(
+  key: string,
+  opts: { byUrl?: boolean } = {},
+): Promise<DownloadStatusResponse> {
+  const param = opts.byUrl ? 'url' : 'repo';
+  const res = await fetch(`${API_BASE}/api/models/download?${param}=${encodeURIComponent(key)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    throw new Error(`Cancel download failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as DownloadStatusResponse;
+}
+
 export async function uploadModel(file: File): Promise<UploadResponse> {
   const formData = new FormData();
   formData.append('file', file);
