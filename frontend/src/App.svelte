@@ -17,20 +17,10 @@
   import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getPresets, getDefaultPreset, clearQueue, cancelQueue, loadUISettings, type InputEntry } from './lib/api';
   import type { QueueJob } from './lib/api';
   import { IconOnda, IconStar, IconVoiceRemove, IconSeparate, IconInstruments, IconUser } from './lib/icons';
+  import { getDefaultChecked, applyDefaultChecked, withToggledCheck, withToggledAll } from './lib/queueDefaults';
+  import type { QueueFile } from './lib/queueDefaults';
 
 
-  interface QueueFile {
-    file: File;
-    id: string;
-    status: string;
-    checked: boolean;
-    progress?: number;
-    path?: string;
-    errorMsg?: string;
-    current_step?: number;
-    total_steps?: number;
-    step_name?: string;
-  }
   interface PipelineConfigType {
     preset?: string;
     steps?: Array<{
@@ -192,7 +182,8 @@
         file: new File([], input.name),
         id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}-${input.name}`,
         status: 'waiting',
-        checked: true,
+        checked: getDefaultChecked('waiting'),
+        userTouched: false,
         path: input.path,
       });
     }
@@ -434,18 +425,23 @@
         file: f,
         id,
         status: 'uploading',
-        checked: true,
+        checked: getDefaultChecked('uploading'),
+        userTouched: false,
       };
       queueFiles = [...queueFiles, qf];
       try {
         const res = await uploadAudio(f);
-        queueFiles = queueFiles.map(q =>
-          q.id === id ? { ...q, status: 'waiting', path: res.path } : q
-        );
+        queueFiles = queueFiles.map(q => {
+          if (q.id !== id) return q;
+          const checked = q.userTouched ? q.checked : getDefaultChecked('waiting');
+          return { ...q, status: 'waiting', path: res.path, checked };
+        });
       } catch (err: any) {
-        queueFiles = queueFiles.map(q =>
-          q.id === id ? { ...q, status: 'error', errorMsg: err.message || 'Upload failed' } : q
-        );
+        queueFiles = queueFiles.map(q => {
+          if (q.id !== id) return q;
+          const checked = q.userTouched ? q.checked : getDefaultChecked('error');
+          return { ...q, status: 'error', errorMsg: err.message || 'Upload failed', checked };
+        });
       }
     }
     // Pick up files uploaded from other tabs / sources without reloading
@@ -469,14 +465,11 @@
   }
 
   function handleToggleQueueFile(id: string) {
-    queueFiles = queueFiles.map((qf) =>
-      qf.id === id ? { ...qf, checked: !qf.checked } : qf,
-    );
+    queueFiles = withToggledCheck(queueFiles, id);
   }
 
   function handleToggleAll() {
-    const allChecked = queueFiles.every(qf => qf.checked);
-    queueFiles = queueFiles.map(qf => ({ ...qf, checked: !allChecked }));
+    queueFiles = withToggledAll(queueFiles);
   }
 
   // ---- Pipeline start ----
@@ -596,8 +589,9 @@
     const songsWithResults = new Set(results.map(r => r.song));
     queueFiles = queueFiles.map(qf => {
       const song = songNameForQueueFile(qf);
-      if (songsWithResults.has(song)) {
-        return { ...qf, status: 'done', progress: 100 };
+      if (songsWithResults.has(song) && qf.status !== 'done') {
+        const checked = qf.userTouched ? qf.checked : getDefaultChecked('done');
+        return { ...qf, status: 'done', progress: 100, checked };
       }
       return qf;
     });
@@ -703,9 +697,14 @@
         const qfSong = songNameForQueueFile(qf);
         const job = jobs.find(j => j.song === qfSong || j.song.startsWith(qfSong));
         if (!job) return qf;
+        const statusChanged = qf.status !== job.status;
+        const checked = statusChanged && !qf.userTouched
+          ? getDefaultChecked(job.status)
+          : qf.checked;
         return {
           ...qf,
           status: job.status,
+          checked,
           progress: job.status === 'done' ? 100 : (job.progress ?? 0),
           current_step: job.current_step,
           total_steps: job.total_steps,
@@ -909,7 +908,12 @@
       collapsed={sidebarCollapsed}
       presets={sidebarPresets}
       ontoggle={() => sidebarCollapsed = !sidebarCollapsed}
-      ontabchange={(tab) => activeTab = tab}
+      ontabchange={(tab) => {
+        activeTab = tab;
+        if (isQueueVisible(tab)) {
+          queueFiles = applyDefaultChecked(queueFiles);
+        }
+      }}
     />
 
     <div class="main-area">
