@@ -125,6 +125,7 @@ RUN mkdir -p /usr/share/nginx/html && cp /VERSION /usr/share/nginx/html/VERSION
 # UVR model catalog
 COPY uvr_models.json /app/uvr_models.json
 COPY hf_models.json /app/hf_models.json
+COPY model_configs/ /app/model_configs/
 
 # Crear usuario no privilegiado (mismo UID/GID que el instalador host).
 # Ubuntu 26.04 ya trae un usuario 'ubuntu' con UID/GID 1000; lo renombramos.

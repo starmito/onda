@@ -181,7 +181,7 @@ except Exception:
 " "${error_message}" 2>/dev/null || true
 }
 
-trap 'report_step_failure "${CURRENT_STEP:-unknown}" $?' ERR
+trap 'report_step_failure "${CURRENT_STEP:-unknown}" $? "${CURRENT_STEP_LOG:-}"' ERR
 
 # Clear stale pipeline status from previous run and signal that a new pipeline has started
 report_progress "running" "starting" 0
@@ -256,8 +256,23 @@ run_with_elapsed() {
     # Ensure the background loop is always cleaned up, even on failure or exit.
     # Use ${elapsed_pid:-} so set -u never aborts the trap before cleanup.
     trap 'kill_wait "${elapsed_pid:-}"; cleanup_legacy_temps' EXIT
-    "$@"
-    local cmd_rc=$?
+
+    # Capture per-step output so failure reports can include the real stderr.
+    # The log is also exposed to the backend via the _failed_<step>/stderr.log
+    # copy performed by report_step_failure.
+    local step_log="${CURRENT_STEP_LOG:-}"
+    if [ -z "$step_log" ] && [ -n "${OUTPUT:-}" ]; then
+        step_log="${OUTPUT}/_step_${CURRENT_STEP:-unknown}.log"
+    fi
+    local cmd_rc
+    if [ -n "$step_log" ]; then
+        mkdir -p "$(dirname "$step_log")"
+        : > "$step_log"
+        "$@" > >(tee -a "$step_log") 2>&1
+    else
+        "$@"
+    fi
+    cmd_rc=$?
     kill_wait "${elapsed_pid:-}"
     eval "${prev_exit_trap:-trap - EXIT}"
     return $cmd_rc
@@ -548,6 +563,60 @@ is_onnx_model_dir() {
     return 1
 }
 
+# Read UVR-style model config (model_configs/<model>.json) and derive RoFormer
+# inference parameters. segment_size maps directly to dim_t, overlap is a float
+# converted to an integer overlap factor (1/overlap), and batch_size is used
+# as-is when >0. This prevents training-style YAML values (e.g. dim_t=3105)
+# from being used for inference.
+_apply_roformer_model_config_overrides() {
+    local model_dir="$1"
+    local model_name
+    model_name=$(basename "$model_dir")
+    # Accept either a directory named after the model or a generic symlink
+    # (e.g. /app/data/models/model). Resolve symlinks so the real basename is
+    # used as a fallback lookup key.
+    local real_model_dir
+    real_model_dir=$(readlink -f "$model_dir" 2>/dev/null || echo "$model_dir")
+    local real_model_name
+    real_model_name=$(basename "$real_model_dir")
+
+    local cfg_json=""
+    local candidate=""
+    for d in "${model_dir}" "${real_model_dir}" "${SCRIPT_DIR}/model_configs" "${CONFIG_DIR}/model_configs" "${ONDA_DATA_DIR}/model_configs"; do
+        for candidate in "${d}/${model_name}.json" "${d}/${real_model_name}.json" "${d}/model_config.json"; do
+            if [ -f "$candidate" ]; then
+                cfg_json="$candidate"
+                break 2
+            fi
+        done
+    done
+    [ -z "$cfg_json" ] && return 0
+
+    echo "   ℹ️  RoFormer config override: ${cfg_json}"
+
+    local seg overlap batch
+    seg=$(python3 -c "import json,sys; print(json.load(open('$cfg_json')).get('segment_size',0))" 2>/dev/null || echo "0")
+    overlap=$(python3 -c "import json,sys; print(json.load(open('$cfg_json')).get('overlap',0))" 2>/dev/null || echo "0")
+    batch=$(python3 -c "import json,sys; print(json.load(open('$cfg_json')).get('batch_size',0))" 2>/dev/null || echo "0")
+
+    if [ -n "$seg" ] && [ "$seg" -gt 0 ] 2>/dev/null; then
+        VOCAL_DIM_T="$seg"
+        VIPERX_DIM_T="$seg"
+    fi
+    if [ -n "$overlap" ]; then
+        local overlap_int
+        overlap_int=$(python3 -c "import sys; v=float('$overlap'); print(int(round(1.0/v))) if v>0 else sys.exit(1)" 2>/dev/null || echo "")
+        if [ -n "$overlap_int" ] && [ "$overlap_int" -gt 0 ] 2>/dev/null; then
+            VOCAL_NUM_OVERLAP="$overlap_int"
+            VIPERX_NUM_OVERLAP="$overlap_int"
+        fi
+    fi
+    if [ -n "$batch" ] && [ "$batch" -gt 0 ] 2>/dev/null; then
+        VOCAL_BATCH_SIZE="$batch"
+        VIPERX_BATCH_SIZE="$batch"
+    fi
+}
+
 # Run a Vocal model step in chaining mode
 # Args: model_path (file or dir), input_file, output_dir
 run_vocal_step() {
@@ -626,10 +695,25 @@ run_vocal_step() {
             yaml_chunk_size=$(python3 -c "import yaml; print(yaml.load(open('$vocal_yaml'), Loader=yaml.FullLoader).get('inference',{}).get('chunk_size',0))" 2>/dev/null || echo "0")
         fi
 
+        # Apply model_configs/<model>.json overrides so training YAML values
+        # (e.g. dim_t=3105) do not leak into inference.
+        _apply_roformer_model_config_overrides "$model_dir"
+        local roformer_dim_t="${VOCAL_DIM_T:-${VIPERX_DIM_T:-}}"
+        local roformer_batch="${VOCAL_BATCH_SIZE:-${VIPERX_BATCH_SIZE:-}}"
+        local roformer_overlap="${VOCAL_NUM_OVERLAP:-${VIPERX_NUM_OVERLAP:-${yaml_num_overlap}}}"
+        local extra_args=()
+        if [ -n "$roformer_dim_t" ]; then
+            extra_args+=("--dim-t" "$roformer_dim_t")
+        fi
+        if [ -n "$roformer_batch" ]; then
+            extra_args+=("--batch-size" "$roformer_batch")
+        fi
+
         # Pass chunk size to inference via environment (0 = whole song)
         ONDA_CHUNK_SIZE="${yaml_chunk_size}" run_with_elapsed python3 -u /app/inference_universal.py \
             --pipeline-status "$STATUS_FILE" \
-            "${model_dir}" "${input_file}" "${output_dir}" "${yaml_num_overlap}"
+            "${extra_args[@]}" \
+            "${model_dir}" "${input_file}" "${output_dir}" "${roformer_overlap}"
     fi
 }
 
@@ -1215,6 +1299,8 @@ for k, v in s.get('stems', {}).items():
 
     # ── Final cleanup ──
     rm -rf "${ROUTED_DIR}" "${STEPS_STATE_FILE}" "${STEPS_CONFIG_FILE}" 2>/dev/null || true
+    # Remove per-step diagnostic logs on success; keep them on failure.
+    rm -f "${OUTPUT}"/_step_*.log 2>/dev/null || true
 
     # Final progress report
     multi_step_progress "done" -1 100
@@ -1284,6 +1370,13 @@ if $VOCAL || $VIPERX; then
             VIPERX_BATCH_SIZE="${VOCAL_BATCH_SIZE}"
             VIPERX_CHUNK_SIZE="${VOCAL_CHUNK_SIZE}"
             echo "   ℹ️  Model YAML: dim_t=${VOCAL_DIM_T}, overlap=${VOCAL_NUM_OVERLAP}, batch=${VOCAL_BATCH_SIZE}, chunk=${VOCAL_CHUNK_SIZE}"
+        fi
+        # model_configs/<model>.json overrides YAML inference parameters.
+        # This is the source of truth for UVR-style models and prevents using
+        # training values such as dim_t=3105 at inference time.
+        _apply_roformer_model_config_overrides "$MODEL_DIR"
+        if [ -n "${VOCAL_DIM_T:-${VIPERX_DIM_T:-}}" ]; then
+            echo "   ℹ️  RoFormer inference params: dim_t=${VOCAL_DIM_T:-${VIPERX_DIM_T}}, overlap=${VOCAL_NUM_OVERLAP:-${VIPERX_NUM_OVERLAP}}, batch=${VOCAL_BATCH_SIZE:-${VIPERX_BATCH_SIZE}}"
         fi
     fi
 fi
@@ -1392,8 +1485,16 @@ if $VOCAL || $VIPERX; then
             exit 2
         fi
         echo "   ℹ️  Using RoFormer inference"
+        roformer_args=()
+        if [ -n "${VOCAL_DIM_T:-${VIPERX_DIM_T:-}}" ]; then
+            roformer_args+=("--dim-t" "${VOCAL_DIM_T:-${VIPERX_DIM_T}}")
+        fi
+        if [ -n "${VOCAL_BATCH_SIZE:-${VIPERX_BATCH_SIZE:-}}" ]; then
+            roformer_args+=("--batch-size" "${VOCAL_BATCH_SIZE:-${VIPERX_BATCH_SIZE}}")
+        fi
         run_with_elapsed python3 -u /app/inference_universal.py \
             --pipeline-status "$STATUS_FILE" \
+            "${roformer_args[@]}" \
             "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}" ${VOCAL_OVERLAP_INT}
     fi
     echo "   ✅ Vocal model done"
@@ -1543,6 +1644,8 @@ report_progress "done" "complete" 100
 
 # ── Cleanup temps ────────────────────────────────
 rm -rf "${OUTPUT}/_vocal" "${OUTPUT}/_demucs" 2>/dev/null || true
+# Remove per-step diagnostic logs on success; keep them on failure.
+rm -f "${OUTPUT}"/_step_*.log 2>/dev/null || true
 
 echo ""
 echo "═══════════════════════════════════════"
