@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onDestroy, onMount } from 'svelte';
-  import { uploadPitchAudio, pitchInputDownloadUrl, deletePitchUpload, pitchStems, pitchFile, downloadUrl, deleteStem as deleteStemApi, getPitchSubgroups, deletePitchSubgroup, deletePitchStem, getPitchUploads, deleteSong } from './api';
+  import { API_BASE, uploadPitchAudio, pitchInputDownloadUrl, pitchDownloadUrl, deletePitchUpload, pitchStems, pitchFile, downloadUrl, deleteStem as deleteStemApi, getPitchSubgroups, deletePitchSubgroup, deletePitchStem, getPitchUploads, deleteSong } from './api';
   import type { ResultStem } from './types';
   import { detectStemType, stemEmoji } from './types';
   import { IconUpload, IconSkipBack, IconSkipForward } from './icons';
@@ -538,7 +538,7 @@
     const ctx = getSubCtx(key);
     for (const stem of subs[pitchIdx].stems) {
       try {
-        const url = stem.path;
+        const url = pitchDownloadUrl(song, subs[pitchIdx].pitch, stem.name);
         const resp = await fetch(url, { signal: abortController.signal });
         const arrayBuf = await resp.arrayBuffer();
         const audioBuf = await ctx.decodeAudioData(arrayBuf);
@@ -838,7 +838,7 @@
     if (!subs || !subs[pitchIdx]) return;
     for (const stem of subs[pitchIdx].stems) {
       const a = document.createElement('a');
-      a.href = stem.path;
+      a.href = pitchDownloadUrl(song, subs[pitchIdx].pitch, stem.name);
       a.download = stem.name;
       a.click();
     }
@@ -1224,7 +1224,7 @@
     const subs = playerState.pitchSubgroups[song];
     if (!subs || !subs[pitchIdx] || subs[pitchIdx].stems.length === 0) return [];
     try {
-      const url = subs[pitchIdx].stems[0].path;
+      const url = pitchDownloadUrl(song, subs[pitchIdx].pitch, subs[pitchIdx].stems[0].name);
       const resp = await fetch(url);
       const arrayBuf = await resp.arrayBuffer();
       const audioCtx = new OfflineAudioContext(1, 1, 44100);
@@ -1601,7 +1601,7 @@
                               </div>
                             </div>
                             <div class="stem-actions">
-                              <a class="song-btn export-btn" href={sstem.path} download={sstem.name} title="Descargar">⬇</a>
+                              <a class="song-btn export-btn" href={pitchDownloadUrl(song, subs.pitch, sstem.name)} download={sstem.name} title="Descargar">⬇</a>
                               <button class="song-btn delete-btn" onclick={() => handleDeleteSubgroupStem(song, subs.pitch, sstem.name)} title="Eliminar">🗑</button>
                             </div>
                           </div>
@@ -1721,7 +1721,7 @@
                             <span class="stem-emoji">{stemEmoji(sstem.stemType)}</span>
                             <span class="stem-name" title={sstem.name}>{formatPitchStemName(sstem.name)}</span>
                             <div class="stem-actions">
-                              <a class="song-btn export-btn" href={sstem.path} download={sstem.name} title="Descargar">⬇</a>
+                              <a class="song-btn export-btn" href={`${API_BASE}${encodeURI(sstem.path)}`} download={sstem.name} title="Descargar">⬇</a>
                             </div>
                           </div>
                         {/each}
