@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -170,23 +171,66 @@ type DownloadRequest struct {
 
 // DownloadStatus tracks the progress of an async model download.
 type DownloadStatus struct {
-	Status     string  `json:"status"`     // "downloading", "done", "error"
-	Repo       string  `json:"repo"`
-	Target     string  `json:"target,omitempty"`
-	Progress   string  `json:"progress,omitempty"`
+	ID         string `json:"id"`
+	Status     string `json:"status"`     // "downloading", "done", "error", "cancelled"
+	Repo       string `json:"repo"`
+	Target     string `json:"target,omitempty"`
+	Progress   string `json:"progress,omitempty"`
 	Percentage float64 `json:"percentage"` // 0.0 to 100.0 — real-time progress
 	Total      int64   `json:"total_bytes"`
 	Downloaded int64   `json:"downloaded_bytes"`
-	Error      string  `json:"error,omitempty"`
-	Filename   string  `json:"filename,omitempty"`
-	Source     string  `json:"source"`
+	Error      string `json:"error,omitempty"`
+	Filename   string `json:"filename,omitempty"`
+	Source     string `json:"source"`
+	DestPath   string `json:"-"`
+	Cancel     context.CancelFunc `json:"-"`
 }
 
 // downloadTracker holds in-flight download statuses keyed by repo name.
 var (
 	downloadMu      sync.RWMutex
 	downloadJobs    = make(map[string]*DownloadStatus)
+	downloadIDCounter atomic.Int64
 )
+
+// nextDownloadID returns a unique identifier for a download job.
+func nextDownloadID() string {
+	return fmt.Sprintf("dl-%d", downloadIDCounter.Add(1))
+}
+
+// removePartialFiles deletes any partial/incomplete files left by a download.
+func removePartialFiles(destPath string) {
+	if destPath == "" {
+		return
+	}
+	_ = os.Remove(destPath)
+	_ = os.Remove(destPath + ".incomplete")
+}
+
+// findExistingDownload returns an in-flight download matching the request.
+// For huggingface sources it matches by repo; for direct sources by URL.
+func findExistingDownload(req DownloadRequest) *DownloadStatus {
+	downloadMu.RLock()
+	defer downloadMu.RUnlock()
+
+	if req.Source == "huggingface" && req.Repo != "" {
+		if job, ok := downloadJobs[req.Repo]; ok && job.Status == "downloading" {
+			return job
+		}
+	}
+	if req.Source == "direct" && req.URL != "" {
+		if job, ok := downloadJobs[req.URL]; ok && job.Status == "downloading" {
+			return job
+		}
+		// Also check dependency-style keys (filename@url).
+		if req.Filename != "" {
+			if job, ok := downloadJobs[req.Filename+"@"+req.URL]; ok && job.Status == "downloading" {
+				return job
+			}
+		}
+	}
+	return nil
+}
 
 // handleModelsList scans the models directory and returns a JSON listing.
 // GET /api/models/list
@@ -372,6 +416,14 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		// If the same repo is already downloading, return the existing job.
+		if existing := findExistingDownload(req); existing != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusAccepted)
+			json.NewEncoder(w).Encode(existing)
+			return
+		}
+
 		// Determine target directory — Demucs_ONNX for ONNX repos, Demucs_Models otherwise
 		targetSubdir := "Demucs_Models"
 		if strings.Contains(strings.ToLower(req.Repo), "onnx") {
@@ -381,6 +433,7 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 
 		// Register the download job
 		status := &DownloadStatus{
+			ID:       nextDownloadID(),
 			Status:   "downloading",
 			Repo:     req.Repo,
 			Target:   filepath.ToSlash(filepath.Join(modelsBasePath(), targetSubdir)),
@@ -458,6 +511,14 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 			req.Filename = filepath.Base(req.URL)
 		}
 
+		// If the same URL is already downloading, return the existing job.
+		if existing := findExistingDownload(req); existing != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusAccepted)
+			json.NewEncoder(w).Encode(existing)
+			return
+		}
+
 		// Determine category from filename if not provided
 		category := req.Category
 		if category == "" {
@@ -467,6 +528,7 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 
 		// Register the download job keyed by URL
 		status := &DownloadStatus{
+			ID:       nextDownloadID(),
 			Status:   "downloading",
 			Repo:     req.URL,
 			Target:   filepath.ToSlash(filepath.Join(modelsBasePath(), category)),
@@ -496,6 +558,7 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 				// when two models share the same dependency URL.
 				depKey := req.Filename + "@" + dep.DownloadURL
 				depStatus := &DownloadStatus{
+					ID:       nextDownloadID(),
 					Status:   "downloading",
 					Repo:     depKey,
 					Target:   filepath.ToSlash(filepath.Join(modelsBasePath(), depCategory)),
@@ -503,11 +566,15 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 					Source:   "direct",
 				}
 				downloadMu.Lock()
-				downloadJobs[depKey] = depStatus
-				downloadMu.Unlock()
-
-				go runDirectDownload(dep.DownloadURL, dep.Filename, depDir)
-				log.Printf("[models] also downloading dependency: %s → %s", dep.Filename, dep.DownloadURL)
+				// Do not start a duplicate dependency download.
+				if _, exists := downloadJobs[depKey]; !exists {
+					downloadJobs[depKey] = depStatus
+					downloadMu.Unlock()
+					go runDirectDownload(dep.DownloadURL, dep.Filename, depDir)
+					log.Printf("[models] also downloading dependency: %s → %s", dep.Filename, dep.DownloadURL)
+				} else {
+					downloadMu.Unlock()
+				}
 			}
 		}
 
@@ -576,6 +643,78 @@ func (s *Server) handleModelsDownloadStatus(w http.ResponseWriter, r *http.Reque
 	json.NewEncoder(w).Encode(job)
 }
 
+// handleModelsDownloadCancel cancels an in-progress download and cleans up
+// any partial files. DELETE /api/models/download?repo=... or ?url=...
+func (s *Server) handleModelsDownloadCancel(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("method %s not allowed", r.Method),
+		})
+		return
+	}
+
+	repo := r.URL.Query().Get("repo")
+	url := r.URL.Query().Get("url")
+
+	downloadMu.Lock()
+	var job *DownloadStatus
+	if repo != "" {
+		job = downloadJobs[repo]
+	}
+	if job == nil && url != "" {
+		job = downloadJobs[url]
+	}
+	if job == nil && url != "" {
+		for key, candidate := range downloadJobs {
+			if strings.HasSuffix(key, "@"+url) {
+				job = candidate
+				break
+			}
+		}
+	}
+
+	if job == nil {
+		downloadMu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		lookup := repo
+		if lookup == "" {
+			lookup = url
+		}
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("no download job found for %q", lookup),
+		})
+		return
+	}
+
+	// If already finished, just return the current state.
+	if job.Status != "downloading" {
+		downloadMu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		json.NewEncoder(w).Encode(job)
+		return
+	}
+
+	// Cancel the context, clean up partial files and mark as cancelled.
+	if job.Cancel != nil {
+		job.Cancel()
+	}
+	job.Status = "cancelled"
+	job.Progress = "Cancelled"
+	job.Error = "cancelled by user"
+	job.Percentage = 0
+	downloadMu.Unlock()
+
+	removePartialFiles(job.DestPath)
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(job)
+}
+
 // runHuggingFaceDownload executes a HuggingFace download. When filename is
 // provided it downloads that single file via plain HTTP; otherwise it falls back
 // to huggingface_hub snapshot_download for the whole repo.
@@ -614,8 +753,15 @@ func runHuggingFaceFileDownload(repo, filename, targetDir string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Second)
 	defer cancel()
 
+	downloadMu.Lock()
+	if status, ok := downloadJobs[repo]; ok {
+		status.Cancel = cancel
+		status.DestPath = destPath
+	}
+	downloadMu.Unlock()
+
 	if err := downloadWithProgress(ctx, url, destPath, repo); err != nil {
-		updateDownloadErrorByRepo(repo, err.Error())
+		handleDownloadFinished(repo, err, destPath)
 	}
 }
 
@@ -833,7 +979,7 @@ func tryInstallAndRetryHF(repo, targetDir, scriptPath string) {
 
 // downloadWithProgress downloads url to destPath, updating downloadJobs[key]
 // with real-time bytes and percentage. The destination is written atomically
-// via a .incomplete sibling file that is removed on failure.
+// via a .incomplete sibling file that is removed on failure or cancellation.
 func downloadWithProgress(ctx context.Context, url, destPath, key string) error {
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		return fmt.Errorf("failed to create target directory: %w", err)
@@ -901,9 +1047,21 @@ func downloadWithProgress(ctx context.Context, url, destPath, key string) error 
 		}
 	}()
 
+	cleanup := func() {
+		f.Close()
+		removePartialFiles(destPath)
+		close(stopUpdate)
+		<-updateDone
+	}
+
 	buf := make([]byte, 32*1024)
 	var written int64
 	for {
+		if err := ctx.Err(); err != nil {
+			cleanup()
+			return err
+		}
+
 		nr, rerr := resp.Body.Read(buf)
 		if nr > 0 {
 			nw, werr := f.Write(buf[:nr])
@@ -912,26 +1070,17 @@ func downloadWithProgress(ctx context.Context, url, destPath, key string) error 
 				downloaded.Add(int64(nw))
 			}
 			if werr != nil {
-				f.Close()
-				os.Remove(tmpPath)
-				close(stopUpdate)
-				<-updateDone
+				cleanup()
 				return fmt.Errorf("write failed: %w", werr)
 			}
 			if nr != nw {
-				f.Close()
-				os.Remove(tmpPath)
-				close(stopUpdate)
-				<-updateDone
+				cleanup()
 				return io.ErrShortWrite
 			}
 		}
 		if rerr != nil {
 			if rerr != io.EOF {
-				f.Close()
-				os.Remove(tmpPath)
-				close(stopUpdate)
-				<-updateDone
+				cleanup()
 				return fmt.Errorf("download failed: %w", rerr)
 			}
 			break
@@ -939,17 +1088,21 @@ func downloadWithProgress(ctx context.Context, url, destPath, key string) error 
 	}
 
 	if err := f.Close(); err != nil {
-		os.Remove(tmpPath)
-		close(stopUpdate)
-		<-updateDone
+		cleanup()
 		return fmt.Errorf("failed to close file: %w", err)
 	}
 
 	if err := os.Rename(tmpPath, destPath); err != nil {
-		os.Remove(tmpPath)
+		cleanup()
+		return fmt.Errorf("failed to finalize file: %w", err)
+	}
+
+	// If the user cancelled just before the rename finished, remove the final file.
+	if ctx.Err() != nil {
+		removePartialFiles(destPath)
 		close(stopUpdate)
 		<-updateDone
-		return fmt.Errorf("failed to finalize file: %w", err)
+		return ctx.Err()
 	}
 
 	close(stopUpdate)
@@ -1128,11 +1281,44 @@ func runDirectDownload(url, filename, targetDir string) {
 	defer cancel()
 
 	key := directDownloadKey(url, filename)
-	if err := downloadWithProgress(ctx, url, destPath, key); err != nil {
-		downloadMu.Lock()
-		updateDownloadError(url, filename, err.Error())
-		downloadMu.Unlock()
+	downloadMu.Lock()
+	if status, ok := downloadJobs[key]; ok {
+		status.Cancel = cancel
+		status.DestPath = destPath
 	}
+	downloadMu.Unlock()
+
+	if err := downloadWithProgress(ctx, url, destPath, key); err != nil {
+		handleDownloadFinished(key, err, destPath)
+	}
+}
+
+// handleDownloadFinished updates a download job after the goroutine terminates.
+// It distinguishes user cancellation from real errors and cleans up leftovers.
+func handleDownloadFinished(key string, err error, destPath string) {
+	downloadMu.Lock()
+	defer downloadMu.Unlock()
+
+	status, ok := downloadJobs[key]
+	if !ok || status == nil {
+		return
+	}
+	// If the user already cancelled the job via the API, keep that state.
+	if status.Status == "cancelled" {
+		removePartialFiles(destPath)
+		return
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		status.Status = "cancelled"
+		status.Progress = "Cancelled"
+		status.Error = "cancelled by user"
+		status.Percentage = 0
+		removePartialFiles(destPath)
+		return
+	}
+	status.Status = "error"
+	status.Progress = "Download failed"
+	status.Error = err.Error()
 }
 
 // directDownloadKey returns the composite key if it exists, otherwise the plain URL.
@@ -1143,19 +1329,6 @@ func directDownloadKey(url, filename string) string {
 		return filename + "@" + url
 	}
 	return url
-}
-
-// updateDownloadError sets error status on a download job (lock must be held by caller).
-func updateDownloadError(url, filename, errMsg string) {
-	if status, ok := downloadJobs[filename+"@"+url]; ok {
-		status.Status = "error"
-		status.Progress = "Download failed"
-		status.Error = errMsg
-	} else if status, ok := downloadJobs[url]; ok {
-		status.Status = "error"
-		status.Progress = "Download failed"
-		status.Error = errMsg
-	}
 }
 
 // updateDownloadErrorByRepo sets error status on a HF download job.
