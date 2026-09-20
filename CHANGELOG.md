@@ -5,6 +5,10 @@
 ### Added
 - **Guardianes del repo**: nuevo `tools/check-licenses.sh` que bloquea licencias prohibidas (AGPL-*, GPL-2.0, GPL-3.0, SSPL-*, BUSL-*) en dependencias de producción del frontal, dependencias Python conocidas y código vendorizado `lib_v5/`, y verifica que `go mod tidy -diff` esté vacío. Integrado en la suite como `tests/unit/test_guards.py`.
 - **Detección de tonalidad en el backend** con `librosa` (licencia ISC): nuevo endpoint `POST /api/key` que recibe un archivo de audio y devuelve tonalidad, escala, fuerza, alternativas y flag `dubious`. Usa `librosa.estimate_tuning`, `chroma_cqt` y perfiles de Krumhansl-Schmuckler con mediana para robustez.
+- **Documentación de procedencia de `lib_v5/`**: nuevo `lib_v5/PROVENANCE.md` y ficheros de licencia originales (`LICENSE-ZFTurbo.txt`, `LICENSE-UVR.txt`, `LICENSE-Apollo.txt`) para el código vendorizado.
+
+### Fixed
+- **`tools/check-licenses.sh`**: el resumen final ahora cuenta correctamente los avisos impresos por el script Python (p. ej. el aviso de `lib_v5/ -> no se detectaron cabeceras ni ficheros LICENSE*`), de modo que las líneas `[WARN]`/`[FAIL]` y el contador del resumen cuadran siempre.
 
 ### Changed
 - La detección de tonalidad pasa del frontal (`essentia.js`) al backend (`keydetect.py`), unificando el procesamiento de audio en el servidor.
