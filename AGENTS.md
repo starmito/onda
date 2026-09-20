@@ -16,6 +16,10 @@ Reglas OBLIGATORIAS para cualquier agente que trabaje en este repositorio. Incum
 - Compilar y pasar TODOS los tests antes de commitear:
   - `cd backend && go build ./... && go test ./...`
   - `pytest` desde la raíz del repo
+- Ejecutar los **guardianes del repo** antes de commitear cambios de dependencias o código de terceros:
+  - `tools/check-deps.sh` — asegura que los requirements Python están fijados y coinciden con `requirements.lock`.
+  - `tools/check-licenses.sh` — bloquea licencias prohibidas (AGPL-*, GPL-2.0, GPL-3.0, SSPL-*, BUSL-*) en dependencias de producción del frontal, dependencias Python conocidas y código vendorizado (`lib_v5/`); también verifica que `go mod tidy -diff` esté vacío. Funciona sin red si los módulos de Go están en caché; si no, avisa y sigue.
+  - Ambos guardianes se ejecutan automáticamente en la suite via `tests/unit/test_guards.py`.
 - Si un test necesita `aubio`/`sox` y no están instalados, usar el patrón `skipIfMissingBinary` ya existente (saltar limpiamente, no fallar).
 - Commits conventional (`feat:`, `fix:`, `test:`, `refactor:`, `chore:`) y push a `origin/feat/v3.2.0`.
 - Las versiones salen de los TAGS de git (`onda-vX.Y.Z`, `gui-vX.Y.Z`) en tiempo de build — NUNCA hardcodear versiones a mano. `build.sh` y `deploy.sh` ya tienen esa lógica; NO duplicarla.

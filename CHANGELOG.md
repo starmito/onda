@@ -3,6 +3,7 @@
 ## [Unreleased]
 
 ### Added
+- **Guardianes del repo**: nuevo `tools/check-licenses.sh` que bloquea licencias prohibidas (AGPL-*, GPL-2.0, GPL-3.0, SSPL-*, BUSL-*) en dependencias de producción del frontal, dependencias Python conocidas y código vendorizado `lib_v5/`, y verifica que `go mod tidy -diff` esté vacío. Integrado en la suite como `tests/unit/test_guards.py`.
 - **Detección de tonalidad en el backend** con `librosa` (licencia ISC): nuevo endpoint `POST /api/key` que recibe un archivo de audio y devuelve tonalidad, escala, fuerza, alternativas y flag `dubious`. Usa `librosa.estimate_tuning`, `chroma_cqt` y perfiles de Krumhansl-Schmuckler con mediana para robustez.
 
 ### Changed
