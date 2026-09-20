@@ -5,6 +5,7 @@
     getDemucsCatalog,
     getLocalModels,
     downloadModel,
+    downloadModelDirect,
     getDownloadStatus,
     uploadModel,
     deleteModel,
@@ -176,6 +177,7 @@
     downloaded: boolean;
     source: SourceType;
     huggingface_repo?: string;
+    download_url?: string;
     filename?: string;
     hf_path?: string;
     repo?: string;
@@ -193,6 +195,7 @@
       downloaded: m.downloaded,
       source: 'uvr' as SourceType,
       huggingface_repo: m.huggingface_repo,
+      download_url: m.download_url,
       filename: m.filename,
     }));
 
@@ -339,7 +342,7 @@
 
   async function startDownload(model: CombinedModel) {
     const key = model.filename || model.name;
-// Initialize progress
+    // Initialize progress
     downloadProgress = {
       ...downloadProgress,
       [key]: { percentage: 0, status: 'downloading', pollKeys: [] }
@@ -350,17 +353,29 @@
     try {
       // Determine what to POST and poll
       let pollKeys: string[] = [];
+      const pollByUrl: Set<string> = new Set();
 
       if (model.source === 'uvr') {
-        const repo = model.huggingface_repo!;
-        pollKeys = [repo];
-        // Fire POST without awaiting — download runs async on backend
-        downloadModel(repo).catch(err => {
-          // Store error but don't block; polling will reflect actual failure
-          const errors = new Map(downloadErrors);
-          errors.set(key, err.message || 'Download failed');
-          downloadErrors = errors;
-        });
+        if (model.download_url) {
+          // Direct URL from the UVR catalog (e.g. Roformers hosted on GitHub).
+          pollKeys = [model.download_url];
+          pollByUrl.add(model.download_url);
+          downloadModelDirect(model.download_url, model.filename, model.category).catch(err => {
+            const errors = new Map(downloadErrors);
+            errors.set(key, err.message || 'Download failed');
+            downloadErrors = errors;
+          });
+        } else if (model.huggingface_repo) {
+          // HuggingFace repo referenced by the UVR catalog.
+          pollKeys = [model.huggingface_repo];
+          downloadModel(model.huggingface_repo).catch(err => {
+            const errors = new Map(downloadErrors);
+            errors.set(key, err.message || 'Download failed');
+            downloadErrors = errors;
+          });
+        } else {
+          throw new Error('Model has no download source');
+        }
       } else {
         // HF model: download from Politrees/UVR_resources
         const repo = 'Politrees/UVR_resources';
@@ -382,7 +397,7 @@
         }
       }
 
-// Update progress with poll keys
+      // Update progress with poll keys
       downloadProgress = {
         ...downloadProgress,
         [key]: { ...downloadProgress[key], pollKeys }
@@ -393,14 +408,19 @@
         // Check each poll key; use the one with most progress
         let bestPct = 0;
         let bestStatus = 'downloading';
+        let bestError = '';
         let completedCount = 0;
 
         for (const pk of pollKeys) {
           try {
-            const st = await getDownloadStatus(pk);
+            const st = await getDownloadStatus(pk, { byUrl: pollByUrl.has(pk) });
             if (st.percentage > bestPct) bestPct = st.percentage;
             if (st.status === 'done') completedCount++;
-            if (st.status === 'error') { bestStatus = 'error'; break; }
+            if (st.status === 'error') {
+              bestStatus = 'error';
+              bestError = st.error || 'Download failed';
+              break;
+            }
           } catch {
             // Poll failed — skip this key
           }
@@ -411,7 +431,7 @@
 
         downloadProgress = {
           ...downloadProgress,
-          [key]: { ...downloadProgress[key], percentage: bestPct, status: finalStatus, intervalId }
+          [key]: { ...downloadProgress[key], percentage: bestPct, status: finalStatus, intervalId, error: bestError }
         };
 
         if (finalStatus === 'done' || finalStatus === 'error') {
@@ -434,7 +454,7 @@
       const errors = new Map(downloadErrors);
       errors.set(key, err.message || 'Download failed');
       downloadErrors = errors;
-const { [key]: _, ...rest } = downloadProgress;
+      const { [key]: _, ...rest } = downloadProgress;
       downloadProgress = rest;
     }
   }
@@ -636,6 +656,9 @@ const { [key]: _, ...rest } = downloadProgress;
                       {@const prog = downloadProgress[model.filename || model.name]}
                       {#if prog.status === 'error'}
                         <span class="download-error" title={prog.error}>❌</span>
+                        {#if prog.error}
+                          <span class="error-detail" title={prog.error}>{prog.error}</span>
+                        {/if}
                       {:else if prog.status === 'done'}
                         <span class="check-icon" title="Completado">✅</span>
                       {:else}
@@ -650,7 +673,7 @@ const { [key]: _, ...rest } = downloadProgress;
                       <button
                         class="btn-download"
                         onclick={() => startDownload(model)}
-                        disabled={model.source === 'uvr' ? !model.huggingface_repo : !model.hf_path}
+                        disabled={model.source === 'uvr' ? !model.huggingface_repo && !model.download_url : !model.hf_path}
                       >
                         Descargar
                       </button>
@@ -1006,6 +1029,15 @@ const { [key]: _, ...rest } = downloadProgress;
   .download-error {
     font-size: 0.9rem;
     cursor: help;
+  }
+
+  .error-detail {
+    font-size: 0.65rem;
+    color: #e57373;
+    max-width: 120px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   /* Progress bar */
