@@ -1,3 +1,8 @@
+# Onda — Dependencias comunes (sin torch). Las instala el Dockerfile (stage python-base).
+# TODAS las versiones estan fijadas y coinciden con el estado REAL instalado en la imagen validada onda:v3.4.14.
+# Inventario exacto de referencia (pip freeze, 115 paquetes): requirements.lock
+# Verificacion: tools/check-deps.sh
+
 numpy==2.4.6
 scipy==1.17.1
 soundfile==0.13.1
@@ -11,4 +16,4 @@ omegaconf==2.3.0
 onnx==1.21.0
 beartype==0.22.9
 samplerate==0.2.4
-lameenc>=1.2
+lameenc==1.8.4
