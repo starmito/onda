@@ -181,7 +181,7 @@ else:
             if lower.startswith('license') or lower.startswith('copying') or lower.startswith('notice'):
                 text = open(fpath, 'r', encoding='utf-8', errors='ignore').read()
                 lic = detect_license_in_text(text) or 'UNKNOWN'
-                line = f'{relpath} -> -> {lic}'
+                line = f'{relpath} -> {lic}'
                 if matches(lic, BLOCKING_PREFIXES):
                     print(f'[FAIL] {line} -> BLOQUEA')
                     exit_code = 1
@@ -195,7 +195,7 @@ else:
                 lic = detect_license_in_text(text)
                 if lic is None:
                     continue
-                line = f'{relpath} -> -> {lic}'
+                line = f'{relpath} -> {lic}'
                 if relpath in EXCEPTIONS:
                     exc = EXCEPTIONS[relpath]
                     print(f'[INFO] {line} -> EXCEPTUADO')
