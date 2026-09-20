@@ -23,7 +23,6 @@ export ONDAP_VERSION GUI_VERSION
 
 # ── Detect GPU ──────────────────────────────────
 HAS_NVIDIA := $(shell command -v nvidia-smi >/dev/null 2>&1 && echo 1 || echo 0)
-HAS_AMD := $(shell ls /dev/kfd >/dev/null 2>&1 && echo 1 || echo 0)
 GPU_TYPE ?= cpu
 
 # ── Paths ───────────────────────────────────────
@@ -75,8 +74,6 @@ setup: ## Configuración inicial: detecta GPU, crea .env y directorios
 	@# Detect GPU
 	@if [ "$(HAS_NVIDIA)" = "1" ]; then \
 		echo "  ✅ NVIDIA GPU detectada (nvidia-smi)"; \
-	elif [ "$(HAS_AMD)" = "1" ]; then \
-		echo "  ✅ AMD GPU detectada (/dev/kfd)"; \
 	else \
 		echo "  ⚠️  No se detectó GPU — usando CPU"; \
 	fi
@@ -85,8 +82,6 @@ setup: ## Configuración inicial: detecta GPU, crea .env y directorios
 		cp .env.example .env; \
 		if [ "$(HAS_NVIDIA)" = "1" ]; then \
 			sed -i 's/GPU_TYPE=cpu/GPU_TYPE=nvidia/' .env; \
-		elif [ "$(HAS_AMD)" = "1" ]; then \
-			sed -i 's/GPU_TYPE=cpu/GPU_TYPE=amd/' .env; \
 		fi; \
 		echo "  ✅ .env creado desde .env.example"; \
 	else \

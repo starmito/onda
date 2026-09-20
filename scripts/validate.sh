@@ -47,8 +47,6 @@ if [ -f "$PROJECT_DIR/onda/detect_gpu.sh" ]; then
     GPU_BACKEND=$(bash "$PROJECT_DIR/onda/detect_gpu.sh" 2>/dev/null)
     if [ "$GPU_BACKEND" = "cuda" ]; then
         check "GPU detected (cuda)" true
-    elif [ "$GPU_BACKEND" = "rocm" ]; then
-        check "GPU detected (rocm)" true
     else
         check "GPU: no accelerator found (CPU mode)" true
     fi

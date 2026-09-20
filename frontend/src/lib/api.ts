@@ -42,7 +42,7 @@ export interface HealthComponent {
   ok: boolean;
   detail?: string;
   version?: string;
-  type?: 'cuda' | 'rocm' | 'cpu';
+  type?: 'cuda' | 'cpu';
   warning?: string;
   info?: string;
 }

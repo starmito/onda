@@ -63,10 +63,6 @@ case $GPU in
     echo "🚀 Desplegando con aceleración NVIDIA CUDA..."
     docker compose -f docker-compose.yml -f docker-compose.cuda.yml up -d --build
     ;;
-  rocm)
-    echo "🚀 Desplegando con aceleración AMD ROCm..."
-    docker compose -f docker-compose.yml -f docker-compose.rocm.yml up -d --build
-    ;;
   *)
     echo "🚀 Desplegando en modo CPU..."
     docker compose up -d --build

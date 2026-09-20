@@ -452,7 +452,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	// ── Build components ──
 	var gpuObj map[string]interface{}
-	if gpuAvailable || gpuType == "rocm" {
+	if gpuAvailable {
 		gpuObj = map[string]interface{}{"ok": true, "type": gpuType, "detail": gpuInfo}
 	} else {
 		gpuObj = map[string]interface{}{"ok": false, "type": gpuType, "code": "E3", "detail": gpuInfo}

@@ -95,7 +95,7 @@
   // ---- Health / Version from backend ----
   let healthVersion = $state('');
   const appVersion = $state(import.meta.env.VITE_ONDA_VERSION || '');
-  let gpuType = $state<'cuda' | 'rocm' | 'cpu' | ''>('');
+  let gpuType = $state<'cuda' | 'cpu' | ''>('');
   let gpuWarning = $state('');
 
   // Toast
@@ -908,7 +908,7 @@
         <span class="version">{appVersion || healthVersion || ''}</span>
         {#if gpuType}
           <span class="gpu-label" class:cpu={gpuType === 'cpu'}>
-            {#if gpuType === 'cuda'}⚡ CUDA{:else if gpuType === 'rocm'}🔥 ROCm{:else}⚠️ CPU{/if}
+            {#if gpuType === 'cuda'}⚡ CUDA{:else}⚠️ CPU{/if}
           </span>
         {/if}
       </header>

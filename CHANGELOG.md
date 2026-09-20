@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Removed
+- **Retirada la ruta AMD/ROCm** (`Dockerfile.amd`, `docker-compose.rocm.yml`, `requirements-docker-amd.txt` y la rama ROCm de `entrypoint.sh`). Decisión: a medio plazo no se trabaja en ella; recuperable desde la historia de git. Ver `docs/retired-rocm.md`.
+
 ## [v3.4.14] - 2026-09-19
 
 ### Fixed

@@ -22,12 +22,11 @@ import torch
 # Torch ships the CUDA libraries (e.g. libcublasLt.so.12) in its lib/ directory,
 # but onnxruntime does not look there by default. Ensure the path is present
 # before onnxruntime is imported so CUDAExecutionProvider can be loaded.
-for _backend in ("cuda", "rocm"):
-    _torch_lib = f"/opt/pytorch-backends/{_backend}/torch/lib"
-    if os.path.isdir(_torch_lib):
-        _ld = os.environ.get("LD_LIBRARY_PATH", "")
-        if _torch_lib not in _ld:
-            os.environ["LD_LIBRARY_PATH"] = f"{_torch_lib}{':' + _ld if _ld else ''}"
+_torch_lib = "/opt/pytorch-backends/cuda/torch/lib"
+if os.path.isdir(_torch_lib):
+    _ld = os.environ.get("LD_LIBRARY_PATH", "")
+    if _torch_lib not in _ld:
+        os.environ["LD_LIBRARY_PATH"] = f"{_torch_lib}{':' + _ld if _ld else ''}"
 
 # onnxruntime may not be present in the host test runner; allow import to fail
 # gracefully so pure-logic tests (config resolution, CLI parsing, etc.) can run.
