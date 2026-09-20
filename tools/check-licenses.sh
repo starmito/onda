@@ -40,7 +40,7 @@ info() { printf '%s[INFO]%s %s\n' "$C_BLD" "$C_OFF" "$*"; infos=$((infos + 1)); 
 printf '%s== check-licenses: licencias + go mod tidy ==%s\n' "$C_BLD" "$C_OFF"
 
 # ---------------------------------------------------------------- licencias
-python3 - "$REPO_ROOT" <<'PY'
+py_output=$(python3 - "$REPO_ROOT" <<'PY'
 import json, os, re, sys
 
 repo_root = sys.argv[1]
@@ -215,10 +215,18 @@ else:
 
 sys.exit(exit_code)
 PY
+)
 py_exit=$?
 
-if [[ $py_exit -ne 0 ]]; then
-  errors=$((errors + 1))
+printf '%s\n' "$py_output"
+
+py_warns=$(printf '%s\n' "$py_output" | grep -c '^\[WARN\]' || true)
+py_fails=$(printf '%s\n' "$py_output" | grep -c '^\[FAIL\]' || true)
+warnings=$((warnings + py_warns))
+errors=$((errors + py_fails))
+
+if [[ $py_exit -ne 0 && $py_fails -eq 0 ]]; then
+  fail 'check-licenses: el script Python de licencias fallo inesperadamente (ver salida arriba)'
 fi
 
 # ---------------------------------------------------------------- go mod tidy
