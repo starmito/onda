@@ -118,6 +118,12 @@ report_step_failure() {
     local error_message=""
     local last_lines=""
 
+    # run_demucs_step stores its diagnostic log here so the ERR trap can
+    # report the real stderr without printing the failure banner twice.
+    if [ -z "${stderr_file}" ] && [ "${step_name}" = "demucs" ] && [ -n "${DEMUCS_STEP_LOG:-}" ] && [ -f "${DEMUCS_STEP_LOG}" ]; then
+        stderr_file="${DEMUCS_STEP_LOG}"
+    fi
+
     if [ -n "${OUTPUT:-}" ]; then
         failed_dir="${OUTPUT}/_failed_${step_name}"
         persisted_stderr="${failed_dir}/stderr.log"
@@ -842,7 +848,9 @@ run_demucs_step() {
     fi
 
     if [ "${final_rc}" -ne 0 ]; then
-        report_step_failure "demucs" "$final_rc" "${step_log}"
+        # Make the diagnostic log available to the ERR trap so it prints the
+        # real stderr exactly once, instead of reporting again here.
+        DEMUCS_STEP_LOG="${step_log}"
     else
         rm -f "${step_log}"
     fi
@@ -1423,12 +1431,12 @@ if $VOCAL || $VIPERX; then
 fi
 
 # ══════════════════════════════════════════════════════
-# STEP 2: HTDemucs_ft → drums, bass, other, vocals
+# STEP 2: Demucs stem model → drums, bass, other, vocals
 # ══════════════════════════════════════════════════════
 if $DEMUCS; then
     DEMUCS_INPUT="${INSTRUMENTAL:-${INPUT}}"
     echo ""
-    echo "🥁 HTDemucs_ft → drums, bass, other, vocals..."
+    echo "🥁 ${DEMUCS_MODEL} → drums, bass, other, vocals..."
     echo "   input: ${DEMUCS_INPUT}"
 
     TMP_DEM="${OUTPUT}/_demucs"
@@ -1461,7 +1469,7 @@ if $DEMUCS; then
     fi
 
     report_progress "running" "demucs" $DEMUCS_END
-    echo "   ✅ HTDemucs_ft done"
+    echo "   ✅ ${DEMUCS_MODEL} done"
 
     # Find stem directory
     DEMUCS_OUT=$(find "${TMP_DEM}" -type d -name "${DEMUCS_MODEL}" | head -1)
