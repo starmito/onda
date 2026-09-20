@@ -13,9 +13,12 @@
 #       # paquetes por defecto: requirements-common.txt + requirements-docker.txt
 #   tools/verify-deps.sh onda:v3.4.14 "numpy==2.4.6 scipy==1.18.1"
 #       # imagen y paquetes explicitos
+#   tools/verify-deps.sh onda:v3.4.14 ""
+#       # control A/A real: no se instala nada; se ejecuta la misma
+#       # configuracion dos veces y se mide el ruido de medicion.
 #
 # Codigo de salida:
-#   0 = duracion identica y niveles <= 0,5 dB de diferencia (aceptable)
+#   0 = la diferencia entre configuraciones no supera el ruido medido
 #   1 = diferencia significativa o error
 
 set -euo pipefail
@@ -39,9 +42,16 @@ set -euo pipefail
 #    en el contenedor desechable. Asi se ve la resolucion real de dependencias
 #    (p. ej. si subir numpy arrastra otro cambio) y no se gasta tiempo en build.
 #
-# 4. El audio de prueba es sintetico.
-#    Se generan 30 s de tono puro con ffmpeg; nunca se usan canciones reales
-#    ni los directorios de datos de produccion.
+# 4. El audio de prueba es sintetico y con contenido real.
+#    Se genera una mezcla estereo de 30 s con senoides, ruido y un tren de
+#    impulsos, para que las cuatro pistas de Demucs tengan energia que separar.
+#    Un tono puro hace que algunas pistas sean ruido numerico y arruina la
+#    comparacion.
+#
+# 5. El criterio de aceptacion se fija con un control A/A interno.
+#    Se ejecuta dos veces la misma configuracion y la diferencia entre esas
+#    dos corridas es el ruido de medicion. La candidata se acepta si su
+#    diferencia respecto a la primera no supera ese ruido con un margen.
 # -----------------------------------------------------------------------------
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -51,8 +61,9 @@ REQ_FILES=(
   "$REPO_ROOT/requirements-docker.txt"
 )
 
-IMAGE="${1:-$DEFAULT_IMAGE}"
-PACKAGES_ARG="${2:-}"
+SILENCE_THRESHOLD=-60.0
+MARGIN=1.5
+MIN_THRESHOLD=0.3
 
 # -----------------------------------------------------------------------------
 # Colores (solo si hay terminal)
@@ -67,6 +78,8 @@ ok()   { printf '%s[ ok ]%s %s\n' "$C_GRN" "$C_OFF" "$*"; }
 warn() { printf '%s[warn]%s %s\n' "$C_YEL" "$C_OFF" "$*"; }
 fail() { printf '%s[FAIL]%s %s\n' "$C_RED" "$C_OFF" "$*"; }
 info() { printf '%s[INFO]%s %s\n' "$C_BLD" "$C_OFF" "$*"; }
+
+IMAGE="${1:-$DEFAULT_IMAGE}"
 
 # -----------------------------------------------------------------------------
 # Paquetes por defecto: lineas "nombre==version" de los requirements,
@@ -97,19 +110,24 @@ read_default_packages() {
   done
 }
 
-if [[ -n "$PACKAGES_ARG" ]]; then
-  PACKAGES="$PACKAGES_ARG"
+# Si se pasan dos argumentos, el segundo es la lista explicita de paquetes.
+# Si es la cadena vacia, se interpreta como "sin paquetes" (control A/A real).
+if [[ $# -ge 2 ]]; then
+  PACKAGES="$2"
 else
   PACKAGES="$(read_default_packages)"
 fi
 
 if [[ -z "$PACKAGES" ]]; then
-  fail "no se han podido leer paquetes candidatos"
-  exit 1
+  MODE="AA"
+  info "Modo control A/A (lista de paquetes vacia)"
+  info "Imagen:    $IMAGE"
+  info "Paquetes:  (ninguno)"
+else
+  MODE="AB"
+  info "Imagen:    $IMAGE"
+  info "Paquetes:  $PACKAGES"
 fi
-
-info "Imagen:    $IMAGE"
-info "Paquetes:  $PACKAGES"
 
 # -----------------------------------------------------------------------------
 # Validaciones previas
@@ -139,11 +157,30 @@ CACHE_DIR="$WORKDIR/cache"
 mkdir -p "$INPUT_DIR" "$OUTPUT_DIR" "$CACHE_DIR"
 
 # -----------------------------------------------------------------------------
-# Audio sintetico: 30 s de seno estereo
+# Audio de prueba sintetico: mezcla estereo con contenido real para separar.
+# Componentes:
+#   - 100 Hz  (bajo, esperado en bass)
+#   - 250 Hz + 1000 Hz con vibrato (mas parecido a voz, esperado en vocals)
+#   - 800 Hz  (armonicos medios, esperado en other)
+#   - 1500 Hz (agudos, esperado en other)
+#   - ruido blanco de bajo nivel
+#   - tren de impulsos de 440 Hz, 60 ms cada 500 ms (contenido ritmico, drums)
+# Todo se mezcla con pesos y se limita a -0.5 dB para evitar clipping.
 # -----------------------------------------------------------------------------
-SINE="$INPUT_DIR/sine30.wav"
-ffmpeg -y -f lavfi -i "sine=frequency=1000:duration=30" -ar 44100 -ac 2 -c:a pcm_s16le "$SINE" >/dev/null 2>&1
-ok "Audio sintetico generado: $SINE"
+TEST_WAV="$INPUT_DIR/test_mix.wav"
+FFMPEG_FILTER="
+sine=frequency=100:duration=30[s0];
+aevalsrc=exprs='0.3*(sin(2*PI*250*t+5*sin(2*PI*5*t))+0.4*sin(2*PI*1000*t+8*sin(2*PI*5*t)))':s=44100:d=30[voc];
+sine=frequency=800:duration=30[s2];
+sine=frequency=1500:duration=30[s3];
+anoisesrc=a=0.02:r=44100:d=30[noise];
+aevalsrc=exprs='0.8*sin(2*PI*440*t)*gt(0.06,t*2-floor(t*2))':s=44100:d=30[imp];
+[s0][voc][s2][s3][noise][imp]amix=inputs=6:duration=longest:normalize=0:weights='1.2 1.2 1 1 0.3 1.5'[pre];
+[pre]alimiter=limit=-0.5dB:level=true[out]
+"
+ffmpeg -y -filter_complex "$FFMPEG_FILTER" -map "[out]" \
+  -ar 44100 -ac 2 -c:a pcm_s16le "$TEST_WAV" >/dev/null 2>&1
+ok "Audio de prueba generado: $TEST_WAV"
 
 # -----------------------------------------------------------------------------
 # Variables de entorno que el entrypoint habria preparado, salvo el servidor.
@@ -153,24 +190,25 @@ BASE_PYTHONPATH="/app/lib_v5:/opt/pytorch-backends/cuda"
 BASE_LD="/opt/pytorch-backends/cuda/torch/lib"
 USER_SITE="/app/.local/lib/python3.12/site-packages"
 
-cat > "$WORKDIR/run_baseline.sh" <<'EOF'
+cat > "$WORKDIR/run_pipeline.sh" <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-mkdir -p /work/output/baseline
-if /app/pipeline.sh --device cpu --demucs-keep all --stem-model htdemucs --output /work/output/baseline /work/input/sine30.wav > /work/baseline_pipeline.log 2>&1; then
+LABEL="$1"
+OUTPUT="/work/output/$LABEL"
+mkdir -p "$OUTPUT"
+if /app/pipeline.sh --device cpu --demucs-keep all --stem-model htdemucs --output "$OUTPUT" /work/input/test_mix.wav > "/work/${LABEL}_pipeline.log" 2>&1; then
   rc=0
 else
   rc=$?
 fi
-tail -n 40 /work/baseline_pipeline.log
+tail -n 40 "/work/${LABEL}_pipeline.log"
 exit $rc
 EOF
-chmod +x "$WORKDIR/run_baseline.sh"
+chmod +x "$WORKDIR/run_pipeline.sh"
 
 cat > "$WORKDIR/run_candidate.sh" <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-mkdir -p /work/output/candidate
 if pip install --user --no-warn-script-location -U $PACKAGES > /work/candidate_pip.log 2>&1; then
   rc=0
 else
@@ -181,13 +219,7 @@ else
 fi
 tail -n 10 /work/candidate_pip.log
 export PYTHONPATH="$USER_SITE:$BASE_PYTHONPATH"
-if /app/pipeline.sh --device cpu --demucs-keep all --stem-model htdemucs --output /work/output/candidate /work/input/sine30.wav > /work/candidate_pipeline.log 2>&1; then
-  rc=0
-else
-  rc=\$?
-fi
-tail -n 40 /work/candidate_pipeline.log
-exit \$rc
+bash /work/run_pipeline.sh candidate
 EOF
 chmod +x "$WORKDIR/run_candidate.sh"
 
@@ -196,7 +228,7 @@ chmod +x "$WORKDIR/run_candidate.sh"
 # -----------------------------------------------------------------------------
 run_step() {
   local label="$1"
-  local script="$2"
+  shift
   info "Ejecutando configuracion: $label"
   docker run --rm --gpus all \
     --entrypoint "" \
@@ -212,19 +244,24 @@ run_step() {
     -v "onda_pytorch-cache:/opt/pytorch-backends:ro" \
     -v "$CACHE_DIR:/app/.cache" \
     "$IMAGE" \
-    bash "$script"
+    bash "$@"
 }
 
 # -----------------------------------------------------------------------------
-# Ejecutar las dos configuraciones
+# Ejecutar las dos pasadas A/A y, en modo A/B, la candidata
 # -----------------------------------------------------------------------------
 START=$SECONDS
 
-run_step "baseline (imagen actual)" /work/run_baseline.sh
-ok "Baseline completado"
+run_step "run1 (baseline)" /work/run_pipeline.sh run1
+ok "Run1 completado"
 
-run_step "candidata (pip install -U)" /work/run_candidate.sh
-ok "Candidata completada"
+run_step "run2 (control A/A)" /work/run_pipeline.sh run2
+ok "Run2 completado"
+
+if [[ "$MODE" == "AB" ]]; then
+  run_step "candidate (pip install -U)" /work/run_candidate.sh
+  ok "Candidata completada"
+fi
 
 # -----------------------------------------------------------------------------
 # Medir duracion, bytes y niveles de cada pista
@@ -241,11 +278,22 @@ measure() {
   printf '%s %s %s %s\n' "${dur:-NA}" "${bytes:-NA}" "${mean:-NA}" "${max:-NA}"
 }
 
-BASE_OUT="$OUTPUT_DIR/baseline"
-CAND_OUT="$OUTPUT_DIR/candidate"
+abs_diff() {
+  awk "BEGIN {d=($2)-($1); if(d<0)d=-d; printf \"%.3f\", d}"
+}
 
-if [[ ! -d "$BASE_OUT" || ! -d "$CAND_OUT" ]]; then
+lte() {
+  awk "BEGIN {print (($1) <= ($2)) ? 1 : 0}"
+}
+
+OUT_DIR="$OUTPUT_DIR"
+
+if [[ ! -d "$OUT_DIR/run1" || ! -d "$OUT_DIR/run2" ]]; then
   fail "no se encontraron los directorios de salida"
+  exit 1
+fi
+if [[ "$MODE" == "AB" && ! -d "$OUT_DIR/candidate" ]]; then
+  fail "no se encontro el directorio de salida de la candidata"
   exit 1
 fi
 
@@ -254,45 +302,133 @@ fi
 # -----------------------------------------------------------------------------
 printf '\n'
 printf '%s%s%s\n' "$C_BLD" '== Resultados ==' "$C_OFF"
-printf '%-12s %10s %12s %12s %12s | %10s %12s %12s %12s | %10s %12s %12s\n' \
-  "pista" "dur_B" "bytes_B" "mean_B" "max_B" "dur_C" "bytes_C" "mean_C" "max_C" "d_dur" "d_mean" "d_max"
-printf '%s\n' '----------------------------------------------------------------------------------------------------------------------------------------------------------------'
+printf '%-12s %10s %12s %12s %12s | %10s %12s %12s %12s | %10s %12s %12s %12s\n' \
+  "pista" "dur_1" "bytes_1" "mean_1" "max_1" "dur_2" "bytes_2" "mean_2" "max_2" "dur_C" "mean_C" "max_C" "bytes_C"
+printf '%s\n' '---------------------------------------------------------------------------------------------------------------------------------------------------------------------'
 
 PASS=true
+declare -A RUIDO UMBRAL NOTE_AA NOTE_AB
 
 for stem in vocals drums bass other; do
-  base_file="$BASE_OUT/${stem}.wav"
-  cand_file="$CAND_OUT/${stem}.wav"
+  f1="$OUT_DIR/run1/${stem}.wav"
+  f2="$OUT_DIR/run2/${stem}.wav"
+  fC="$OUT_DIR/candidate/${stem}.wav"
 
-  if [[ ! -f "$base_file" || ! -f "$cand_file" ]]; then
+  if [[ ! -f "$f1" || ! -f "$f2" ]]; then
     printf '%-12s %s\n' "$stem" "FALTA_EN_ALGUNA_CONFIGURACION"
     PASS=false
     continue
   fi
 
-  read -r b_dur b_bytes b_mean b_max <<< "$(measure "$base_file")"
-  read -r c_dur c_bytes c_mean c_max <<< "$(measure "$cand_file")"
+  read -r dur1 bytes1 mean1 max1 <<< "$(measure "$f1")"
+  read -r dur2 bytes2 mean2 max2 <<< "$(measure "$f2")"
 
-  if [[ "$b_dur" == "NA" || "$c_dur" == "NA" || "$b_mean" == "NA" || "$c_mean" == "NA" || "$b_max" == "NA" || "$c_max" == "NA" ]]; then
-    printf '%-12s %s\n' "$stem" "ERROR_MEDICION"
-    PASS=false
-    continue
+  if [[ "$MODE" == "AB" && -f "$fC" ]]; then
+    read -r durC bytesC meanC maxC <<< "$(measure "$fC")"
+  else
+    durC="N/A"; bytesC="N/A"; meanC="N/A"; maxC="N/A"
   fi
 
-  d_dur="$(awk "BEGIN {d= $c_dur - $b_dur; printf \"%.6f\", (d<0?-d:d)}")"
-  d_mean="$(awk "BEGIN {d= $c_mean - $b_mean; printf \"%.3f\", (d<0?-d:d)}")"
-  d_max="$(awk "BEGIN {d= $c_max - $b_max; printf \"%.3f\", (d<0?-d:d)}")"
+  printf '%-12s %10s %12s %12s %12s | %10s %12s %12s %12s | %10s %12s %12s %12s\n' \
+    "$stem" "$dur1" "$bytes1" "$mean1" "$max1" "$dur2" "$bytes2" "$mean2" "$max2" "$durC" "$meanC" "$maxC" "$bytesC"
 
-  printf '%-12s %10s %12s %12s %12s | %10s %12s %12s %12s | %10s %12s %12s\n' \
-    "$stem" "$b_dur" "$b_bytes" "$b_mean" "$b_max" "$c_dur" "$c_bytes" "$c_mean" "$c_max" "$d_dur" "$d_mean" "$d_max"
+  # Ruido de medicion (diferencia entre las dos pasadas A/A).
+  ddur_aa="$(abs_diff "$dur1" "$dur2")"
+  dmean_aa="$(abs_diff "$mean1" "$mean2")"
+  dmax_aa="$(abs_diff "$max1" "$max2")"
+  ruido="$(awk "BEGIN {m=$dmean_aa; if($dmax_aa>m)m=$dmax_aa; printf \"%.3f\", m}")"
+  RUIDO[$stem]="$ruido"
 
-  ok_dur="$(awk "BEGIN {print ($d_dur <= 0.001) ? 0 : 1}")"
-  ok_mean="$(awk "BEGIN {print ($d_mean <= 0.5) ? 0 : 1}")"
-  ok_max="$(awk "BEGIN {print ($d_max <= 0.5) ? 0 : 1}")"
+  # Umbral: ruido con margen, nunca por debajo del minimo absoluto.
+  umbral="$(awk "BEGIN {m=$ruido*$MARGIN; if(m<$MIN_THRESHOLD)m=$MIN_THRESHOLD; printf \"%.3f\", m}")"
+  UMBRAL[$stem]="$umbral"
 
-  if [[ "$ok_dur" -ne 0 || "$ok_mean" -ne 0 || "$ok_max" -ne 0 ]]; then
-    PASS=false
+  # Veredicto A/A por pista.
+  ok_aa=true
+  note_aa=""
+  if [[ "$mean1" == "NA" || "$mean2" == "NA" ]]; then
+    ok_aa=false
+    note_aa="error de medicion"
+  elif [[ "$(awk "BEGIN {print ($mean1 < $SILENCE_THRESHOLD && $mean2 < $SILENCE_THRESHOLD) ? 1 : 0}")" -eq 1 ]]; then
+    note_aa="N/S: pista silenciosa (<-60 dB)"
+  else
+    if [[ "$(lte "$ddur_aa" "0.001")" -ne 1 ]]; then
+      ok_aa=false
+      note_aa="duracion distinta en A/A"
+    elif [[ "$(lte "$dmean_aa" "$umbral")" -ne 1 ]]; then
+      ok_aa=false
+      note_aa="ruido mean excede umbral"
+    elif [[ "$(lte "$dmax_aa" "$umbral")" -ne 1 ]]; then
+      ok_aa=false
+      note_aa="ruido max excede umbral"
+    fi
   fi
+  NOTE_AA[$stem]="$note_aa"
+  [[ "$ok_aa" == true ]] || PASS=false
+
+  # Veredicto A/B por pista (solo si hay candidata).
+  ok_ab=true
+  note_ab=""
+  if [[ "$MODE" == "AB" ]]; then
+    if [[ ! -f "$fC" ]]; then
+      ok_ab=false
+      note_ab="falta pista en candidata"
+    elif [[ "$mean1" == "NA" || "$meanC" == "NA" ]]; then
+      ok_ab=false
+      note_ab="error de medicion"
+    else
+      ddur_ab="$(abs_diff "$dur1" "$durC")"
+      dmean_ab="$(abs_diff "$mean1" "$meanC")"
+      dmax_ab="$(abs_diff "$max1" "$maxC")"
+      if [[ "$(awk "BEGIN {print ($mean1 < $SILENCE_THRESHOLD && $meanC < $SILENCE_THRESHOLD) ? 1 : 0}")" -eq 1 ]]; then
+        note_ab="N/S: pista silenciosa (<-60 dB)"
+      elif [[ "$(lte "$ddur_ab" "0.001")" -ne 1 ]]; then
+        ok_ab=false
+        note_ab="duracion distinta"
+      elif [[ "$(lte "$dmean_ab" "$umbral")" -ne 1 ]]; then
+        ok_ab=false
+        note_ab="mean excede ruido+margen"
+      elif [[ "$(lte "$dmax_ab" "$umbral")" -ne 1 ]]; then
+        ok_ab=false
+        note_ab="max excede ruido+margen"
+      fi
+    fi
+    [[ "$ok_ab" == true ]] || PASS=false
+  fi
+  NOTE_AB[$stem]="$note_ab"
+done
+
+# -----------------------------------------------------------------------------
+# Resumen de veredictos por pista
+# -----------------------------------------------------------------------------
+printf '\n'
+printf '%s%s%s\n' "$C_BLD" '== Veredicto ==' "$C_OFF"
+printf '%-12s %12s %12s | %s\n' "pista" "ruido" "umbral" "estado / nota"
+printf '%s\n' '--------------------------------------------------------------------------------'
+
+for stem in vocals drums bass other; do
+  umbral="${UMBRAL[$stem]:-NA}"
+  ruido="${RUIDO[$stem]:-NA}"
+  note_aa="${NOTE_AA[$stem]:-}"
+  note_ab="${NOTE_AB[$stem]:-}"
+
+  if [[ "$MODE" == "AA" ]]; then
+    if [[ -n "$note_aa" ]]; then
+      estado="$note_aa"
+    else
+      estado="A/A OK (ruido <= umbral)"
+    fi
+  else
+    if [[ -n "$note_ab" ]]; then
+      estado="$note_ab"
+    elif [[ -n "$note_aa" && "$note_aa" == N/S* ]]; then
+      estado="N/S en baseline"
+    else
+      estado="A/B OK (diferencia <= ruido+margen)"
+    fi
+  fi
+
+  printf '%-12s %12s %12s | %s\n' "$stem" "$ruido" "$umbral" "$estado"
 done
 
 ELAPSED=$((SECONDS - START))
@@ -302,11 +438,11 @@ printf '\nTiempo total: %dm %ds\n' $((ELAPSED / 60)) $((ELAPSED % 60))
 # Resultado y limpieza
 # -----------------------------------------------------------------------------
 if $PASS; then
-  ok "VALIDACION ACEPTADA: duracion identica y niveles <= 0,5 dB"
+  ok "VALIDACION ACEPTADA"
   rm -rf "$WORKDIR"
   exit 0
 else
-  fail "VALIDACION RECHAZADA: la candidata altera la salida mas alla del umbral"
+  fail "VALIDACION RECHAZADA: la candidata altera la salida mas alla del ruido de medicion"
   warn "Workdir conservado para inspeccion: $WORKDIR"
   exit 1
 fi
