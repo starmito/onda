@@ -378,6 +378,14 @@ export async function stopBackend(): Promise<BackendActionResponse> {
 }
 
 // ---- Queue (cola secuencial) ----
+export interface FailureDetails {
+  step: string;
+  exit_code: number;
+  error: string;
+  stderr: string;
+  failed_dir: string;
+}
+
 export interface QueueJob {
   song: string;
   status: 'waiting' | 'processing' | 'done' | 'error' | 'blocked_no_gpu';
@@ -390,6 +398,7 @@ export interface QueueJob {
   current_model?: string;
   current_flags?: string;
   error?: string;
+  failure_details?: FailureDetails;
   files?: { name: string; path: string }[];
 }
 
