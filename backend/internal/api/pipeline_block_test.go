@@ -211,7 +211,7 @@ func TestRunSinglePipeline_ForceVRAM(t *testing.T) {
 	if err := os.WriteFile(scriptPath, []byte("#!/bin/bash\necho ok\n"), 0o755); err != nil {
 		t.Fatalf("failed to write fake script: %v", err)
 	}
-	defer os.Remove(scriptPath)
+	defer os.RemoveAll("testdata")
 
 	s := &Server{jobs: make(map[string]*JobState)}
 	state := &JobState{Song: "test", Status: "waiting"}
@@ -353,7 +353,7 @@ func TestRunSinglePipeline_LowRAMProceeds(t *testing.T) {
 	if err := os.WriteFile(scriptPath, []byte("#!/bin/bash\necho ok\n"), 0o755); err != nil {
 		t.Fatalf("failed to write fake script: %v", err)
 	}
-	defer os.Remove(scriptPath)
+	defer os.RemoveAll("testdata")
 
 	s := &Server{jobs: make(map[string]*JobState)}
 	state := &JobState{Song: "test", Status: "waiting"}
