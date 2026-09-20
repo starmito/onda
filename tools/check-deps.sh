@@ -4,11 +4,11 @@
 # '==' y que coinciden con el estado REALMENTE instalado (requirements.lock).
 #
 # Uso:
-#   tools/check-deps.sh                  # verifica los 3 .txt contra requirements.lock
+#   tools/check-deps.sh                  # verifica los requirements contra requirements.lock
 #   tools/check-deps.sh onda:v3.4.15     # ademas, compara el freeze de esa imagen con requirements.lock
 #
 # Comprueba:
-#   (a) que ninguna linea de los tres requirements quede sin '=='
+#   (a) que ninguna linea de los requirements quede sin '=='
 #   (b) que cada paquete declarado coincida con la version de requirements.lock (cuando aparezca alli)
 #   (c) informa de las diferencias en vez de fallar en silencio
 #
@@ -26,7 +26,6 @@ LOCK_FILE="$REPO_ROOT/requirements.lock"
 REQ_FILES=(
   "requirements-common.txt"
   "requirements-docker.txt"
-  "requirements-docker-amd.txt"
 )
 IMG="${1:-}"
 
@@ -161,7 +160,7 @@ done
 
 printf '\n%s-- Resumen --%s\n' "$C_BLD" "$C_OFF"
 info "requirements.lock: $lock_count paquetes instalados (referencia)"
-info "declarados en los 3 requirements: $total_declared ($total_unpinned sin fijar)"
+info "declarados en los requirements: $total_declared ($total_unpinned sin fijar)"
 info "solo en el lock (dependencias transitivas, no declaradas a mano): ${#extras[@]}"
 
 # ---------------------------------------------------------------- (opcional) freeze de una imagen
