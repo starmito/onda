@@ -184,3 +184,111 @@ export function getSubgroupStemState(song: string, pitchIdx: number, name: strin
   const key = subgroupStemKey(song, pitchIdx, name);
   return playerState.stemStates[key] || { muted: false, solo: false, volume: 100 };
 }
+
+// ── Shared mute/solo/volume logic for stems and tracks ──
+
+export interface StemMixState {
+  muted: boolean;
+  solo: boolean;
+  volume: number; // 0-100
+}
+
+export const defaultStemMixState: StemMixState = { muted: false, solo: false, volume: 100 };
+
+/** Effective gain for a stem given its own state and whether any stem in the group is soloed. */
+export function effectiveStemGain(state: StemMixState | undefined, groupHasSolo: boolean): number {
+  const s = state || defaultStemMixState;
+  if (s.muted) return 0;
+  if (groupHasSolo && !s.solo) return 0;
+  return (s.volume ?? 100) / 100;
+}
+
+/** Whether any stem in the provided states is soloed.
+ *  If stemKeys is provided, only those keys are considered; otherwise all states are scanned.
+ */
+export function anyStemSolo(states: Record<string, StemMixState>, stemKeys?: string[]): boolean {
+  if (stemKeys) {
+    return stemKeys.some((k) => states[k]?.solo);
+  }
+  return Object.values(states).some((s) => s?.solo);
+}
+
+/** Compute effective gain for each stem key in a group. */
+export function computeGroupGains(
+  states: Record<string, StemMixState>,
+  stemKeys: string[],
+): Record<string, number> {
+  const hasSolo = anyStemSolo(states, stemKeys);
+  const gains: Record<string, number> = {};
+  for (const key of stemKeys) {
+    gains[key] = effectiveStemGain(states[key], hasSolo);
+  }
+  return gains;
+}
+
+/** Return a new state with mute toggled. */
+export function toggleStemMute(state: StemMixState | undefined): StemMixState {
+  return { ...(state || defaultStemMixState), muted: !(state?.muted ?? false) };
+}
+
+/** Return a new state with solo toggled. */
+export function toggleStemSolo(state: StemMixState | undefined): StemMixState {
+  return { ...(state || defaultStemMixState), solo: !(state?.solo ?? false) };
+}
+
+/** Return a new state with the volume updated. */
+export function setStemVolume(state: StemMixState | undefined, volume: number): StemMixState {
+  return { ...(state || defaultStemMixState), volume };
+}
+
+/** Ensure a stem state exists in the record and return it. */
+export function ensureStemState(
+  states: Record<string, StemMixState>,
+  key: string,
+): StemMixState {
+  if (!states[key]) {
+    states[key] = { ...defaultStemMixState };
+  }
+  return states[key];
+}
+
+// ── Shared mute/solo logic for DAW tracks (0-1 volume range) ──
+
+export interface TrackMixState {
+  muted: boolean;
+  solo: boolean;
+  volume: number; // 0-1
+}
+
+export const defaultTrackMixState: TrackMixState = { muted: false, solo: false, volume: 1 };
+
+/** Effective volume for a track given its own state and whether any track in the group is soloed. */
+export function effectiveTrackVolume(state: TrackMixState | undefined, groupHasSolo: boolean): number {
+  const s = state || defaultTrackMixState;
+  if (s.muted) return 0;
+  if (groupHasSolo && !s.solo) return 0;
+  return s.volume ?? 1;
+}
+
+/** Whether any track in the array is soloed. */
+export function anyTrackSolo(tracks: TrackMixState[]): boolean {
+  return tracks.some((t) => t.solo);
+}
+
+/** Compute effective volume for each track in a group. */
+export function computeTrackVolumes(tracks: TrackMixState[]): Record<string, number> {
+  const hasSolo = anyTrackSolo(tracks);
+  const volumes: Record<string, number> = {};
+  for (const track of tracks) {
+    volumes[track.id] = effectiveTrackVolume(track, hasSolo);
+  }
+  return volumes;
+}
+
+// Backwards-compatible helpers used by older subgroup code in ResultsPanel.
+export function effectiveGainFromState(
+  state: StemMixState | undefined,
+  hasSolo: boolean,
+): number {
+  return effectiveStemGain(state, hasSolo);
+}

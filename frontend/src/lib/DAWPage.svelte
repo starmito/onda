@@ -17,6 +17,7 @@
   } from './api';
   import type { TempoGridResponse, PitchStemEntry, InputEntry, DAWSongDeleteResult } from './api';
   import { IconSkipBack, IconSkipForward } from './icons';
+  import { effectiveTrackVolume, anyTrackSolo } from './playerStore.svelte';
 
   type RegionLike = { start: number; end: number };
   type DAWState = {
@@ -529,9 +530,8 @@
 
   function applyTrackAudioState(track: Track) {
     if (!track.ws) return;
-    const anySolo = tracks.some((t) => t.solo);
-    const shouldMute = track.muted || (anySolo && !track.solo);
-    track.ws.setVolume(shouldMute ? 0 : track.volume);
+    const hasSolo = anyTrackSolo(tracks);
+    track.ws.setVolume(effectiveTrackVolume(track, hasSolo));
   }
 
   function addRegion() {
