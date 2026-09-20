@@ -80,15 +80,21 @@ func (s *Server) handleStemsMerge(w http.ResponseWriter, r *http.Request) {
 		pitchSuffix = filepath.Base(baseSong) + "_pitch" + rest
 	}
 	safeSong := filepath.Base(baseSong)
-	songDir := filepath.Join(projectRoot, "output", safeSong)
+
+	// Directory that holds the actual stem files to mix.
+	stemsDir := filepath.Join(projectRoot, "output", safeSong)
 	if pitchSuffix != "" {
-		songDir = filepath.Join(songDir, pitchSuffix)
+		stemsDir = filepath.Join(stemsDir, pitchSuffix)
 	}
+	// Merged output is always stored under the song directory so it can be
+	// served by the static handler at /output/{song}/{file}, matching the
+	// naming used by the pitch-shift UI for groups/subgroups.
+	mergeDir := filepath.Join(projectRoot, "output", safeSong)
 
 	var inputFiles []string
 	for _, stem := range req.Stems {
 		safeStem := filepath.Base(stem)
-		stemPath := filepath.Join(songDir, safeStem)
+		stemPath := filepath.Join(stemsDir, safeStem)
 		if info, err := os.Stat(stemPath); err != nil || info.IsDir() {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusNotFound)
@@ -123,7 +129,7 @@ func (s *Server) handleStemsMerge(w http.ResponseWriter, r *http.Request) {
 		outputRelPath = outputName
 		downloadURL = exportDirFileURL(outputName)
 	} else {
-		outputPath = filepath.Join(songDir, outputName)
+		outputPath = filepath.Join(mergeDir, outputName)
 		outputRelPath = filepath.Join("output", safeSong, outputName)
 		downloadURL = "/" + filepath.ToSlash(outputRelPath)
 	}
