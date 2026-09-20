@@ -93,7 +93,7 @@ func (s *Server) handleTempoShift(w http.ResponseWriter, r *http.Request) {
 	tmpPath := filepath.Join(tmpDir, outputName)
 	outputPath := filepath.Join(editsDir, outputName)
 
-	cmd := exec.Command("rubberband", "--tempo", fmt.Sprintf("%f", req.Ratio), sourcePath, tmpPath)
+	cmd := exec.Command("rubberband", "--fine", "--tempo", fmt.Sprintf("%f", req.Ratio), sourcePath, tmpPath)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
