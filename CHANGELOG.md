@@ -3,7 +3,8 @@
 ## [Unreleased]
 
 ### Added
-- **Guardianes del repo**: nuevo `tools/check-licenses.sh` que bloquea licencias prohibidas (AGPL-*, GPL-2.0, GPL-3.0, SSPL-*, BUSL-*) en dependencias de producción del frontal, dependencias Python conocidas y código vendorizado `lib_v5/`, y verifica que `go mod tidy -diff` esté vacío. Integrado en la suite como `tests/unit/test_guards.py`.
+- **Guardianes del repo**: nuevo `tools/check-licenses.sh` que bloquea licencias prohibidas (AGPL-*, GPL-2.0, GPL-3.0, SSPL-*, BUSL-*) en dependencias de producción del frontal, dependencias Python conocidas y código vendorizado (`lib_v5/`), y verifica que `go mod tidy -diff` esté vacío. Integrado en la suite como `tests/unit/test_guards.py`.
+- **`tools/verify-deps.sh`**: script para comparar la salida del pipeline entre la imagen actual y la misma imagen con paquetes candidatos instalados encima. Usa audio sintético, monta el volumen CUDA en solo lectura, no arranca servidor y devuelve código `0` solo si duración y niveles están dentro del umbral.
 - **Detección de tonalidad en el backend** con `librosa` (licencia ISC): nuevo endpoint `POST /api/key` que recibe un archivo de audio y devuelve tonalidad, escala, fuerza, alternativas y flag `dubious`. Usa `librosa.estimate_tuning`, `chroma_cqt` y perfiles de Krumhansl-Schmuckler con mediana para robustez.
 - **Documentación de procedencia de `lib_v5/`**: nuevo `lib_v5/PROVENANCE.md` y ficheros de licencia originales (`LICENSE-ZFTurbo.txt`, `LICENSE-UVR.txt`) (MIT) para el código vendorizado.
 
