@@ -65,6 +65,10 @@ SILENCE_THRESHOLD=-60.0
 MARGIN=1.5
 MIN_THRESHOLD=0.3
 
+# Dispositivo de inferencia. Por defecto cuda (la ruta de produccion); se puede
+# forzar a cpu desde fuera si fuera necesario: DEVICE=cpu tools/verify-deps.sh
+DEVICE="${DEVICE:-cuda}"
+
 # -----------------------------------------------------------------------------
 # Colores (solo si hay terminal)
 # -----------------------------------------------------------------------------
@@ -196,11 +200,44 @@ set -euo pipefail
 LABEL="$1"
 OUTPUT="/work/output/$LABEL"
 mkdir -p "$OUTPUT"
-if /app/pipeline.sh --device cpu --demucs-keep all --stem-model htdemucs --output "$OUTPUT" /work/input/test_mix.wav > "/work/${LABEL}_pipeline.log" 2>&1; then
+
+# Dispositivo configurable desde fuera (por defecto cuda, la ruta de produccion).
+DEVICE="${DEVICE:-cuda}"
+
+# Evidencia de que el entorno ve la GPU antes de lanzar el pipeline.
+{
+  echo "--- GPU check (${LABEL}) ---"
+  python3 - <<PY 2>&1 || true
+import torch
+if torch.cuda.is_available():
+    print(f'CUDA available: {torch.cuda.is_available()}')
+    print(f'CUDA device: {torch.cuda.get_device_name(0)}')
+    print(f'CUDA memory allocated: {torch.cuda.memory_allocated(0)} bytes')
+else:
+    print('CUDA available: False')
+PY
+} | tee "/work/${LABEL}_gpu.log"
+
+# Ruta de produccion del modelo vocal (montada solo lectura en /app/data).
+VOCAL_MODEL="/app/data/models/VR_Models/BS_Roformer_Viperx"
+STEM_MODEL="htdemucs_ft"
+
+if /app/pipeline.sh \
+    --device "$DEVICE" \
+    --vocal-model "$VOCAL_MODEL" \
+    --stem-model "$STEM_MODEL" \
+    --demucs-keep all \
+    --output "$OUTPUT" \
+    /work/input/test_mix.wav > "/work/${LABEL}_pipeline.log" 2>&1; then
   rc=0
 else
   rc=$?
 fi
+
+# Recoge del log del pipeline cualquier mencion a cuda/dispositivo/GPU.
+grep -iE 'device|cuda|gpu|nvidia|Auto-detected|memory allocated|Using.*CUDA' \
+  "/work/${LABEL}_pipeline.log" | tail -n 20 | tee -a "/work/${LABEL}_gpu.log" || true
+
 tail -n 40 "/work/${LABEL}_pipeline.log"
 exit $rc
 EOF
@@ -236,15 +273,37 @@ run_step() {
     -e PYTHONPATH="$BASE_PYTHONPATH" \
     -e LD_LIBRARY_PATH="$BASE_LD${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
     -e ONDA_DATA_DIR=/work \
+    -e DEVICE="$DEVICE" \
     -e TORCH_HOME=/app/.cache/torch \
     -e NUMBA_CACHE_DIR=/app/.cache/numba \
     -e XDG_CACHE_HOME=/app/.cache/xdg \
     -e HF_HOME=/app/.cache/hf \
     -v "$WORKDIR:/work" \
     -v "onda_pytorch-cache:/opt/pytorch-backends:ro" \
+    -v "$REPO_ROOT/data/models/VR_Models/BS_Roformer_Viperx:/app/data/models/VR_Models/BS_Roformer_Viperx:ro" \
     -v "$CACHE_DIR:/app/.cache" \
     "$IMAGE" \
     bash "$@"
+}
+
+# -----------------------------------------------------------------------------
+# Mostrar evidencia de que las corridas usaron GPU/CUDA
+# -----------------------------------------------------------------------------
+show_gpu_evidence() {
+  printf '\n%s%s%s\n' "$C_BLD" '== Evidencia GPU ==' "$C_OFF"
+  local found=false
+  for log in "$WORKDIR"/*_gpu.log; do
+    [[ -f "$log" ]] || continue
+    local name
+    name="$(basename "$log")"
+    printf '%s:\n' "$name"
+    cat "$log"
+    printf '\n'
+    found=true
+  done
+  if [[ "$found" == false ]]; then
+    warn "No se encontro evidencia de GPU en $WORKDIR"
+  fi
 }
 
 # -----------------------------------------------------------------------------
@@ -262,6 +321,8 @@ if [[ "$MODE" == "AB" ]]; then
   run_step "candidate (pip install -U)" /work/run_candidate.sh
   ok "Candidata completada"
 fi
+
+show_gpu_evidence
 
 # -----------------------------------------------------------------------------
 # Medir duracion, bytes y niveles de cada pista
