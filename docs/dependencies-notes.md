@@ -46,7 +46,6 @@ Las siguientes versiones quedan fijadas y validadas con A/A en la imagen `onda:d
 | Paquete      | Versión fijada |
 |--------------|----------------|
 | `librosa`    | `1.0.0`        |
-| `torchcodec` | `0.16.0`       |
 | `omegaconf`  | `2.3.1`        |
 | `soundfile`  | `0.14.0`       |
 | `onnx`       | `1.23.0`       |

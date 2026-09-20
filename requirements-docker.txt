@@ -18,10 +18,11 @@ pydub==0.25.1
 resampy==0.4.3
 
 # -- Demucs (instalado aparte con --no-deps) --
-torchcodec==0.16.0
 sphn==0.2.1
-diffq==0.2.4
 omegaconf==2.3.1
+# NOTA: diffq y torchcodec se retiran en v3.5.0: diffq solo sirve para modelos
+# cuantizados de demucs (extra 'quantized') que no usamos, y torchcodec no es
+# requerido por ningun paquete ni importado por Onda.
 pytorch_lightning==2.6.6
 ml_collections==1.1.0
 
