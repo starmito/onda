@@ -608,6 +608,25 @@ export async function getHfCatalog(): Promise<HfCatalogResponse> {
   return (await res.json()) as HfCatalogResponse;
 }
 
+// ---- Model Catalog (Official Demucs) ----
+export interface DemucsCatalogEntry {
+  name: string;
+  display_name: string;
+  repo: string;
+  downloaded: boolean;
+  downloads: number;
+  likes: number;
+  source: string;
+}
+
+export async function getDemucsCatalog(): Promise<DemucsCatalogEntry[]> {
+  const res = await fetch(`${API_BASE}/api/models/catalog/demucs`);
+  if (!res.ok) {
+    throw new Error(`Demucs catalog fetch failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as DemucsCatalogEntry[];
+}
+
 export interface DeleteModelResponse {
   ok: boolean;
   detail: string;

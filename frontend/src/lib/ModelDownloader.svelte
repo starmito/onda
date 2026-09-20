@@ -2,6 +2,7 @@
   import {
     getModelCatalog,
     getHfCatalog,
+    getDemucsCatalog,
     getLocalModels,
     downloadModel,
     getDownloadStatus,
@@ -9,6 +10,7 @@
     deleteModel,
     type UVRModelEntry,
     type HFModelEntry,
+    type DemucsCatalogEntry,
     type LocalModel,
     type DownloadProgress,
   } from './api';
@@ -42,13 +44,18 @@
   let catalogError = $state(false);
 
   // ---- Source filter state ----
-  type SourceFilter = 'all' | 'uvr' | 'hf';
+  type SourceFilter = 'all' | 'uvr' | 'hf' | 'demucs';
   let sourceFilter = $state<SourceFilter>('all');
 
   // ---- HF catalog state ----
   let hfCatalog = $state<HFModelEntry[]>([]);
   let hfCatalogLoading = $state(false);
   let hfCatalogError = $state(false);
+
+  // ---- Official Demucs catalog state ----
+  let demucsCatalog = $state<DemucsCatalogEntry[]>([]);
+  let demucsCatalogLoading = $state(true);
+  let demucsCatalogError = $state(false);
 
   // ---- Downloading state ----
   // Track progress per model: key = model.filename || model.name
@@ -128,6 +135,20 @@
       });
   });
 
+  // Load official Demucs catalog
+  $effect(() => {
+    demucsCatalogLoading = true;
+    getDemucsCatalog()
+      .then(data => {
+        demucsCatalog = data;
+        demucsCatalogLoading = false;
+      })
+      .catch(() => {
+        demucsCatalogError = true;
+        demucsCatalogLoading = false;
+      });
+  });
+
   // ---- Load installed models when tab changes ----
   $effect(() => {
     if (tab !== 'installed') return;
@@ -144,23 +165,26 @@
   });
 
   // ---- Derived: combined catalog, filtered, grouped ----
-  type SourceType = 'uvr' | 'hf';
+  type SourceType = 'uvr' | 'hf' | 'demucs';
 
   interface CombinedModel {
     name: string;
     display_name?: string;
     category: string;
-    size_mb: number;
+    size_mb?: number;
     description?: string;
     downloaded: boolean;
     source: SourceType;
     huggingface_repo?: string;
     filename?: string;
     hf_path?: string;
+    repo?: string;
+    downloads?: number;
+    likes?: number;
   }
 
   let combinedModels = $derived.by(() => {
-    const uvrMapped: CombinedModel[] = (sourceFilter === 'hf' ? [] : catalog).map(m => ({
+    const uvrMapped: CombinedModel[] = (sourceFilter === 'hf' || sourceFilter === 'demucs' ? [] : catalog).map(m => ({
       name: m.name,
       display_name: m.display_name,
       category: m.category,
@@ -172,7 +196,7 @@
       filename: m.filename,
     }));
 
-    const hfMapped: CombinedModel[] = (sourceFilter === 'uvr' ? [] : hfCatalog).map(m => ({
+    const hfMapped: CombinedModel[] = (sourceFilter === 'uvr' || sourceFilter === 'demucs' ? [] : hfCatalog).map(m => ({
       name: m.name,
       category: m.category,
       size_mb: m.size_mb,
@@ -182,7 +206,18 @@
       filename: m.filename,
     }));
 
-    return [...uvrMapped, ...hfMapped];
+    const demucsMapped: CombinedModel[] = (sourceFilter === 'uvr' || sourceFilter === 'hf' ? [] : demucsCatalog).map(m => ({
+      name: m.name,
+      display_name: m.display_name,
+      category: 'Demucs',
+      downloaded: m.downloaded,
+      source: 'demucs' as SourceType,
+      repo: m.repo,
+      downloads: m.downloads,
+      likes: m.likes,
+    }));
+
+    return [...uvrMapped, ...hfMapped, ...demucsMapped];
   });
 
   let filtered = $derived.by(() => {
@@ -552,11 +587,16 @@ const { [key]: _, ...rest } = downloadProgress;
             class:active={sourceFilter === 'hf'}
             onclick={() => (sourceFilter = 'hf')}
           >Hugging Face</button>
+          <button
+            class="source-btn"
+            class:active={sourceFilter === 'demucs'}
+            onclick={() => (sourceFilter = 'demucs')}
+          >Demucs (oficial)</button>
         </div>
 
-      {#if catalogLoading}
+      {#if (sourceFilter === 'demucs' && demucsCatalogLoading) || (sourceFilter !== 'demucs' && catalogLoading)}
         <div class="empty-state">Cargando catálogo...</div>
-      {:else if catalogError}
+      {:else if (sourceFilter === 'demucs' && demucsCatalogError) || (sourceFilter !== 'demucs' && catalogError)}
         <div class="empty-state error">Error al cargar el catálogo</div>
       {:else if filtered.length === 0}
         <div class="empty-state">
@@ -571,18 +611,28 @@ const { [key]: _, ...rest } = downloadProgress;
                 <div class="model-row">
                   <div class="model-info">
                     <span class="model-name">{model.display_name || model.name}</span>
-                    {#if model.description}
-                      <span class="model-desc">{model.description}</span>
+                    {#if model.source === 'demucs'}
+                      <span class="model-desc">{model.repo}</span>
+                      <span class="model-size">
+                        {#if model.downloads}↓ {model.downloads.toLocaleString()}{/if}
+                        {#if model.likes} · ♥ {model.likes.toLocaleString()}{/if}
+                      </span>
+                    {:else}
+                      {#if model.description}
+                        <span class="model-desc">{model.description}</span>
+                      {/if}
+                      <span class="model-size">{formatSize(model.size_mb ?? 0)}</span>
                     {/if}
-                    <span class="model-size">{formatSize(model.size_mb)}</span>
                   </div>
                   <div class="model-action">
-                    <span class="source-badge" class:uvr={model.source === 'uvr'} class:hf={model.source === 'hf'}>
-                      {model.source === 'uvr' ? 'UVR' : 'HF'}
+                    <span class="source-badge" class:uvr={model.source === 'uvr'} class:hf={model.source === 'hf'} class:demucs={model.source === 'demucs'}>
+                      {model.source === 'uvr' ? 'UVR' : model.source === 'hf' ? 'HF' : 'Demucs'}
                     </span>
                     {#if model.downloaded}
                       <span class="check-icon" title="Ya instalado">✅</span>
-{:else if downloadProgress[model.filename || model.name]}
+                    {:else if model.source === 'demucs'}
+                      <!-- Official Demucs catalog is read-only; downloads use the existing flow -->
+                    {:else if downloadProgress[model.filename || model.name]}
                       {@const prog = downloadProgress[model.filename || model.name]}
                       {#if prog.status === 'error'}
                         <span class="download-error" title={prog.error}>❌</span>
@@ -1146,5 +1196,9 @@ const { [key]: _, ...rest } = downloadProgress;
   .source-badge.hf {
     background: #1b2a3a;
     color: #64b5f6;
+  }
+  .source-badge.demucs {
+    background: #2a1b3a;
+    color: #ba68c8;
   }
 </style>
