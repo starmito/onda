@@ -272,9 +272,12 @@ export async function getLocalModels(): Promise<LocalModelsResponse> {
 }
 
 export interface DownloadModelRequest {
-  source: 'huggingface';
-  repo: string;
+  source: 'huggingface' | 'direct';
+  repo?: string;
+  url?: string;
   filename?: string;  // optional specific file to download
+  category?: string;
+  name?: string;
 }
 
 export interface DownloadModelResponse {
@@ -309,8 +312,29 @@ export async function downloadModel(repo: string, filename?: string): Promise<Do
   return (await res.json()) as DownloadModelResponse;
 }
 
-export async function getDownloadStatus(repo: string): Promise<DownloadStatusResponse> {
-  const res = await fetch(`${API_BASE}/api/models/download/status?repo=${encodeURIComponent(repo)}`);
+export async function downloadModelDirect(
+  url: string,
+  filename?: string,
+  category?: string,
+): Promise<DownloadModelResponse> {
+  const body: DownloadModelRequest = { source: 'direct', url, filename, category };
+  const res = await fetch(`${API_BASE}/api/models/download`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(`Model download failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as DownloadModelResponse;
+}
+
+export async function getDownloadStatus(
+  key: string,
+  opts: { byUrl?: boolean } = {},
+): Promise<DownloadStatusResponse> {
+  const param = opts.byUrl ? 'url' : 'repo';
+  const res = await fetch(`${API_BASE}/api/models/download/status?${param}=${encodeURIComponent(key)}`);
   if (!res.ok) {
     throw new Error(`Download status fetch failed with status ${res.status}: ${res.statusText}`);
   }
@@ -597,12 +621,7 @@ export async function getModelCatalog(): Promise<UVRModelEntry[]> {
     if (!res.ok) {
       throw new Error(`Catalog fetch failed with status ${res.status}: ${res.statusText}`);
     }
-    const data = (await res.json()) as UVRModelEntry[];
-    // Map download_url to huggingface_repo for UI compatibility
-    return data.map((entry: any) => ({
-      ...entry,
-      huggingface_repo: entry.huggingface_repo || entry.download_url,
-    }));
+    return (await res.json()) as UVRModelEntry[];
   } catch (err) {
     if (err instanceof Error) throw err;
     throw new Error(`Unexpected error fetching model catalog: ${String(err)}`);

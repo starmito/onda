@@ -163,6 +163,7 @@ type DownloadRequest struct {
 	URL      string `json:"url,omitempty"`
 	Filename string `json:"filename,omitempty"`
 	Category string `json:"category,omitempty"`
+	Name     string `json:"name,omitempty"`
 }
 
 // DownloadStatus tracks the progress of an async model download.
@@ -397,11 +398,55 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if req.Source == "direct" {
+		// Resolve the model from the UVR catalog when only a name or filename is provided.
+		if req.URL == "" && (req.Name != "" || req.Filename != "") {
+			catalog, err := loadUVRCatalog()
+			if err != nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusInternalServerError)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error": fmt.Sprintf("failed to load UVR catalog: %v", err),
+				})
+				return
+			}
+			lookup := req.Filename
+			if lookup == "" {
+				lookup = req.Name
+			}
+			var found *UVRModelEntry
+			for i := range catalog {
+				if catalog[i].Filename == lookup || catalog[i].Name == lookup {
+					found = &catalog[i]
+					break
+				}
+			}
+			if found == nil {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error": fmt.Sprintf("model %q not found in catalog", lookup),
+				})
+				return
+			}
+			if found.DownloadURL == "" {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]string{
+					"error": fmt.Sprintf("model %q has no direct download URL", found.Name),
+				})
+				return
+			}
+			req.URL = found.DownloadURL
+			if req.Filename == "" {
+				req.Filename = found.Filename
+			}
+		}
+
 		if req.URL == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusBadRequest)
 			json.NewEncoder(w).Encode(map[string]string{
-				"error": "url is required for direct source",
+				"error": "url, filename or name is required for direct source",
 			})
 			return
 		}
@@ -477,7 +522,7 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleModelsDownloadStatus returns the progress of a download job.
-// GET /api/models/download/status?repo=...
+// GET /api/models/download/status?repo=... or ?url=...
 func (s *Server) handleModelsDownloadStatus(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		w.Header().Set("Content-Type", "application/json")
@@ -489,24 +534,36 @@ func (s *Server) handleModelsDownloadStatus(w http.ResponseWriter, r *http.Reque
 	}
 
 	repo := r.URL.Query().Get("repo")
-	if repo == "" {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "query parameter 'repo' is required",
-		})
-		return
-	}
+	url := r.URL.Query().Get("url")
 
+	var job *DownloadStatus
 	downloadMu.RLock()
-	job, ok := downloadJobs[repo]
+	if repo != "" {
+		job = downloadJobs[repo]
+	}
+	if job == nil && url != "" {
+		job = downloadJobs[url]
+	}
+	// Dependencies are keyed as filename@url; fall back if the caller only has the URL.
+	if job == nil && url != "" {
+		for key, candidate := range downloadJobs {
+			if strings.HasSuffix(key, "@"+url) {
+				job = candidate
+				break
+			}
+		}
+	}
 	downloadMu.RUnlock()
 
-	if !ok {
+	if job == nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusNotFound)
+		lookup := repo
+		if lookup == "" {
+			lookup = url
+		}
 		json.NewEncoder(w).Encode(map[string]string{
-			"error": fmt.Sprintf("no download job found for repo %q", repo),
+			"error": fmt.Sprintf("no download job found for %q", lookup),
 		})
 		return
 	}
@@ -1020,13 +1077,15 @@ func runDirectDownload(url, filename, targetDir string) {
 		return
 	}
 
-	// Parse wget progress lines from stderr
-	// wget --show-progress outputs lines like:
+	// Parse wget progress lines from stderr.
+	// When stderr is a TTY wget --show-progress outputs:
 	//   0%  |                                   |  1024  ETA 00:00:30
 	//  45%  |===============                    | 45M  ETA 00:00:15
-	// 100%  |==================================| 100M  ETA 00:00:00
+	// When stderr is not a TTY (background process / pipe) wget falls back to:
+	//    850K .......... .......... .......... .......... ..........  0% 3.58M 3m49s
 	wgetPercentRe := regexp.MustCompile(`\s*(\d+)%\s`)
-	wgetBytesRe := regexp.MustCompile(`[|\]]\s+([\d.]+)([KMG]?)`)
+	wgetBytesBarRe := regexp.MustCompile(`[|\]]\s+([\d.]+)([KMG]?)`)
+	wgetBytesDotRe := regexp.MustCompile(`^\s*([\d.]+)([KMG])\b`)
 
 	scanner := bufio.NewScanner(stderr)
 	scanner.Buffer(make([]byte, 4096), 4096)
@@ -1040,17 +1099,23 @@ func runDirectDownload(url, filename, targetDir string) {
 		}
 		pct, _ := strconv.ParseFloat(pctMatch[1], 64)
 
-		// Parse downloaded bytes
+		// Parse downloaded bytes — try the progress-bar form first, then the
+		// dotted fallback form used when stderr is not a TTY.
 		var downloaded int64
-		bytesMatch := wgetBytesRe.FindStringSubmatch(line)
+		var bytesMatch []string
+		if m := wgetBytesBarRe.FindStringSubmatch(line); m != nil {
+			bytesMatch = m
+		} else if m := wgetBytesDotRe.FindStringSubmatch(line); m != nil {
+			bytesMatch = m
+		}
 		if len(bytesMatch) >= 3 {
 			val, _ := strconv.ParseFloat(bytesMatch[1], 64)
-			switch bytesMatch[2] {
-			case "K", "k":
+			switch strings.ToUpper(bytesMatch[2]) {
+			case "K":
 				downloaded = int64(val * 1024)
-			case "M", "m":
+			case "M":
 				downloaded = int64(val * 1024 * 1024)
-			case "G", "g":
+			case "G":
 				downloaded = int64(val * 1024 * 1024 * 1024)
 			default:
 				downloaded = int64(val)
@@ -1058,25 +1123,23 @@ func runDirectDownload(url, filename, targetDir string) {
 		}
 
 		downloadMu.Lock()
+		updateProgress := func(status *DownloadStatus) {
+			status.Percentage = pct
+			if downloaded > 0 {
+				status.Downloaded = downloaded
+			}
+			// Only infer total size from the percentage when we did not receive
+			// a reliable Content-Length upfront.
+			if status.Total <= 0 && pct > 0 && downloaded > 0 {
+				status.Total = int64(float64(downloaded) / (pct / 100.0))
+			} else if downloaded > status.Total {
+				status.Total = downloaded
+			}
+		}
 		if status, ok := downloadJobs[filename+"@"+url]; ok {
-			status.Percentage = pct
-			status.Downloaded = downloaded
-			if downloaded > status.Total {
-				status.Total = downloaded
-			}
-			if pct > 0 && status.Total > 0 {
-				// Derive total from percentage if not already set
-				status.Total = int64(float64(downloaded) / (pct / 100.0))
-			}
+			updateProgress(status)
 		} else if status, ok := downloadJobs[url]; ok {
-			status.Percentage = pct
-			status.Downloaded = downloaded
-			if downloaded > status.Total {
-				status.Total = downloaded
-			}
-			if pct > 0 && status.Total > 0 {
-				status.Total = int64(float64(downloaded) / (pct / 100.0))
-			}
+			updateProgress(status)
 		}
 		downloadMu.Unlock()
 	}
