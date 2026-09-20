@@ -14,8 +14,9 @@
   import PresetsPanel from './lib/PresetsPanel.svelte';
   import type { ResultStem } from './lib/types';
   import { detectStemType } from './lib/types';
-  import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getPresets, getDefaultPreset, clearQueue, cancelQueue, loadUISettings, type InputEntry } from './lib/api';
+  import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getPresets, getDefaultPreset, clearQueue, cancelQueue, loadUISettings, type InputEntry, type ResultsGroup } from './lib/api';
   import type { QueueJob } from './lib/api';
+  import { deriveQueueFileStatus, resolveOutputGroupName, songNameForQueueFile } from './lib/queueState';
   import { IconOnda, IconStar, IconVoiceRemove, IconSeparate, IconInstruments, IconUser } from './lib/icons';
   import { getDefaultChecked, applyDefaultChecked, withToggledCheck, withToggledAll } from './lib/queueDefaults';
   import type { QueueFile } from './lib/queueDefaults';
@@ -36,6 +37,7 @@
   let queueFiles = $state<QueueFile[]>([]);
   let separating = $state(false);
   let results = $state<ResultStem[]>([]);
+  let resultGroups = $state<ResultsGroup[]>([]);
   let pipelineStatus = $state<'idle'|'running'|'done'|'error'>('idle');
   let pipelineStep = $state('');
   let pipelineSong = $state('');
@@ -59,6 +61,10 @@
   let inputsRefreshTimer: ReturnType<typeof setInterval> | null = null;
   const INPUTS_REFRESH_INTERVAL_MS = 20000; // 20 s
 
+  // ---- Live results refresh state ----
+  let resultsRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  const RESULTS_REFRESH_INTERVAL_MS = 5000; // 5 s
+
   function isQueueVisible(tab: string): boolean {
     return tab === 'personalizado' || isPresetTab(tab);
   }
@@ -80,6 +86,12 @@
   $effect(() => {
     activeTab;
     syncInputsPolling();
+  });
+
+  // ---- Live results refresh: keep the "done" state in sync with disk ----
+  $effect(() => {
+    activeTab;
+    syncResultsPolling();
   });
 
   // ---- Health / Version from backend ----
@@ -192,7 +204,7 @@
       queueFiles = [...queueFiles, ...newQueueFiles];
       console.log('Merged', newQueueFiles.length, 'inputs from disk');
     }
-    markDoneRowsFromResults();
+    syncQueueFileStatusFromDisk();
   }
 
   async function refreshInputsFromDisk() {
@@ -224,6 +236,34 @@
     } else {
       stopInputsPolling();
     }
+  }
+
+  function startResultsPolling() {
+    if (resultsRefreshTimer) return;
+    refreshResultsFromDisk();
+    resultsRefreshTimer = setInterval(() => {
+      refreshResultsFromDisk();
+    }, RESULTS_REFRESH_INTERVAL_MS);
+  }
+
+  function stopResultsPolling() {
+    if (resultsRefreshTimer) {
+      clearInterval(resultsRefreshTimer);
+      resultsRefreshTimer = null;
+    }
+  }
+
+  function syncResultsPolling() {
+    if (isQueueVisible(activeTab) && document.visibilityState !== 'hidden') {
+      startResultsPolling();
+    } else {
+      stopResultsPolling();
+    }
+  }
+
+  function handleVisibilityChange() {
+    syncInputsPolling();
+    syncResultsPolling();
   }
 
   /** Fallback: load UI settings from localStorage */
@@ -325,26 +365,12 @@
       .catch(() => {}); // silent fail
 
     // ── Load persisted results from filesystem (/output/) ──
-    getResults()
-      .then((groups) => {
-        console.log('getResults response:', groups.length, 'songs');
-        if (groups.length > 0) {
-          const loadedResults: ResultStem[] = [];
-          for (const group of groups) {
-            for (const f of group.files) {
-              loadedResults.push({
-                name: f.name,
-                path: f.path,
-                song: group.song,
-                stemType: detectStemType(f.name),
-              });
-            }
-          }
-          results = loadedResults;
+    refreshResultsFromDisk()
+      .then(() => {
+        if (results.length > 0) {
           pipelineStatus = 'done';
           currentProgress = 1;
           console.log('Loaded existing results from filesystem:', results.length, 'stems');
-          markDoneRowsFromResults();
         }
       })
       .catch((err) => {
@@ -391,16 +417,18 @@
       });
     }).catch(() => {});
 
-    // ── Start live input refresh while the queue view is visible ──
+    // ── Start live input/results refresh while the queue view is visible ──
     syncInputsPolling();
-    document.addEventListener('visibilitychange', syncInputsPolling);
+    syncResultsPolling();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
   });
 
   // Cleanup timers on unmount
   onDestroy(() => {
     if (queuePollingTimer) clearInterval(queuePollingTimer);
     stopInputsPolling();
-    document.removeEventListener('visibilitychange', syncInputsPolling);
+    stopResultsPolling();
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
   });
 
   // ---- Presets refresh (called when editor closes) ----
@@ -540,17 +568,24 @@
       }
 
       const preset = config.preset || '';
+      const reservedOutputs = new Set<string>();
 
-      // Enqueue each uploaded file via separateAudio
+      // Enqueue each uploaded file via separateAudio.
+      // When the song already has a stem group on disk, create a fresh copy
+      // (e.g. "song (copia01)") so we never overwrite existing stems.
       for (const { qf, path } of uploaded) {
-        // Track song name for total progress
-        const songName = path.split('/').pop()?.replace(/\.[^.]+$/, '') || '';
+        const songName = songNameForQueueFile(qf);
         activeSongNames.add(songName);
+        const outputName = resolveOutputGroupName(songName, resultGroups, reservedOutputs);
+        reservedOutputs.add(outputName);
         try {
           const opts: any = {
             preset,
             input: path,
           };
+          if (outputName !== songName) {
+            opts.output = outputName;
+          }
           if (config.steps && config.steps.length > 0) {
             opts.steps = config.steps;
           }
@@ -571,11 +606,6 @@
     }
   }
 
-  function songNameForQueueFile(qf: QueueFile): string {
-    const raw = qf.path?.split('/').pop() || qf.file.name;
-    return raw.replace(/\.[^.]+$/, '');
-  }
-
   function formatJobFailureMessage(job: QueueJob): string {
     const d = job.failure_details;
     if (!d) return job.error || 'Error desconocido';
@@ -584,17 +614,53 @@
     return msg;
   }
 
-  /** Mark queue rows as done when their song already has stems on disk. */
-  function markDoneRowsFromResults() {
-    const songsWithResults = new Set(results.map(r => r.song));
-    queueFiles = queueFiles.map(qf => {
-      const song = songNameForQueueFile(qf);
-      if (songsWithResults.has(song) && qf.status !== 'done') {
-        const checked = qf.userTouched ? qf.checked : getDefaultChecked('done');
-        return { ...qf, status: 'done', progress: 100, checked };
+  /** Convert flat stems back into groups for disk-state checks. */
+  function resultsToGroups(stems: ResultStem[]): ResultsGroup[] {
+    const bySong = new Map<string, ResultsGroup>();
+    for (const r of stems) {
+      if (!bySong.has(r.song)) {
+        bySong.set(r.song, { song: r.song, files: [] });
       }
-      return qf;
+      bySong.get(r.song)!.files.push({ name: r.name, path: r.path });
+    }
+    return Array.from(bySong.values());
+  }
+
+  /** Sync queue rows with the current disk + backend state. */
+  function syncQueueFileStatusFromDisk() {
+    queueFiles = queueFiles.map(qf => {
+      const derived = deriveQueueFileStatus(qf, resultGroups, queueJobs);
+      if (qf.status === derived.status) return qf;
+      const checked = qf.userTouched ? qf.checked : derived.checked;
+      return {
+        ...qf,
+        status: derived.status,
+        progress: derived.status === 'done' ? 100 : 0,
+        checked,
+      };
     });
+  }
+
+  async function refreshResultsFromDisk() {
+    try {
+      const groups = await getResults();
+      resultGroups = groups;
+      const loadedResults: ResultStem[] = [];
+      for (const group of groups) {
+        for (const f of group.files) {
+          loadedResults.push({
+            name: f.name,
+            path: f.path,
+            song: group.song,
+            stemType: detectStemType(f.name),
+          });
+        }
+      }
+      results = loadedResults;
+      syncQueueFileStatusFromDisk();
+    } catch (err) {
+      console.error('Failed to refresh results from disk:', err);
+    }
   }
 
   function resetPipelineUI() {
@@ -761,6 +827,9 @@
         queuePollingTimer = null;
       }
 
+      // Disk is the source of truth: done rows without stems become pending again.
+      syncQueueFileStatusFromDisk();
+
       return hasActive;
     } catch (e) {
       // Keep polling on transient network errors; return true so callers don't think we are done
@@ -793,6 +862,7 @@
         }
       }
       results = allStems;
+      resultGroups = resultsToGroups(results);
     } catch {
       // silently ignore
     }
@@ -824,6 +894,7 @@
     }
 
     results = [...keptResults, ...rebuilt];
+    resultGroups = resultsToGroups(results);
   }
 
   // ---- DropZone + FileQueue helpers ----

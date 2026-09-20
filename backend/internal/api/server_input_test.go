@@ -115,3 +115,38 @@ func TestBuildPipelineArgs_MultiStepNormalizesInput(t *testing.T) {
 		t.Errorf("expected request input to be normalized for multi-step, got %q", req.Input)
 	}
 }
+
+func TestBuildPipelineArgs_UsesOutputOverride(t *testing.T) {
+	req := &SeparateRequest{
+		Input:  "/app/input/fiesta_pagana.flac",
+		Viperx: true,
+		Output: "fiesta_pagana (copia01)",
+	}
+	song, args, _, _ := buildPipelineArgs(req)
+	if song != "fiesta_pagana" {
+		t.Errorf("expected song fiesta_pagana, got %q", song)
+	}
+	expectedOutput := filepath.Join(mustSub("output"), "fiesta_pagana (copia01)")
+	if !contains(args, "--output") {
+		t.Errorf("expected args to contain --output flag, got %v", args)
+	}
+	if !contains(args, expectedOutput) {
+		t.Errorf("expected args to contain output override %q, got %v", expectedOutput, args)
+	}
+}
+
+func TestBuildPipelineArgs_IgnoresTraversalOutputOverride(t *testing.T) {
+	req := &SeparateRequest{
+		Input:  "/app/input/fiesta_pagana.flac",
+		Viperx: true,
+		Output: "../outside",
+	}
+	song, args, _, _ := buildPipelineArgs(req)
+	if song != "fiesta_pagana" {
+		t.Errorf("expected song fiesta_pagana, got %q", song)
+	}
+	expectedOutput := filepath.Join(mustSub("output"), "fiesta_pagana")
+	if !contains(args, expectedOutput) {
+		t.Errorf("expected traversal override to be ignored, want output %q, got %v", expectedOutput, args)
+	}
+}

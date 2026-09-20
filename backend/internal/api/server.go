@@ -1917,6 +1917,16 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 	song = strings.TrimSuffix(filepath.Base(req.Input), filepath.Ext(req.Input))
 	containerOutput := filepath.Join(mustSub("output"), song)
 
+	// Optional output override lets the caller create a new stem group (e.g.
+	// "song (copia01)") without overwriting the original output directory.
+	// We sanitize it to keep the output inside the project output dir.
+	if req.Output != "" {
+		safe := filepath.Clean(req.Output)
+		if !filepath.IsAbs(safe) && !strings.Contains(safe, "..") {
+			containerOutput = filepath.Join(mustSub("output"), safe)
+		}
+	}
+
 	// --- Resolve preset steps if a named preset is provided ---
 	if req.Preset != "" {
 		preset, ok := getAllPresets()[req.Preset]
