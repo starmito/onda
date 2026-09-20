@@ -14,6 +14,7 @@
 - La detección de tonalidad pasa del frontal (`essentia.js`) al backend (`keydetect.py`), unificando el procesamiento de audio en el servidor.
 
 ### Removed
+- **Retirado el bloque Apollo (`lib_v5/apollo_model_data/`)** por licencia **CC BY-SA 4.0** (cláusula ShareAlike) y ausencia total de importadores activos en el pipeline. `lib_v5/` queda al 100 % bajo licencias permisivas (MIT). Se conserva el registro en `lib_v5/PROVENANCE.md`.
 - **Retirado `lib_v5/results.py`** (Matchering/Sergree) por licencia **GPL-3.0+**; no estaba en uso (hoja suelta sin importadores activos). El guardián `tools/check-licenses.sh` ya no necesita excepciones.
 - **Retirada la ruta AMD/ROCm** (`Dockerfile.amd`, `docker-compose.rocm.yml`, `requirements-docker-amd.txt` y la rama ROCm de `entrypoint.sh`). Decisión: a medio plazo no se trabaja en ella; recuperable desde la historia de git. Ver `docs/retired-rocm.md`.
 - Retirada la copia parcial y obsoleta de `demucs` del repo; el pipeline usa el demucs instalado por pip (4.0.1).

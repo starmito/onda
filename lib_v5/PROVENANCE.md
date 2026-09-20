@@ -34,18 +34,21 @@ El repositorio upstream no incluye un fichero `LICENSE` independiente en su raí
 `README.md` indica explícitamente que el código está bajo **MIT License** y GitHub lo clasifica
 como MIT.
 
-## Apollo / look2hear (CC BY-SA 4.0)
+## Historial de retiradas
+
+### Apollo / look2hear — retirado el 2026-09-20
 
 - **Origen:** https://github.com/JusperLee/Apollo (directorio `look2hear/models/`)
-- **Licencia:** Creative Commons Attribution-ShareAlike 4.0 International (`LICENSE-Apollo.txt`)
-- **Copyright:** Kai Li (JusperLee) y colaboradores de Apollo
-- **Ficheros:**
+- **Licencia al retirarse:** Creative Commons Attribution-ShareAlike 4.0 International
+- **Ficheros retirados:**
   - `lib_v5/apollo_model_data/apollo.py`
   - `lib_v5/apollo_model_data/base_model.py`
+  - `lib_v5/LICENSE-Apollo.txt`
 
-> Nota: a fecha de esta revisión no se ha encontrado ningún importador activo de
-> `apollo_model_data` en `inference_universal.py`, `onda/viperx.py` ni en el resto del
-> repo. Los ficheros se mantienen en `lib_v5/` por conservar la procedencia documentada.
+Motivo de la retirada: licencia CC BY-SA 4.0 (con cláusula ShareAlike) y ausencia de
+importadores activos en el pipeline (`inference_universal.py`, `onda/`, `backend/`, `tests/`,
+scripts de entrada/despliegue y configuraciones JSON). Al no estar referenciado por ningún
+código ejecuto, se eliminó el bloque para mantener `lib_v5/` bajo licencias permisivas (MIT).
 
 ## Fuentes consultadas
 
