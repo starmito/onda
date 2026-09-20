@@ -92,6 +92,52 @@ func TestStorageUsage_ExpectedKeysAndSum(t *testing.T) {
 	}
 }
 
+func TestStorageUsage_ModelsEntryCount(t *testing.T) {
+	root := setupStorageTestRoot(t)
+
+	// Two real model weight files plus auxiliary files that must not count.
+	writeTestFile(t, filepath.Join(root, "models", "Demucs_Models", "model_a.pth"), []byte("model_a_data"))
+	writeTestFile(t, filepath.Join(root, "models", "Demucs_Models", "model_b.pth"), []byte("model_b"))
+	writeTestFile(t, filepath.Join(root, "models", "Demucs_Models", "model_a.yaml"), []byte("config"))
+	writeTestFile(t, filepath.Join(root, "models", "Demucs_Models", ".gitattributes"), []byte("gitattrs"))
+	writeTestFile(t, filepath.Join(root, "models", "VR_Models", "model_c.ckpt"), []byte("model_c"))
+
+	srv := newStorageTestServer(t)
+	resp, err := srv.Client().Get(srv.URL + "/api/storage/usage")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(b))
+	}
+
+	var body struct {
+		Folders   map[string]folderUsage `json:"folders"`
+		FreeBytes int64                  `json:"free_bytes"`
+		Models    struct {
+			Entries int64 `json:"entries"`
+			Bytes   int64 `json:"bytes"`
+		} `json:"models"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if body.Folders["models"].Files != 5 {
+		t.Errorf("models folder files: expected 5 (including aux), got %d", body.Folders["models"].Files)
+	}
+	if body.Models.Entries != 3 {
+		t.Errorf("models entries: expected 3, got %d", body.Models.Entries)
+	}
+	wantBytes := int64(len("model_a_data") + len("model_b") + len("model_c"))
+	if body.Models.Bytes != wantBytes {
+		t.Errorf("models bytes: expected %d, got %d", wantBytes, body.Models.Bytes)
+	}
+}
+
 func TestStorageClean_Tmp(t *testing.T) {
 	root := setupStorageTestRoot(t)
 	writeTestFile(t, filepath.Join(root, "daw-data", "song1", "original", "original.wav"), []byte("orig"))

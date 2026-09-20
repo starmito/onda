@@ -349,14 +349,14 @@
   }
 
   .export-song-name {
+    flex: 1 1 auto;
+    min-width: 0;
     font-size: 0.95rem;
     font-weight: 700;
     color: var(--accent-light);
-    word-break: break-word;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 260px;
   }
 
   .export-stem-count {
@@ -508,7 +508,6 @@
   @media (max-width: 600px) {
     .export-page { padding: 0.5rem; }
     .export-section { padding: 0.75rem; }
-    .export-song-name { max-width: 160px; }
     .merge-export-btn { margin-left: 0; width: 100%; justify-content: center; }
     .export-actions-row { flex-direction: column; align-items: stretch; }
     .format-select { width: 100%; }

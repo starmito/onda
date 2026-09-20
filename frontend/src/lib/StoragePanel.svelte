@@ -8,9 +8,15 @@
     bytes: number;
   }
 
+  interface ModelsUsage {
+    entries: number;
+    bytes: number;
+  }
+
   interface UsageResponse {
     folders: Record<string, FolderUsage>;
     free_bytes: number;
+    models?: ModelsUsage;
   }
 
   interface CleanResponse {
@@ -418,10 +424,12 @@
         <tbody>
           {#each folderOrder as key}
             {@const u = usage.folders[key] ?? { files: 0, bytes: 0 }}
+            {@const isModels = key === 'models'}
+            {@const modelU = isModels && usage.models ? usage.models : null}
             <tr>
               <td>{folderLabels[key] ?? key}</td>
-              <td>{u.files}</td>
-              <td>{formatBytes(u.bytes)}</td>
+              <td>{modelU ? modelU.entries : u.files}</td>
+              <td>{formatBytes(modelU ? modelU.bytes : u.bytes)}</td>
             </tr>
           {/each}
         </tbody>
