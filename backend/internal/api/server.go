@@ -245,6 +245,7 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("GET /api/audio/tempo", s.handleTempo)
 	s.mux.HandleFunc("GET /api/audio/tempo-grid", s.handleTempoGrid)
 	s.mux.HandleFunc("POST /api/audio/tempo", s.handleTempoShift)
+	s.mux.HandleFunc("/api/key", s.handleKeyDetect)
 	s.mux.HandleFunc("POST /api/audio/tempo-per-bar", s.handleTempoPerBar)
 	s.mux.HandleFunc("POST /api/audio/trim", s.handleTrim)
 	s.mux.HandleFunc("POST /api/audio/fade", s.handleFade)

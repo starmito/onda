@@ -2,9 +2,16 @@
 
 ## [Unreleased]
 
+### Added
+- **Detección de tonalidad en el backend** con `librosa` (licencia ISC): nuevo endpoint `POST /api/key` que recibe un archivo de audio y devuelve tonalidad, escala, fuerza, alternativas y flag `dubious`. Usa `librosa.estimate_tuning`, `chroma_cqt` y perfiles de Krumhansl-Schmuckler con mediana para robustez.
+
+### Changed
+- La detección de tonalidad pasa del frontal (`essentia.js`) al backend (`keydetect.py`), unificando el procesamiento de audio en el servidor.
+
 ### Removed
 - **Retirada la ruta AMD/ROCm** (`Dockerfile.amd`, `docker-compose.rocm.yml`, `requirements-docker-amd.txt` y la rama ROCm de `entrypoint.sh`). Decisión: a medio plazo no se trabaja en ella; recuperable desde la historia de git. Ver `docs/retired-rocm.md`.
 - Retirada la copia parcial y obsoleta de `demucs` del repo; el pipeline usa el demucs instalado por pip (4.0.1).
+- **Retirado `essentia.js` del frontend** (licencia AGPL-3.0); la detección de tonalidad se realiza ahora en el backend mediante `librosa`.
 
 ## [v3.4.14] - 2026-09-19
 
