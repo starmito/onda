@@ -12,6 +12,8 @@
 - **`tools/check-licenses.sh`**: el resumen final ahora cuenta correctamente los avisos impresos por el script Python (p. ej. el aviso de `lib_v5/ -> no se detectaron cabeceras ni ficheros LICENSE*`), de modo que las líneas `[WARN]`/`[FAIL]` y el contador del resumen cuadran siempre.
 
 ### Changed
+- **Pines de dependencias Python actualizados y validados** en GPU con `tools/verify-deps.sh`: `librosa` 0.11.0 → 1.0.0, `torchcodec` 0.12.0 → 0.16.0, `omegaconf` 2.3.0 → 2.3.1, `soundfile` 0.13.1 → 0.14.0, `onnx` 1.21.0 → 1.23.0, `scipy` 1.17.1 → 1.18.1. `requirements.lock` regenerado a partir del freeze de la imagen `onda:deps-20260920` (114 paquetes).
+- **`demucs` se mantiene en `4.0.1`**: la versión `4.1.0` falla al 65 % de su paso en GPU (exit 1, sin mensaje, solo 2 de 4 pistas escritas) y arrastra `sphn`. Se documenta en `docs/dependencies-notes.md`; no se sube hasta entender el motivo. La retirada de `torchaudio` queda aparcada porque dependía de `demucs 4.1.0`.
 - La detección de tonalidad pasa del frontal (`essentia.js`) al backend (`keydetect.py`), unificando el procesamiento de audio en el servidor.
 - **`tools/verify-deps.sh`** ahora ejecuta el pipeline en **GPU** (`cuda` por defecto, configurable con `DEVICE`), monta el modelo vocal real de producción (`BS_Roformer_Viperx`) en solo lectura y usa `htdemucs_ft`, mostrando evidencia de CUDA en la salida.
 - **`tools/verify-deps.sh`**: el veredicto se basa ahora en la energía media (`mean_volume`), no en el pico; el pico (`max_volume`) se sigue mostrando en la tabla solo como información. El ruido de medición se calcula con **tres corridas A/A**, y una pista con ruido excesivo se marca como **no concluyente**. La duración y los bytes siguen siendo bloqueantes.

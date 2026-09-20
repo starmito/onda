@@ -6,9 +6,9 @@
 
 # -- Core científico --
 numpy==2.4.6
-scipy==1.17.1
-soundfile==0.13.1
-librosa==0.11.0
+scipy==1.18.1
+soundfile==0.14.0
+librosa==1.0.0
 
 # -- PyTorch ecosystem --
 einops==0.8.2
@@ -18,14 +18,14 @@ pydub==0.25.1
 resampy==0.4.3
 
 # -- Demucs (instalado aparte con --no-deps) --
-torchcodec==0.12.0
+torchcodec==0.16.0
 diffq==0.2.4
-omegaconf==2.3.0
+omegaconf==2.3.1
 pytorch_lightning==2.6.6
 ml_collections==1.1.0
 
 # -- ONNX --
-onnx==1.21.0
+onnx==1.23.0
 # onnxruntime-gpu NO esta en site-packages: lo instala entrypoint.sh en /opt/pytorch-backends/<gpu>.
 # Version instalada verificada en el volumen: 1.26.0 (por eso no aparece en requirements.lock).
 onnxruntime-gpu==1.26.0

@@ -53,7 +53,7 @@ RUN pip install --no-cache-dir \
     rotary_embedding_torch segmentation_models_pytorch \
     transformers timm torchmetrics spafe julius \
     torch_audiomentations asteroid openunmix dora-search \
-    torchcodec==0.12.0
+    torchcodec==0.16.0
 
 # ── Stage 4: Imagen final ────────────────────────────────
 FROM python:3.12-slim AS runtime
