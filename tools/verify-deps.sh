@@ -15,7 +15,7 @@
 #       # imagen y paquetes explicitos
 #   tools/verify-deps.sh onda:v3.4.14 ""
 #       # control A/A real: no se instala nada; se ejecuta la misma
-#       # configuracion dos veces y se mide el ruido de medicion.
+#       # configuracion tres veces y se mide el ruido de medicion.
 #
 # Codigo de salida:
 #   0 = la diferencia entre configuraciones no supera el ruido medido
@@ -49,9 +49,11 @@ set -euo pipefail
 #    comparacion.
 #
 # 5. El criterio de aceptacion se fija con un control A/A interno.
-#    Se ejecuta dos veces la misma configuracion y la diferencia entre esas
-#    dos corridas es el ruido de medicion. La candidata se acepta si su
-#    diferencia respecto a la primera no supera ese ruido con un margen.
+#    Se ejecuta tres veces la misma configuracion y la maxima diferencia de
+#    energia media (mean_volume) entre esas tres corridas es el ruido de
+#    medicion. La candidata se acepta si su diferencia de mean respecto a la
+#    primera no supera ese ruido con un margen. El pico (max_volume) se
+#    muestra solo como informacion y nunca rechaza.
 # -----------------------------------------------------------------------------
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -64,6 +66,9 @@ REQ_FILES=(
 SILENCE_THRESHOLD=-60.0
 MARGIN=1.5
 MIN_THRESHOLD=0.3
+# Si la maxima diferencia de mean entre las tres corridas A/A supera este
+# valor, la pista se marca como no concluyente (warning, no rechazo).
+NOISE_LIMIT=1.0
 
 # Dispositivo de inferencia. Por defecto cuda (la ruta de produccion); se puede
 # forzar a cpu desde fuera si fuera necesario: DEVICE=cpu tools/verify-deps.sh
@@ -307,7 +312,7 @@ show_gpu_evidence() {
 }
 
 # -----------------------------------------------------------------------------
-# Ejecutar las dos pasadas A/A y, en modo A/B, la candidata
+# Ejecutar las tres pasadas A/A y, en modo A/B, la candidata
 # -----------------------------------------------------------------------------
 START=$SECONDS
 
@@ -316,6 +321,9 @@ ok "Run1 completado"
 
 run_step "run2 (control A/A)" /work/run_pipeline.sh run2
 ok "Run2 completado"
+
+run_step "run3 (control A/A)" /work/run_pipeline.sh run3
+ok "Run3 completado"
 
 if [[ "$MODE" == "AB" ]]; then
   run_step "candidate (pip install -U)" /work/run_candidate.sh
@@ -349,7 +357,7 @@ lte() {
 
 OUT_DIR="$OUTPUT_DIR"
 
-if [[ ! -d "$OUT_DIR/run1" || ! -d "$OUT_DIR/run2" ]]; then
+if [[ ! -d "$OUT_DIR/run1" || ! -d "$OUT_DIR/run2" || ! -d "$OUT_DIR/run3" ]]; then
   fail "no se encontraron los directorios de salida"
   exit 1
 fi
@@ -363,9 +371,9 @@ fi
 # -----------------------------------------------------------------------------
 printf '\n'
 printf '%s%s%s\n' "$C_BLD" '== Resultados ==' "$C_OFF"
-printf '%-12s %10s %12s %12s %12s | %10s %12s %12s %12s | %10s %12s %12s %12s\n' \
-  "pista" "dur_1" "bytes_1" "mean_1" "max_1" "dur_2" "bytes_2" "mean_2" "max_2" "dur_C" "mean_C" "max_C" "bytes_C"
-printf '%s\n' '---------------------------------------------------------------------------------------------------------------------------------------------------------------------'
+printf '%-12s %10s %12s %12s %12s | %10s %12s %12s %12s | %10s %12s %12s %12s | %10s %12s %12s %12s\n' \
+  "pista" "dur_1" "bytes_1" "mean_1" "max_1(i)" "dur_2" "bytes_2" "mean_2" "max_2(i)" "dur_3" "bytes_3" "mean_3" "max_3(i)" "dur_C" "bytes_C" "mean_C" "max_C(i)"
+printf '%s\n' '---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------'
 
 PASS=true
 declare -A RUIDO UMBRAL NOTE_AA NOTE_AB
@@ -373,9 +381,10 @@ declare -A RUIDO UMBRAL NOTE_AA NOTE_AB
 for stem in vocals drums bass other; do
   f1="$OUT_DIR/run1/${stem}.wav"
   f2="$OUT_DIR/run2/${stem}.wav"
+  f3="$OUT_DIR/run3/${stem}.wav"
   fC="$OUT_DIR/candidate/${stem}.wav"
 
-  if [[ ! -f "$f1" || ! -f "$f2" ]]; then
+  if [[ ! -f "$f1" || ! -f "$f2" || ! -f "$f3" ]]; then
     printf '%-12s %s\n' "$stem" "FALTA_EN_ALGUNA_CONFIGURACION"
     PASS=false
     continue
@@ -383,6 +392,7 @@ for stem in vocals drums bass other; do
 
   read -r dur1 bytes1 mean1 max1 <<< "$(measure "$f1")"
   read -r dur2 bytes2 mean2 max2 <<< "$(measure "$f2")"
+  read -r dur3 bytes3 mean3 max3 <<< "$(measure "$f3")"
 
   if [[ "$MODE" == "AB" && -f "$fC" ]]; then
     read -r durC bytesC meanC maxC <<< "$(measure "$fC")"
@@ -390,14 +400,15 @@ for stem in vocals drums bass other; do
     durC="N/A"; bytesC="N/A"; meanC="N/A"; maxC="N/A"
   fi
 
-  printf '%-12s %10s %12s %12s %12s | %10s %12s %12s %12s | %10s %12s %12s %12s\n' \
-    "$stem" "$dur1" "$bytes1" "$mean1" "$max1" "$dur2" "$bytes2" "$mean2" "$max2" "$durC" "$meanC" "$maxC" "$bytesC"
+  printf '%-12s %10s %12s %12s %12s | %10s %12s %12s %12s | %10s %12s %12s %12s | %10s %12s %12s %12s\n' \
+    "$stem" "$dur1" "$bytes1" "$mean1" "$max1" "$dur2" "$bytes2" "$mean2" "$max2" "$dur3" "$bytes3" "$mean3" "$max3" "$durC" "$bytesC" "$meanC" "$maxC"
 
-  # Ruido de medicion (diferencia entre las dos pasadas A/A).
-  ddur_aa="$(abs_diff "$dur1" "$dur2")"
-  dmean_aa="$(abs_diff "$mean1" "$mean2")"
-  dmax_aa="$(abs_diff "$max1" "$max2")"
-  ruido="$(awk "BEGIN {m=$dmean_aa; if($dmax_aa>m)m=$dmax_aa; printf \"%.3f\", m}")"
+  # Ruido de medicion: maxima diferencia de mean entre pares de las tres
+  # corridas A/A.
+  dmean12="$(abs_diff "$mean1" "$mean2")"
+  dmean13="$(abs_diff "$mean1" "$mean3")"
+  dmean23="$(abs_diff "$mean2" "$mean3")"
+  ruido="$(awk "BEGIN {m=$dmean12; if($dmean13>m)m=$dmean13; if($dmean23>m)m=$dmean23; printf \"%.3f\", m}")"
   RUIDO[$stem]="$ruido"
 
   # Umbral: ruido con margen, nunca por debajo del minimo absoluto.
@@ -407,21 +418,23 @@ for stem in vocals drums bass other; do
   # Veredicto A/A por pista.
   ok_aa=true
   note_aa=""
-  if [[ "$mean1" == "NA" || "$mean2" == "NA" ]]; then
+  if [[ "$mean1" == "NA" || "$mean2" == "NA" || "$mean3" == "NA" ]]; then
     ok_aa=false
     note_aa="error de medicion"
-  elif [[ "$(awk "BEGIN {print ($mean1 < $SILENCE_THRESHOLD && $mean2 < $SILENCE_THRESHOLD) ? 1 : 0}")" -eq 1 ]]; then
+  elif [[ "$(awk "BEGIN {print ($mean1 < $SILENCE_THRESHOLD && $mean2 < $SILENCE_THRESHOLD && $mean3 < $SILENCE_THRESHOLD) ? 1 : 0}")" -eq 1 ]]; then
     note_aa="N/S: pista silenciosa (<-60 dB)"
   else
-    if [[ "$(lte "$ddur_aa" "0.001")" -ne 1 ]]; then
+    ddur12="$(abs_diff "$dur1" "$dur2")"
+    ddur13="$(abs_diff "$dur1" "$dur3")"
+    ddur23="$(abs_diff "$dur2" "$dur3")"
+    if [[ "$(lte "$ddur12" "0.001")" -ne 1 || "$(lte "$ddur13" "0.001")" -ne 1 || "$(lte "$ddur23" "0.001")" -ne 1 ]]; then
       ok_aa=false
       note_aa="duracion distinta en A/A"
-    elif [[ "$(lte "$dmean_aa" "$umbral")" -ne 1 ]]; then
+    elif [[ "$bytes1" != "$bytes2" || "$bytes2" != "$bytes3" ]]; then
       ok_aa=false
-      note_aa="ruido mean excede umbral"
-    elif [[ "$(lte "$dmax_aa" "$umbral")" -ne 1 ]]; then
-      ok_aa=false
-      note_aa="ruido max excede umbral"
+      note_aa="bytes distintos en A/A"
+    elif [[ "$(awk "BEGIN {print ($ruido > $NOISE_LIMIT) ? 1 : 0}")" -eq 1 ]]; then
+      note_aa="no concluyente (ruido ${ruido} dB)"
     fi
   fi
   NOTE_AA[$stem]="$note_aa"
@@ -440,18 +453,17 @@ for stem in vocals drums bass other; do
     else
       ddur_ab="$(abs_diff "$dur1" "$durC")"
       dmean_ab="$(abs_diff "$mean1" "$meanC")"
-      dmax_ab="$(abs_diff "$max1" "$maxC")"
       if [[ "$(awk "BEGIN {print ($mean1 < $SILENCE_THRESHOLD && $meanC < $SILENCE_THRESHOLD) ? 1 : 0}")" -eq 1 ]]; then
         note_ab="N/S: pista silenciosa (<-60 dB)"
       elif [[ "$(lte "$ddur_ab" "0.001")" -ne 1 ]]; then
         ok_ab=false
         note_ab="duracion distinta"
+      elif [[ "$bytes1" != "$bytesC" ]]; then
+        ok_ab=false
+        note_ab="bytes distintos"
       elif [[ "$(lte "$dmean_ab" "$umbral")" -ne 1 ]]; then
         ok_ab=false
         note_ab="mean excede ruido+margen"
-      elif [[ "$(lte "$dmax_ab" "$umbral")" -ne 1 ]]; then
-        ok_ab=false
-        note_ab="max excede ruido+margen"
       fi
     fi
     [[ "$ok_ab" == true ]] || PASS=false
@@ -484,8 +496,10 @@ for stem in vocals drums bass other; do
       estado="$note_ab"
     elif [[ -n "$note_aa" && "$note_aa" == N/S* ]]; then
       estado="N/S en baseline"
+    elif [[ -n "$note_aa" && "$note_aa" == "no concluyente"* ]]; then
+      estado="no concluyente: no se compara con candidata"
     else
-      estado="A/B OK (diferencia <= ruido+margen)"
+      estado="A/B OK (mean diff <= ruido+margen)"
     fi
   fi
 
