@@ -662,17 +662,17 @@ apply_demucs_fallback_config() {
     fi
 }
 
-# Run a Demucs step (chaining or legacy mode).
+# Run a Demucs step using tools/demucs_worker.py (official demucs.api).
 # Args: model_name, input_file, output_dir, [expected_stems_count], [step_index]
 # If step_index is empty the legacy report_progress path is used; otherwise
-# multi_step_progress is updated with real progress parsed from demucs stderr.
-    run_demucs_step() {
+# multi_step_progress is updated with real progress parsed from JSON events.
+run_demucs_step() {
     local model_name="$1"
     local input_file="$2"
     local output_dir="$3"
     local expected_stems="${4:-4}"
     local step_idx="${5:-}"
-    local demucs_pid=""
+    local worker_pid=""
     local elapsed_pid=""
     local prev_exit_trap
     prev_exit_trap=$(trap -p EXIT)
@@ -682,98 +682,172 @@ apply_demucs_fallback_config() {
         expected_stems=4
     fi
 
-    local demucs_args=(-n "${model_name}" --device "${DEVICE}" -o "${output_dir}")
-    [ "${SHIFTS:-1}" -gt 0 ] && demucs_args+=(--shifts "${SHIFTS:-1}")
-    if awk "BEGIN {exit !(${DEMUCS_SEGMENT:-0} > 0)}"; then
-        demucs_args+=(--segment "${DEMUCS_SEGMENT:-0}")
+    # Python interpreter: prefer the container venv, fall back to host python3.
+    local PY="${PYTHON:-/opt/venv/bin/python3}"
+    if [ ! -x "$PY" ]; then
+        PY="python3"
     fi
-    [ "${JOBS:-0}" -gt 0 ] && demucs_args+=(-j "${JOBS:-0}")
+
+    # Worker script: container path first, then repo-relative for host tests.
+    local DEMUCS_WORKER="${DEMUCS_WORKER:-/app/tools/demucs_worker.py}"
+    if [ ! -f "$DEMUCS_WORKER" ]; then
+        DEMUCS_WORKER="${SCRIPT_DIR}/tools/demucs_worker.py"
+    fi
 
     mkdir -p "${output_dir}"
-    local progress_log="${output_dir}/.demucs_progress.log"
-    rm -f "${progress_log}"
+    local events_file="${output_dir}/.demucs_events.jsonl"
+    local step_log="${output_dir}/.demucs_worker.log"
+    rm -f "${events_file}" "${step_log}"
+
+    local worker_args=(
+        "${DEMUCS_WORKER}"
+        --model "${model_name}"
+        --device "${DEVICE}"
+        --input "${input_file}"
+        --out "${output_dir}"
+        --shifts "${SHIFTS:-1}"
+        --segment "${DEMUCS_SEGMENT:-0}"
+        --jobs "${JOBS:-0}"
+    )
 
     update_elapsed_loop &
     elapsed_pid=$!
 
-    # demucs writes its tqdm progress bars to stderr.  Line-buffer stderr so
-    # updates are available immediately in the log file instead of being fully
-    # buffered until the process ends.  Fall back to plain demucs if stdbuf is
-    # not available (progress will be less granular but still functional).
-    if command -v stdbuf >/dev/null 2>&1; then
-        stdbuf -oL -eL demucs "${demucs_args[@]}" "${input_file}" 2> "${progress_log}" &
-    else
-        demucs "${demucs_args[@]}" "${input_file}" 2> "${progress_log}" &
-    fi
-    demucs_pid=$!
+    # Launch worker with stdout/stderr redirected to files inside output_dir.
+    # This avoids keeping the caller's pipe open, which previously caused EOF
+    # to never arrive and the pipeline to hang forever.
+    (
+        exec "$PY" "${worker_args[@]}"
+    ) > "${events_file}" 2> "${step_log}" &
+    worker_pid=$!
 
-    # Always clean up both background processes when the function exits, even on
-    # error, so the pipeline never hangs on a stray background loop.
+    # Always clean up both background processes when the function exits.
     # Use ${var:-} so set -u never aborts the trap before cleanup.
-    trap 'kill_wait "${demucs_pid:-}"; kill_wait "${elapsed_pid:-}"; cleanup_legacy_temps' EXIT
+    trap 'kill_wait "${worker_pid:-}"; kill_wait "${elapsed_pid:-}"; cleanup_legacy_temps' EXIT
 
-    # Poll the demucs stderr log for real progress percentages.
-    # demucs restarts its 0-100% bar for every stem, so we detect stem
-    # boundaries (a drop of ~30+ percentage points after reaching high values)
-    # and compute a monotonic global progress as:
-    #   (completed_stems * 100 + current_stem_pct) / expected_stems
-    local prev_pct=-1
-    local completed_stems=0
+    # Read JSON events as they arrive. Track line count so we only process new
+    # events and detect silence (no new event for 120s -> abort).
+    local lines_read=0
+    local last_event_time
+    last_event_time=$(date +%s)
     local last_progress=0
-    while kill -0 "$demucs_pid" 2>/dev/null; do
-        if [ -s "${progress_log}" ]; then
-            local pct_line pct
-            pct_line=$(tail -c 4096 "${progress_log}" | tr '\r' '\n' | grep -aE '^ *[0-9]+%' | tail -1)
-            if [ -n "${pct_line}" ]; then
-                pct=$(echo "${pct_line}" | LC_ALL=C sed -E 's/^ *([0-9]+)%.*/\1/')
-                if [ -n "${pct}" ] && [ "${pct}" -ge 0 ] 2>/dev/null; then
-                    # Detect a new stem when the percentage drops significantly.
-                    if [ "${prev_pct}" -ge 85 ] && [ "${pct}" -lt 30 ]; then
-                        completed_stems=$((completed_stems + 1))
-                    fi
-                    prev_pct=${pct}
+    local done_seen=false
+    local silence_timeout=120
 
-                    local monotonic_pct
-                    if [ "${completed_stems}" -ge "${expected_stems}" ]; then
-                        monotonic_pct=100
-                    else
-                        monotonic_pct=$(( (completed_stems * 100 + pct) / expected_stems ))
-                    fi
+    local poll_interval=1
+    while kill -0 "$worker_pid" 2>/dev/null; do
+        local total_lines current_time elapsed_since_event
+        total_lines=$(wc -l < "${events_file}" 2>/dev/null || echo 0)
+        current_time=$(date +%s)
+        elapsed_since_event=$((current_time - last_event_time))
+
+        if [ "${total_lines}" -gt "${lines_read}" ]; then
+            local line
+            local new_events
+            new_events=$(tail -n +$((lines_read + 1)) "${events_file}" 2>/dev/null)
+            while IFS= read -r line; do
+                # Skip empty lines.
+                [ -z "$line" ] && continue
+                # Parse the JSON event defensively with Python.
+                local event_pct event_name
+                event_name=$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('event',''))" "$line" 2>/dev/null || true)
+                if [ "$event_name" = "progress" ]; then
+                    event_pct=$(python3 -c "import json,sys; print(int(float(json.loads(sys.argv[1]).get('pct',0))))" "$line" 2>/dev/null || echo 0)
                     # Enforce monotonic progress — never go backwards.
-                    if [ "${monotonic_pct}" -lt "${last_progress}" ]; then
-                        monotonic_pct=${last_progress}
+                    if [ "${event_pct}" -lt "${last_progress}" ]; then
+                        event_pct=${last_progress}
                     fi
-                    last_progress=${monotonic_pct}
+                    last_progress=${event_pct}
 
                     if [ -n "${step_idx}" ]; then
-                        multi_step_progress "processing" "${step_idx}" "${monotonic_pct}"
+                        multi_step_progress "processing" "${step_idx}" "${event_pct}"
                     else
-                        local global_pct=$(( DEMUCS_START + (monotonic_pct * (DEMUCS_END - DEMUCS_START) / 100) ))
+                        local global_pct=$(( DEMUCS_START + (event_pct * (DEMUCS_END - DEMUCS_START) / 100) ))
                         [ "${global_pct}" -gt "${DEMUCS_END}" ] && global_pct=${DEMUCS_END}
                         [ "${global_pct}" -lt "${DEMUCS_START}" ] && global_pct=${DEMUCS_START}
                         report_progress "running" "demucs" "${global_pct}"
                     fi
+                elif [ "$event_name" = "done" ]; then
+                    done_seen=true
+                    if [ -n "${step_idx}" ]; then
+                        multi_step_progress "processing" "${step_idx}" 100
+                    else
+                        report_progress "running" "demucs" "${DEMUCS_END}"
+                    fi
+                elif [ "$event_name" = "error" ]; then
+                    : # Worker will exit with a non-zero code; handled after wait.
                 fi
-            fi
+                last_event_time=$(date +%s)
+            done <<< "${new_events}"
+            lines_read=${total_lines}
         fi
-        sleep 2
+
+        # Silence detection: 120s without any new event means the worker is stuck.
+        if [ "${elapsed_since_event}" -ge "${silence_timeout}" ]; then
+            echo "⚠️  Demucs worker silent for ${silence_timeout}s, aborting..." >&2
+            kill -INT "$worker_pid" 2>/dev/null || true
+            # Give the worker a moment to shut down cleanly.
+            sleep 1
+            break
+        fi
+
+        sleep "${poll_interval}"
     done
 
-    wait "$demucs_pid"
-    local demucs_rc=$?
+    # Drain any events written between the last poll and worker exit.
+    local total_lines
+    total_lines=$(wc -l < "${events_file}" 2>/dev/null || echo 0)
+    if [ "${total_lines}" -gt "${lines_read}" ]; then
+        local remaining
+        remaining=$(tail -n +$((lines_read + 1)) "${events_file}" 2>/dev/null)
+        while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            local event_name
+            event_name=$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('event',''))" "$line" 2>/dev/null || true)
+            [ "$event_name" = "done" ] && done_seen=true
+        done <<< "${remaining}"
+        lines_read=${total_lines}
+    fi
+
+    # Wait for the worker without set -e so we can inspect its exit code.
+    local old_set_e=false
+    case $- in *e*) old_set_e=true ;; esac
+    set +e
+    wait "$worker_pid"
+    local worker_rc=$?
+    if $old_set_e; then
+        set -e
+    fi
 
     # Clean up the elapsed updater explicitly before dropping the trap, so the
-    # function can return the real demucs exit code without blocking.
+    # function can return the real worker exit code without blocking.
     kill_wait "${elapsed_pid:-}"
     eval "${prev_exit_trap:-trap - EXIT}"
 
-    if [ $demucs_rc -ne 0 ]; then
-        report_step_failure "demucs" "$demucs_rc" "${progress_log}"
-    else
-        rm -f "${progress_log}"
+    # Final validation: success requires exit code 0, a 'done' event, and the
+    # expected stems present on disk.
+    local final_rc=${worker_rc}
+    if [ "${final_rc}" -eq 0 ]; then
+        if ! $done_seen; then
+            final_rc=99
+            echo "⚠️  Demucs worker exited 0 but no 'done' event was seen" >&2
+        else
+            local stem_count
+            stem_count=$(find "${output_dir}" -maxdepth 3 -type f -iname "*.wav" 2>/dev/null | wc -l)
+            if [ "${stem_count}" -lt "${expected_stems}" ]; then
+                final_rc=40
+                echo "⚠️  Demucs worker exited 0 but only ${stem_count}/${expected_stems} stems found" >&2
+            fi
+        fi
     fi
 
-    return $demucs_rc
+    if [ "${final_rc}" -ne 0 ]; then
+        report_step_failure "demucs" "$final_rc" "${step_log}"
+    else
+        rm -f "${step_log}"
+    fi
+
+    return ${final_rc}
 }
 
 
