@@ -52,14 +52,7 @@ PY_FORBIDDEN = {'essentia', 'essentia-tensorflow'}
 
 # Excepciones explicitas y justificadas una a una.
 # La clave es la ruta relativa al repo.
-EXCEPTIONS = {
-    'lib_v5/results.py': {
-        'detected': 'GPL-3.0+',
-        'source': 'Matchering (Sergree)',
-        'reason': 'Codigo heredado del fork de UVR; no esta en el path de importacion activo de Onda v3.5.0 pero sigue presente en lib_v5/.',
-        'todo': 'TODO(licencias-v4): reemplazar o relicenciar antes de v4.0.0',
-    },
-}
+EXCEPTIONS = {}
 
 def normalize(lic):
     if not lic:
