@@ -288,9 +288,9 @@ func listModels() ModelsListResponse {
 }
 
 // loadUVRCatalog reads and parses the UVR model catalog (uvr_models.json)
-// from the data root.
+// from the application image, falling back to the data root.
 func loadUVRCatalog() ([]UVRModelEntry, error) {
-	data, err := readProjectFile("uvr_models.json")
+	data, err := readImageFile("uvr_models.json")
 	if err != nil {
 		return nil, fmt.Errorf("failed to read uvr_models.json: %w", err)
 	}

@@ -3183,24 +3183,12 @@ func (s *Server) handleModelsCatalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// /app/uvr_models.json is the catalog bundled in the container image (not a
-	// data path). It is the only legitimate source for the catalog.
-	data, err := os.ReadFile("/app/uvr_models.json")
+	catalog, err := loadUVRCatalog()
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{
 			"error": "failed to read uvr_models.json catalog file",
-		})
-		return
-	}
-
-	var catalog []UVRModelEntry
-	if err := json.Unmarshal(data, &catalog); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "failed to parse uvr_models.json: " + err.Error(),
 		})
 		return
 	}
