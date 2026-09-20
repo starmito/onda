@@ -350,10 +350,13 @@ if __name__ == '__main__':
     input_path = args[1] if len(args) > 1 else 'prueba_onda.mp3'
     output_dir = args[2] if len(args) > 2 else 'output'
 
-    # Inject CLI overrides into separate() via globals
-    import inference_universal
-    inference_universal._CLI_BATCH_SIZE = cli_batch_size
-    inference_universal._CLI_DIM_T = cli_dim_t
+    # Inject CLI overrides into separate() via globals.
+    # The script is running as __main__, so assign directly to the current
+    # module; importing inference_universal would create a *second* module
+    # object and the globals inside separate() would not see the overrides.
+    global _CLI_BATCH_SIZE, _CLI_DIM_T
+    _CLI_BATCH_SIZE = cli_batch_size
+    _CLI_DIM_T = cli_dim_t
     num_overlap = int(args[3]) if len(args) > 3 else None
 
     sys.exit(0 if separate(model_dir, input_path, output_dir, progress_file,
