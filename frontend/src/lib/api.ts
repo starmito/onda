@@ -746,6 +746,41 @@ export async function deletePitchStem(song: string, pitch: number, fileName: str
   if (!res.ok) throw new Error(`Failed to delete pitch stem: ${res.status}`);
 }
 
+export interface KeyAlternative {
+  key: string;
+  scale: string;
+  strength: number;
+}
+
+export interface KeyResponse {
+  key: string;
+  scale: string;
+  strength: number;
+  alternatives: KeyAlternative[];
+  dubious: boolean;
+}
+
+export async function detectKey(file: File): Promise<KeyResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${API_BASE}/api/key`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) {
+    let detail = `Key detection failed with status ${res.status}: ${res.statusText}`;
+    try {
+      const data = (await res.json()) as { error?: string; detail?: string };
+      if (data.error) detail = data.error;
+      if (data.detail) detail += `: ${data.detail}`;
+    } catch {
+      // keep default detail
+    }
+    throw new Error(detail);
+  }
+  return (await res.json()) as KeyResponse;
+}
+
 export interface TempoGridBar {
   bar: number;
   start: number;

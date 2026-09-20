@@ -2,15 +2,24 @@
   import { onDestroy } from 'svelte';
   import WaveSurfer from 'wavesurfer.js';
   import Spectrogram from 'wavesurfer.js/dist/plugins/spectrogram.js';
-  import { loadEssentia } from './essentia';
+  import { detectKey } from './api';
 
-  type DetectedKey = {
+  type KeyAlternative = {
     key: string;
     scale: string;
     strength: number;
   };
 
+  type DetectedKey = {
+    key: string;
+    scale: string;
+    strength: number;
+    alternatives: KeyAlternative[];
+    dubious: boolean;
+  };
+
   let audioSrc = $state<string>('');
+  let selectedFile = $state<File | null>(null);
   let isPlaying = $state(false);
   let loading = $state(false);
   let detectedKey = $state<DetectedKey | null>(null);
@@ -70,6 +79,7 @@
 
     error = '';
     detectedKey = null;
+    selectedFile = file;
     const url = URL.createObjectURL(file);
     if (audioSrc) {
       URL.revokeObjectURL(audioSrc);
@@ -84,8 +94,8 @@
     ws.playPause();
   }
 
-  async function detectKey() {
-    if (!audioSrc) {
+  async function handleDetectKey() {
+    if (!selectedFile) {
       error = 'Carga un archivo de audio primero';
       return;
     }
@@ -94,20 +104,20 @@
     detectedKey = null;
 
     try {
-      const audioCtx = new AudioContext();
-      const response = await fetch(audioSrc);
-      const arrayBuffer = await response.arrayBuffer();
-      const audioBuffer = await audioCtx.decodeAudioData(arrayBuffer);
-      const channelData = audioBuffer.getChannelData(0);
-      const essentia = await loadEssentia();
-      const vector = essentia.arrayToVector(channelData);
-      const result = essentia.KeyExtractor(vector);
+      const result = await detectKey(selectedFile);
       detectedKey = {
         key: String(result.key),
         scale: String(result.scale),
         strength: Number(result.strength),
+        alternatives: Array.isArray(result.alternatives)
+          ? result.alternatives.map((alt) => ({
+              key: String(alt.key),
+              scale: String(alt.scale),
+              strength: Number(alt.strength),
+            }))
+          : [],
+        dubious: Boolean(result.dubious),
       };
-      await audioCtx.close();
     } catch (err: any) {
       error = err?.message || 'Error al detectar la tonalidad';
     } finally {
@@ -171,7 +181,7 @@
     </div>
 
     <div class="key-section">
-      <button class="btn-primary" onclick={detectKey} disabled={loading}>
+      <button class="btn-primary" onclick={handleDetectKey} disabled={loading}>
         {loading ? 'Detectando…' : 'Detectar tonalidad'}
       </button>
 
@@ -186,6 +196,13 @@
             <span class="key-confidence">
               Confianza: {(detectedKey.strength * 100).toFixed(1)}%
             </span>
+            {#if detectedKey.dubious && detectedKey.alternatives.length > 0}
+              {@const topAlt = detectedKey.alternatives[0]}
+              <span class="key-dubious">
+                poco clara · también posible: {topAlt.key} {topAlt.scale}
+                ({(topAlt.strength * 100).toFixed(1)}%)
+              </span>
+            {/if}
           </div>
         </div>
       {/if}
@@ -382,6 +399,12 @@
   .key-confidence {
     font-size: 0.85rem;
     color: var(--text-secondary);
+  }
+
+  .key-dubious {
+    font-size: 0.8rem;
+    color: var(--text-muted);
+    font-style: italic;
   }
 
   .empty-state {
