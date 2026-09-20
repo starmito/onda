@@ -84,9 +84,15 @@ func (s *Server) handleStorageUsage(w http.ResponseWriter, r *http.Request) {
 		folders[name] = folderUsage{Files: files, Bytes: bytes}
 	}
 
+	modelEntries, modelBytes := modelUsage()
+
 	resp := map[string]interface{}{
 		"folders":    folders,
 		"free_bytes": freeDiskSpace(root),
+		"models": map[string]int64{
+			"entries": modelEntries,
+			"bytes":   modelBytes,
+		},
 	}
 
 	w.Header().Set("Content-Type", "application/json")

@@ -204,6 +204,29 @@ func (s *Server) handleModelsList(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(resp)
 }
 
+// modelUsage counts actual model entries (weight files) and their on-disk
+// bytes. It excludes auxiliary files such as configs, impulses, caches and
+// download metadata. The result is used by the storage usage endpoint to
+// report realistic model counts instead of raw file counts.
+func modelUsage() (entries int64, bytes int64) {
+	for _, subdir := range modelSubdirs {
+		dirPath := filepath.Join(modelsBasePath(), subdir)
+		_ = filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() {
+				return nil
+			}
+			ext := strings.ToLower(filepath.Ext(info.Name()))
+			if !modelExtensions[ext] {
+				return nil
+			}
+			entries++
+			bytes += info.Size()
+			return nil
+		})
+	}
+	return
+}
+
 // listModels walks the model directories and builds a ModelsListResponse.
 func listModels() ModelsListResponse {
 	var models []ModelEntry
