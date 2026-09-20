@@ -1625,7 +1625,7 @@
   <!-- ═══════ Dropzone ═══════ -->
   <section class="pitch-dropzone-section">
     <h3 class="section-title">Subir audio para cambio de tono</h3>
-    <p class="section-desc">Los archivos se guardan en la carpeta input_rubberband</p>
+    <p class="section-desc">Los archivos se suben al backend y se guardan en la carpeta input_rubberband dentro de la raíz de datos configurada</p>
     <div class="pitch-dropzone"
       ondragover={handleDragOver}
       ondrop={handleDropEvent}
