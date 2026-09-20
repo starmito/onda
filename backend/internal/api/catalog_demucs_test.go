@@ -2,10 +2,14 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
+	"regexp"
+	"sort"
 	"testing"
 )
 
@@ -14,8 +18,8 @@ func TestHandleModelsCatalogDemucs(t *testing.T) {
 
 	origProvider := demucsListProvider
 	t.Cleanup(func() { demucsListProvider = origProvider })
-	demucsListProvider = func() ([]string, error) {
-		return []string{"htdemucs", "htdemucs_ft", "mdx_extra"}, nil
+	demucsListProvider = func() ([]string, bool, error) {
+		return []string{"htdemucs", "htdemucs_ft", "mdx_extra"}, false, nil
 	}
 
 	// Mark htdemucs_ft as downloaded by creating its YAML marker.
@@ -104,13 +108,138 @@ func TestDemucsHFRepoName(t *testing.T) {
 	}
 }
 
+func TestDemucsModelNameFromRepo(t *testing.T) {
+	tests := []struct {
+		repo string
+		want string
+		ok   bool
+	}{
+		{"adefossez/HTDemucs", "htdemucs", true},
+		{"adefossez/HTDemucs-ft", "htdemucs_ft", true},
+		{"adefossez/HTDemucs-6s", "htdemucs_6s", true},
+		{"adefossez/Demucs-mdx", "mdx", true},
+		{"adefossez/Demucs-mdx_extra", "mdx_extra", true},
+		{"adefossez/Demucs-mdx_extra_q", "mdx_extra_q", true},
+		{"adefossez/Demucs-hdemucs_mmi", "hdemucs_mmi", true},
+		{"adefossez/Demucs-repro_mdx_a", "repro_mdx_a", true},
+		{"adefossez/Unknown", "", false},
+		{"facebook/demucs", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.repo, func(t *testing.T) {
+			got, ok := demucsModelNameFromRepo(tt.repo)
+			if got != tt.want || ok != tt.ok {
+				t.Errorf("demucsModelNameFromRepo(%q) = (%q, %v), want (%q, %v)", tt.repo, got, ok, tt.want, tt.ok)
+			}
+		})
+	}
+}
+
+func TestParseDemucsHFModelNames(t *testing.T) {
+	body := []byte(`[
+		{"id":"adefossez/HTDemucs"},
+		{"id":"adefossez/HTDemucs-ft"},
+		{"id":"adefossez/HTDemucs-6s"},
+		{"id":"adefossez/Demucs-mdx"},
+		{"id":"adefossez/Demucs-mdx_extra"},
+		{"id":"adefossez/Demucs-mdx_q"},
+		{"id":"adefossez/Demucs-mdx_extra_q"},
+		{"id":"adefossez/Demucs-hdemucs_mmi"},
+		{"id":"adefossez/Demucs-repro_mdx_a"},
+		{"id":"adefossez/Demucs-repro_mdx_a_hybrid_only"},
+		{"id":"adefossez/Demucs-repro_mdx_a_time_only"},
+		{"id":"adefossez/HTDemucs"}
+	]`)
+
+	names, err := parseDemucsHFModelNames(body)
+	if err != nil {
+		t.Fatalf("parseDemucsHFModelNames failed: %v", err)
+	}
+
+	want := []string{
+		"hdemucs_mmi",
+		"htdemucs",
+		"htdemucs_6s",
+		"htdemucs_ft",
+		"mdx",
+		"mdx_extra",
+		"mdx_extra_q",
+		"mdx_q",
+		"repro_mdx_a",
+		"repro_mdx_a_hybrid_only",
+		"repro_mdx_a_time_only",
+	}
+	if !reflect.DeepEqual(names, want) {
+		t.Errorf("names = %v, want %v", names, want)
+	}
+
+	hashRe := regexp.MustCompile("^[0-9a-f]{8}$")
+	for _, n := range names {
+		if hashRe.MatchString(n) {
+			t.Errorf("catalog contains hash-like entry %q", n)
+		}
+	}
+}
+
+func TestQueryDemucsModelNames_HF(t *testing.T) {
+	body := `[{"id":"adefossez/HTDemucs"},{"id":"adefossez/HTDemucs-ft"},{"id":"adefossez/Demucs-mdx"}]`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, body)
+	}))
+	defer server.Close()
+
+	origURL := demucsHFCatalogURL
+	t.Cleanup(func() { demucsHFCatalogURL = origURL })
+	demucsHFCatalogURL = server.URL
+
+	names, offline, err := queryDemucsModelNames()
+	if err != nil {
+		t.Fatalf("queryDemucsModelNames failed: %v", err)
+	}
+	if offline {
+		t.Error("expected online catalog, got offline fallback")
+	}
+
+	want := []string{"htdemucs", "htdemucs_ft", "mdx"}
+	if !reflect.DeepEqual(names, want) {
+		t.Errorf("names = %v, want %v", names, want)
+	}
+}
+
+func TestQueryDemucsModelNames_Fallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer server.Close()
+
+	origURL := demucsHFCatalogURL
+	t.Cleanup(func() { demucsHFCatalogURL = origURL })
+	demucsHFCatalogURL = server.URL
+
+	names, offline, err := queryDemucsModelNames()
+	if err != nil {
+		t.Fatalf("queryDemucsModelNames failed: %v", err)
+	}
+	if !offline {
+		t.Error("expected offline fallback")
+	}
+
+	want := make([]string, len(demucsOfflineModelNames))
+	copy(want, demucsOfflineModelNames)
+	sort.Strings(want)
+	if !reflect.DeepEqual(names, want) {
+		t.Errorf("fallback names = %v, want %v", names, want)
+	}
+}
+
 func TestHandleModelsCatalogDemucs_ProviderError(t *testing.T) {
 	setTestRoot(t, "demucs-catalog-err-")
 
 	origProvider := demucsListProvider
 	t.Cleanup(func() { demucsListProvider = origProvider })
-	demucsListProvider = func() ([]string, error) {
-		return nil, errTestDemucsUnavailable
+	demucsListProvider = func() ([]string, bool, error) {
+		return nil, false, errTestDemucsUnavailable
 	}
 
 	s := &Server{mux: http.NewServeMux()}

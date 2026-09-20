@@ -8,8 +8,8 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -27,59 +27,116 @@ type DemucsCatalogEntry struct {
 	Source      string `json:"source"`
 }
 
+// demucsHFCatalogURL is the HuggingFace Hub public API endpoint for models
+// published by the official Demucs author.
+var demucsHFCatalogURL = "https://huggingface.co/api/models?author=adefossez&limit=100"
+
+// demucsOfflineModelNames is the fallback catalog when the HuggingFace Hub API
+// is unreachable. It matches the model names accepted by the demucs CLI.
+var demucsOfflineModelNames = []string{
+	"hdemucs_mmi",
+	"htdemucs",
+	"htdemucs_6s",
+	"htdemucs_ft",
+	"mdx",
+	"mdx_extra",
+	"mdx_extra_q",
+	"mdx_q",
+	"repro_mdx_a",
+	"repro_mdx_a_hybrid_only",
+	"repro_mdx_a_time_only",
+}
+
 // demucsListProvider returns the list of official Demucs model names exposed
-// by the installed demucs package. It is a variable so tests can substitute a
-// mock implementation.
+// by the installed demucs package and a flag indicating whether the offline
+// fallback was used. It is a variable so tests can substitute a mock
+// implementation.
 var demucsListProvider = queryDemucsModelNames
 
-// queryDemucsModelNames invokes the installed demucs API to obtain the list of
-// single and bag model names. It returns a deduplicated, sorted slice.
-func queryDemucsModelNames() ([]string, error) {
-	script := `import json, sys
-try:
-    import demucs.api
-    models = demucs.api.list_models()
-    names = set(models.get("single", {}).keys())
-    names.update(models.get("bag", {}).keys())
-    print(json.dumps(sorted(names)))
-except Exception as e:
-    print(json.dumps({"error": str(e)}))
-    sys.exit(1)
-`
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+// queryDemucsModelNames asks the HuggingFace Hub for the official adefossez
+// Demucs repos and maps them back to the model names accepted by the demucs
+// CLI. If the Hub is unreachable it returns the curated offline list.
+func queryDemucsModelNames() ([]string, bool, error) {
+	names, err := fetchDemucsHFModelNames()
+	if err != nil || len(names) == 0 {
+		log.Printf("[models] demucs HF catalog unavailable (%v), using offline fallback", err)
+		return demucsOfflineModelNames, true, nil
+	}
+	return names, false, nil
+}
+
+// fetchDemucsHFModelNames retrieves and parses the adefossez model list from
+// the HuggingFace Hub public API.
+func fetchDemucsHFModelNames() ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "python3", "-c", script)
-	out, err := cmd.CombinedOutput()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, demucsHFCatalogURL, nil)
 	if err != nil {
-		return nil, fmt.Errorf("demucs model query failed: %v: %s", err, strings.TrimSpace(string(out)))
+		return nil, err
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("huggingface returned status %d", resp.StatusCode)
 	}
 
-	var raw []json.RawMessage
-	if err := json.Unmarshal(out, &raw); err != nil {
-		return nil, fmt.Errorf("failed to parse demucs model list: %w", err)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, err
+	}
+	return parseDemucsHFModelNames(body)
+}
+
+// parseDemucsHFModelNames extracts usable Demucs model names from a HuggingFace
+// Hub API response. It ignores unknown repos and deduplicates the result.
+func parseDemucsHFModelNames(body []byte) ([]string, error) {
+	var items []struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal(body, &items); err != nil {
+		return nil, err
 	}
 
-	// The script returns either a plain list of strings or {"error": ...}
-	if len(raw) == 0 {
-		return nil, fmt.Errorf("demucs returned empty model list")
-	}
-	var names []string
-	for _, r := range raw {
-		var s string
-		if err := json.Unmarshal(r, &s); err == nil {
-			names = append(names, s)
+	seen := make(map[string]struct{})
+	names := make([]string, 0, len(items))
+	for _, it := range items {
+		name, ok := demucsModelNameFromRepo(it.ID)
+		if !ok {
 			continue
 		}
-		var obj map[string]string
-		if err := json.Unmarshal(r, &obj); err == nil {
-			if msg, ok := obj["error"]; ok {
-				return nil, fmt.Errorf("demucs model query error: %s", msg)
-			}
+		if _, dup := seen[name]; dup {
+			continue
 		}
-		return nil, fmt.Errorf("unexpected entry in demucs model list: %s", string(r))
+		seen[name] = struct{}{}
+		names = append(names, name)
 	}
+
+	sort.Strings(names)
 	return names, nil
+}
+
+// demucsModelNameFromRepo maps an adefossez/HuggingFace repo name to the model
+// name accepted by the demucs CLI. It mirrors the mapping in demucs.hf.hf_repo_name.
+func demucsModelNameFromRepo(repo string) (string, bool) {
+	if !strings.HasPrefix(repo, "adefossez/") {
+		return "", false
+	}
+	name := strings.TrimPrefix(repo, "adefossez/")
+	switch {
+	case name == "HTDemucs":
+		return "htdemucs", true
+	case strings.HasPrefix(name, "HTDemucs-"):
+		return "htdemucs_" + strings.ToLower(name[len("HTDemucs-"):]), true
+	case strings.HasPrefix(name, "Demucs-"):
+		return strings.ToLower(name[len("Demucs-"):]), true
+	}
+	return "", false
 }
 
 // demucsHFRepoName maps a demucs model name to its official HuggingFace repo,
@@ -170,7 +227,7 @@ func (s *Server) handleModelsCatalogDemucs(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	names, err := demucsListProvider()
+	names, offline, err := demucsListProvider()
 	if err != nil {
 		log.Printf("[models] demucs catalog query failed: %v", err)
 		w.Header().Set("Content-Type", "application/json")
@@ -179,6 +236,9 @@ func (s *Server) handleModelsCatalogDemucs(w http.ResponseWriter, r *http.Reques
 			"error": "demucs catalog not available: " + err.Error(),
 		})
 		return
+	}
+	if offline {
+		w.Header().Set("X-Demucs-Offline", "true")
 	}
 
 	// Fetch Hub stats concurrently with a tight timeout so the endpoint stays
