@@ -70,10 +70,26 @@ def _mock_gpu_audio_deps():
     torch.zeros = lambda shape, *args, **kwargs: _Tensor(np.zeros(shape, dtype=np.float32))
     torch.linspace = lambda start, end, steps, *args, **kwargs: _Tensor(np.linspace(start, end, steps))
     torch.stack = lambda tensors, dim=0: _Tensor(np.stack([t._data if isinstance(t, _Tensor) else t for t in tensors], axis=dim))
+    torch.hann_window = lambda size, *args, **kwargs: _Tensor(np.hanning(size).astype(np.float32))
+    torch.from_numpy = lambda arr, *args, **kwargs: _Tensor(np.array(arr))
+    torch.stft = lambda *args, **kwargs: _Tensor(np.zeros((2, 1025, 10), dtype=np.float32))
+    torch.istft = lambda *args, **kwargs: _Tensor(np.zeros((2, 512), dtype=np.float32))
+    torch.view_as_real = lambda x: _Tensor(np.stack([x._data, x._data], axis=-1))
+    torch.view_as_complex = lambda x: _Tensor(x._data[..., 0] + 1j * x._data[..., 1])
     torch.nn = _inject("torch.nn")
     torch.nn.Module = type("Module", (), {"eval": lambda self: self, "to": lambda self, *args: self, "parameters": lambda self: []})
     torch.nn.functional = ModuleType("torch.nn.functional")
     torch.nn.functional.pad = lambda tensor, pad, *args, **kwargs: np.pad(np.array(tensor), [(0, 0)] * (np.array(tensor).ndim - len(pad) // 2) + [(pad[0], pad[1])], mode="edge")
+
+    # onnxruntime mock (so onda.polarformer imports cleanly)
+    ort = _inject("onnxruntime")
+    ort.InferenceSession = mock.Mock(
+        return_value=mock.MagicMock(
+            get_inputs=mock.Mock(return_value=[mock.MagicMock(name="stft_features")])
+        )
+    )
+    ort.CUDAExecutionProvider = "CUDAExecutionProvider"
+    ort.CPUExecutionProvider = "CPUExecutionProvider"
 
     # librosa / soundfile mocks
     librosa = _inject("librosa")

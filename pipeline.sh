@@ -12,7 +12,7 @@
 # Flags:
 #   --steps JSON          Chained mode: JSON array of step objects
 #   --vocal-model PATH    Vocal model path (default: $MODELS_DIR/VR_Models/BS_Roformer_Viperx)
-#   --vocal-type TYPE     Vocal model type: mdx | mdxnet | roformer | auto (default: auto)
+#   --vocal-type TYPE     Vocal model type: mdx | mdxnet | polarformer | roformer | auto (default: auto)
 #   --vocal-keep WHAT     What to save: instrumental | vocals | both (default) (alias: --viperx-keep)
 #   --viperx-model PATH   Same as --vocal-model (deprecated)
 #   --viperx-keep WHAT    Same as --vocal-keep (deprecated)
@@ -445,6 +445,61 @@ PYEOF
     done
 }
 
+# Detect whether a vocal model directory contains a BS PolarFormer ONNX model.
+# Heuristic: explicit --vocal-type polarformer, OR a YAML config with
+# ``model.use_pope: True`` (the canonical PolarFormer flag), OR the directory
+# or .onnx filename contains "polarformer".
+#
+# This must run before is_onnx_model_dir() so PolarFormer does not fall into
+# the generic MDXNet ONNX path.
+is_polarformer_model_dir() {
+    local model_path="$1"
+    local model_dir="$model_path"
+    if [ -f "$model_path" ]; then
+        model_dir="$(dirname "$model_path")"
+    fi
+
+    case "$VOCAL_TYPE" in
+        polarformer) return 0 ;;
+        mdx|mdxnet|roformer|scnet) return 1 ;;
+    esac
+
+    # YAML with the canonical PolarFormer flag.
+    local yaml_file
+    yaml_file=$(ls "${model_dir}"/*.yaml "${model_dir}"/*.yml 2>/dev/null | head -1 || true)
+    if [ -n "$yaml_file" ]; then
+        local has_pope
+        has_pope=$(python3 - <<PY
+import yaml, sys
+try:
+    cfg = yaml.load(open('${yaml_file}'), Loader=yaml.FullLoader)
+    if cfg.get('model', {}).get('use_pope') is True:
+        sys.exit(0)
+except Exception:
+    pass
+sys.exit(1)
+PY
+        ) && return 0
+    fi
+
+    # Model directory or ONNX filename contains "polarformer".
+    local base
+    base=$(basename "$model_dir" | tr '[:upper:]' '[:lower:]')
+    if [[ "$base" =~ polarformer ]]; then
+        return 0
+    fi
+    local onnx_name
+    onnx_name=$(ls "${model_dir}"/*.onnx 2>/dev/null | head -1 || true)
+    if [ -n "$onnx_name" ]; then
+        onnx_name=$(basename "$onnx_name" | tr '[:upper:]' '[:lower:]')
+        if [[ "$onnx_name" =~ polarformer ]]; then
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
 # Detect whether a vocal model directory contains an MDX-C (MDX-Net) model.
 # Heuristic: explicit --vocal-type mdx, OR a YAML with MDX-C fields
 # (num_scales / num_subbands), OR the checkpoint filename contains MDX23C.
@@ -459,7 +514,7 @@ is_mdx_model_dir() {
 
     case "$VOCAL_TYPE" in
         mdx) return 0 ;;
-        roformer) return 1 ;;
+        polarformer|roformer) return 1 ;;
     esac
 
     # Explicit MDX checkpoint name.
@@ -506,6 +561,7 @@ is_scnet_model_dir() {
 
     case "$VOCAL_TYPE" in
         scnet) return 0 ;;
+        polarformer) return 1 ;;
     esac
 
     # Explicit SCNet checkpoint name.
@@ -554,6 +610,7 @@ is_onnx_model_dir() {
 
     case "$VOCAL_TYPE" in
         mdxnet) return 0 ;;
+        polarformer) return 1 ;;
     esac
 
     if ls "${model_dir}"/*.onnx >/dev/null 2>&1; then
@@ -899,6 +956,44 @@ PYEOF
             --device "$DEVICE" \
             ${scnet_config_arg} \
             "${model_dir}" "${input_file}" "${output_dir}"
+    elif is_polarformer_model_dir "$model_dir"; then
+        if [ ! -f /app/inference_polarformer.py ]; then
+            echo "❌ inference_polarformer.py not found" >&2
+            exit 2
+        fi
+        echo "   ℹ️  Detected BS PolarFormer ONNX vocal model"
+        local model_name
+        model_name=$(basename "$model_dir")
+        local source
+        source=$(_resolve_model_config_source "$model_name" "$model_dir")
+        local pf_chunk_size="882000"
+        local pf_num_overlap="2"
+        local pf_batch_size="4"
+        if [ -n "$source" ]; then
+            pf_chunk_size=$(_read_model_config_value "$source" "inference.chunk_size" "chunk_size" "882000")
+            pf_num_overlap=$(_read_model_config_value "$source" "inference.num_overlap" "num_overlap" "2")
+            pf_batch_size=$(_read_model_config_value "$source" "inference.batch_size" "batch_size" "4")
+            # UVR JSON stores overlap as a float factor; PolarFormer expects an integer.
+            local kind
+            kind="${source%%:*}"
+            case "$kind" in
+                user_yaml) echo "   ℹ️  PolarFormer user config override: ${source#*:}" ;;
+                uvr_json)  echo "   ℹ️  PolarFormer UVR JSON config override: ${source#*:}" ;;
+                model_yaml|model_json) echo "   ℹ️  PolarFormer model config override: ${source#*:}" ;;
+            esac
+            if [ "$kind" = "uvr_json" ] || [ "$kind" = "model_json" ]; then
+                if [ -n "$pf_num_overlap" ]; then
+                    pf_num_overlap=$(python3 -c "import sys; v=float('$pf_num_overlap'); print(int(round(1.0/v))) if v>0 else sys.exit(1)" 2>/dev/null || echo "2")
+                fi
+            fi
+        fi
+        echo "   ℹ️  PolarFormer effective params: chunk_size=${pf_chunk_size}, num_overlap=${pf_num_overlap}, batch_size=${pf_batch_size}"
+        run_with_elapsed python3 -u /app/inference_polarformer.py \
+            --pipeline-status "$STATUS_FILE" \
+            --device "$DEVICE" \
+            --chunk-size "${pf_chunk_size}" \
+            --batch-size "${pf_batch_size}" \
+            "${model_dir}" "${input_file}" "${output_dir}" "${pf_num_overlap}"
     elif is_onnx_model_dir "$model_dir"; then
         if [ ! -f /app/inference_onnx.py ]; then
             echo "❌ inference_onnx.py not found" >&2
