@@ -104,6 +104,12 @@ def _process_mix(model, mix, C, step, batch_size, S, device,
                         stem_out = x[j, s:s+1] if x.dim() >= 3 else x[j]
                         if stem_out.dim() == 1:
                             stem_out = stem_out.unsqueeze(0)
+                        # Modelos multi-stem (p.ej. 6 stems) devuelven [B, S, C, T]:
+                        # el corte anterior deja una dimension de batch de mas que
+                        # rompe el overlap-add. Se colapsa a [C, T] mientras el eje
+                        # frontal sea de tamano 1 (para no comerse un canal real).
+                        while stem_out.dim() > 2 and stem_out.shape[0] == 1:
+                            stem_out = stem_out.squeeze(0)
                         out_len = stem_out.shape[-1]
                         common = min(out_len, C, result.shape[-1] - start)
                         end = start + common
@@ -308,8 +314,13 @@ def separate(model_dir, input_path, output_dir="output", progress_file=None, num
         print(f"  ✓ {out}")
 
     # Derive instrumental via subtraction if model extracts vocals
-    if target.lower() == 'vocals' or 'vocals' in [ins.lower() for ins in instruments]:
-        inst = audio - result[0]
+    # OJO: 'vocals' no siempre es el stem 0 (el SW de 6 stems empieza por bass),
+    # y target puede ser None en modelos multi-stem -> no llamar a .lower() a ciegas.
+    stems_lower = [str(ins).lower() for ins in instruments]
+    target_lower = str(target).lower() if target else ''
+    if target_lower == 'vocals' or 'vocals' in stems_lower:
+        v_idx = stems_lower.index('vocals') if 'vocals' in stems_lower else 0
+        inst = audio - result[v_idx]
         out = os.path.join(output_dir, f"{basename}_instrumental.wav")
         sf.write(out, inst.T, sr)
         print(f"  ✓ {out} (subtraction)")
