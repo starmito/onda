@@ -133,6 +133,65 @@
     }
   });
 
+  // Build VRAM calculator params purely from flag names returned by the API.
+  // No category checks: if the model exposes a flag, we forward it using the
+  // calculator's query parameter names.
+  function buildVRAMParams(model: string, values: Record<string, number | string>): {
+    models: string;
+    segment_size?: number;
+    overlap?: number;
+    chunk_size?: number;
+    batch_size?: number;
+    shifts?: number;
+    demucs_segment?: number;
+  } {
+    const params: {
+      models: string;
+      segment_size?: number;
+      overlap?: number;
+      chunk_size?: number;
+      batch_size?: number;
+      shifts?: number;
+      demucs_segment?: number;
+    } = { models: model };
+
+    if ('segment_size' in values) {
+      const v = Number(values['segment_size']);
+      if (v > 0) params.segment_size = v;
+    }
+    if ('num_overlap' in values) {
+      const v = Number(values['num_overlap']);
+      if (v > 0) params.overlap = 1 / v;
+    }
+    if ('chunk_size' in values) {
+      const v = Number(values['chunk_size']);
+      if (v > 0) params.chunk_size = v;
+    }
+    if ('batch_size' in values) {
+      const v = Number(values['batch_size']);
+      if (v > 0) params.batch_size = v;
+    }
+    if ('shifts' in values) {
+      const v = Number(values['shifts']);
+      if (v > 0) params.shifts = v;
+    }
+    if ('segment' in values) {
+      const v = Number(values['segment']);
+      params.demucs_segment = v;
+    }
+    return params;
+  }
+
+  // True when the current VRAM estimate is backed by a real measurement.
+  let vramReliable = $derived.by(() => {
+    if (vramCalcResult === null) return true;
+    return vramCalcResult.reliable !== false;
+  });
+
+  let vramWarning = $derived.by(() => {
+    return vramCalcResult?.warning ?? '';
+  });
+
   // Call backend VRAM calculator when parameters change
   $effect(() => {
     const model = selectedModel;
@@ -155,7 +214,6 @@
 
     // SNAPSHOT: read ALL reactive values synchronously so $effect tracks them
     const values = flagValues;
-        const hasDemucs = flags.some((f) => f.name === 'shifts');
 
     // Debounce timer (avoid rapid-fire calls during slider drag)
     let cancelled = false;
@@ -163,22 +221,7 @@
       vramCalcLoading = true;
       vramCalcError = false;
       try {
-        const params: { models: string; shifts?: number; segment_size?: number; overlap?: number; batch_size?: number; demucs_segment?: number } = {
-          models: model,
-        };
-        if (hasDemucs) {
-          const sh = Number(values['shifts'] ?? 0);
-          const seg = Number(values['segment'] ?? 0);
-          if (sh > 1) params.shifts = sh;
-          params.demucs_segment = seg;
-        } else {
-          const ss = Number(values['segment_size'] ?? 0);
-          const numOverlap = Number(values['num_overlap'] ?? 0);
-          const bs = Number(values['batch_size'] ?? 0);
-          if (ss > 0) params.segment_size = ss;
-          if (numOverlap > 0) params.overlap = 1 / numOverlap;
-          if (bs > 0) params.batch_size = bs;
-        }
+        const params = buildVRAMParams(model, values);
         const result = await getVRAMCalculator(params);
         if (!cancelled) {
           vramCalcResult = result;
@@ -246,10 +289,6 @@
     }
     saving = false;
     setTimeout(() => (feedback = ''), 3000);
-  }
-
-  function formatOverlap(v: number): string {
-    return v.toFixed(2);
   }
 
   function formatFlagValue(flag: ModelFlag): string {
@@ -402,6 +441,11 @@
                 · Libre después: {formatGb(vramCalcResult.free_after_mb)}
               {/if}
             </div>
+            {#if !vramReliable || vramWarning}
+              <div class="vram-warning">
+                ⚠️ {vramWarning || 'Estimación aproximada: el consumo real puede variar.'}
+              </div>
+            {/if}
           </div>
         {:else if vramCalcError || vramError}
           <div class="vram-section">
@@ -458,19 +502,6 @@
     text-align: center;
   }
 
-  .btn-back {
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--accent-light);
-    font-size: 0.85rem;
-    padding: 0.3rem 0.8rem;
-    cursor: pointer;
-    transition: border-color 0.15s;
-  }
-  .btn-back:hover {
-    border-color: var(--accent);
-  }
   .btn-close {
     background: transparent; border: 1px solid var(--border); color: var(--text-secondary);
     font-size: 18px; width: 32px; height: 32px; border-radius: 6px;
@@ -551,26 +582,6 @@
     height: 6px;
   }
 
-  .slider-labels {
-    display: flex;
-    justify-content: space-between;
-    font-size: 0.7rem;
-    color: var(--text-muted);
-  }
-
-  .slider-min,
-  .slider-max {
-    color: var(--text-muted);
-    font-size: 0.65rem;
-  }
-
-  .param-desc {
-    font-size: 0.75rem;
-    color: var(--text-secondary);
-    margin-top: 2px;
-    margin-bottom: 4px;
-  }
-
   .field select {
     padding: 0.4rem 0.6rem;
     background: var(--bg-primary);
@@ -623,67 +634,6 @@
   .btn-apply:disabled {
     opacity: 0.5;
     cursor: not-allowed;
-  }
-
-  /* Read-only YAML params (MDX / SCNet) */
-  .readonly-params {
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.75rem;
-    display: flex;
-    flex-direction: column;
-    gap: 0.75rem;
-  }
-
-  .readonly-title {
-    margin: 0;
-    font-size: 0.85rem;
-    color: var(--accent-light);
-    font-weight: 600;
-  }
-
-  .readonly-grid {
-    display: grid;
-    grid-template-columns: repeat(2, 1fr);
-    gap: 0.5rem;
-  }
-
-  .readonly-item {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    background: var(--bg-primary);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.4rem 0.6rem;
-    font-size: 0.8rem;
-  }
-
-  .readonly-key {
-    color: var(--text-secondary);
-  }
-
-  .readonly-value {
-    color: var(--accent-light);
-    font-weight: 600;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  }
-
-  /* Demucs section */
-  .demucs-section {
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.75rem;
-    display: flex;
-    flex-direction: column;
-    gap: 1rem;
-  }
-
-  .demucs-title {
-    margin: 0;
-    font-size: 0.85rem;
-    color: var(--accent-light);
-    font-weight: 600;
   }
 
   .feedback {
@@ -757,6 +707,13 @@
   .vram-text.muted {
     color: var(--text-muted);
     font-style: italic;
+  }
+
+  .vram-warning {
+    font-size: 0.7rem;
+    color: #ffb74d;
+    margin-top: 0.35rem;
+    line-height: 1.3;
   }
 
   /* Quality / VRAM scale */

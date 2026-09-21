@@ -609,7 +609,15 @@ export async function setModelConfig(
     body: JSON.stringify({ flags }),
   });
   if (!res.ok) {
-    throw new Error(`Failed to save model config (${res.status}): ${res.statusText}`);
+    let detail = `Failed to save model config (${res.status}): ${res.statusText}`;
+    try {
+      const data = (await res.json()) as { error?: string; detail?: string };
+      if (data.error) detail = data.error;
+      if (data.detail) detail += `: ${data.detail}`;
+    } catch {
+      // keep default detail
+    }
+    throw new Error(detail);
   }
   return (await res.json()) as { ok: string; detail: string };
 }
@@ -1104,6 +1112,8 @@ export interface VRAMCalculatorResponse {
   available_vram_mb: number;
   free_after_mb: number;
   fits: boolean;
+  reliable?: boolean;
+  warning?: string;
 }
 
 export async function getVRAMCalculator(params: {

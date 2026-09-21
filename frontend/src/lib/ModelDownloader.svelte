@@ -789,8 +789,16 @@
             <div class="installed-row">
               <div class="installed-info">
                 <span class="installed-name">{model.display_name || model.name}</span>
-                <span class="installed-cat">{model.category}</span>
-                <span class="installed-size">{formatSize(model.size_mb)}</span>
+                {#if model.display_name && model.display_name !== model.name}
+                  <span class="installed-filename">{model.name}</span>
+                {/if}
+                <span class="installed-meta">
+                  <span class="installed-cat">{model.category}</span>
+                  <span class="installed-size">{formatSize(model.size_mb)}</span>
+                  {#if model.manifest_missing}
+                    <span class="installed-missing" title="Falta el manifiesto del modelo">sin manifiesto</span>
+                  {/if}
+                </span>
               </div>
               <button class="btn-delete" onclick={() => handleDeleteModel(model)} title="Eliminar modelo">
                 🗑️
@@ -1236,6 +1244,27 @@
   .installed-size {
     font-size: 0.68rem;
     color: var(--text-muted);
+  }
+
+  .installed-filename {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+
+  .installed-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+
+  .installed-missing {
+    font-size: 0.6rem;
+    color: #ffb74d;
+    border: 1px solid #ffb74d;
+    border-radius: 4px;
+    padding: 0.05rem 0.3rem;
   }
 
   .btn-delete {
