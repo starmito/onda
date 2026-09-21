@@ -18,9 +18,11 @@ if [ "$GPU" != "cpu" ]; then
         mkdir -p "$CACHE_DIR"
         case $GPU in
             cuda)
-                # --no-deps: solo los wheels nombrados; sus dependencias YA estan en la imagen.
-                # --upgrade: reemplaza lo que hubiera en el volumen en vez de dejar restos mezclados.
-                python3 -m pip install --no-deps --upgrade --target "$CACHE_DIR" torch==2.14.0 torchvision==0.29.0 onnxruntime-gpu==1.26.0
+                # Fijamos numpy en la misma orden para evitar que pip lo actualice a una version
+                # distinta de la declarada en pyproject.toml. NO usamos --no-deps: las ruedas de
+                # torch para Linux traen las librerias CUDA (cublasLt, cudnn, triton...) como
+                # dependencias de pip; sin ellas torch no ve la GPU.
+                python3 -m pip install --target "$CACHE_DIR" torch==2.14.0 torchvision==0.29.0 onnxruntime-gpu==1.26.0 numpy==2.4.6
                 ;;
         esac
         echo "✅ $GPU backend installed"
@@ -32,7 +34,8 @@ if [ "$GPU" != "cpu" ]; then
         mkdir -p "$CACHE_DIR"
         case $GPU in
             cuda)
-                python3 -m pip install --no-deps --upgrade --target "$CACHE_DIR" onnxruntime-gpu==1.26.0
+                # Reintento con --upgrade para forzar la reinstalacion; numpy sigue fijado.
+                python3 -m pip install --upgrade --target "$CACHE_DIR" onnxruntime-gpu==1.26.0 numpy==2.4.6
                 ;;
         esac
         echo "✅ onnxruntime reinstalled"
