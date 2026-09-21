@@ -80,16 +80,19 @@
   function toggleMute(song: string, name: string) {
     const key = stemStateKey(song, name);
     playerState.stemStates[key] = toggleStemMute(getStemState(song, name));
+    playerState.stemStates = { ...playerState.stemStates };
     syncGains(song);
   }
   function toggleSolo(song: string, name: string) {
     const key = stemStateKey(song, name);
     playerState.stemStates[key] = toggleStemSolo(getStemState(song, name));
+    playerState.stemStates = { ...playerState.stemStates };
     syncGains(song);
   }
   function setVolume(song: string, name: string, vol: number) {
     const key = stemStateKey(song, name);
     playerState.stemStates[key] = setStemVolume(getStemState(song, name), vol);
+    playerState.stemStates = { ...playerState.stemStates };
     syncGains(song);
   }
   function handleVolumeChange(e: Event, song: string, name: string) {
@@ -121,16 +124,19 @@
   function toggleSubgroupMute(song: string, pitchIdx: number, name: string) {
     const key = subgroupStemKey(song, pitchIdx, name);
     playerState.stemStates[key] = toggleStemMute(getSubgroupStemState(song, pitchIdx, name));
+    playerState.stemStates = { ...playerState.stemStates };
     syncSubgroupGains(song, pitchIdx);
   }
   function toggleSubgroupSolo(song: string, pitchIdx: number, name: string) {
     const key = subgroupStemKey(song, pitchIdx, name);
     playerState.stemStates[key] = toggleStemSolo(getSubgroupStemState(song, pitchIdx, name));
+    playerState.stemStates = { ...playerState.stemStates };
     syncSubgroupGains(song, pitchIdx);
   }
   function setSubgroupVolume(song: string, pitchIdx: number, name: string, vol: number) {
     const key = subgroupStemKey(song, pitchIdx, name);
     playerState.stemStates[key] = setStemVolume(getSubgroupStemState(song, pitchIdx, name), vol);
+    playerState.stemStates = { ...playerState.stemStates };
     syncSubgroupGains(song, pitchIdx);
   }
   function handleSubgroupVolumeChange(e: Event, song: string, pitchIdx: number, name: string) {
@@ -140,11 +146,13 @@
     const key = getSubgroupKey(song, pitchIdx);
     const p = playerState.subgroupPlayers[key];
     if (!p || !p.playing) return;
+    const subs = playerState.pitchSubgroups[song];
+    if (!subs || !subs[pitchIdx]) return;
     const gains = computeGroupGains(playerState.stemStates, subgroupStemKeys(song, pitchIdx));
-    for (const [stemKey, gainValue] of Object.entries(gains)) {
-      const name = stemKey.split(':').pop()!;
-      const gain = p.gainNodes.get(name);
-      if (gain) gain.gain.value = gainValue;
+    for (const stem of subs[pitchIdx].stems) {
+      const stKey = subgroupStemKey(song, pitchIdx, stem.name);
+      const gain = p.gainNodes.get(stem.name);
+      if (gain) gain.gain.value = gains[stKey] ?? 1;
     }
   }
 

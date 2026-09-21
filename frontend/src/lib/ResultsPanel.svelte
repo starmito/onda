@@ -764,6 +764,7 @@
         source.buffer = buffer;
         const gain = player.gainNodes.get(name) || player.audioCtx!.createGain();
         gain.gain.value = effectiveStemGain(getSubgroupMixState(song, pitch, name), hasSolo);
+        player.gainNodes.set(name, gain);
         const splitter = player.audioCtx!.createChannelSplitter(2);
         const aL = player.audioCtx!.createAnalyser(); aL.fftSize = 64;
         const aR = player.audioCtx!.createAnalyser(); aR.fftSize = 64;
@@ -806,7 +807,7 @@
     const subs = playerState.resultsPitchSubgroups[song] || [];
     const sg = subs.find(s => s.pitch === pitch);
     const player = sg?.player;
-    if (!player) return;
+    if (!player || !player.playing) return;
     const keys = sg?.stems.map((s) => subgroupStemKey(song, pitch, s.name)) ?? [];
     const gains = computeGroupGains(playerState.resultsStemStates, keys);
     for (const stem of (sg?.stems || [])) {
@@ -1035,6 +1036,7 @@
         source.buffer = buffer;
         const gain = player.gainNodes.get(name) || player.audioCtx!.createGain();
         gain.gain.value = effectiveStemGain(getSubgroupMixState(song, pitch, name), hasSolo);
+        player.gainNodes.set(name, gain);
         const splitter = player.audioCtx!.createChannelSplitter(2);
         const aL = player.audioCtx!.createAnalyser(); aL.fftSize = 64;
         const aR = player.audioCtx!.createAnalyser(); aR.fftSize = 64;
