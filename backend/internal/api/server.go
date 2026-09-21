@@ -1155,6 +1155,29 @@ func compactFlags(args []string) string {
 	return strings.Join(parts, " ")
 }
 
+// resolvePipelineScript returns the path to the pipeline.sh entrypoint.
+// Production images use /app/pipeline.sh. For local development (go run from
+// the repo) we fall back to a pipeline.sh found in the current working tree.
+func resolvePipelineScript() string {
+	if path := os.Getenv("ONDA_PIPELINE_SCRIPT"); path != "" {
+		return path
+	}
+	if _, err := os.Stat("/app/pipeline.sh"); err == nil {
+		return "/app/pipeline.sh"
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "/app/pipeline.sh"
+	}
+	for dir := cwd; dir != "/" && dir != "."; dir = filepath.Dir(dir) {
+		candidate := filepath.Join(dir, "pipeline.sh")
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	return "/app/pipeline.sh"
+}
+
 // runSinglePipeline executes a single pipeline.sh invocation.
 func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	// VRAM headroom check before launching.
@@ -1224,9 +1247,7 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	// /app/pipeline.sh is the pipeline entrypoint inside the container image, not a
-	// data path, so it stays as an absolute container path.
-	script := "/app/pipeline.sh"
+	script := resolvePipelineScript()
 	pipelineArgs := job.Args
 	// Tests may pass an explicit fake script as the first argument.
 	if len(job.Args) > 0 && strings.HasSuffix(job.Args[0], ".sh") {
@@ -1402,7 +1423,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 
 		// Execute this step (pipeline.sh is the container entrypoint, not data).
 		ctx, cancel := context.WithCancel(context.Background())
-		script := "/app/pipeline.sh"
+		script := resolvePipelineScript()
 		// Tests may pass an explicit fake script as the first argument.
 		if len(job.Args) > 0 && strings.HasSuffix(job.Args[0], ".sh") {
 			if info, err := os.Stat(job.Args[0]); err == nil && !info.IsDir() {
@@ -2034,10 +2055,16 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 		if jobs > 0 {
 			args = append(args, "--jobs", fmt.Sprintf("%d", jobs))
 		}
+		Log("backend", "info", fmt.Sprintf("Effective Demucs config for %s: shifts=%d segment=%d jobs=%d", stemModel, shifts, int(segment), jobs))
 	}
 	// Device override (defaults to cuda in pipeline.sh)
 	if req.Device != "" && req.Device != "cuda" {
 		args = append(args, "--device", req.Device)
+	}
+
+	if vocalModel != "" {
+		vocalCfg := readModelConfigFromYaml(vocalModel)
+		Log("backend", "info", fmt.Sprintf("Effective vocal config for %s: dim_t=%d overlap=%.2f batch=%d chunk=%d", vocalModel, vocalCfg.SegmentSize, vocalCfg.Overlap, vocalCfg.BatchSize, vocalCfg.ChunkSize))
 	}
 
 	args = append(args, "--output", containerOutput)
@@ -2126,12 +2153,20 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 			if cfg.Jobs > 0 {
 				args = append(args, "--jobs", fmt.Sprintf("%d", cfg.Jobs))
 			}
+			Log("backend", "info", fmt.Sprintf("Effective step Demucs config for %s: shifts=%d segment=%d jobs=%d", stemModel, cfg.Shifts, int(segment), cfg.Jobs))
 		}
 	}
 
 	// Device override
 	if device != "" && device != "cuda" {
 		args = append(args, "--device", device)
+	}
+
+	if step.Type == "viperx" || step.Type == "vocal" {
+		if step.Model != "" {
+			vocalCfg := readModelConfigFromYaml(step.Model)
+			Log("backend", "info", fmt.Sprintf("Effective step vocal config for %s: dim_t=%d overlap=%.2f batch=%d chunk=%d", step.Model, vocalCfg.SegmentSize, vocalCfg.Overlap, vocalCfg.BatchSize, vocalCfg.ChunkSize))
+		}
 	}
 
 	args = append(args, "--output", outputDir)
@@ -2516,8 +2551,189 @@ func modelConfigYamlPath(name string) string {
 	return filepath.Join(modelConfigsDir(), name+".yaml")
 }
 
+// uvrModelConfigJSONPath returns the UVR-style JSON config path for a model name.
+func uvrModelConfigJSONPath(name string) string {
+	return filepath.Join(modelConfigsDir(), name+".json")
+}
+
+// parseModelYaml parses inference and demucs parameters from a YAML file.
+// SegmentSize is returned as dim_t directly (UI "Segment Size" == dim_t).
+func parseModelYaml(yamlPath string) (ModelConfigResponse, bool) {
+	data, err := os.ReadFile(yamlPath)
+	if err != nil {
+		return ModelConfigResponse{}, false
+	}
+
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		log.Printf("WARN: failed to parse YAML %s: %v", yamlPath, err)
+		return ModelConfigResponse{}, false
+	}
+
+	if len(doc.Content) == 0 {
+		return ModelConfigResponse{}, false
+	}
+
+	cfg := ModelConfigResponse{
+		SegmentSize: 512, Overlap: 0.25, ChunkSize: 0, BatchSize: 1,
+		Device: "cuda", Shifts: 1, Segment: 0, Jobs: 0,
+	}
+
+	infNode := findYamlChildNode(doc.Content[0], "inference")
+	if infNode != nil && infNode.Kind == yaml.MappingNode {
+		if n := findYamlChildNode(infNode, "dim_t"); n != nil {
+			if v, err := strconv.Atoi(n.Value); err == nil {
+				cfg.SegmentSize = v
+				cfg.DimT = v
+			}
+		}
+		if n := findYamlChildNode(infNode, "num_overlap"); n != nil {
+			if v, err := strconv.Atoi(n.Value); err == nil {
+				cfg.NumOverlap = v
+			}
+		}
+		if n := findYamlChildNode(infNode, "batch_size"); n != nil {
+			if v, err := strconv.Atoi(n.Value); err == nil {
+				cfg.BatchSize = v
+			}
+		}
+		if n := findYamlChildNode(infNode, "chunk_size"); n != nil {
+			if v, err := strconv.Atoi(n.Value); err == nil {
+				cfg.ChunkSize = v
+			}
+		}
+	}
+
+	if cfg.NumOverlap > 0 {
+		cfg.Overlap = 1.0 / float64(cfg.NumOverlap)
+	}
+
+	if demNode := findYamlChildNode(doc.Content[0], "demucs"); demNode != nil && demNode.Kind == yaml.MappingNode {
+		if n := findYamlChildNode(demNode, "shifts"); n != nil {
+			if v, err := strconv.Atoi(n.Value); err == nil {
+				cfg.Shifts = v
+			}
+		}
+		if n := findYamlChildNode(demNode, "segment"); n != nil {
+			if v, err := strconv.ParseFloat(n.Value, 64); err == nil {
+				cfg.Segment = v
+			}
+		}
+		if n := findYamlChildNode(demNode, "jobs"); n != nil {
+			if v, err := strconv.Atoi(n.Value); err == nil {
+				cfg.Jobs = v
+			}
+		}
+	}
+
+	return cfg, true
+}
+
+// readUVRModelConfigJSON reads a UVR-style JSON config. segment_size is treated
+// as dim_t directly.
+func readUVRModelConfigJSON(path string) (ModelConfigResponse, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ModelConfigResponse{}, false
+	}
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return ModelConfigResponse{}, false
+	}
+
+	cfg := ModelConfigResponse{
+		SegmentSize: 512, Overlap: 0.25, ChunkSize: 0, BatchSize: 1,
+		Device: "cuda", Shifts: 1, Segment: 0, Jobs: 0,
+	}
+
+	if v, ok := raw["segment_size"].(float64); ok && v > 0 {
+		cfg.SegmentSize = int(v)
+	}
+	if v, ok := raw["overlap"].(float64); ok && v > 0 && v < 1 {
+		cfg.Overlap = v
+	}
+	if v, ok := raw["chunk_size"].(float64); ok && v >= 0 {
+		cfg.ChunkSize = int(v)
+	}
+	if v, ok := raw["batch_size"].(float64); ok && v >= 0 {
+		cfg.BatchSize = int(v)
+	}
+	if v, ok := raw["shifts"].(float64); ok && v >= 0 {
+		cfg.Shifts = int(v)
+	}
+	if v, ok := raw["segment"].(float64); ok && v >= 0 {
+		cfg.Segment = v
+	}
+	if v, ok := raw["jobs"].(float64); ok && v >= 0 {
+		cfg.Jobs = int(v)
+	}
+	if v, ok := raw["device"].(string); ok && v != "" {
+		cfg.Device = v
+	}
+
+	cfg.DimT = cfg.SegmentSize
+	if cfg.Overlap > 0 && cfg.Overlap < 1 {
+		cfg.NumOverlap = int(math.Round(1.0 / cfg.Overlap))
+	}
+	return cfg, true
+}
+
+// writeUVRModelConfigJSON writes a UVR-style JSON config for pipeline.sh overrides.
+func writeUVRModelConfigJSON(name string, cfg ModelConfigResponse) error {
+	path := uvrModelConfigJSONPath(name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("failed to create model config directory: %w", err)
+	}
+
+	numOverlap := 4
+	if cfg.Overlap > 0 && cfg.Overlap < 1 {
+		numOverlap = int(math.Round(1.0 / cfg.Overlap))
+	}
+	if numOverlap < 1 {
+		numOverlap = 1
+	}
+
+	payload := map[string]interface{}{
+		"segment_size": cfg.SegmentSize,
+		"overlap":      cfg.Overlap,
+		"chunk_size":   cfg.ChunkSize,
+		"batch_size":   cfg.BatchSize,
+		"device":       cfg.Device,
+		"dim_t":        cfg.SegmentSize,
+		"num_overlap":  numOverlap,
+	}
+	if cfg.Shifts > 0 {
+		payload["shifts"] = cfg.Shifts
+	}
+	if cfg.Segment > 0 {
+		payload["segment"] = cfg.Segment
+	}
+	if cfg.Jobs > 0 {
+		payload["jobs"] = cfg.Jobs
+	}
+
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+	data = append(data, '\n')
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("failed to write JSON: %w", err)
+	}
+	return nil
+}
+
 // findModelYaml returns the path to the model's YAML config file, or empty string.
+// User-saved configs under config/model_configs take precedence over any YAML
+// shipped with the model directory, so UI changes are always effective.
 func findModelYaml(modelName string) string {
+	// 1. User override (saved via UI/API).
+	cfgPath := modelConfigYamlPath(modelName)
+	if info, err := os.Stat(cfgPath); err == nil && !info.IsDir() {
+		return cfgPath
+	}
+
+	// 2. Model-shipped YAML.
 	modelDir := resolveModelDir(modelName)
 	if modelDir != "" {
 		if info, err := os.Stat(modelDir); err == nil && info.IsDir() {
@@ -2528,11 +2744,6 @@ func findModelYaml(modelName string) string {
 				}
 			}
 		}
-	}
-
-	cfgPath := modelConfigYamlPath(modelName)
-	if info, err := os.Stat(cfgPath); err == nil && !info.IsDir() {
-		return cfgPath
 	}
 	return ""
 }
@@ -2550,153 +2761,116 @@ func findYamlChildNode(parent *yaml.Node, key string) *yaml.Node {
 	return nil
 }
 
-// readModelConfigFromYaml reads inference parameters from a model's YAML file using Go yaml.Node.
-// Returns defaults if reading fails or model has no YAML.
+// readModelConfigFromYaml reads inference parameters for a model.
+// Priority:
+//  1. User-saved YAML (config/model_configs/<name>.yaml)
+//  2. UVR JSON shipped in config/model_configs/<name>.json
+//  3. Model-shipped YAML, but with training-only values (e.g. dim_t > 2048) replaced
+//     by safe inference defaults.
 func readModelConfigFromYaml(name string) ModelConfigResponse {
 	defaults := ModelConfigResponse{
-		SegmentSize: 256, Overlap: 0.25, ChunkSize: 0, BatchSize: 0,
+		SegmentSize: 512, Overlap: 0.25, ChunkSize: 0, BatchSize: 1,
 		Device: "cuda", Shifts: 1, Segment: 0, Jobs: 0,
 	}
 
+	// 1. User override YAML.
+	userYaml := modelConfigYamlPath(name)
+	if info, err := os.Stat(userYaml); err == nil && !info.IsDir() {
+		if cfg, ok := parseModelYaml(userYaml); ok {
+			log.Printf("INFO: model config for %s loaded from user YAML: dim_t=%d overlap=%.2f batch=%d chunk=%d shifts=%d segment=%.0f jobs=%d",
+				name, cfg.SegmentSize, cfg.Overlap, cfg.BatchSize, cfg.ChunkSize, cfg.Shifts, cfg.Segment, cfg.Jobs)
+			return cfg
+		}
+	}
+
+	// 2. UVR JSON fallback (shipped inference defaults).
+	uvrJSON := uvrModelConfigJSONPath(name)
+	if info, err := os.Stat(uvrJSON); err == nil && !info.IsDir() {
+		if cfg, ok := readUVRModelConfigJSON(uvrJSON); ok {
+			log.Printf("INFO: model config for %s loaded from UVR JSON: dim_t=%d overlap=%.2f batch=%d chunk=%d shifts=%d segment=%.0f jobs=%d",
+				name, cfg.SegmentSize, cfg.Overlap, cfg.BatchSize, cfg.ChunkSize, cfg.Shifts, cfg.Segment, cfg.Jobs)
+			return cfg
+		}
+	}
+
+	// 3. Model-shipped YAML.
 	yamlPath := findModelYaml(name)
 	if yamlPath == "" {
 		return defaults
 	}
-
-	data, err := os.ReadFile(yamlPath)
-	if err != nil {
+	cfg, ok := parseModelYaml(yamlPath)
+	if !ok {
 		return defaults
 	}
 
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		log.Printf("WARN: failed to parse YAML %s: %v", yamlPath, err)
-		return defaults
+	// Sanitize: training YAMLs often contain huge dim_t values that are not valid
+	// for inference (e.g. 3105). Clamp to a safe range.
+	if cfg.SegmentSize > 2048 || cfg.SegmentSize < 64 {
+		log.Printf("WARN: model %s shipped YAML has dim_t=%d; using inference default %d", name, cfg.SegmentSize, defaults.SegmentSize)
+		cfg.SegmentSize = defaults.SegmentSize
+		cfg.DimT = defaults.SegmentSize
 	}
+	if cfg.NumOverlap < 1 {
+		cfg.NumOverlap = 4
+	}
+	if cfg.Overlap <= 0 || cfg.Overlap >= 1 {
+		cfg.Overlap = 1.0 / float64(cfg.NumOverlap)
+	}
+	if cfg.BatchSize < 1 {
+		cfg.BatchSize = 1
+	}
+	if cfg.Shifts < 1 {
+		cfg.Shifts = 1
+	}
+	cfg.Segment = clampDemucsSegment(cfg.Segment)
 
-	// doc.Content[0] is the root mapping
-	if len(doc.Content) == 0 {
-		return defaults
-	}
-	infNode := findYamlChildNode(doc.Content[0], "inference")
-	if infNode == nil || infNode.Kind != yaml.MappingNode {
-		return defaults
-	}
-
-	dimT := 801
-	numOverlap := 4
-	batchSize := 1
-	chunkSize := 0
-
-	if n := findYamlChildNode(infNode, "dim_t"); n != nil {
-		if v, err := strconv.Atoi(n.Value); err == nil {
-			dimT = v
-		}
-	}
-	if n := findYamlChildNode(infNode, "num_overlap"); n != nil {
-		if v, err := strconv.Atoi(n.Value); err == nil {
-			numOverlap = v
-		}
-	}
-	if n := findYamlChildNode(infNode, "batch_size"); n != nil {
-		if v, err := strconv.Atoi(n.Value); err == nil {
-			batchSize = v
-		}
-	}
-	if n := findYamlChildNode(infNode, "chunk_size"); n != nil {
-		if v, err := strconv.Atoi(n.Value); err == nil {
-			chunkSize = v
-		}
-	}
-
-	segSize := (dimT - 33) / 3
-	if segSize < 1 {
-		segSize = 1
-	}
-	overlap := 0.25
-	if numOverlap > 0 {
-		overlap = 1.0 / float64(numOverlap)
-	}
-
-	resp := ModelConfigResponse{
-		SegmentSize: segSize,
-		Overlap:     overlap,
-		ChunkSize:   chunkSize,
-		BatchSize:   batchSize,
-		Device:      "cuda",
-		Shifts:      1,
-		Segment:     0,
-		Jobs:        0,
-		DimT:        dimT,
-		NumOverlap:  numOverlap,
-	}
-
-	// Read Demucs-specific overrides if present.
-	if demNode := findYamlChildNode(doc.Content[0], "demucs"); demNode != nil && demNode.Kind == yaml.MappingNode {
-		if n := findYamlChildNode(demNode, "shifts"); n != nil {
-			if v, err := strconv.Atoi(n.Value); err == nil {
-				resp.Shifts = v
-			}
-		}
-		if n := findYamlChildNode(demNode, "segment"); n != nil {
-			if v, err := strconv.ParseFloat(n.Value, 64); err == nil {
-				resp.Segment = v
-			}
-		}
-		if n := findYamlChildNode(demNode, "jobs"); n != nil {
-			if v, err := strconv.Atoi(n.Value); err == nil {
-				resp.Jobs = v
-			}
-		}
-	}
-
-	return resp
+	log.Printf("INFO: model config for %s loaded from shipped YAML (sanitized): dim_t=%d overlap=%.2f batch=%d chunk=%d shifts=%d segment=%.0f jobs=%d",
+		name, cfg.SegmentSize, cfg.Overlap, cfg.BatchSize, cfg.ChunkSize, cfg.Shifts, cfg.Segment, cfg.Jobs)
+	return cfg
 }
 
-// writeModelConfigToYaml writes inference parameters to a model's YAML file using Go yaml.Node.
-// If the model has no YAML on disk, it creates one at config/model_configs/<name>.yaml.
+// writeModelConfigToYaml writes inference parameters to the user-saved model YAML
+// at config/model_configs/<name>.yaml. It never modifies model-shipped YAMLs.
 func writeModelConfigToYaml(name string, cfg ModelConfigResponse) error {
 	// Clamp Demucs segment to the valid integer range accepted by the CLI.
 	cfg.Segment = clampDemucsSegment(cfg.Segment)
 
-	// Convert segment_size → dim_t, overlap → num_overlap
-	dimT := cfg.SegmentSize*3 + 33
-	numOverlap := 0
-	if cfg.Overlap > 0 {
-		numOverlap = int(1.0 / cfg.Overlap)
+	// UI "Segment Size" is dim_t directly; num_overlap is derived from overlap.
+	numOverlap := 4
+	if cfg.Overlap > 0 && cfg.Overlap < 1 {
+		numOverlap = int(math.Round(1.0 / cfg.Overlap))
 	}
 	if numOverlap < 1 {
-		numOverlap = 4
+		numOverlap = 1
 	}
 	batchSize := cfg.BatchSize
-	if batchSize < 1 {
-		batchSize = 1
+	if batchSize < 0 {
+		batchSize = 0
 	}
 	chunkSize := cfg.ChunkSize
 	if chunkSize < 0 {
 		chunkSize = 0
 	}
 
-	yamlPath := findModelYaml(name)
+	yamlPath := modelConfigYamlPath(name)
+	if err := os.MkdirAll(filepath.Dir(yamlPath), 0o755); err != nil {
+		return fmt.Errorf("failed to create model config directory: %w", err)
+	}
+
 	var doc yaml.Node
-	if yamlPath == "" {
-		// No YAML yet: create one in the fallback config directory.
-		yamlPath = modelConfigYamlPath(name)
-		if err := os.MkdirAll(filepath.Dir(yamlPath), 0o755); err != nil {
-			return fmt.Errorf("failed to create model config directory: %w", err)
-		}
-		raw := fmt.Sprintf("inference:\n  dim_t: %d\n  num_overlap: %d\n  batch_size: %d\n  chunk_size: %d\ndemucs:\n  shifts: %d\n  segment: %s\n  jobs: %d\n",
-			dimT, numOverlap, batchSize, chunkSize, cfg.Shifts, strconv.FormatFloat(cfg.Segment, 'f', -1, 64), cfg.Jobs)
-		if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
-			return fmt.Errorf("failed to seed YAML: %w", err)
-		}
-	} else {
+	if _, err := os.Stat(yamlPath); err == nil {
 		data, err := os.ReadFile(yamlPath)
 		if err != nil {
-			return fmt.Errorf("failed to read YAML: %w", err)
+			return fmt.Errorf("failed to read existing YAML: %w", err)
 		}
 		if err := yaml.Unmarshal(data, &doc); err != nil {
-			return fmt.Errorf("failed to parse YAML: %w", err)
+			return fmt.Errorf("failed to parse existing YAML: %w", err)
+		}
+	} else {
+		raw := fmt.Sprintf("inference:\n  dim_t: %d\n  num_overlap: %d\n  batch_size: %d\n  chunk_size: %d\ndemucs:\n  shifts: %d\n  segment: %s\n  jobs: %d\n",
+			cfg.SegmentSize, numOverlap, batchSize, chunkSize, cfg.Shifts, strconv.FormatFloat(cfg.Segment, 'f', -1, 64), cfg.Jobs)
+		if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
+			return fmt.Errorf("failed to seed YAML: %w", err)
 		}
 	}
 
@@ -2718,7 +2892,7 @@ func writeModelConfigToYaml(name string, cfg ModelConfigResponse) error {
 			infNode,
 		)
 	}
-	setYamlChildInt(infNode, "dim_t", dimT)
+	setYamlChildInt(infNode, "dim_t", cfg.SegmentSize)
 	setYamlChildInt(infNode, "num_overlap", numOverlap)
 	setYamlChildInt(infNode, "batch_size", batchSize)
 	setYamlChildInt(infNode, "chunk_size", chunkSize)
@@ -2893,7 +3067,15 @@ func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		Log("backend", "success", "Config saved to YAML: "+name)
+		// Keep the UVR-style JSON override in sync so pipeline.sh can pick it up
+		// without having to read training-only YAML values.
+		if err := writeUVRModelConfigJSON(name, cfg); err != nil {
+			log.Printf("ERROR: failed to sync UVR JSON for %s: %v", name, err)
+			// Non-fatal: the YAML is the source of truth for the backend.
+		}
+
+		Log("backend", "success", fmt.Sprintf("Config saved for %s: dim_t=%d overlap=%.2f batch=%d chunk=%d shifts=%d segment=%.0f jobs=%d",
+			name, cfg.SegmentSize, cfg.Overlap, cfg.BatchSize, cfg.ChunkSize, cfg.Shifts, cfg.Segment, cfg.Jobs))
 
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{

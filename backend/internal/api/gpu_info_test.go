@@ -29,15 +29,15 @@ func TestEstimateVRAMMB_Empirical(t *testing.T) {
 		{"demucs seg0", "htdemucs_ft", 0, 0, 0, 0, 1572, 0.05},
 		{"demucs seg7", "htdemucs_ft", 0, 0, 0, 7, 1106, 0.05},
 
-		// MDX23C measured peaks (batch 1). dim_t = segment_size*3 + 33.
-		{"mdx dim_t417 b1", "MDX23C", 128, 0, 1, 0, 2080, 0.05},
-		{"mdx dim_t801 b1", "MDX23C", 256, 0, 1, 0, 2478, 0.05},
-		{"mdx dim_t1569 b1", "MDX23C", 512, 0, 1, 0, 6748, 0.05},
-		{"mdx dim_t2337 b1", "MDX23C", 768, 0, 1, 0, 9872, 0.05},
-		{"mdx dim_t801 b2", "MDX23C", 256, 0, 2, 0, 4956, 0.05},
+		// MDX23C measured peaks (batch 1). segment_size is dim_t directly.
+		{"mdx dim_t256 b1", "MDX23C", 256, 0, 1, 0, 2080, 0.05},
+		{"mdx dim_t512 b1", "MDX23C", 512, 0, 1, 0, 2178, 0.05},
+		{"mdx dim_t768 b1", "MDX23C", 768, 0, 1, 0, 2444, 0.05},
+		{"mdx dim_t1024 b1", "MDX23C", 1024, 0, 1, 0, 3716, 0.05},
+		{"mdx dim_t256 b2", "MDX23C", 256, 0, 2, 0, 4160, 0.05},
 		{"mdx default segment0", "MDX23C", 0, 0, 1, 0, 2080, 0.05},
-		{"mdxnet dim_t801 b1", "MDXNet_Vocals", 256, 0, 1, 0, 2478, 0.05},
-		{"onnx dim_t801 b1", "UVR_MDXNET_3_9662", 256, 0, 1, 0, 2478, 0.05},
+		{"mdxnet dim_t256 b1", "MDXNet_Vocals", 256, 0, 1, 0, 2080, 0.05},
+		{"onnx dim_t256 b1", "UVR_MDXNET_3_9662", 256, 0, 1, 0, 2080, 0.05},
 
 		// SCNet measured peaks. Base is linear in chunk_size (batch 1),
 		// then multiplied by batch. Overlap is ignored.

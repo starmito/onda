@@ -477,22 +477,21 @@ func (s *Server) handleGPUInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 // mdxDimTPoints are today's measured MDX23C dim_t values ordered increasingly.
-// dim_t is derived from segment_size as: dim_t = segment_size*3 + 33.
+// segment_size is now dim_t directly (UI "Segment Size" == dim_t).
 var mdxDimTPoints = []int{417, 801, 1569, 2337}
 
 // mdxVRAMPoints are the measured VRAM peaks (MiB, batch 1) for mdxDimTPoints.
 var mdxVRAMPoints = []int{2080, 2478, 6748, 9872}
 
 // mdxEstimateVRAMMB returns the empirical MDX-family VRAM peak in MB.
-// It derives dim_t from segment_size, interpolates the base peak from the
-// measured table, and multiplies by batch size.
+// segment_size is dim_t directly; it interpolates the base peak from the
+// measured table and multiplies by batch size.
 func mdxEstimateVRAMMB(segmentSize, batchSize int) int {
 	b := batchSize
 	if b < 1 {
 		b = 1
 	}
-	dimT := segmentSize*3 + 33
-	base := interpolatePeak(dimT, mdxDimTPoints, mdxVRAMPoints)
+	base := interpolatePeak(segmentSize, mdxDimTPoints, mdxVRAMPoints)
 	return base * b
 }
 

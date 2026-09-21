@@ -563,11 +563,90 @@ is_onnx_model_dir() {
     return 1
 }
 
-# Read UVR-style model config (model_configs/<model>.json) and derive RoFormer
-# inference parameters. segment_size maps directly to dim_t, overlap is a float
-# converted to an integer overlap factor (1/overlap), and batch_size is used
-# as-is when >0. This prevents training-style YAML values (e.g. dim_t=3105)
-# from being used for inference.
+# Resolve the effective model config source for a model name.
+# Priority:
+#   1. User-saved YAML   (config/model_configs/<name>.yaml)
+#   2. UVR-style JSON    (config/model_configs/<name>.json)
+#   3. Model-shipped YAML in the model directory
+#   4. Model-shipped JSON in the model directory
+# Prints "<kind>:<path>" or nothing if no config is found.
+_resolve_model_config_source() {
+    local model_name="$1"
+    local model_dir="${2:-}"
+    local real_model_dir real_model_name
+    real_model_dir=$(readlink -f "$model_dir" 2>/dev/null || echo "$model_dir")
+    real_model_name=$(basename "$real_model_dir" 2>/dev/null || echo "$model_name")
+
+    local d candidate
+    for d in "${CONFIG_DIR}/model_configs" "${ONDA_DATA_DIR}/model_configs"; do
+        for candidate in "${d}/${model_name}.yaml" "${d}/${real_model_name}.yaml"; do
+            if [ -f "$candidate" ]; then
+                echo "user_yaml:${candidate}"
+                return 0
+            fi
+        done
+    done
+
+    for d in "${CONFIG_DIR}/model_configs" "${ONDA_DATA_DIR}/model_configs"; do
+        for candidate in "${d}/${model_name}.json" "${d}/${real_model_name}.json"; do
+            if [ -f "$candidate" ]; then
+                echo "uvr_json:${candidate}"
+                return 0
+            fi
+        done
+    done
+
+    if [ -n "$model_dir" ] && [ -d "$model_dir" ]; then
+        for candidate in "${model_dir}/${model_name}.yaml" "${model_dir}/${real_model_name}.yaml"; do
+            if [ -f "$candidate" ]; then
+                echo "model_yaml:${candidate}"
+                return 0
+            fi
+        done
+        for candidate in "${model_dir}/${model_name}.json" "${model_dir}/${real_model_name}.json" "${model_dir}/model_config.json"; do
+            if [ -f "$candidate" ]; then
+                echo "model_json:${candidate}"
+                return 0
+            fi
+        done
+    fi
+
+    return 0
+}
+
+# Read a value from a model config source (user YAML, UVR JSON or model config).
+# Usage: _read_model_config_value <source> <yaml_path> <json_key> [default]
+# yaml_path is a dot-separated path for YAML (e.g. "inference.dim_t").
+_read_model_config_value() {
+    local source="$1"
+    local yaml_path="$2"
+    local json_key="$3"
+    local default_val="${4:-}"
+    local path="${source#*:}"
+    local kind="${source%%:*}"
+
+    case "$kind" in
+        user_yaml|model_yaml)
+            python3 -c "import yaml; d=yaml.load(open('$path'), Loader=yaml.FullLoader); keys='$yaml_path'.split('.'); v=d;
+for k in keys:
+    v = v.get(k) if isinstance(v, dict) else None
+print(v if v is not None else '')" 2>/dev/null || echo "$default_val"
+            ;;
+        uvr_json|model_json)
+            python3 -c "import json,sys; v=json.load(open('$path')).get('$json_key'); print(v if v is not None else '')" 2>/dev/null || echo "$default_val"
+            ;;
+        *)
+            echo "$default_val"
+            ;;
+    esac
+}
+
+# Read user-saved model config (config/model_configs/<model>.yaml) or UVR-style
+# JSON and derive RoFormer inference parameters. User YAML takes precedence,
+# then JSON, then the model-shipped YAML. segment_size maps directly to dim_t,
+# overlap is a float converted to an integer overlap factor (1/overlap), and
+# batch_size is used as-is when >0. This prevents training-style YAML values
+# (e.g. dim_t=3105) from being used for inference.
 _apply_roformer_model_config_overrides() {
     local model_dir="$1"
     local model_name
@@ -580,36 +659,45 @@ _apply_roformer_model_config_overrides() {
     local real_model_name
     real_model_name=$(basename "$real_model_dir")
 
-    local cfg_json=""
-    local candidate=""
-    for d in "${model_dir}" "${real_model_dir}" "${SCRIPT_DIR}/model_configs" "${CONFIG_DIR}/model_configs" "${ONDA_DATA_DIR}/model_configs"; do
-        for candidate in "${d}/${model_name}.json" "${d}/${real_model_name}.json" "${d}/model_config.json"; do
-            if [ -f "$candidate" ]; then
-                cfg_json="$candidate"
-                break 2
-            fi
-        done
-    done
-    [ -z "$cfg_json" ] && return 0
+    local source
+    source=$(_resolve_model_config_source "$model_name" "$model_dir")
+    [ -z "$source" ] && return 0
 
-    echo "   ℹ️  RoFormer config override: ${cfg_json}"
+    local kind path
+    kind="${source%%:*}"
+    path="${source#*:}"
+
+    case "$kind" in
+        user_yaml)
+            echo "   ℹ️  RoFormer user config override: ${path}"
+            ;;
+        uvr_json)
+            echo "   ℹ️  RoFormer UVR JSON config override: ${path}"
+            ;;
+        model_yaml|model_json)
+            echo "   ℹ️  RoFormer model config override: ${path}"
+            ;;
+    esac
 
     local seg overlap batch
-    seg=$(python3 -c "import json,sys; print(json.load(open('$cfg_json')).get('segment_size',0))" 2>/dev/null || echo "0")
-    overlap=$(python3 -c "import json,sys; print(json.load(open('$cfg_json')).get('overlap',0))" 2>/dev/null || echo "0")
-    batch=$(python3 -c "import json,sys; print(json.load(open('$cfg_json')).get('batch_size',0))" 2>/dev/null || echo "0")
+    seg=$(_read_model_config_value "$source" "inference.dim_t" "segment_size" "0")
+    overlap=$(_read_model_config_value "$source" "inference.num_overlap" "num_overlap" "0")
+    batch=$(_read_model_config_value "$source" "inference.batch_size" "batch_size" "0")
+
+    # For model JSON overlap may be stored as a float; convert to integer factor.
+    if [ "$kind" = "uvr_json" ] || [ "$kind" = "model_json" ]; then
+        if [ -n "$overlap" ]; then
+            overlap=$(python3 -c "import sys; v=float('$overlap'); print(int(round(1.0/v))) if v>0 else sys.exit(1)" 2>/dev/null || echo "")
+        fi
+    fi
 
     if [ -n "$seg" ] && [ "$seg" -gt 0 ] 2>/dev/null; then
         VOCAL_DIM_T="$seg"
         VIPERX_DIM_T="$seg"
     fi
-    if [ -n "$overlap" ]; then
-        local overlap_int
-        overlap_int=$(python3 -c "import sys; v=float('$overlap'); print(int(round(1.0/v))) if v>0 else sys.exit(1)" 2>/dev/null || echo "")
-        if [ -n "$overlap_int" ] && [ "$overlap_int" -gt 0 ] 2>/dev/null; then
-            VOCAL_NUM_OVERLAP="$overlap_int"
-            VIPERX_NUM_OVERLAP="$overlap_int"
-        fi
+    if [ -n "$overlap" ] && [ "$overlap" -gt 0 ] 2>/dev/null; then
+        VOCAL_NUM_OVERLAP="$overlap"
+        VIPERX_NUM_OVERLAP="$overlap"
     fi
     if [ -n "$batch" ] && [ "$batch" -gt 0 ] 2>/dev/null; then
         VOCAL_BATCH_SIZE="$batch"
@@ -641,14 +729,24 @@ run_vocal_step() {
             exit 2
         fi
         echo "   ℹ️  Detected MDX-C vocal model"
+        local model_name
+        model_name=$(basename "$model_dir")
+        local source
+        source=$(_resolve_model_config_source "$model_name" "$model_dir")
         local mdx_overlap="8"
         local mdx_batch_size="1"
-        local mdx_yaml
-        mdx_yaml=$(ls "${model_dir}"/*.yaml 2>/dev/null | head -1)
-        if [ -n "$mdx_yaml" ]; then
-            mdx_overlap=$(python3 -c "import yaml; print(yaml.load(open('$mdx_yaml'), Loader=yaml.FullLoader).get('inference',{}).get('num_overlap',8))" 2>/dev/null || echo "8")
-            mdx_batch_size=$(python3 -c "import yaml; print(yaml.load(open('$mdx_yaml'), Loader=yaml.FullLoader).get('inference',{}).get('batch_size',1))" 2>/dev/null || echo "1")
+        if [ -n "$source" ]; then
+            mdx_overlap=$(_read_model_config_value "$source" "inference.num_overlap" "num_overlap" "8")
+            mdx_batch_size=$(_read_model_config_value "$source" "inference.batch_size" "batch_size" "1")
+            local kind
+            kind="${source%%:*}"
+            case "$kind" in
+                user_yaml) echo "   ℹ️  MDX-C user config override: ${source#*:}" ;;
+                uvr_json)  echo "   ℹ️  MDX-C UVR JSON config override: ${source#*:}" ;;
+                model_yaml|model_json) echo "   ℹ️  MDX-C model config override: ${source#*:}" ;;
+            esac
         fi
+        echo "   ℹ️  MDX-C effective params: overlap=${mdx_overlap}, batch_size=${mdx_batch_size}"
         run_with_elapsed python3 -u /app/inference_mdx.py \
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
@@ -660,9 +758,70 @@ run_vocal_step() {
             exit 2
         fi
         echo "   ℹ️  Detected SCNet vocal model"
+        local model_name
+        model_name=$(basename "$model_dir")
+        local source
+        source=$(_resolve_model_config_source "$model_name" "$model_dir")
+        local scnet_config_arg=""
+        local scnet_chunk_size="" scnet_num_overlap="" scnet_batch_size=""
+        if [ -n "$source" ]; then
+            local kind path
+            kind="${source%%:*}"
+            path="${source#*:}"
+            case "$kind" in
+                user_yaml) echo "   ℹ️  SCNet user config override: ${path}" ;;
+                uvr_json)  echo "   ℹ️  SCNet UVR JSON config override: ${path}" ;;
+                model_yaml|model_json) echo "   ℹ️  SCNet model config override: ${path}" ;;
+            esac
+            scnet_chunk_size=$(_read_model_config_value "$source" "inference.chunk_size" "chunk_size" "")
+            scnet_num_overlap=$(_read_model_config_value "$source" "inference.num_overlap" "num_overlap" "")
+            scnet_batch_size=$(_read_model_config_value "$source" "inference.batch_size" "batch_size" "")
+            if [ "$kind" = "user_yaml" ] || [ "$kind" = "uvr_json" ]; then
+                if [ -n "$scnet_chunk_size" ] || [ -n "$scnet_num_overlap" ] || [ -n "$scnet_batch_size" ]; then
+                    local model_yaml
+                    model_yaml=$(ls "${model_dir}"/*.yaml 2>/dev/null | head -1)
+                    if [ -n "$model_yaml" ]; then
+                        local merged_config
+                        merged_config="${output_dir}/.scnet_config.yaml"
+                        mkdir -p "${output_dir}"
+                        python3 - "$model_yaml" "$scnet_chunk_size" "$scnet_num_overlap" "$scnet_batch_size" "$merged_config" << 'PYEOF'
+import yaml, sys
+src_path, chunk, overlap, batch, dst = sys.argv[1:6]
+with open(src_path) as f:
+    cfg = yaml.full_load(f)
+if not isinstance(cfg.get('inference'), dict):
+    cfg['inference'] = {}
+if chunk:
+    cfg['inference']['chunk_size'] = int(float(chunk))
+if overlap:
+    cfg['inference']['num_overlap'] = int(float(overlap))
+if batch:
+    cfg['inference']['batch_size'] = int(float(batch))
+with open(dst, 'w') as f:
+    yaml.dump(cfg, f, default_flow_style=False)
+PYEOF
+                        scnet_config_arg="--config ${merged_config}"
+                    fi
+                fi
+            fi
+        fi
+        # Effective values read by inference_scnet.py.
+        local eff_config_path
+        eff_config_path="${scnet_config_arg#--config }"
+        if [ -z "$eff_config_path" ]; then
+            eff_config_path=$(ls "${model_dir}"/*.yaml 2>/dev/null | head -1)
+        fi
+        local eff_chunk="?" eff_overlap="?" eff_batch="?"
+        if [ -n "$eff_config_path" ] && [ -f "$eff_config_path" ]; then
+            eff_chunk=$(python3 -c "import yaml; c=yaml.load(open('$eff_config_path'), Loader=yaml.FullLoader); print(c.get('inference',{}).get('chunk_size', c.get('audio',{}).get('chunk_size','?')))" 2>/dev/null || echo "?")
+            eff_overlap=$(python3 -c "import yaml; c=yaml.load(open('$eff_config_path'), Loader=yaml.FullLoader); print(c.get('inference',{}).get('num_overlap','?'))" 2>/dev/null || echo "?")
+            eff_batch=$(python3 -c "import yaml; c=yaml.load(open('$eff_config_path'), Loader=yaml.FullLoader); print(c.get('inference',{}).get('batch_size','?'))" 2>/dev/null || echo "?")
+        fi
+        echo "   ℹ️  SCNet effective params: chunk_size=${eff_chunk}, num_overlap=${eff_overlap}, batch_size=${eff_batch}"
         run_with_elapsed python3 -u /app/inference_scnet.py \
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
+            ${scnet_config_arg} \
             "${model_dir}" "${input_file}" "${output_dir}"
     elif is_onnx_model_dir "$model_dir"; then
         if [ ! -f /app/inference_onnx.py ]; then
@@ -670,12 +829,23 @@ run_vocal_step() {
             exit 2
         fi
         echo "   ℹ️  Detected MDXNet ONNX vocal model"
+        local model_name
+        model_name=$(basename "$model_dir")
+        local source
+        source=$(_resolve_model_config_source "$model_name" "$model_dir")
         local onnx_overlap="4"
-        local onnx_json
-        onnx_json=$(ls "${model_dir}"/*.json 2>/dev/null | head -1)
-        if [ -n "$onnx_json" ]; then
-            onnx_overlap=$(python3 -c "import json; print(json.load(open('$onnx_json')).get('overlap',4))" 2>/dev/null || echo "4")
+        if [ -n "$source" ]; then
+            onnx_overlap=$(_read_model_config_value "$source" "inference.num_overlap" "overlap" "4")
+            # UVR JSON stores overlap as a float factor; inference_onnx.py expects a float.
+            local kind
+            kind="${source%%:*}"
+            case "$kind" in
+                user_yaml) echo "   ℹ️  MDXNet ONNX user config override: ${source#*:}" ;;
+                uvr_json)  echo "   ℹ️  MDXNet ONNX UVR JSON config override: ${source#*:}" ;;
+                model_yaml|model_json) echo "   ℹ️  MDXNet ONNX model config override: ${source#*:}" ;;
+            esac
         fi
+        echo "   ℹ️  MDXNet ONNX effective params: overlap=${onnx_overlap}"
         run_with_elapsed python3 -u /app/inference_onnx.py \
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
@@ -722,9 +892,9 @@ run_viperx_step() {
     run_vocal_step "$@"
 }
 
-# Apply fallback Demucs parameters from config/model_configs/<model>.yaml
+# Apply fallback Demucs parameters from the effective model config source
 # when the caller did not explicitly pass --shifts / --demucs-segment / --jobs.
-# This keeps the pipeline aligned with values saved via the UI/API.
+# Priority: user YAML > UVR JSON > model-shipped YAML/JSON.
 apply_demucs_fallback_config() {
     local model_name="${1:-htdemucs_ft}"
 
@@ -732,24 +902,50 @@ apply_demucs_fallback_config() {
         return 0
     fi
 
-    local config_dir="${SCRIPT_DIR}/config/model_configs"
-    if [ ! -d "$config_dir" ]; then
-        config_dir="$CONFIG_DIR/model_configs"
-    fi
-    local yaml_file="${config_dir}/${model_name}.yaml"
-    if [ ! -f "$yaml_file" ]; then
-        return 0
+    # Demucs model YAMLs live one level under models/Demucs (e.g. Demucs_v4/htdemucs_ft.yaml).
+    local model_yaml model_dir
+    model_yaml=$(find "${MODELS_DIR}/Demucs_Models/models/Demucs" -maxdepth 2 -name "${model_name}.yaml" -print -quit 2>/dev/null || true)
+    model_dir="${MODELS_DIR}/Demucs_Models/models/Demucs"
+    if [ -n "$model_yaml" ]; then
+        model_dir=$(dirname "$model_yaml")
     fi
 
+    local source
+    source=$(_resolve_model_config_source "$model_name" "$model_dir")
+    [ -z "$source" ] && return 0
+
+    local kind path
+    kind="${source%%:*}"
+    path="${source#*:}"
+
+    case "$kind" in
+        user_yaml)
+            echo "   ℹ️  Demucs user config override: ${path}"
+            ;;
+        uvr_json)
+            echo "   ℹ️  Demucs UVR JSON config override: ${path}"
+            ;;
+        model_yaml|model_json)
+            echo "   ℹ️  Demucs model config override: ${path}"
+            ;;
+    esac
+
     if ! $SHIFTS_SET_EXPLICITLY; then
-        SHIFTS=$(python3 -c "import yaml; print(yaml.load(open('$yaml_file'), Loader=yaml.FullLoader).get('demucs',{}).get('shifts',1))" 2>/dev/null || echo "1")
+        SHIFTS=$(_read_model_config_value "$source" "demucs.shifts" "shifts" "1")
     fi
     if ! $DEMUCS_SEGMENT_SET_EXPLICITLY; then
-        DEMUCS_SEGMENT=$(python3 -c "import yaml; print(yaml.load(open('$yaml_file'), Loader=yaml.FullLoader).get('demucs',{}).get('segment',0))" 2>/dev/null || echo "0")
+        DEMUCS_SEGMENT=$(_read_model_config_value "$source" "demucs.segment" "segment" "0")
     fi
     if ! $JOBS_SET_EXPLICITLY; then
-        JOBS=$(python3 -c "import yaml; print(yaml.load(open('$yaml_file'), Loader=yaml.FullLoader).get('demucs',{}).get('jobs',0))" 2>/dev/null || echo "0")
+        JOBS=$(_read_model_config_value "$source" "demucs.jobs" "jobs" "0")
     fi
+
+    # Ensure integer-looking values for the demucs worker CLI.
+    SHIFTS=$(python3 -c "print(int(float('${SHIFTS:-1}')))" 2>/dev/null || echo "1")
+    DEMUCS_SEGMENT=$(python3 -c "print(int(float('${DEMUCS_SEGMENT:-0}')))" 2>/dev/null || echo "0")
+    JOBS=$(python3 -c "print(int(float('${JOBS:-0}')))" 2>/dev/null || echo "0")
+
+    echo "   ℹ️  Demucs effective params: shifts=${SHIFTS}, segment=${DEMUCS_SEGMENT}, jobs=${JOBS}"
 }
 
 # Run a Demucs step using tools/demucs_worker.py (official demucs.api).
@@ -1376,7 +1572,7 @@ if $VOCAL || $VIPERX; then
         # training values such as dim_t=3105 at inference time.
         _apply_roformer_model_config_overrides "$MODEL_DIR"
         if [ -n "${VOCAL_DIM_T:-${VIPERX_DIM_T:-}}" ]; then
-            echo "   ℹ️  RoFormer inference params: dim_t=${VOCAL_DIM_T:-${VIPERX_DIM_T}}, overlap=${VOCAL_NUM_OVERLAP:-${VIPERX_NUM_OVERLAP}}, batch=${VOCAL_BATCH_SIZE:-${VIPERX_BATCH_SIZE}}"
+            echo "   ℹ️  RoFormer effective inference params: dim_t=${VOCAL_DIM_T:-${VIPERX_DIM_T}}, overlap=${VOCAL_NUM_OVERLAP:-${VIPERX_NUM_OVERLAP}}, batch=${VOCAL_BATCH_SIZE:-${VIPERX_BATCH_SIZE}}, chunk=${ONDA_CHUNK_SIZE:-${VIPERX_CHUNK_SIZE:-${VOCAL_CHUNK_SIZE:-0}}}"
         fi
     fi
 fi
@@ -1441,62 +1637,10 @@ if $VOCAL || $VIPERX; then
     # Pass num_overlap as positional arg for backward compatibility.
     VOCAL_OVERLAP_INT="${VOCAL_NUM_OVERLAP:-${VIPERX_NUM_OVERLAP:-4}}"
 
-    if is_mdx_model_dir "${vocal_model_dir}"; then
-        if [ ! -f /app/inference_mdx.py ]; then
-            echo "❌ inference_mdx.py not found" >&2
-            exit 2
-        fi
-        echo "   ℹ️  Using MDX-C inference"
-        VOCAL_OVERLAP_INT="${VOCAL_NUM_OVERLAP:-${VIPERX_NUM_OVERLAP:-8}}"
-        VOCAL_BATCH_SIZE_INT="${VOCAL_BATCH_SIZE:-${VIPERX_BATCH_SIZE:-1}}"
-        run_with_elapsed python3 -u /app/inference_mdx.py \
-            --pipeline-status "$STATUS_FILE" \
-            --device "$DEVICE" \
-            --batch-size "${VOCAL_BATCH_SIZE_INT}" \
-            "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}" ${VOCAL_OVERLAP_INT}
-    elif is_scnet_model_dir "${vocal_model_dir}"; then
-        if [ ! -f /app/inference_scnet.py ]; then
-            echo "❌ inference_scnet.py not found" >&2
-            exit 2
-        fi
-        echo "   ℹ️  Using SCNet inference"
-        run_with_elapsed python3 -u /app/inference_scnet.py \
-            --pipeline-status "$STATUS_FILE" \
-            --device "$DEVICE" \
-            "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}"
-    elif is_onnx_model_dir "${vocal_model_dir}"; then
-        if [ ! -f /app/inference_onnx.py ]; then
-            echo "❌ inference_onnx.py not found" >&2
-            exit 2
-        fi
-        echo "   ℹ️  Using MDXNet ONNX inference"
-        onnx_overlap="4"
-        onnx_json=$(ls "${vocal_model_dir}"/*.json 2>/dev/null | head -1)
-        if [ -n "$onnx_json" ]; then
-            onnx_overlap=$(python3 -c "import json; print(json.load(open('$onnx_json')).get('overlap',4))" 2>/dev/null || echo "4")
-        fi
-        run_with_elapsed python3 -u /app/inference_onnx.py \
-            --pipeline-status "$STATUS_FILE" \
-            --device "$DEVICE" \
-            "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}" "${onnx_overlap}"
-    else
-        if [ ! -f /app/inference_universal.py ]; then
-            echo "❌ inference_universal.py not found" >&2
-            exit 2
-        fi
-        echo "   ℹ️  Using RoFormer inference"
-        roformer_args=()
-        if [ -n "${VOCAL_DIM_T:-${VIPERX_DIM_T:-}}" ]; then
-            roformer_args+=("--dim-t" "${VOCAL_DIM_T:-${VIPERX_DIM_T}}")
-        fi
-        if [ -n "${VOCAL_BATCH_SIZE:-${VIPERX_BATCH_SIZE:-}}" ]; then
-            roformer_args+=("--batch-size" "${VOCAL_BATCH_SIZE:-${VIPERX_BATCH_SIZE}}")
-        fi
-        run_with_elapsed python3 -u /app/inference_universal.py \
-            --pipeline-status "$STATUS_FILE" \
-            "${roformer_args[@]}" \
-            "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}" ${VOCAL_OVERLAP_INT}
-    fi
+    # Delegate to the same step function used in chained mode so user/UVR/model
+    # config precedence and effective-param logging is identical for all vocal
+    # model types (MDX-C, SCNet, MDXNet ONNX, RoFormer).
+    run_vocal_step "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}"
     echo "   ✅ Vocal model done"
 
     # Find instrumental (for demucs)

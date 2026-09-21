@@ -49,8 +49,8 @@ func TestWriteModelConfigToYaml_CreatesFallbackForHtdemucsFt(t *testing.T) {
 	if infNode == nil {
 		t.Fatal("missing inference section in created YAML")
 	}
-	if n := findYamlChildNode(infNode, "dim_t"); n == nil || n.Value != "801" {
-		t.Errorf("expected dim_t=801, got %v", n)
+	if n := findYamlChildNode(infNode, "dim_t"); n == nil || n.Value != "256" {
+		t.Errorf("expected dim_t=256, got %v", n)
 	}
 
 	demNode := findYamlChildNode(rootNode, "demucs")
