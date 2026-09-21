@@ -38,6 +38,7 @@ type ModelUploadResponse struct {
 	Stems           []string `json:"stems"`
 	NumStems        int      `json:"num_stems"`
 	ManifestMissing bool     `json:"manifest_missing"`
+	Inferred        bool     `json:"inferred"`
 }
 
 // sanitizeModelFilename validates and cleans a model upload filename. It rejects
@@ -164,20 +165,18 @@ func (s *Server) handleModelsUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Save sidecar configs that share the same base name as the weight file.
+	// Save every sidecar config sent in the same request; the manifest parser
+	// will look at all YAML/JSON files in the model directory.
 	for _, cfg := range configParts {
 		cfgName := cfg.Filename
-		cfgBase := strings.TrimSuffix(cfgName, filepath.Ext(cfgName))
-		if strings.EqualFold(cfgBase, modelName) {
-			cfgDest := filepath.Join(modelDir, cfgName)
-			if _, err := saveUploadPart(cfg, cfgDest); err != nil {
-				Log("backend", "warn", fmt.Sprintf("failed to save config %s: %v", cfgName, err))
-			}
+		cfgDest := filepath.Join(modelDir, cfgName)
+		if _, err := saveUploadPart(cfg, cfgDest); err != nil {
+			Log("backend", "warn", fmt.Sprintf("failed to save config %s: %v", cfgName, err))
 		}
 	}
 
 	// Generate manifest so the model is immediately usable.
-	if err := generateModelManifest(modelDir, safeName); err != nil {
+	if err := generateModelManifest(modelDir, safeName, "upload"); err != nil {
 		Log("backend", "warn", fmt.Sprintf("failed to generate manifest for %s: %v", modelName, err))
 	}
 
@@ -188,6 +187,7 @@ func (s *Server) handleModelsUpload(w http.ResponseWriter, r *http.Request) {
 	var stems []string
 	numStems := 0
 	manifestMissing := true
+	inferred := false
 	if ok {
 		manifestMissing = false
 		if manifest.Name != "" {
@@ -197,6 +197,7 @@ func (s *Server) handleModelsUpload(w http.ResponseWriter, r *http.Request) {
 		category = categoryFromType(modelType)
 		stems = manifest.Stems.Stems
 		numStems = manifest.Stems.NumStems
+		inferred = manifest.Inferred
 	}
 
 	resp := ModelUploadResponse{
@@ -209,6 +210,7 @@ func (s *Server) handleModelsUpload(w http.ResponseWriter, r *http.Request) {
 		Stems:           stems,
 		NumStems:        numStems,
 		ManifestMissing: manifestMissing,
+		Inferred:        inferred,
 	}
 
 	Log("backend", "success", fmt.Sprintf("Model uploaded: %s -> %s", modelName, destPath))

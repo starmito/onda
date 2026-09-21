@@ -20,6 +20,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // modelsBasePath returns the root directory where models live. It defaults to
@@ -98,10 +100,12 @@ type modelManifestStems struct {
 // modelManifest is the JSON written next to each model by
 // ``python3 -m onda.cli manifest --regenerate``.
 type modelManifest struct {
-	Name  string                    `json:"name"`
-	Type  string                    `json:"type"`
-	Stems modelManifestStems        `json:"stems"`
-	Flags map[string]modelFlagDef   `json:"flags,omitempty"`
+	Name     string                  `json:"name"`
+	Type     string                  `json:"type"`
+	Stems    modelManifestStems      `json:"stems"`
+	Flags    map[string]modelFlagDef `json:"flags,omitempty"`
+	Origin   string                  `json:"origin,omitempty"`
+	Inferred bool                    `json:"inferred,omitempty"`
 }
 
 // loadModelManifest reads and parses the manifest for a model directory.
@@ -229,17 +233,180 @@ func inferManifestFlags(modelType string) map[string]modelFlagDef {
 	return flags
 }
 
+// configManifestInfo holds type and stems extracted from a sidecar config file.
+type configManifestInfo struct {
+	Type      string
+	Stems     []string
+	Target    *string
+	NumStems  int
+	FromConfig bool
+}
+
+// parseConfigForManifest scans the model directory for a YAML or JSON sidecar
+// config and extracts the real model type and stem list when present.
+func parseConfigForManifest(modelDir string) (configManifestInfo, bool) {
+	entries, err := os.ReadDir(modelDir)
+	if err != nil {
+		return configManifestInfo{}, false
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		ext := strings.ToLower(filepath.Ext(name))
+		if ext != ".yaml" && ext != ".yml" && ext != ".json" {
+			continue
+		}
+		path := filepath.Join(modelDir, name)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+
+		info, ok := parseConfigBytesForManifest(data, ext)
+		if ok {
+			return info, true
+		}
+	}
+	return configManifestInfo{}, false
+}
+
+// parseConfigBytesForManifest parses a single config buffer and extracts the
+// real type/stems when they are clearly declared.
+func parseConfigBytesForManifest(data []byte, ext string) (configManifestInfo, bool) {
+	if ext == ".json" {
+		var root map[string]interface{}
+		if err := json.Unmarshal(data, &root); err != nil {
+			return configManifestInfo{}, false
+		}
+		return extractManifestInfoFromMap(root)
+	}
+
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return configManifestInfo{}, false
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return configManifestInfo{}, false
+	}
+	root := doc.Content[0]
+
+	info := configManifestInfo{FromConfig: true}
+	found := false
+
+	if modelNode := findYamlChildNode(root, "model"); modelNode != nil && modelNode.Kind == yaml.MappingNode {
+		if n := findYamlChildNode(modelNode, "type"); n != nil && n.Kind == yaml.ScalarNode && n.Value != "" {
+			info.Type = normalizeModelType(n.Value)
+			found = true
+		}
+		if n := findYamlChildNode(modelNode, "num_stems"); n != nil && n.Kind == yaml.ScalarNode {
+			if v, err := strconv.Atoi(n.Value); err == nil {
+				info.NumStems = v
+			}
+		}
+	}
+
+	if trainingNode := findYamlChildNode(root, "training"); trainingNode != nil && trainingNode.Kind == yaml.MappingNode {
+		if instNode := findYamlChildNode(trainingNode, "instruments"); instNode != nil && instNode.Kind == yaml.SequenceNode {
+			stems := make([]string, 0, len(instNode.Content))
+			for _, child := range instNode.Content {
+				if child.Kind == yaml.ScalarNode && child.Value != "" {
+					stems = append(stems, strings.ToLower(child.Value))
+				}
+			}
+			if len(stems) > 0 {
+				info.Stems = stems
+				info.NumStems = len(stems)
+				found = true
+			}
+		}
+		if n := findYamlChildNode(trainingNode, "target_instrument"); n != nil && n.Kind == yaml.ScalarNode && n.Value != "" {
+			target := strings.ToLower(n.Value)
+			info.Target = &target
+		}
+	}
+
+	return info, found
+}
+
+// extractManifestInfoFromMap extracts type and stems from a JSON config map.
+func extractManifestInfoFromMap(root map[string]interface{}) (configManifestInfo, bool) {
+	info := configManifestInfo{FromConfig: true}
+	found := false
+
+	if model, ok := root["model"].(map[string]interface{}); ok {
+		if t, ok := model["type"].(string); ok && t != "" {
+			info.Type = normalizeModelType(t)
+			found = true
+		}
+		if n, ok := model["num_stems"].(float64); ok {
+			info.NumStems = int(n)
+		}
+	}
+
+	if training, ok := root["training"].(map[string]interface{}); ok {
+		if inst, ok := training["instruments"].([]interface{}); ok && len(inst) > 0 {
+			stems := make([]string, 0, len(inst))
+			for _, v := range inst {
+				if s, ok := v.(string); ok && s != "" {
+					stems = append(stems, strings.ToLower(s))
+				}
+			}
+			if len(stems) > 0 {
+				info.Stems = stems
+				info.NumStems = len(stems)
+				found = true
+			}
+		}
+		if t, ok := training["target_instrument"].(string); ok && t != "" {
+			target := strings.ToLower(t)
+			info.Target = &target
+		}
+	}
+
+	return info, found
+}
+
 // generateModelManifest writes a model.manifest.json next to an uploaded model.
 // It derives name, type, stems and flags from the filename so the model is
 // immediately usable by the pipeline, model editor and preset editor.
-func generateModelManifest(modelDir, filename string) error {
+// When origin is "upload" the manifest records that the model was uploaded
+// manually; if a sidecar config is present its declared type and stems are
+// used and the manifest is not marked as inferred.
+func generateModelManifest(modelDir, filename, origin string) error {
 	name := strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
-	modelType := inferManifestType(filename)
+
+	var modelType string
+	var stems modelManifestStems
+	inferred := false
+
+	if cfg, ok := parseConfigForManifest(modelDir); ok {
+		modelType = cfg.Type
+		stems = modelManifestStems{
+			Stems:    cfg.Stems,
+			Target:   cfg.Target,
+			NumStems: cfg.NumStems,
+		}
+		if stems.NumStems == 0 {
+			stems.NumStems = len(stems.Stems)
+		}
+	}
+
+	if modelType == "" {
+		modelType = inferManifestType(filename)
+		stems = inferManifestStems(modelType, filename)
+		inferred = true
+	}
+
 	manifest := modelManifest{
-		Name:  name,
-		Type:  modelType,
-		Stems: inferManifestStems(modelType, filename),
-		Flags: inferManifestFlags(modelType),
+		Name:     name,
+		Type:     modelType,
+		Stems:    stems,
+		Flags:    inferManifestFlags(modelType),
+		Origin:   origin,
+		Inferred: inferred,
 	}
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
@@ -291,6 +458,8 @@ type ModelEntry struct {
 	NumStems        int      `json:"num_stems"`
 	Target          *string  `json:"target"`
 	ManifestMissing bool     `json:"manifest_missing"`
+	Inferred        bool     `json:"inferred"`
+	Origin          string   `json:"origin,omitempty"`
 }
 
 // estimateVRAM returns an estimated VRAM usage in MB for a model based on its
@@ -442,6 +611,36 @@ func modelUsage() (entries int64, bytes int64) {
 	return
 }
 
+// ModelsUploadsResponse is returned by GET /api/models/uploads.
+type ModelsUploadsResponse struct {
+	Models []ModelEntry `json:"models"`
+}
+
+// handleModelsUploads returns only models that were uploaded manually (origin == "upload").
+// GET /api/models/uploads
+func (s *Server) handleModelsUploads(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("method %s not allowed", r.Method),
+		})
+		return
+	}
+
+	all := listModels()
+	uploads := make([]ModelEntry, 0, len(all.Models))
+	for _, m := range all.Models {
+		if m.Origin == "upload" {
+			uploads = append(uploads, m)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(ModelsUploadsResponse{Models: uploads})
+}
+
 // listModels walks the model directories and builds a ModelsListResponse.
 func listModels() ModelsListResponse {
 	var models []ModelEntry
@@ -470,40 +669,46 @@ func listModels() ModelsListResponse {
 			}
 			modelPath := filepath.ToSlash(filepath.Join(modelsBasePath(), rel))
 
-			name := strings.TrimSuffix(info.Name(), ext)
-			category := detectCategory(subdir, rel)
-			displayName := computeDisplayName(subdir, rel, name)
-			modelType := ""
-			var stems []string
-			numStems := 0
-			var target *string
-			manifestMissing := true
+		name := strings.TrimSuffix(info.Name(), ext)
+		category := detectCategory(subdir, rel)
+		displayName := computeDisplayName(subdir, rel, name)
+		modelType := ""
+		var stems []string
+		numStems := 0
+		var target *string
+		manifestMissing := true
+		inferred := false
+		origin := ""
 
-			if manifest, ok := loadModelManifest(filepath.Dir(path)); ok {
-				manifestMissing = false
-				if manifest.Name != "" {
-					displayName = manifest.Name
-				}
-				modelType = manifest.Type
-				category = categoryFromType(modelType)
-				stems = manifest.Stems.Stems
-				numStems = manifest.Stems.NumStems
-				target = manifest.Stems.Target
+		if manifest, ok := loadModelManifest(filepath.Dir(path)); ok {
+			manifestMissing = false
+			if manifest.Name != "" {
+				displayName = manifest.Name
 			}
+			modelType = manifest.Type
+			category = categoryFromType(modelType)
+			stems = manifest.Stems.Stems
+			numStems = manifest.Stems.NumStems
+			target = manifest.Stems.Target
+			inferred = manifest.Inferred
+			origin = manifest.Origin
+		}
 
-			models = append(models, ModelEntry{
-				Name:            name,
-				DisplayName:     displayName,
-				Category:        category,
-				Type:            modelType,
-				Path:            modelPath,
-				SizeMB:          info.Size() / (1024 * 1024),
-				VramEstimateMB:  estimateVRAM(name, category, info.Size()/(1024*1024)),
-				Stems:           stems,
-				NumStems:        numStems,
-				Target:          target,
-				ManifestMissing: manifestMissing,
-			})
+		models = append(models, ModelEntry{
+			Name:            name,
+			DisplayName:     displayName,
+			Category:        category,
+			Type:            modelType,
+			Path:            modelPath,
+			SizeMB:          info.Size() / (1024 * 1024),
+			VramEstimateMB:  estimateVRAM(name, category, info.Size()/(1024*1024)),
+			Stems:           stems,
+			NumStems:        numStems,
+			Target:          target,
+			ManifestMissing: manifestMissing,
+			Inferred:        inferred,
+			Origin:          origin,
+		})
 			categorySet[category] = true
 			return nil
 		})
@@ -1536,6 +1741,29 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		deletedFiles = true
+
+		// Clean up the model directory: manifest, sidecar configs and the dir itself.
+		modelDir := filepath.Dir(foundPath)
+		modelBase := strings.TrimSuffix(filepath.Base(foundPath), filepath.Ext(foundPath))
+		_ = os.Remove(filepath.Join(modelDir, "model.manifest.json"))
+		if entries, err := os.ReadDir(modelDir); err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				entryName := entry.Name()
+				entryExt := strings.ToLower(filepath.Ext(entryName))
+				entryBase := strings.TrimSuffix(entryName, entryExt)
+				isAux := entryExt == ".yaml" || entryExt == ".yml" || entryExt == ".json" || entryExt == ".txt"
+				if isAux && (entryBase == modelBase || entryBase == "model") {
+					_ = os.Remove(filepath.Join(modelDir, entryName))
+				}
+			}
+		}
+		// Remove the directory if it only contains auxiliary files or is empty.
+		if isDirEmptyOrOnlyAux(modelDir) {
+			_ = os.RemoveAll(modelDir)
+		}
 	}
 
 	if !deletedFiles {
@@ -1558,6 +1786,26 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(resp)
+}
+
+// isDirEmptyOrOnlyAux reports whether dir contains no files or only auxiliary
+// non-model files (configs, manifests, text files).
+func isDirEmptyOrOnlyAux(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return true
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			return false
+		}
+		name := entry.Name()
+		ext := strings.ToLower(filepath.Ext(name))
+		if ext != ".yaml" && ext != ".yml" && ext != ".json" && ext != ".txt" && name != "model.manifest.json" {
+			return false
+		}
+	}
+	return true
 }
 
 // runDirectDownload downloads a model file from a direct URL using Go's net/http,
