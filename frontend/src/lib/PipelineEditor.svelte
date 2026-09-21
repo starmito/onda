@@ -76,13 +76,51 @@
     return !stems.map((s) => s.toLowerCase()).includes('drums');
   }
 
+  // Stems come exclusively from the model manifest served by /api/models/list.
+  // Never invent stems: if a model does not declare them, the editor shows an
+  // explicit warning instead of a hardcoded list.
   function stemsForModel(modelName: string): string[] {
     const m = allModels.find((x) => x.name === modelName);
     if (!m) return [];
-    const stems = m.stems;
-    if (stems && stems.length > 0) return stems;
-    if (m.category === 'Demucs') return ['drums', 'bass', 'other', 'vocals'];
-    return ['vocals', 'instrumental'];
+    return m.stems ?? [];
+  }
+
+  // Build a stem config map from the model's declared stems, preserving the
+  // user's previous choices when they are still valid for the current model.
+  function reconcileStemConfigs(
+    modelName: string,
+    existing: Record<string, StemConfig> | undefined,
+  ): Record<string, StemConfig> {
+    const result: Record<string, StemConfig> = {};
+    for (const stem of stemsForModel(modelName)) {
+      const prev = existing?.[stem];
+      result[stem] = prev ? { ...prev } : { action: 'save' };
+    }
+    return result;
+  }
+
+  // Promise shared between the initial load and on-demand loads (e.g. loading
+  // a preset before the model catalogue has finished fetching).
+  let modelsLoadPromise: Promise<void> | null = null;
+
+  async function loadModels() {
+    try {
+      const res = await getLocalModels();
+      if (res.models && res.models.length > 0) {
+        allModels = res.models;
+      }
+    } catch {
+      // Leave the catalogue empty; the UI will show the missing-stems warning.
+    } finally {
+      modelsLoaded = true;
+    }
+  }
+
+  function ensureModelsLoaded(): Promise<void> {
+    if (!modelsLoadPromise) {
+      modelsLoadPromise = loadModels();
+    }
+    return modelsLoadPromise;
   }
 
   function defaultVocalModel(): string {
@@ -112,16 +150,7 @@
 
   // ── Load real model list from backend ──
   $effect(() => {
-    getLocalModels()
-      .then((res) => {
-        if (res.models && res.models.length > 0) {
-          allModels = res.models;
-        }
-        modelsLoaded = true;
-      })
-      .catch(() => {
-        modelsLoaded = true;
-      });
+    ensureModelsLoaded();
   });
 
   // ── Group models by category ──
@@ -169,17 +198,12 @@
     const newType: StepType = existingTypes.includes('vocal') ? 'demucs' : 'vocal';
     const modelName = newType === 'vocal' ? defaultVocalModel() : defaultDemucsModel();
 
-    const stems: Record<string, StemConfig> = {};
-    for (const s of stemsForModel(modelName)) {
-      stems[s] = { action: 'save' };
-    }
-
     steps = [...steps, {
       id: `step-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       type: newType,
       model: modelName,
       enabled: true,
-      stems,
+      stems: reconcileStemConfigs(modelName, undefined),
     }];
   }
 
@@ -188,14 +212,9 @@
   }
 
   function updateStepModel(stepId: string, model: string) {
-    const newStems = stemsForModel(model);
     steps = steps.map(s => {
       if (s.id !== stepId) return s;
-      const stems: Record<string, StemConfig> = {};
-      for (const stem of newStems) {
-        stems[stem] = { action: 'save' };
-      }
-      return { ...s, model, stems };
+      return { ...s, model, stems: reconcileStemConfigs(model, s.stems) };
     });
   }
 
@@ -205,11 +224,7 @@
 
   function updateStepType(stepId: string, type: StepType) {
     const modelName = type === 'vocal' ? defaultVocalModel() : defaultDemucsModel();
-    const stems: Record<string, StemConfig> = {};
-    for (const s of stemsForModel(modelName)) {
-      stems[s] = { action: 'save' };
-    }
-    steps = steps.map(s => s.id === stepId ? { ...s, type, stems, model: modelName } : s);
+    steps = steps.map(s => s.id === stepId ? { ...s, type, model: modelName, stems: reconcileStemConfigs(modelName, undefined) } : s);
   }
 
   function updateStemAction(stepId: string, stemName: string, action: StemAction) {
@@ -239,13 +254,14 @@
   }
 
   // ── Load preset into editor ──
-  function handleLoadPreset(e: Event) {
-    const name = (e.target as HTMLSelectElement).value;
+  async function loadPresetIntoEditor(name: string) {
     if (!name) return;
-    selectedPreset = name;
+    await ensureModelsLoaded();
+
     const preset = savedPresets.find((p) => p.name === name);
     if (!preset) return;
 
+    selectedPreset = name;
     presetNameInput = preset.name;
     steps = preset.steps.map(s => {
       let model = s.model;
@@ -253,12 +269,7 @@
       if (!modelExists) {
         model = s.type === 'vocal' ? defaultVocalModel() : defaultDemucsModel();
       }
-      const newStems = stemsForModel(model);
-      const stems: Record<string, StemConfig> = {};
-      for (const stem of newStems) {
-        stems[stem] = s.stems[stem] ?? { action: 'save' };
-      }
-      return { ...s, model, stems };
+      return { ...s, model, stems: reconcileStemConfigs(model, s.stems) };
     });
   }
 
@@ -329,6 +340,8 @@
     drums: '🥁 Drums',
     bass: '🎸 Bass',
     other: '🎹 Other',
+    guitar: '🎸 Guitar',
+    piano: '🎹 Piano',
   };
 
   // ── Close handler ──
@@ -447,38 +460,44 @@
                   <span class="routing-action-label">💾 Resultado</span>
                   <span class="routing-action-label">🗑 Descartar</span>
                 </div>
-                {#each stemsForModel(step.model) as stemName}
-                  <div class="routing-row">
-                    <span class="routing-stem-name">{STEM_LABELS[stemName] || stemName}</span>
-                    <label class="routing-radio" class:active={step.stems[stemName]?.action === 'route'}>
-                      <input
-                        type="radio"
-                        name="{step.id}-{stemName}"
-                        checked={step.stems[stemName]?.action === 'route'}
-                        onchange={() => updateStemAction(step.id, stemName, 'route')}
-                      />
-                      <span class="radio-indicator"></span>
-                    </label>
-                    <label class="routing-radio" class:active={step.stems[stemName]?.action === 'save'}>
-                      <input
-                        type="radio"
-                        name="{step.id}-{stemName}"
-                        checked={(!step.stems[stemName] || step.stems[stemName]?.action === 'save')}
-                        onchange={() => updateStemAction(step.id, stemName, 'save')}
-                      />
-                      <span class="radio-indicator"></span>
-                    </label>
-                    <label class="routing-radio discard-radio" class:active={step.stems[stemName]?.action === 'discard'}>
-                      <input
-                        type="radio"
-                        name="{step.id}-{stemName}"
-                        checked={step.stems[stemName]?.action === 'discard'}
-                        onchange={() => updateStemAction(step.id, stemName, 'discard')}
-                      />
-                      <span class="radio-indicator"></span>
-                    </label>
+                {#if stemsForModel(step.model).length === 0}
+                  <div class="routing-empty">
+                    <p>Este modelo no declara stems. Verifica su manifiesto o elige otro modelo.</p>
                   </div>
-                {/each}
+                {:else}
+                  {#each stemsForModel(step.model) as stemName}
+                    <div class="routing-row">
+                      <span class="routing-stem-name">{STEM_LABELS[stemName] || stemName}</span>
+                      <label class="routing-radio" class:active={step.stems[stemName]?.action === 'route'}>
+                        <input
+                          type="radio"
+                          name="{step.id}-{stemName}"
+                          checked={step.stems[stemName]?.action === 'route'}
+                          onchange={() => updateStemAction(step.id, stemName, 'route')}
+                        />
+                        <span class="radio-indicator"></span>
+                      </label>
+                      <label class="routing-radio" class:active={step.stems[stemName]?.action === 'save'}>
+                        <input
+                          type="radio"
+                          name="{step.id}-{stemName}"
+                          checked={(!step.stems[stemName] || step.stems[stemName]?.action === 'save')}
+                          onchange={() => updateStemAction(step.id, stemName, 'save')}
+                        />
+                        <span class="radio-indicator"></span>
+                      </label>
+                      <label class="routing-radio discard-radio" class:active={step.stems[stemName]?.action === 'discard'}>
+                        <input
+                          type="radio"
+                          name="{step.id}-{stemName}"
+                          checked={step.stems[stemName]?.action === 'discard'}
+                          onchange={() => updateStemAction(step.id, stemName, 'discard')}
+                        />
+                        <span class="radio-indicator"></span>
+                      </label>
+                    </div>
+                  {/each}
+                {/if}
               </div>
             </div>
           {/each}
@@ -523,13 +542,7 @@
                 </select>
                 <button
                   class="btn-load"
-                  onclick={() => {
-                    const p = savedPresets.find(p => p.name === selectedPreset);
-                    if (p) {
-                      presetNameInput = p.name;
-                      steps = p.steps.map(s => ({ ...s, stems: { ...s.stems } }));
-                    }
-                  }}
+                  onclick={() => loadPresetIntoEditor(selectedPreset)}
                   disabled={!selectedPreset}
                   title="Cargar preset en el editor"
                 >
@@ -887,6 +900,17 @@
 
   .routing-row:last-child {
     border-bottom: none;
+  }
+
+  .routing-empty {
+    padding: 1rem 0.75rem;
+    text-align: center;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+  }
+
+  .routing-empty p {
+    margin: 0;
   }
 
   .routing-stem-name {
