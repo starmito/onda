@@ -171,19 +171,20 @@ type DownloadRequest struct {
 
 // DownloadStatus tracks the progress of an async model download.
 type DownloadStatus struct {
-	ID         string `json:"id"`
-	Status     string `json:"status"`     // "downloading", "done", "error", "cancelled"
-	Repo       string `json:"repo"`
-	Target     string `json:"target,omitempty"`
-	Progress   string `json:"progress,omitempty"`
-	Percentage float64 `json:"percentage"` // 0.0 to 100.0 — real-time progress
-	Total      int64   `json:"total_bytes"`
-	Downloaded int64   `json:"downloaded_bytes"`
-	Error      string `json:"error,omitempty"`
-	Filename   string `json:"filename,omitempty"`
-	Source     string `json:"source"`
-	DestPath   string `json:"-"`
-	Cancel     context.CancelFunc `json:"-"`
+	ID               string `json:"id"`
+	Status           string `json:"status"`     // "downloading", "done", "error", "cancelled"
+	Repo             string `json:"repo"`
+	Target           string `json:"target,omitempty"`
+	Progress         string `json:"progress,omitempty"`
+	Percentage       float64 `json:"percentage"` // 0.0 to 100.0 — real-time progress
+	Total            int64   `json:"total_bytes"`
+	Downloaded       int64   `json:"downloaded_bytes"`
+	SpeedBytesPerSec float64 `json:"speed_bytes_per_sec"` // moving-average download speed
+	Error            string `json:"error,omitempty"`
+	Filename         string `json:"filename,omitempty"`
+	Source           string `json:"source"`
+	DestPath         string `json:"-"`
+	Cancel           context.CancelFunc `json:"-"`
 }
 
 // downloadTracker holds in-flight download statuses keyed by repo name.
@@ -633,6 +634,15 @@ func (s *Server) handleModelsDownloadStatus(w http.ResponseWriter, r *http.Reque
 	downloadMu.RLock()
 	if repo != "" {
 		job = downloadJobs[repo]
+		// HF pair downloads are keyed as repo#weightPath; allow lookup by repo.
+		if job == nil {
+			for key, candidate := range downloadJobs {
+				if strings.HasPrefix(key, repo+"#") {
+					job = candidate
+					break
+				}
+			}
+		}
 	}
 	if job == nil && url != "" {
 		job = downloadJobs[url]
@@ -685,6 +695,15 @@ func (s *Server) handleModelsDownloadCancel(w http.ResponseWriter, r *http.Reque
 	var job *DownloadStatus
 	if repo != "" {
 		job = downloadJobs[repo]
+		// HF pair downloads are keyed as repo#weightPath; allow lookup by repo.
+		if job == nil {
+			for key, candidate := range downloadJobs {
+				if strings.HasPrefix(key, repo+"#") {
+					job = candidate
+					break
+				}
+			}
+		}
 	}
 	if job == nil && url != "" {
 		job = downloadJobs[url]
@@ -1001,9 +1020,18 @@ func tryInstallAndRetryHF(repo, targetDir, scriptPath string) {
 }
 
 // downloadWithProgress downloads url to destPath, updating downloadJobs[key]
-// with real-time bytes and percentage. The destination is written atomically
-// via a .incomplete sibling file that is removed on failure or cancellation.
+// with real-time bytes, percentage and moving-average speed. The destination is
+// written atomically via a .incomplete sibling file that is removed on failure
+// or cancellation.
 func downloadWithProgress(ctx context.Context, url, destPath, key string) error {
+	return downloadWithProgressAuth(ctx, url, destPath, key, "", true)
+}
+
+// downloadWithProgressAuth is the token-aware core of downloadWithProgress.
+// If authHeader is non-empty it is sent as the Authorization header.
+// When markDone is false the status is left as "downloading" so the caller
+// can finalize it after any additional work (e.g. downloading a config file).
+func downloadWithProgressAuth(ctx context.Context, url, destPath, key, authHeader string, markDone bool) error {
 	if err := os.MkdirAll(filepath.Dir(destPath), 0o755); err != nil {
 		return fmt.Errorf("failed to create target directory: %w", err)
 	}
@@ -1011,6 +1039,9 @@ func downloadWithProgress(ctx context.Context, url, destPath, key string) error 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
+	}
+	if authHeader != "" {
+		req.Header.Set("Authorization", authHeader)
 	}
 
 	resp, err := http.DefaultClient.Do(req)
@@ -1038,6 +1069,17 @@ func downloadWithProgress(ctx context.Context, url, destPath, key string) error 
 	stopUpdate := make(chan struct{})
 	updateDone := make(chan struct{})
 
+	// speed samples maintains a short sliding window of (bytes, timestamp) for
+	// a smooth moving-average speed estimate.
+	type speedSample struct {
+		bytes int64
+		t     time.Time
+	}
+	const speedWindow = 2 * time.Second
+	var samplesMu sync.Mutex
+	var samples []speedSample
+	startTime := time.Now()
+
 	go func() {
 		defer close(updateDone)
 		ticker := time.NewTicker(200 * time.Millisecond)
@@ -1048,9 +1090,30 @@ func downloadWithProgress(ctx context.Context, url, destPath, key string) error 
 				return
 			case <-ticker.C:
 				dl := downloaded.Load()
+				now := time.Now()
+
+				samplesMu.Lock()
+				samples = append(samples, speedSample{bytes: dl, t: now})
+				cutoff := now.Add(-speedWindow)
+				for len(samples) > 0 && samples[0].t.Before(cutoff) {
+					samples = samples[1:]
+				}
+				var speed float64
+				if len(samples) > 1 {
+					deltaBytes := float64(samples[len(samples)-1].bytes - samples[0].bytes)
+					deltaSecs := samples[len(samples)-1].t.Sub(samples[0].t).Seconds()
+					if deltaSecs > 0 {
+						speed = deltaBytes / deltaSecs
+					}
+				} else if elapsed := now.Sub(startTime).Seconds(); elapsed > 0 {
+					speed = float64(dl) / elapsed
+				}
+				samplesMu.Unlock()
+
 				downloadMu.Lock()
 				if status, ok := downloadJobs[key]; ok {
 					status.Downloaded = dl
+					status.SpeedBytesPerSec = speed
 					if total > 0 {
 						pct := float64(dl*100) / float64(total)
 						if pct > 100 {
@@ -1131,16 +1194,25 @@ func downloadWithProgress(ctx context.Context, url, destPath, key string) error 
 	close(stopUpdate)
 	<-updateDone
 
+	// Final speed: total bytes over total elapsed time.
+	var finalSpeed float64
+	if elapsed := time.Since(startTime).Seconds(); elapsed > 0 {
+		finalSpeed = float64(written) / elapsed
+	}
+
 	downloadMu.Lock()
 	if status, ok := downloadJobs[key]; ok {
-		status.Status = "done"
-		status.Progress = "Download complete"
-		status.Percentage = 100
 		status.Downloaded = written
+		status.SpeedBytesPerSec = finalSpeed
 		if total > 0 {
 			status.Total = total
 		} else {
 			status.Total = written
+		}
+		if markDone {
+			status.Status = "done"
+			status.Progress = "Download complete"
+			status.Percentage = 100
 		}
 	}
 	downloadMu.Unlock()
