@@ -183,9 +183,6 @@ except Exception:
 
 trap 'report_step_failure "${CURRENT_STEP:-unknown}" $? "${CURRENT_STEP_LOG:-}"' ERR
 
-# Clear stale pipeline status from previous run and signal that a new pipeline has started
-report_progress "running" "starting" 0
-
 # ── Background elapsed/eta updater ─────────────
 # Runs in a subshell loop, updating elapsed and eta every second
 # while a long-running docker exec is in progress.
@@ -1360,15 +1357,73 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# ── Auto-detect device if not explicitly set ──
-if ! $DEVICE_SET_EXPLICITLY; then
-    DETECTED_DEVICE=$(detect_gpu.sh 2>/dev/null || echo "cpu")
-    echo "   ℹ️  Auto-detected device: ${DETECTED_DEVICE}"
-    DEVICE="${DETECTED_DEVICE}"
+# ── Helpers: GPU detection and naming ──
+_detect_gpu_backend() {
+    if command -v detect_gpu.sh &>/dev/null; then
+        detect_gpu.sh 2>/dev/null || echo "cpu"
+    elif [ -f /app/detect_gpu.sh ]; then
+        /app/detect_gpu.sh 2>/dev/null || echo "cpu"
+    elif [ -f ./onda/detect_gpu.sh ]; then
+        ./onda/detect_gpu.sh 2>/dev/null || echo "cpu"
+    else
+        echo "cpu"
+    fi
+}
+
+_gpu_name() {
+    if command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null; then
+        nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null \
+            | head -n 1 \
+            | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'
+    fi
+}
+
+# ── Validate requested/available device ──
+DETECTED_DEVICE=$(_detect_gpu_backend)
+GPU_NAME=$(_gpu_name)
+if [ "$DETECTED_DEVICE" = "cuda" ] && [ -n "$GPU_NAME" ]; then
+    GPU_TYPE="$GPU_NAME"
+else
+    GPU_TYPE="N/A"
 fi
 
-# Capture real GPU type for status reporting (not normalized away)
-GPU_TYPE=$(detect_gpu.sh 2>/dev/null || echo "unknown")
+if $DEVICE_SET_EXPLICITLY; then
+    if [ "$DEVICE" = "cuda" ] && [ "$DETECTED_DEVICE" != "cuda" ]; then
+        echo "❌ Error: se pidió --device cuda pero no hay GPU usable disponible." >&2
+        echo "   Causa: nvidia-smi no está disponible o no responde en este entorno." >&2
+        echo "   Si realmente quieres ejecutar en CPU (LENTO: minutos en lugar de segundos), usa:" >&2
+        echo "       --device cpu" >&2
+        exit 1
+    fi
+    if [ "$DEVICE" = "cpu" ]; then
+        echo "⚠️  AVISO: el pipeline va a ejecutarse en CPU. Esto será LENTO (minutos en lugar de segundos)." >&2
+    fi
+    if [ "$DEVICE" = "cuda" ] && [ -n "$GPU_NAME" ]; then
+        echo "   ✅ Usando dispositivo: cuda ($GPU_NAME)"
+    fi
+else
+    # Auto-detect: never silently fall back to CPU.
+    if [ "$DETECTED_DEVICE" != "cuda" ]; then
+        echo "⚠️  Auto-detección: no se ha detectado GPU usable." >&2
+        echo "   El trabajo se ejecutaría en CPU, lo cual es LENTO (minutos en lugar de segundos)." >&2
+        echo "   Para continuar en CPU de forma explícita, usa:" >&2
+        echo "       --device cpu" >&2
+        echo "   O bien establece ONDA_ALLOW_CPU=1 como variable de entorno." >&2
+        if [ "${ONDA_ALLOW_CPU:-0}" != "1" ]; then
+            echo "❌ Error: no se permite ejecutar en CPU sin decisión explícita." >&2
+            exit 1
+        fi
+        echo "   ⚠️  Continuando en CPU por decisión explícita (ONDA_ALLOW_CPU=1). Esto será LENTO." >&2
+        DEVICE="cpu"
+    else
+        if [ -n "$GPU_NAME" ]; then
+            echo "   ✅ Auto-detectado dispositivo: cuda ($GPU_NAME)"
+        else
+            echo "   ✅ Auto-detectado dispositivo: cuda"
+        fi
+        DEVICE="cuda"
+    fi
+fi
 
 # Resolve input: --input-from-step overrides positional arg
 if [ -n "$INPUT_FROM_STEP" ]; then
@@ -1386,6 +1441,9 @@ fi
 
 SONG=$(basename "${INPUT%.*}")
 OUTPUT="${OUTPUT:-$OUTPUT_DIR/${SONG}}"
+
+# Signal that a new pipeline has started, now that the real device is known.
+report_progress "running" "starting" 0
 
 # Ensure temporary vocal/demucs dirs are always removed, even on error or cancellation.
 cleanup_legacy_temps() {
