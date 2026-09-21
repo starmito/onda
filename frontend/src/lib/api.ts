@@ -574,34 +574,39 @@ export async function deletePitchUpload(name: string): Promise<void> {
 }
 
 // ---- ModelConfig ----
-export interface ModelConfigResponse {
-  segment_size: number;
-  overlap: number;
-  chunk_size: number;
-  batch_size: number;
-  device: string;
-  // Demucs PyTorch-specific
-  shifts?: number;
-  segment?: number;
-  jobs?: number;
-  // Raw YAML inference values (for MDX/SCNet display)
-  dim_t?: number;
-  num_overlap?: number;
+export interface ModelFlag {
+  name: string;
+  value: number | string;
+  default: number | string;
+  min?: number;
+  max?: number;
+  step?: number;
+  editable: boolean;
+  type?: 'int' | 'float' | 'choice';
+  choices?: string[];
 }
 
-export async function getModelConfig(modelName: string): Promise<ModelConfigResponse> {
+export interface ModelFlagsResponse {
+  model: string;
+  flags: ModelFlag[];
+}
+
+export async function getModelConfig(modelName: string): Promise<ModelFlagsResponse> {
   const res = await fetch(`${API_BASE}/api/models/${encodeURIComponent(modelName)}/config`);
   if (!res.ok) {
     throw new Error(`Failed to fetch model config (${res.status}): ${res.statusText}`);
   }
-  return (await res.json()) as ModelConfigResponse;
+  return (await res.json()) as ModelFlagsResponse;
 }
 
-export async function setModelConfig(cfg: ModelConfigResponse, modelName: string): Promise<{ ok: string; detail: string }> {
+export async function setModelConfig(
+  flags: Record<string, number | string>,
+  modelName: string,
+): Promise<{ ok: string; detail: string }> {
   const res = await fetch(`${API_BASE}/api/models/${encodeURIComponent(modelName)}/config`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(cfg),
+    body: JSON.stringify({ flags }),
   });
   if (!res.ok) {
     throw new Error(`Failed to save model config (${res.status}): ${res.statusText}`);

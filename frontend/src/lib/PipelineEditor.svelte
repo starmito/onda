@@ -248,19 +248,17 @@
 
     presetNameInput = preset.name;
     steps = preset.steps.map(s => {
-      // Backwards compatibility: the old editor invented a "viperx" type.
-      let type: StepType = s.type === 'viperx' ? 'vocal' : s.type;
       let model = s.model;
       const modelExists = allModels.some((m) => m.name === model);
       if (!modelExists) {
-        model = type === 'vocal' ? defaultVocalModel() : defaultDemucsModel();
+        model = s.type === 'vocal' ? defaultVocalModel() : defaultDemucsModel();
       }
       const newStems = stemsForModel(model);
       const stems: Record<string, StemConfig> = {};
       for (const stem of newStems) {
         stems[stem] = s.stems[stem] ?? { action: 'save' };
       }
-      return { ...s, type, model, stems };
+      return { ...s, model, stems };
     });
   }
 

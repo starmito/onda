@@ -50,7 +50,7 @@ func TestWorker_RemovesPipelineStatusAtJobStart(t *testing.T) {
 
 	s.jobQueue <- JobRequest{
 		Song: "song",
-		Args: []string{fakePipeline, "--viperx", "/app/input/song.wav", "--output", filepath.Join(root, "output", "song")},
+		Args: []string{fakePipeline, "--vocal-model", "/app/data/models/VR_Models/BS_Roformer_Viperx", "/app/input/song.wav", "--output", filepath.Join(root, "output", "song")},
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

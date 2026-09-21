@@ -329,7 +329,6 @@ var measuredRAMPeaks = []measuredRAMPeak{
 	// pipeline. Because processing is chunked, the RAM usage does not grow
 	// with input duration.
 	{ModelName: "BS_Roformer_Viperx", StepType: "vocal", PeakMB: 2045},
-	{ModelName: "BS_Roformer_Viperx", StepType: "viperx", PeakMB: 2045},
 	// Conservative observed host RAM usage for long audio jobs.
 	{ModelName: "htdemucs_ft", StepType: "demucs", PeakMB: 4096},
 }
@@ -535,7 +534,7 @@ func interpolatePeak(x int, xs, ys []int) int {
 // Uses substring matching to recognize full model names like "BS_Roformer_Viperx".
 func isVocalOrRoformer(modelName string) bool {
 	lower := strings.ToLower(modelName)
-	patterns := []string{"vocal", "viperx", "melband", "polarformer", "roformer"}
+	patterns := []string{"vocal", "melband", "polarformer", "roformer"}
 	for _, p := range patterns {
 		if strings.Contains(lower, p) {
 			return true

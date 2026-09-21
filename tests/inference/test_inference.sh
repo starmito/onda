@@ -103,29 +103,29 @@ mkdir -p "$INPUT_DIR" "$OUTPUT_DIR"
 # Prepare unique input files
 echo "Generating test audio..."
 TS=$(date +%s)
-VIPERX_NAME="test_viperx_${TS}.wav"
+VOCAL_NAME="test_vocal_${TS}.wav"
 DEMUCS_NAME="test_demucs_${TS}.wav"
 
 if ! generate_audio "${TMP_DIR}/tone.wav"; then
     echo "❌ ffmpeg failed"
     exit 1
 fi
-cp "${TMP_DIR}/tone.wav" "${INPUT_DIR}/${VIPERX_NAME}" || { echo "❌ copy failed"; exit 1; }
+cp "${TMP_DIR}/tone.wav" "${INPUT_DIR}/${VOCAL_NAME}" || { echo "❌ copy failed"; exit 1; }
 cp "${TMP_DIR}/tone.wav" "${INPUT_DIR}/${DEMUCS_NAME}" || { echo "❌ copy failed"; exit 1; }
 
 # ── Test 1: BS-Roformer ────────────────────────────────────────
 echo ""
-echo "Test 1: BS-Roformer (viperx)"
+echo "Test 1: BS-Roformer (vocal)"
 resp=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/api/separate" \
     -H "Content-Type: application/json" \
-    -d "{\"input\":\"/app/input/${VIPERX_NAME}\",\"viperx\":true,\"viperx_keep\":\"both\"}")
+    -d "{\"input\":\"/app/input/${VOCAL_NAME}\",\"vocal_model\":\"BS_Roformer_Viperx\"}")
 code=$(echo "$resp" | tail -1)
 body=$(echo "$resp" | sed '$d')
 echo "  HTTP $code"
 if [ "$code" = "202" ]; then
     song=$(echo "$body" | sed -n 's/.*"song":"\([^"]*\)".*/\1/p')
-    if poll_job "${song:-test_viperx_${TS}}"; then
-        check "BS-Roformer outputs valid" verify_outputs "${song:-test_viperx_${TS}}"
+    if poll_job "${song:-test_vocal_${TS}}"; then
+        check "BS-Roformer outputs valid" verify_outputs "${song:-test_vocal_${TS}}"
     else
         check "BS-Roformer job completed" false
     fi

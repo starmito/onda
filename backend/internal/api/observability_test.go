@@ -125,7 +125,7 @@ exit 1
 
 	job := JobRequest{
 		Song: "song",
-		Args: []string{fakePipeline, "--viperx", "/app/input/song.wav", "--output", filepath.Join(root, "output", "song")},
+		Args: []string{fakePipeline, "--vocal-model", "/app/data/models/VR_Models/BS_Roformer_Viperx", "/app/input/song.wav", "--output", filepath.Join(root, "output", "song")},
 	}
 
 	s.runSinglePipeline(job, s.jobs["song"])
@@ -180,7 +180,7 @@ func TestRunSinglePipeline_SignalWritesFailedStatus(t *testing.T) {
 
 	job := JobRequest{
 		Song: "song",
-		Args: []string{fakePipeline, "--viperx", "/app/input/song.wav", "--output", filepath.Join(root, "output", "song")},
+		Args: []string{fakePipeline, "--vocal-model", "/app/data/models/VR_Models/BS_Roformer_Viperx", "/app/input/song.wav", "--output", filepath.Join(root, "output", "song")},
 	}
 
 	s.runSinglePipeline(job, s.jobs["song"])
@@ -216,7 +216,7 @@ func TestHandleSeparate_LogsJobConfig(t *testing.T) {
 
 	s := newQueueTestServer(t)
 
-	body := `{"input":"/app/input/song.wav","viperx":true,"demucs":true,"vocal_model":"BS_Roformer_Viperx","stem_model":"htdemucs_ft","device":"cuda","shifts":2,"jobs":4,"demucs_segment":7}`
+	body := `{"input":"/app/input/song.wav","demucs":true,"vocal_model":"BS_Roformer_Viperx","stem_model":"htdemucs_ft","device":"cuda","shifts":2,"jobs":4,"demucs_segment":7}`
 	req := httptest.NewRequest(http.MethodPost, "/api/separate", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()

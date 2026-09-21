@@ -53,7 +53,7 @@ func TestHandleSeparate_EnqueuesJob(t *testing.T) {
 	setupQueueTestRoot(t)
 	s := newQueueTestServer(t)
 
-	body := `{"input":"/app/input/song.wav","viperx":true,"demucs":true}`
+	body := `{"input":"/app/input/song.wav","vocal_model":"BS_Roformer_Viperx","demucs":true,"stem_model":"htdemucs_ft"}`
 	req := httptest.NewRequest(http.MethodPost, "/api/separate", strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
 	rr := httptest.NewRecorder()
@@ -89,7 +89,7 @@ func TestHandleSeparate_RejectsDuplicateActiveJob(t *testing.T) {
 	setupQueueTestRoot(t)
 	s := newQueueTestServer(t)
 
-	body := `{"input":"/app/input/song.wav","viperx":true}`
+	body := `{"input":"/app/input/song.wav","vocal_model":"BS_Roformer_Viperx"}`
 	req1 := httptest.NewRequest(http.MethodPost, "/api/separate", strings.NewReader(body))
 	req1.Header.Set("Content-Type", "application/json")
 	s.mux.ServeHTTP(httptest.NewRecorder(), req1)
@@ -108,7 +108,7 @@ func TestHandleSeparate_AllowsRetryAfterTerminal(t *testing.T) {
 	setupQueueTestRoot(t)
 	s := newQueueTestServer(t)
 
-	body := `{"input":"/app/input/song.wav","viperx":true}`
+	body := `{"input":"/app/input/song.wav","vocal_model":"BS_Roformer_Viperx"}`
 	req1 := httptest.NewRequest(http.MethodPost, "/api/separate", strings.NewReader(body))
 	req1.Header.Set("Content-Type", "application/json")
 	s.mux.ServeHTTP(httptest.NewRecorder(), req1)
@@ -399,7 +399,7 @@ func TestRunSinglePipeline_MarksDone(t *testing.T) {
 
 	job := JobRequest{
 		Song: "song",
-		Args: []string{fakePipeline, "--viperx", "/app/input/song.wav", "--output", filepath.Join(root, "output", "song")},
+		Args: []string{fakePipeline, "--vocal-model", "/app/data/models/VR_Models/BS_Roformer_Viperx", "/app/input/song.wav", "--output", filepath.Join(root, "output", "song")},
 	}
 
 	// Run synchronously instead of via the worker goroutine.
@@ -437,7 +437,7 @@ func TestRunSinglePipeline_MarksError(t *testing.T) {
 
 	job := JobRequest{
 		Song: "song",
-		Args: []string{fakePipeline, "--viperx", "/app/input/song.wav"},
+		Args: []string{fakePipeline, "--vocal-model", "/app/data/models/VR_Models/BS_Roformer_Viperx", "/app/input/song.wav"},
 	}
 
 	s.runSinglePipeline(job, s.jobs["song"])
@@ -477,7 +477,7 @@ func TestWorker_ProcessesJob(t *testing.T) {
 
 	s.jobQueue <- JobRequest{
 		Song: "song",
-		Args: []string{fakePipeline, "--viperx", "/app/input/song.wav", "--output", filepath.Join(root, "output", "song")},
+		Args: []string{fakePipeline, "--vocal-model", "/app/data/models/VR_Models/BS_Roformer_Viperx", "/app/input/song.wav", "--output", filepath.Join(root, "output", "song")},
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

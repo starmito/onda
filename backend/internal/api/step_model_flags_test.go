@@ -33,7 +33,7 @@ func TestRunSinglePipeline_LogsEffectiveModelAndFlags(t *testing.T) {
 
 	job := JobRequest{
 		Song: "song",
-		Args: []string{fakePipeline, "--viperx-model", "BS_Roformer_Viperx", "--output", filepath.Join(root, "output", "song"), "/app/input/song.wav"},
+		Args: []string{fakePipeline, "--vocal-model", "BS_Roformer_Viperx", "--output", filepath.Join(root, "output", "song"), "/app/input/song.wav"},
 		Config: SeparateRequest{
 			VocalModel: "BS_Roformer_Viperx",
 			Device:     "cuda",
@@ -59,7 +59,7 @@ func TestRunSinglePipeline_LogsEffectiveModelAndFlags(t *testing.T) {
 	if !containsLog("pipeline", "info", "model=BS_Roformer_Viperx") {
 		t.Error("expected step start log to mention the effective model")
 	}
-	if !containsLog("pipeline", "info", "--viperx-model") {
+	if !containsLog("pipeline", "info", "--vocal-model") {
 		t.Error("expected step start log to mention the effective flags")
 	}
 }
@@ -198,19 +198,19 @@ func TestHandleProcessStatus_IncludesCurrentModelAndFlags(t *testing.T) {
 }
 
 func TestCompactFlags_DeduplicatesModelFlags(t *testing.T) {
-	// ViperX: default model name followed by the resolved directory path.
-	viperxArgs := []string{
+	// Vocal/Roformer: default model name followed by the resolved directory path.
+	vocalArgs := []string{
 		"--vocal-model", "BS_Roformer_Viperx",
 		"--vocal-model", "/data/models/BS_Roformer_Viperx",
 		"--device", "cuda",
 		"--output", "/data/output/song",
 		"/app/input/song.wav",
 	}
-	viperxFlags := compactFlags(viperxArgs)
-	t.Logf("viperx compacted flags: %s", viperxFlags)
+	vocalFlags := compactFlags(vocalArgs)
+	t.Logf("vocal compacted flags: %s", vocalFlags)
 	want := "--vocal-model BS_Roformer_Viperx --device cuda"
-	if viperxFlags != want {
-		t.Errorf("viperx compactFlags = %q, want %q", viperxFlags, want)
+	if vocalFlags != want {
+		t.Errorf("vocal compactFlags = %q, want %q", vocalFlags, want)
 	}
 
 	// Demucs: single model flag plus other effective flags.

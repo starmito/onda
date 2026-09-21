@@ -173,11 +173,10 @@ func TestBuildPipelineArgs_DemucsDefaultModelUsesSavedConfig(t *testing.T) {
 		t.Fatalf("writeModelConfigToYaml failed: %v", err)
 	}
 
-	// Scenario from the bug report: legacy request with viperx + demucs and no
-	// explicit stem model should still pick up the saved htdemucs_ft config.
+	// Legacy request with demucs and no explicit stem model should still pick
+	// up the saved htdemucs_ft config.
 	req := &SeparateRequest{
 		Input:  "/app/input/song.wav",
-		Viperx: true,
 		Demucs: true,
 	}
 	_, args, _, _, _ := buildPipelineArgs(req)
@@ -313,16 +312,7 @@ func TestHandleModelsConfig_DecimalSegment(t *testing.T) {
 	srv := httptest.NewServer(s.mux)
 	t.Cleanup(srv.Close)
 
-	cfg := ModelConfigResponse{
-		SegmentSize: 256,
-		Overlap:     0.25,
-		BatchSize:   1,
-		Device:      "cuda",
-		Shifts:      1,
-		Segment:     7.8,
-		Jobs:        0,
-	}
-	body, _ := json.Marshal(cfg)
+	body := []byte(`{"flags":{"segment":5.8}}`)
 	resp, err := http.Post(srv.URL+"/api/models/htdemucs_ft/config", "application/json", bytes.NewReader(body))
 	if err != nil {
 		t.Fatalf("POST failed: %v", err)
@@ -341,14 +331,51 @@ func TestHandleModelsConfig_DecimalSegment(t *testing.T) {
 		t.Fatalf("GET status = %d, want 200", getResp.StatusCode)
 	}
 
-	var got ModelConfigResponse
+	var got ModelFlagsResponse
 	if err := json.NewDecoder(getResp.Body).Decode(&got); err != nil {
 		t.Fatalf("failed to decode GET response: %v", err)
 	}
-	// POST clamps values above the CLI limit to 7.
-	if got.Segment != 7 {
-		t.Errorf("GET segment = %v, want 7", got.Segment)
+	// Decimal segment is rounded to the nearest integer.
+	seg := flagValue(got.Flags, "segment")
+	if toInt(seg) != 6 {
+		t.Errorf("GET segment = %v, want 6", seg)
 	}
+}
+
+func TestHandleModelsConfig_RejectsOutOfRange(t *testing.T) {
+	setTestRoot(t, "model-config-")
+
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("POST /api/models/{name}/config", s.handleModelsConfig)
+	srv := httptest.NewServer(s.mux)
+	t.Cleanup(srv.Close)
+
+	body := []byte(`{"flags":{"segment":99}}`)
+	resp, err := http.Post(srv.URL+"/api/models/htdemucs_ft/config", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("POST status = %d, want 400", resp.StatusCode)
+	}
+	var got map[string]string
+	if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+		t.Fatalf("failed to decode error response: %v", err)
+	}
+	msg := got["error"]
+	if !strings.Contains(msg, "segment") || !strings.Contains(msg, "0") || !strings.Contains(msg, "7") {
+		t.Errorf("error message should name the flag and range, got %q", msg)
+	}
+}
+
+func flagValue(flags []ModelFlagValue, name string) interface{} {
+	for _, f := range flags {
+		if f.Name == name {
+			return f.Value
+		}
+	}
+	return nil
 }
 
 func TestClampDemucsSegment(t *testing.T) {
@@ -476,13 +503,12 @@ func TestBuildPipelineArgs_LegacyVocalChunkSizeEnv(t *testing.T) {
 
 	req := &SeparateRequest{
 		Input:      "/app/input/song.wav",
-		Viperx:     true,
 		VocalModel: "TestRoformer",
 	}
 	_, args, _, env, _ := buildPipelineArgs(req)
 
-	if !contains(args, "--viperx-model") {
-		t.Error("expected --viperx-model flag")
+	if !contains(args, "--vocal-model") {
+		t.Error("expected --vocal-model flag")
 	}
 	if !contains(env, "ONDA_CHUNK_SIZE=90") {
 		t.Errorf("expected ONDA_CHUNK_SIZE=90 in env, got %v", env)
@@ -599,8 +625,8 @@ func TestBuildPipelineArgs_OnnxModel(t *testing.T) {
 	if got := argValue(args, "--vocal-type"); got != "mdxnet" {
 		t.Errorf("expected --vocal-type mdxnet, got %q", got)
 	}
-	if !contains(args, "--viperx-model") {
-		t.Error("expected --viperx-model flag")
+	if !contains(args, "--vocal-model") {
+		t.Error("expected --vocal-model flag")
 	}
 }
 

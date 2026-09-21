@@ -18,14 +18,14 @@ func TestEstimateVRAMMB_Empirical(t *testing.T) {
 		want          int
 		tolerance     float64
 	}{
-		{"viperx 64 b1", "BS_Roformer_Viperx", 64, 0, 1, 0, 1662, 0.05},
-		{"viperx 128 b1", "BS_Roformer_Viperx", 128, 0, 1, 0, 2152, 0.05},
-		{"viperx 256 b1", "BS_Roformer_Viperx", 256, 0, 1, 0, 2898, 0.05},
-		{"viperx 512 b1", "BS_Roformer_Viperx", 512, 0, 1, 0, 4656, 0.05},
-		{"viperx 1024 b1", "BS_Roformer_Viperx", 1024, 0, 1, 0, 8116, 0.05},
-		{"viperx 256 b2", "BS_Roformer_Viperx", 256, 0, 2, 0, 4724, 0.05},
-		{"viperx 512 b2", "BS_Roformer_Viperx", 512, 0, 2, 0, 8178, 0.05},
-		{"viperx 1024 b2", "BS_Roformer_Viperx", 1024, 0, 2, 0, 15108, 0.05},
+		{"vocal 64 b1", "BS_Roformer_Viperx", 64, 0, 1, 0, 1662, 0.05},
+		{"vocal 128 b1", "BS_Roformer_Viperx", 128, 0, 1, 0, 2152, 0.05},
+		{"vocal 256 b1", "BS_Roformer_Viperx", 256, 0, 1, 0, 2898, 0.05},
+		{"vocal 512 b1", "BS_Roformer_Viperx", 512, 0, 1, 0, 4656, 0.05},
+		{"vocal 1024 b1", "BS_Roformer_Viperx", 1024, 0, 1, 0, 8116, 0.05},
+		{"vocal 256 b2", "BS_Roformer_Viperx", 256, 0, 2, 0, 4724, 0.05},
+		{"vocal 512 b2", "BS_Roformer_Viperx", 512, 0, 2, 0, 8178, 0.05},
+		{"vocal 1024 b2", "BS_Roformer_Viperx", 1024, 0, 2, 0, 15108, 0.05},
 		{"demucs seg0", "htdemucs_ft", 0, 0, 0, 0, 1572, 0.05},
 		{"demucs seg7", "htdemucs_ft", 0, 0, 0, 7, 1106, 0.05},
 
@@ -169,7 +169,7 @@ func TestCheckVramHeadroom_NeverRequiresMoreThanTotal(t *testing.T) {
 		wantWarning   string
 	}{
 		{
-			name:         "viperx ample free fits with margin",
+			name:         "vocal ample free fits with margin",
 			freeMB:       16000,
 			totalMB:      16311,
 			model:        "BS_Roformer_Viperx",
@@ -179,7 +179,7 @@ func TestCheckVramHeadroom_NeverRequiresMoreThanTotal(t *testing.T) {
 			wantWarning:  "",
 		},
 		{
-			name:         "viperx free below requirement blocks",
+			name:         "vocal free below requirement blocks",
 			freeMB:       950,
 			totalMB:      16311,
 			model:        "BS_Roformer_Viperx",
@@ -239,7 +239,7 @@ func TestCheckVramHeadroom_NeverRequiresMoreThanTotal(t *testing.T) {
 	}
 }
 
-func TestRamRequiredMB_MeasuredViperx(t *testing.T) {
+func TestRamRequiredMB_MeasuredVocal(t *testing.T) {
 	got := ramRequiredMB("BS_Roformer_Viperx", "vocal")
 	want := 2352 // round(2045 * 1.15)
 	if got != want {
@@ -248,10 +248,10 @@ func TestRamRequiredMB_MeasuredViperx(t *testing.T) {
 
 	ok, _, reason := checkRamHeadroom(4700, "BS_Roformer_Viperx", "vocal")
 	if !ok {
-		t.Errorf("checkRamHeadroom(4700, viperx, vocal) ok = false, want true")
+		t.Errorf("checkRamHeadroom(4700, BS_Roformer_Viperx, vocal) ok = false, want true")
 	}
 	if reason != "" {
-		t.Errorf("checkRamHeadroom(4700, viperx, vocal) reason = %q, want empty", reason)
+		t.Errorf("checkRamHeadroom(4700, BS_Roformer_Viperx, vocal) reason = %q, want empty", reason)
 	}
 }
 

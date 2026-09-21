@@ -98,9 +98,10 @@ type modelManifestStems struct {
 // modelManifest is the JSON written next to each model by
 // ``python3 -m onda.cli manifest --regenerate``.
 type modelManifest struct {
-	Name  string             `json:"name"`
-	Type  string             `json:"type"`
-	Stems modelManifestStems `json:"stems"`
+	Name  string                    `json:"name"`
+	Type  string                    `json:"type"`
+	Stems modelManifestStems        `json:"stems"`
+	Flags map[string]modelFlagDef   `json:"flags,omitempty"`
 }
 
 // loadModelManifest reads and parses the manifest for a model directory.
@@ -1307,7 +1308,7 @@ func downloadWithProgressAuth(ctx context.Context, url, destPath, key, authHeade
 
 // detectCategoryFromFilename determines the model category directory from the
 // filename using keyword matching. This mirrors how UVR organizes its models.
-// Mapping: roformer/viperx/melband → VR_Models, mdx/mdx23c → MDX_Net_Models,
+// Mapping: roformer/melband → VR_Models, mdx/mdx23c → MDX_Net_Models,
 // demucs/htdemucs → Demucs_Models, scnet → VR_Models.
 func detectCategoryFromFilename(filename string) string {
 	lower := strings.ToLower(filename)

@@ -58,7 +58,7 @@ func TestCmdlineMatchesAny(t *testing.T) {
 		cmdline string
 		want    bool
 	}{
-		{"bash\x00/app/pipeline.sh\x00--viperx", true},
+		{"bash\x00/app/pipeline.sh\x00--vocal-model", true},
 		{"python\x00inference_universal.py\x00--model foo", true},
 		{"python\x00inference_other.py", false},
 		{"", false},
@@ -81,7 +81,7 @@ func TestShouldSweepProcess(t *testing.T) {
 		cmdline string
 		want    bool
 	}{
-		{"same cgroup matches pipeline.sh", own, "bash\x00/app/pipeline.sh\x00--viperx", true},
+		{"same cgroup matches pipeline.sh", own, "bash\x00/app/pipeline.sh\x00--vocal-model", true},
 		{"sub cgroup matches inference", own + "/sub", "python\x00inference_universal.py", true},
 		{"other cgroup does not match", "/docker/other", "bash\x00/app/pipeline.sh", false},
 		{"same cgroup but unrelated cmd", own, "python\x00unrelated.py", false},
@@ -117,7 +117,7 @@ func TestSweepPipelineProcessesInCgroupWithDeps(t *testing.T) {
 	procDir := filepath.Join(root, "proc")
 
 	// PID 100: same cgroup, matches pipeline.sh.
-	writeFakeProc(t, procDir, 100, "/docker/abc", "bash\x00/app/pipeline.sh\x00--viperx")
+	writeFakeProc(t, procDir, 100, "/docker/abc", "bash\x00/app/pipeline.sh\x00--vocal-model")
 	// PID 200: same cgroup, does not match any pattern.
 	writeFakeProc(t, procDir, 200, "/docker/abc", "python\x00unrelated.py")
 	// PID 300: other cgroup, matches pipeline.sh but cgroup differs.

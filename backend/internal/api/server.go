@@ -203,6 +203,8 @@ func NewServer(addr string) *http.Server {
 	if err := loadExportProfiles(); err != nil {
 		Log("backend", "warn", "Failed to load export profiles: "+err.Error())
 	}
+	// Migrate legacy UVR JSON configs to the new YAML schema once, idempotently.
+	migrateLegacyModelConfigs()
 	s.mux.HandleFunc("/api/health", s.handleHealth)
 	s.mux.HandleFunc("GET /api/queue/status", s.handleQueueStatus)
 	s.mux.HandleFunc("GET /api/processes/status", s.handleProcessStatus)
@@ -842,7 +844,7 @@ func (s *Server) collectQueueJobs() []*JobState {
 	}
 
 	// Step name mapping and ordering
-	stepOrder := map[string]int{"vocal": 1, "viperx": 1, "demucs": 2, "rubberband": 3}
+	stepOrder := map[string]int{"vocal": 1, "demucs": 2, "rubberband": 3}
 
 	s.jobsMu.RLock()
 	defer s.jobsMu.RUnlock()
@@ -968,14 +970,12 @@ func (s *Server) handleQueueCancel(w http.ResponseWriter, r *http.Request) {
 // capitalizeStep returns a display-friendly step name.
 func capitalizeStep(step string) string {
 	switch step {
-	case "vocal", "viperx":
+	case "vocal":
 		return "Vocal"
 	case "demucs":
 		return "Demucs"
 	case "rubberband":
-		return "Rubberband"
-	case "complete":
-		return "Complete"
+		return "Pitch"
 	default:
 		return step
 	}
@@ -1083,7 +1083,7 @@ func stepTypeForSinglePipeline(job JobRequest) string {
 	if len(job.Steps) == 1 {
 		return job.Steps[0].Type
 	}
-	if job.Config.VocalModel != "" || job.Config.ViperxModel != "" {
+	if job.Config.VocalModel != "" {
 		return "vocal"
 	}
 	if job.Config.StemModel != "" || job.Config.DemucsModel != "" {
@@ -1096,14 +1096,13 @@ func stepTypeForSinglePipeline(job JobRequest) string {
 // pipeline arguments, omitting the output directory, the input file and the
 // --no-clean flag so the result is suitable for logs and UI status.
 //
-// When a model flag (--vocal-model, --viperx-model, --stem-model or
-// --demucs-model) appears more than once, only one occurrence is kept and the
+// When a model flag (--vocal-model, --stem-model or --demucs-model) appears
+// more than once, only one occurrence is kept and the
 // shortest value is preferred (typically the model name rather than its
 // resolved directory path).
 func compactFlags(args []string) string {
 	modelFlags := map[string]string{
 		"--vocal-model":  "",
-		"--viperx-model": "",
 		"--stem-model":   "",
 		"--demucs-model": "",
 	}
@@ -1185,9 +1184,6 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	// VRAM headroom check before launching.
 	stepType := stepTypeForSinglePipeline(job)
 	modelName := job.Config.VocalModel
-	if modelName == "" {
-		modelName = job.Config.ViperxModel
-	}
 	if modelName == "" {
 		modelName = job.Config.StemModel
 	}
@@ -1599,7 +1595,7 @@ func cleanupIntermediateStems(outputDir string, steps []cli.PipelineStep) {
 // stepTypeDisplay returns a human-readable name for a step type.
 func stepTypeDisplay(stepType string) string {
 	switch stepType {
-	case "vocal", "viperx":
+	case "vocal":
 		return "Vocal"
 	case "demucs":
 		return "Demucs"
@@ -1764,9 +1760,6 @@ func writePipelineStatusFailed(statusPath, step string, exitCode int, signalName
 // configuration so queued jobs can be compared later from the log.
 func formatJobConfig(req SeparateRequest) string {
 	vocalModel := req.VocalModel
-	if vocalModel == "" {
-		vocalModel = req.ViperxModel
-	}
 	stemModel := req.StemModel
 	if stemModel == "" {
 		stemModel = req.DemucsModel
@@ -1999,26 +1992,18 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 	}
 
 	// --- BACKWARD COMPAT: old format (no steps) ---
-	if req.Viperx {
-		if req.ViperxKeep != "" {
-			args = append(args, "--vocal-keep", req.ViperxKeep)
-		}
-	}
 	if req.Pitch != 0 {
 		args = append(args, "--pitch", fmt.Sprintf("%d", req.Pitch))
 	}
 
 	// Resolve model paths (pipeline.sh reads inference params from model's YAML)
 	vocalModel := req.VocalModel
-	if vocalModel == "" {
-		vocalModel = req.ViperxModel
-	}
 	if vocalModel != "" {
 		modelDir, resolveErr := resolveModelDirRequired(vocalModel)
 		if resolveErr != nil {
 			return "", nil, nil, nil, resolveErr
 		}
-		args = append(args, "--viperx-model", modelDir)
+		args = append(args, "--vocal-model", modelDir)
 		if isMdxModel(vocalModel) {
 			args = append(args, "--vocal-type", "mdx")
 		} else if isOnnxModel(vocalModel) {
@@ -2103,9 +2088,8 @@ func vocalChunkSizeEnv(model string) string {
 // The returned env slice contains any extra environment variables that must be
 // set for the step (e.g. ONDA_CHUNK_SIZE).
 func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device string) (args []string, env []string, err error) {
-
 	switch step.Type {
-	case "viperx", "vocal":
+	case "vocal":
 		modelName := step.Model
 		if modelName == "" {
 			modelName = "BS_Roformer_Viperx"
@@ -2177,7 +2161,7 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 		args = append(args, "--device", device)
 	}
 
-	if step.Type == "viperx" || step.Type == "vocal" {
+	if step.Type == "vocal" {
 		if step.Model != "" {
 			vocalCfg := readModelConfigFromYaml(step.Model)
 			Log("backend", "info", fmt.Sprintf("Effective step vocal config for %s: dim_t=%d overlap=%.2f batch=%d chunk=%d", step.Model, vocalCfg.SegmentSize, vocalCfg.Overlap, vocalCfg.BatchSize, vocalCfg.ChunkSize))
@@ -2250,13 +2234,10 @@ type SeparateRequest struct {
 	Input       string `json:"input"`
 	Output      string `json:"output,omitempty"`
 	VocalModel  string `json:"vocal_model,omitempty"`
-	ViperxModel string `json:"viperx_model,omitempty"` // alias for VocalModel
 	StemModel   string `json:"stem_model,omitempty"`
 	DemucsModel string `json:"demucs_model,omitempty"` // alias for StemModel
 	Pitch       int    `json:"pitch,omitempty"`
 
-	Viperx     bool     `json:"viperx"`
-	ViperxKeep string   `json:"viperx_keep,omitempty"`
 	Demucs     bool     `json:"demucs"`
 	DemucsKeep []string `json:"demucs_keep,omitempty"`
 
@@ -2343,7 +2324,7 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	totalSteps := len(steps)
 	if totalSteps == 0 {
 		// Old format: count from flags
-		if req.Viperx {
+		if req.VocalModel != "" {
 			totalSteps++
 		}
 		if req.Demucs {
@@ -2353,7 +2334,7 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 			totalSteps++
 		}
 		if totalSteps == 0 {
-			totalSteps = 2 // default: viperx + demucs
+			totalSteps = 2 // default: vocal + demucs
 		}
 	}
 
@@ -2981,9 +2962,12 @@ func writeModelConfigToYaml(name string, cfg ModelConfigResponse) error {
 	cfg.Segment = clampDemucsSegment(cfg.Segment)
 
 	// UI "Segment Size" is dim_t directly; num_overlap is derived from overlap.
-	numOverlap := 4
-	if cfg.Overlap > 0 && cfg.Overlap < 1 {
-		numOverlap = int(math.Round(1.0 / cfg.Overlap))
+	numOverlap := cfg.NumOverlap
+	if numOverlap <= 0 {
+		numOverlap = 4
+		if cfg.Overlap > 0 && cfg.Overlap < 1 {
+			numOverlap = int(math.Round(1.0 / cfg.Overlap))
+		}
 	}
 	if numOverlap < 1 {
 		numOverlap = 1
@@ -3152,9 +3136,9 @@ func clampDemucsSegment(v float64) float64 {
 	return rounded
 }
 
-// handleModelsConfig saves or retrieves per-model inference configuration.
-// GET  /api/models/{name}/config  — reads inference params from the model's YAML
-// POST /api/models/{name}/config  — writes inference params to the model's YAML
+// handleModelsConfig saves or retrieves per-model inference flags.
+// GET  /api/models/{name}/config  — returns effective values + defaults + ranges.
+// POST /api/models/{name}/config  — validates and writes user overrides.
 func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -3166,72 +3150,70 @@ func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == http.MethodGet {
-		cfg := readModelConfigFromYaml(name)
-		json.NewEncoder(w).Encode(cfg)
-		return
-	}
-
-	if r.Method == http.MethodPost {
-		var cfg ModelConfigResponse
-		if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON"})
-			return
-		}
-
-		// Validate
-		if cfg.SegmentSize <= 0 {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "segment_size must be > 0"})
-			return
-		}
-		if cfg.Overlap < 0 || cfg.Overlap >= 1 {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "overlap must be >= 0 and < 1"})
-			return
-		}
-		if cfg.ChunkSize < 0 {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "chunk_size must be >= 0"})
-			return
-		}
-		if cfg.Device != "" && cfg.Device != "cpu" && cfg.Device != "cuda" {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "device must be 'cpu' or 'cuda'"})
-			return
-		}
-
-		// Demucs segment is limited to whole seconds in [0, 7]; clamp defensively
-		// so the value can never exceed what the CLI accepts.
-		cfg.Segment = clampDemucsSegment(cfg.Segment)
-
-		if err := writeModelConfigToYaml(name, cfg); err != nil {
-			log.Printf("ERROR: failed to save model config for %s: %v", name, err)
+		resp, err := getModelFlagsResponse(name)
+		if err != nil {
+			log.Printf("ERROR: failed to read model flags for %s: %v", name, err)
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
+		json.NewEncoder(w).Encode(resp)
+		return
+	}
 
-		// Keep the UVR-style JSON override in sync so pipeline.sh can pick it up
-		// without having to read training-only YAML values.
-		if err := writeUVRModelConfigJSON(name, cfg); err != nil {
-			log.Printf("ERROR: failed to sync UVR JSON for %s: %v", name, err)
-			// Non-fatal: the YAML is the source of truth for the backend.
+	if r.Method == http.MethodPost {
+		updates, err := decodeFlagUpdates(r)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
 		}
 
-		Log("backend", "success", fmt.Sprintf("Config saved for %s: dim_t=%d overlap=%.2f batch=%d chunk=%d shifts=%d segment=%.0f jobs=%d",
-			name, cfg.SegmentSize, cfg.Overlap, cfg.BatchSize, cfg.ChunkSize, cfg.Shifts, cfg.Segment, cfg.Jobs))
+		if err := saveModelFlags(name, updates); err != nil {
+			log.Printf("ERROR: failed to save model flags for %s: %v", name, err)
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
 
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{
 			"ok":     "true",
-			"detail": fmt.Sprintf("config saved to YAML for model %s", name),
+			"detail": fmt.Sprintf("config saved for model %s", name),
 		})
 		return
 	}
 
 	w.WriteHeader(http.StatusMethodNotAllowed)
 	json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+}
+
+// decodeFlagUpdates accepts either {"flags": {"segment_size": 256}} or
+// {"flags": [{"name": "segment_size", "value": 256}]}.
+func decodeFlagUpdates(r *http.Request) ([]ModelFlagValue, error) {
+	var body struct {
+		Flags json.RawMessage `json:"flags"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return nil, fmt.Errorf("invalid JSON")
+	}
+
+	// Try object form first.
+	var obj map[string]interface{}
+	if err := json.Unmarshal(body.Flags, &obj); err == nil {
+		var updates []ModelFlagValue
+		for k, v := range obj {
+			updates = append(updates, ModelFlagValue{Name: k, Value: v})
+		}
+		return updates, nil
+	}
+
+	// Fall back to array form.
+	var arr []ModelFlagValue
+	if err := json.Unmarshal(body.Flags, &arr); err != nil {
+		return nil, fmt.Errorf("flags must be an object or an array")
+	}
+	return arr, nil
 }
 
 // allowedFilenameChars matches characters that are safe to keep in a song

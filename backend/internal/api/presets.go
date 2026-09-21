@@ -173,10 +173,11 @@ func migratePreset(data json.RawMessage) cli.Preset {
 		return newPreset
 	}
 
-	// Try old format and migrate
+	// Try old format and migrate. The legacy JSON uses viperxEnabled/viperxStems;
+	// we read those tags but convert the step to a plain "vocal" step.
 	var oldPreset struct {
 		Name          string   `json:"name"`
-		ViperxEnabled bool     `json:"viperxEnabled"`
+		VocalEnabled  bool     `json:"viperxEnabled"`
 		DemucsEnabled bool     `json:"demucsEnabled"`
 		VocalModel    string   `json:"vocalModel"`
 		VocalOverlap  int      `json:"vocalOverlap"`
@@ -184,7 +185,7 @@ func migratePreset(data json.RawMessage) cli.Preset {
 		DrumsModel    string   `json:"drumsModel"`
 		BassModel     string   `json:"bassModel"`
 		OtherModel    string   `json:"otherModel"`
-		ViperxStems   []string `json:"viperxStems"`
+		VocalStems    []string `json:"viperxStems"`
 		DemucsStems   []string `json:"demucsStems"`
 		Pitch         int      `json:"pitch"`
 		Description   string   `json:"description"`
@@ -202,7 +203,7 @@ func migratePreset(data json.RawMessage) cli.Preset {
 	}
 
 	// Vocal step
-	if oldPreset.ViperxEnabled {
+	if oldPreset.VocalEnabled {
 		vocalModel := oldPreset.VocalModel
 		if vocalModel == "" {
 			vocalModel = "BS_Roformer_Viperx"
@@ -214,8 +215,8 @@ func migratePreset(data json.RawMessage) cli.Preset {
 			Enabled: true,
 			Stems:   make(map[string]cli.StemRoute),
 		}
-		if len(oldPreset.ViperxStems) > 0 {
-			for _, s := range oldPreset.ViperxStems {
+		if len(oldPreset.VocalStems) > 0 {
+			for _, s := range oldPreset.VocalStems {
 				step.Stems[s] = cli.StemRoute{Action: cli.StemSave, Target: "result"}
 			}
 		} else {
