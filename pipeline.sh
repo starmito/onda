@@ -1673,13 +1673,13 @@ for k, v in s.get('stems', {}).items():
         rm -rf "$STEP_TMP" 2>/dev/null || true
     done
 
+    # Final progress report (before deleting step state)
+    multi_step_progress "done" -1 100
+
     # ── Final cleanup ──
     rm -rf "${ROUTED_DIR}" "${STEPS_STATE_FILE}" "${STEPS_CONFIG_FILE}" 2>/dev/null || true
     # Remove per-step diagnostic logs on success; keep them on failure.
     rm -f "${OUTPUT}"/_step_*.log 2>/dev/null || true
-
-    # Final progress report
-    multi_step_progress "done" -1 100
 
     echo ""
     echo "════════════════════════════════════════════════════"
