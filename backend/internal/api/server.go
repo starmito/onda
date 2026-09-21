@@ -95,6 +95,8 @@ type JobState struct {
 	TotalSteps       int         `json:"total_steps"`
 	StepName         string      `json:"step_name"`
 	Device           string      `json:"device,omitempty"`
+	GPUType          string      `json:"gpu_type,omitempty"`
+	RanOnCPU         bool        `json:"ran_on_cpu,omitempty"`
 	CurrentModel     string      `json:"current_model,omitempty"`
 	CurrentFlags     string      `json:"current_flags,omitempty"`
 	BlockedReason    string      `json:"blocked_reason,omitempty"`
@@ -418,7 +420,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	gpuAvailable, gpuInfo, _ := checkGPU()
+	gpuAvailable, gpuInfo, gpuErr := checkGPU()
 	gpuType := detectGPUType()
 
 	// ── Read frontend version ──
@@ -457,11 +459,17 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ── Build components ──
-	var gpuObj map[string]interface{}
-	if gpuAvailable {
-		gpuObj = map[string]interface{}{"ok": true, "type": gpuType, "detail": gpuInfo}
-	} else {
-		gpuObj = map[string]interface{}{"ok": false, "type": gpuType, "code": "E3", "detail": gpuInfo}
+	gpuObj := map[string]interface{}{
+		"ok":              gpuAvailable,
+		"usable_by_torch": gpuAvailable,
+		"type":            gpuType,
+		"detail":          gpuInfo,
+	}
+	if !gpuAvailable {
+		gpuObj["code"] = "E3"
+		if gpuErr != nil {
+			gpuObj["detail"] = gpuErr.Error()
+		}
 	}
 	if gpuType == "cpu" {
 		gpuObj["warning"] = "No GPU detected — running on CPU. Performance may be degraded."
@@ -762,6 +770,29 @@ func (s *Server) expireBlockedJobs() {
 	}
 }
 
+// pipelineStatusJSON mirrors the fields of a single song's
+// output/<song>/pipeline_status.json that the API exposes to clients.
+type pipelineStatusJSON struct {
+	Status          string  `json:"status"`
+	Step            string  `json:"step"`
+	Progress        float64 `json:"progress"`
+	OverallProgress float64 `json:"overall_progress"`
+	Device          string  `json:"device"`
+	GPUType         string  `json:"gpu_type"`
+}
+
+// readPipelineStatusForSong reads output/<song>/pipeline_status.json and
+// returns the fields relevant for queue status. Missing or unreadable files
+// produce a zero value, which callers treat as "no live info yet".
+func readPipelineStatusForSong(outputDir, song string) pipelineStatusJSON {
+	var st pipelineStatusJSON
+	statusPath := filepath.Join(outputDir, song, "pipeline_status.json")
+	if data, err := os.ReadFile(statusPath); err == nil {
+		json.Unmarshal(data, &st)
+	}
+	return st
+}
+
 // collectQueueJobs returns the current list of jobs ordered by status priority.
 // It mirrors the internal logic of handleQueueStatus so it can be reused by
 // the real-time process status endpoint.
@@ -812,35 +843,6 @@ func (s *Server) collectQueueJobs() []*JobState {
 	}
 	s.jobsMu.Unlock()
 
-	// Read pipeline status file for live step/progress info
-	type PipelineStatusJSON struct {
-		Status          string  `json:"status"`
-		Step            string  `json:"step"`
-		Progress        float64 `json:"progress"`
-		OverallProgress float64 `json:"overall_progress"`
-		Device          string  `json:"device"`
-	}
-	var pipelineStatus PipelineStatusJSON
-	statusPath := filepath.Join(outputDir, "pipeline_status.json")
-	if data, err := os.ReadFile(statusPath); err == nil {
-		json.Unmarshal(data, &pipelineStatus)
-	}
-
-	// Prefer the per-step progress field; fall back to the multi-step overall
-	// progress reported by chained pipelines.
-	liveProgress := pipelineStatus.Progress
-	if liveProgress == 0 && pipelineStatus.OverallProgress > 0 {
-		// multi-step mode reports overall_progress as a 0-100 integer, so
-		// normalize it to the 0-1 fraction used by the rest of the handler.
-		liveProgress = pipelineStatus.OverallProgress / 100.0
-	}
-	if liveProgress < 0 {
-		liveProgress = 0
-	}
-	if liveProgress > 1 {
-		liveProgress = 1
-	}
-
 	// Step name mapping and ordering
 	stepOrder := map[string]int{"vocal": 1, "viperx": 1, "demucs": 2, "rubberband": 3}
 
@@ -849,15 +851,32 @@ func (s *Server) collectQueueJobs() []*JobState {
 
 	var jobList []*JobState
 	for _, j := range s.jobs {
+		// Read the per-song pipeline_status.json so the UI can see the effective
+		// device and GPU type for every job, not only the one in progress.
+		st := readPipelineStatusForSong(outputDir, j.Song)
+
 		// For the processing job, inject live step/progress from pipeline_status.json
-		if j.Status == "processing" && pipelineStatus.Status != "" {
-			j.StepName = capitalizeStep(pipelineStatus.Step)
-			j.CurrentStep = stepOrder[pipelineStatus.Step]
+		if j.Status == "processing" && st.Status != "" {
+			j.StepName = capitalizeStep(st.Step)
+			j.CurrentStep = stepOrder[st.Step]
 			if j.CurrentStep == 0 {
 				j.CurrentStep = 1
 			}
+			// Prefer the per-step progress field; fall back to the multi-step overall
+			// progress reported by chained pipelines.
+			liveProgress := st.Progress
+			if liveProgress == 0 && st.OverallProgress > 0 {
+				// multi-step mode reports overall_progress as a 0-100 integer, so
+				// normalize it to the 0-1 fraction used by the rest of the handler.
+				liveProgress = st.OverallProgress / 100.0
+			}
+			if liveProgress < 0 {
+				liveProgress = 0
+			}
+			if liveProgress > 1 {
+				liveProgress = 1
+			}
 			j.Progress = int(liveProgress * 100)
-			j.Device = pipelineStatus.Device
 			// Ensure total_steps is at least current_step
 			if j.TotalSteps < j.CurrentStep {
 				j.TotalSteps = j.CurrentStep
@@ -869,6 +888,9 @@ func (s *Server) collectQueueJobs() []*JobState {
 		} else if j.Status == "error" {
 			j.FailureDetails = readFailureDiagnostics(filepath.Join(outputDir, j.Song))
 		}
+		j.Device = st.Device
+		j.GPUType = st.GPUType
+		j.RanOnCPU = strings.EqualFold(st.Device, "cpu")
 		jobList = append(jobList, j)
 	}
 	sort.Slice(jobList, func(i, j int) bool {
