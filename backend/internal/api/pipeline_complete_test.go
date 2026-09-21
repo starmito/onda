@@ -59,7 +59,7 @@ func TestBuildStepPipelineArgs_SeparadorCompletoDemucsKeepsOnlyInstruments(t *te
 		},
 	}
 
-	args, _ := buildStepPipelineArgs(demucs, "/app/input/song.wav", "/app/output/song", "cuda")
+	args, _, _ := buildStepPipelineArgs(demucs, "/app/input/song.wav", "/app/output/song", "cuda")
 	got := argValue(args, "--demucs-keep")
 	want := "drums,bass,other"
 	if got != want {

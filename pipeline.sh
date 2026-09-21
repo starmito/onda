@@ -705,7 +705,76 @@ _apply_roformer_model_config_overrides() {
     fi
 }
 
-# Run a Vocal model step in chaining mode
+# Resolve a bare model name to an absolute model directory under MODELS_DIR.
+# If the input is already an existing path (file or directory), it is returned
+# unchanged. The lookup searches the known model category roots for a matching
+# directory or weight file. This is a defensive fallback so the pipeline also
+# accepts model names, not only full paths.
+resolve_model_path() {
+    local name="$1"
+    if [ -z "$name" ]; then
+        return
+    fi
+    # Existing path: return as-is (directory or parent of a file).
+    if [ -d "$name" ]; then
+        echo "$name"
+        return
+    fi
+    if [ -f "$name" ]; then
+        dirname "$name"
+        return
+    fi
+
+    local subdirs="VR_Models MDX_Net_Models RoFormer_Models Demucs_Models Demucs_ONNX"
+    for sub in $subdirs; do
+        local root="$MODELS_DIR/$sub"
+        [ -d "$root" ] || continue
+
+        # Match a model-specific subdirectory.
+        local candidate_dir="$root/$name"
+        if [ -d "$candidate_dir" ]; then
+            for ext in ckpt pth onnx th safetensors; do
+                if ls "$candidate_dir"/*.$ext >/dev/null 2>&1; then
+                    echo "$candidate_dir"
+                    return
+                fi
+            done
+        fi
+
+        # Match a weight file sitting directly in the category root.
+        for ext in ckpt pth onnx th safetensors; do
+            if [ -f "$root/$name.$ext" ]; then
+                echo "$root"
+                return
+            fi
+        done
+    done
+}
+
+# Build a human-readable "not found" error for a model name. It lists the
+# category roots that were searched and the model directories available in them.
+model_not_found_error() {
+    local name="$1"
+    local label="$2"
+    local msg="❌ ${label} model not found: ${name}"
+    msg="${msg}",
+    msg="${msg} searched under: $MODELS_DIR"
+    local subdirs="VR_Models MDX_Net_Models RoFormer_Models Demucs_Models Demucs_ONNX"
+    for sub in $subdirs; do
+        local root="$MODELS_DIR/$sub"
+        if [ -d "$root" ]; then
+            local found
+            found=$(ls -1 "$root" 2>/dev/null | head -20 | tr '\n' ' ')
+            if [ -n "$found" ]; then
+                msg="${msg}; ${sub}: ${found}"
+            else
+                msg="${msg}; ${sub}: (empty)"
+            fi
+        fi
+    done
+    echo "$msg"
+}
+
 # Args: model_path (file or dir), input_file, output_dir
 run_vocal_step() {
     local model_path="$1"
@@ -719,8 +788,15 @@ run_vocal_step() {
     fi
 
     if [ ! -d "$model_dir" ]; then
-        echo "❌ Model not found: ${model_path}" >&2
-        exit 2
+        local resolved
+        resolved=$(resolve_model_path "$model_path")
+        if [ -n "$resolved" ] && [ -d "$resolved" ]; then
+            model_dir="$resolved"
+            model_path="$resolved"
+        else
+            model_not_found_error "$model_path" "Vocal" >&2
+            exit 2
+        fi
     fi
 
     if is_mdx_model_dir "$model_dir"; then
@@ -1233,6 +1309,15 @@ if ! $VOCAL && ! $VIPERX && ! $DEMUCS && ! $RUBBERBAND && [ -z "$STEPS_JSON" ]; 
     RUBBERBAND=true
 fi
 
+# Resolve bare vocal model names to paths as a defensive fallback.
+if $VOCAL || $VIPERX; then
+    _resolved_vocal=$(resolve_model_path "${VOCAL_MODEL:-${VIPERX_MODEL}}")
+    if [ -n "$_resolved_vocal" ]; then
+        VOCAL_MODEL="$_resolved_vocal"
+        VIPERX_MODEL="$_resolved_vocal"
+    fi
+fi
+
 # ══════════════════════════════════════════════════════════
 # CHAINED MODE (--steps JSON)
 # Execute all steps in a single invocation with stem routing
@@ -1628,10 +1713,18 @@ if $VOCAL || $VIPERX; then
         vocal_model_dir="$(dirname "${vocal_model_dir}")"
     fi
     if [ ! -d "${vocal_model_dir}" ]; then
-        vocal_err="Vocal model not found: ${VOCAL_MODEL:-${VIPERX_MODEL}}"
-        echo "❌ ${vocal_err}" >&2
-        report_step_failure "vocal" 2 "" "${vocal_err}"
-        exit 2
+        # Last-chance resolution and a detailed error message.
+        _resolved_vocal=$(resolve_model_path "${VOCAL_MODEL:-${VIPERX_MODEL}}")
+        if [ -n "$_resolved_vocal" ] && [ -d "$_resolved_vocal" ]; then
+            vocal_model_dir="$_resolved_vocal"
+            VOCAL_MODEL="$_resolved_vocal"
+            VIPERX_MODEL="$_resolved_vocal"
+        else
+            vocal_err=$(model_not_found_error "${VOCAL_MODEL:-${VIPERX_MODEL}}" "Vocal")
+            echo "${vocal_err}" >&2
+            report_step_failure "vocal" 2 "" "${vocal_err}"
+            exit 2
+        fi
     fi
     # Launch inference — Python writes pipeline_status.json directly on each chunk.
     # Pass num_overlap as positional arg for backward compatibility.

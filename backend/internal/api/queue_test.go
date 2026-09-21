@@ -12,7 +12,9 @@ import (
 	"time"
 )
 
-// setupQueueTestRoot creates a temporary project root with input/output dirs.
+// setupQueueTestRoot creates a temporary project root with input/output dirs
+// and a dummy BS_Roformer_Viperx model directory so preset/step resolution
+// succeeds in queue-level tests.
 func setupQueueTestRoot(t *testing.T) string {
 	t.Helper()
 	root := setTestRoot(t, "queue-test-")
@@ -21,6 +23,13 @@ func setupQueueTestRoot(t *testing.T) string {
 		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
 			t.Fatalf("failed to create %s: %v", dir, err)
 		}
+	}
+	modelDir := filepath.Join(root, "models", "VR_Models", "BS_Roformer_Viperx")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatalf("failed to create model dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "BS_Roformer_Viperx.ckpt"), []byte("fake"), 0o644); err != nil {
+		t.Fatalf("failed to create dummy checkpoint: %v", err)
 	}
 	return root
 }

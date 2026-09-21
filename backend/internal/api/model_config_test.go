@@ -142,7 +142,7 @@ func TestBuildPipelineArgs_DemucsUsesSavedConfig(t *testing.T) {
 		Demucs:   true,
 		StemModel: "htdemucs_ft",
 	}
-	_, args, _, _ := buildPipelineArgs(req)
+	_, args, _, _, _ := buildPipelineArgs(req)
 
 	if !contains(args, "--stem-model") {
 		t.Fatal("expected --stem-model flag")
@@ -180,7 +180,7 @@ func TestBuildPipelineArgs_DemucsDefaultModelUsesSavedConfig(t *testing.T) {
 		Viperx: true,
 		Demucs: true,
 	}
-	_, args, _, _ := buildPipelineArgs(req)
+	_, args, _, _, _ := buildPipelineArgs(req)
 
 	if !contains(args, "--stem-model") {
 		t.Fatal("expected --stem-model flag")
@@ -219,7 +219,7 @@ func TestBuildPipelineArgs_DemucsRequestOverridesConfig(t *testing.T) {
 		DemucsSegment: 8,
 		Jobs:          1,
 	}
-	_, args, _, _ := buildPipelineArgs(req)
+	_, args, _, _, _ := buildPipelineArgs(req)
 
 	if got := argValue(args, "--shifts"); got != "2" {
 		t.Errorf("expected request --shifts 2, got %q", got)
@@ -252,7 +252,7 @@ func TestBuildPipelineArgs_DemucsDecimalSegmentClamped(t *testing.T) {
 		Demucs:    true,
 		StemModel: "htdemucs_ft",
 	}
-	_, args, _, _ := buildPipelineArgs(req)
+	_, args, _, _, _ := buildPipelineArgs(req)
 
 	// 7.8 exceeds the integer CLI limit of 7 and is clamped.
 	if got := argValue(args, "--demucs-segment"); got != "7" {
@@ -281,7 +281,7 @@ func TestBuildStepPipelineArgs_DemucsUsesSavedConfig(t *testing.T) {
 		Model:   "htdemucs_ft",
 		Enabled: true,
 	}
-	args, _ := buildStepPipelineArgs(step, "/app/input/song.wav", "/app/output/song", "cuda")
+	args, _, _ := buildStepPipelineArgs(step, "/app/input/song.wav", "/app/output/song", "cuda")
 
 	if got := argValue(args, "--shifts"); got != "6" {
 		t.Errorf("expected --shifts 6, got %q", got)
@@ -400,7 +400,7 @@ func TestBuildPipelineArgs_DemucsSegmentRequestClamped(t *testing.T) {
 		StemModel:     "htdemucs_ft",
 		DemucsSegment: 7.8,
 	}
-	_, args, _, _ := buildPipelineArgs(req)
+	_, args, _, _, _ := buildPipelineArgs(req)
 
 	if got := argValue(args, "--demucs-segment"); got != "7" {
 		t.Errorf("expected --demucs-segment 7, got %q", got)
@@ -428,7 +428,7 @@ func TestBuildStepPipelineArgs_DemucsSegmentClamped(t *testing.T) {
 		Model:   "htdemucs_ft",
 		Enabled: true,
 	}
-	args, _ := buildStepPipelineArgs(step, "/app/input/song.wav", "/app/output/song", "cuda")
+	args, _, _ := buildStepPipelineArgs(step, "/app/input/song.wav", "/app/output/song", "cuda")
 
 	if got := argValue(args, "--demucs-segment"); got != "7" {
 		t.Errorf("expected --demucs-segment 7, got %q", got)
@@ -455,7 +455,14 @@ func TestReadModelConfigFromYaml_ReadsChunkSize(t *testing.T) {
 }
 
 func TestBuildPipelineArgs_LegacyVocalChunkSizeEnv(t *testing.T) {
-	setTestRoot(t, "model-config-")
+	root := setTestRoot(t, "model-config-")
+	modelDir := filepath.Join(root, "models", "VR_Models", "TestRoformer")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatalf("failed to create model dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "TestRoformer.ckpt"), []byte("fake"), 0o644); err != nil {
+		t.Fatalf("failed to create dummy checkpoint: %v", err)
+	}
 
 	cfg := ModelConfigResponse{
 		SegmentSize: 256,
@@ -472,7 +479,7 @@ func TestBuildPipelineArgs_LegacyVocalChunkSizeEnv(t *testing.T) {
 		Viperx:     true,
 		VocalModel: "TestRoformer",
 	}
-	_, args, _, env := buildPipelineArgs(req)
+	_, args, _, env, _ := buildPipelineArgs(req)
 
 	if !contains(args, "--viperx-model") {
 		t.Error("expected --viperx-model flag")
@@ -483,7 +490,14 @@ func TestBuildPipelineArgs_LegacyVocalChunkSizeEnv(t *testing.T) {
 }
 
 func TestBuildStepPipelineArgs_VocalChunkSizeEnv(t *testing.T) {
-	setTestRoot(t, "model-config-")
+	root := setTestRoot(t, "model-config-")
+	modelDir := filepath.Join(root, "models", "VR_Models", "TestRoformer")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatalf("failed to create model dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "TestRoformer.ckpt"), []byte("fake"), 0o644); err != nil {
+		t.Fatalf("failed to create dummy checkpoint: %v", err)
+	}
 
 	cfg := ModelConfigResponse{
 		SegmentSize: 256,
@@ -505,7 +519,7 @@ func TestBuildStepPipelineArgs_VocalChunkSizeEnv(t *testing.T) {
 			"instrumental": {Action: cli.StemSave, Target: "result"},
 		},
 	}
-	args, env := buildStepPipelineArgs(step, "/app/input/song.wav", "/app/output/song", "cpu")
+	args, env, _ := buildStepPipelineArgs(step, "/app/input/song.wav", "/app/output/song", "cpu")
 
 	if !contains(args, "--vocal-model") {
 		t.Error("expected --vocal-model flag")
@@ -516,7 +530,14 @@ func TestBuildStepPipelineArgs_VocalChunkSizeEnv(t *testing.T) {
 }
 
 func TestBuildStepPipelineArgs_VocalNoChunkSizeOmitsEnv(t *testing.T) {
-	setTestRoot(t, "model-config-")
+	root := setTestRoot(t, "model-config-")
+	modelDir := filepath.Join(root, "models", "VR_Models", "TestRoformerZero")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatalf("failed to create model dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "TestRoformerZero.ckpt"), []byte("fake"), 0o644); err != nil {
+		t.Fatalf("failed to create dummy checkpoint: %v", err)
+	}
 
 	cfg := ModelConfigResponse{
 		SegmentSize: 256,
@@ -534,7 +555,7 @@ func TestBuildStepPipelineArgs_VocalNoChunkSizeOmitsEnv(t *testing.T) {
 		Model:   "TestRoformerZero",
 		Enabled: true,
 	}
-	_, env := buildStepPipelineArgs(step, "/app/input/song.wav", "/app/output/song", "cpu")
+	_, env, _ := buildStepPipelineArgs(step, "/app/input/song.wav", "/app/output/song", "cpu")
 
 	for _, e := range env {
 		if strings.HasPrefix(e, "ONDA_CHUNK_SIZE") {
@@ -574,7 +595,7 @@ func TestBuildPipelineArgs_OnnxModel(t *testing.T) {
 	}
 
 	req := &SeparateRequest{Input: "/app/input/song.wav", VocalModel: "MyMDXNet"}
-	_, args, _, _ := buildPipelineArgs(req)
+	_, args, _, _, _ := buildPipelineArgs(req)
 	if got := argValue(args, "--vocal-type"); got != "mdxnet" {
 		t.Errorf("expected --vocal-type mdxnet, got %q", got)
 	}
@@ -600,7 +621,7 @@ func TestBuildStepPipelineArgs_OnnxModel(t *testing.T) {
 		Model:   "MyMDXNet",
 		Enabled: true,
 	}
-	args, _ := buildStepPipelineArgs(step, "/app/input/song.wav", "/app/output/song", "cpu")
+	args, _, _ := buildStepPipelineArgs(step, "/app/input/song.wav", "/app/output/song", "cpu")
 	if got := argValue(args, "--vocal-type"); got != "mdxnet" {
 		t.Errorf("expected --vocal-type mdxnet, got %q", got)
 	}

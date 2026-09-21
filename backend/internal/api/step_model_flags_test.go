@@ -246,7 +246,7 @@ func TestRunSinglePipeline_PresetResolvesRealModel(t *testing.T) {
 		Input:  "/app/input/song.wav",
 		Device: "cpu",
 	}
-	song, args, steps, _ := buildPipelineArgs(&req)
+	song, args, steps, _, _ := buildPipelineArgs(&req)
 
 	state := &JobState{Song: song, Status: "waiting"}
 	s := &Server{jobs: map[string]*JobState{song: state}}

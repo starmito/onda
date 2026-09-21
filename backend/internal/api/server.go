@@ -1396,7 +1396,17 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		}
 
 		// Build args for this specific step
-		stepArgs, stepEnv := buildStepPipelineArgs(step, currentInput, containerOutput, job.Config.Device)
+		stepArgs, stepEnv, stepErr := buildStepPipelineArgs(step, currentInput, containerOutput, job.Config.Device)
+		if stepErr != nil {
+			s.jobsMu.Lock()
+			if state, ok := s.jobs[job.Song]; ok {
+				state.Status = "error"
+				state.Error = stepErr.Error()
+				Log("pipeline", "error", fmt.Sprintf("Step %d/%d failed for %s: %v", i+1, len(steps), job.Song, stepErr))
+			}
+			s.jobsMu.Unlock()
+			return
+		}
 		stepArgs = append(stepArgs, "--output", containerOutput)
 
 		// For steps after the first, add --no-clean to preserve previous outputs
@@ -1931,9 +1941,10 @@ func normalizeContainerInput(input string) string {
 
 // buildPipelineArgs constructs the argument list for pipeline.sh from a SeparateRequest.
 // If a preset with Steps is referenced, those steps are returned separately for multi-step chaining.
-// Returns: song name, pipeline args, list of steps for chaining (if any), and any extra
-// environment variables that must be set for the subprocess (e.g. ONDA_CHUNK_SIZE).
-func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps []cli.PipelineStep, env []string) {
+// Returns: song name, pipeline args, list of steps for chaining (if any), any extra
+// environment variables that must be set for the subprocess (e.g. ONDA_CHUNK_SIZE), and an error
+// if a requested model cannot be resolved on disk.
+func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps []cli.PipelineStep, env []string, err error) {
 	req.Input = normalizeContainerInput(req.Input)
 	song = strings.TrimSuffix(filepath.Base(req.Input), filepath.Ext(req.Input))
 	containerOutput := filepath.Join(mustSub("output"), song)
@@ -1965,7 +1976,10 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 	if len(steps) > 0 {
 		// For multi-step presets, build args for the FIRST step only.
 		// The worker will iterate through remaining steps.
-		stepArgs, stepEnv := buildStepPipelineArgs(steps[0], req.Input, containerOutput, req.Device)
+		stepArgs, stepEnv, stepErr := buildStepPipelineArgs(steps[0], req.Input, containerOutput, req.Device)
+		if stepErr != nil {
+			return "", nil, nil, nil, stepErr
+		}
 		args = append(args, stepArgs...)
 		env = append(env, stepEnv...)
 		args = append(args, "--output", containerOutput)
@@ -1979,7 +1993,7 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 			args = append(args, "--no-clean")
 			args = append(args, req.Input)
 		}
-		return song, args, steps, env
+		return song, args, steps, env, nil
 	}
 
 	// --- BACKWARD COMPAT: old format (no steps) ---
@@ -1998,11 +2012,9 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 		vocalModel = req.ViperxModel
 	}
 	if vocalModel != "" {
-		modelDir := resolveModelDir(vocalModel)
-		if modelDir == "" {
-			// Model not found on disk yet; pass the name through so callers
-			// still see the requested --viperx-model flag.
-			modelDir = vocalModel
+		modelDir, resolveErr := resolveModelDirRequired(vocalModel)
+		if resolveErr != nil {
+			return "", nil, nil, nil, resolveErr
 		}
 		args = append(args, "--viperx-model", modelDir)
 		if isMdxModel(vocalModel) {
@@ -2069,7 +2081,7 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 
 	args = append(args, "--output", containerOutput)
 	args = append(args, req.Input)
-	return song, args, nil, env
+	return song, args, nil, env, nil
 }
 
 // vocalChunkSizeEnv returns an ONDA_CHUNK_SIZE env var when the model has a
@@ -2088,27 +2100,28 @@ func vocalChunkSizeEnv(model string) string {
 // buildStepPipelineArgs builds pipeline.sh arguments for a single PipelineStep.
 // The returned env slice contains any extra environment variables that must be
 // set for the step (e.g. ONDA_CHUNK_SIZE).
-func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device string) (args []string, env []string) {
+func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device string) (args []string, env []string, err error) {
 
 	switch step.Type {
 	case "viperx", "vocal":
-		args = append(args, "--vocal-model", "BS_Roformer_Viperx")
-		// Model
-		if step.Model != "" {
-			modelDir := resolveModelDir(step.Model)
-			if modelDir != "" {
-				args = append(args, "--vocal-model", modelDir)
-			}
-			if isMdxModel(step.Model) {
-				args = append(args, "--vocal-type", "mdx")
-			} else if isOnnxModel(step.Model) {
-				args = append(args, "--vocal-type", "mdxnet")
-			} else if isScnetModel(step.Model) {
-				args = append(args, "--vocal-type", "scnet")
-			}
-			if envVar := vocalChunkSizeEnv(step.Model); envVar != "" {
-				env = append(env, envVar)
-			}
+		modelName := step.Model
+		if modelName == "" {
+			modelName = "BS_Roformer_Viperx"
+		}
+		modelDir, resolveErr := resolveModelDirRequired(modelName)
+		if resolveErr != nil {
+			return nil, nil, resolveErr
+		}
+		args = append(args, "--vocal-model", modelDir)
+		if isMdxModel(modelName) {
+			args = append(args, "--vocal-type", "mdx")
+		} else if isOnnxModel(modelName) {
+			args = append(args, "--vocal-type", "mdxnet")
+		} else if isScnetModel(modelName) {
+			args = append(args, "--vocal-type", "scnet")
+		}
+		if envVar := vocalChunkSizeEnv(modelName); envVar != "" {
+			env = append(env, envVar)
 		}
 		// Keep setting based on stem routing
 		if step.Stems != nil {
@@ -2170,7 +2183,7 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 	}
 
 	args = append(args, "--output", outputDir)
-	return args, env
+	return args, env, nil
 }
 
 // findRouteTargets returns a list of stem filenames that should be routed to a specific step.
@@ -2313,7 +2326,16 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 
 	// Build pipeline arguments and extract song name
 	// The third return value is the list of steps for multi-step chaining
-	song, pipelineArgs, steps, pipelineEnv := buildPipelineArgs(&req)
+	song, pipelineArgs, steps, pipelineEnv, buildErr := buildPipelineArgs(&req)
+	if buildErr != nil {
+		Log("backend", "warn", fmt.Sprintf("Job rejected: %v", buildErr))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": buildErr.Error(),
+		})
+		return
+	}
 
 	// Compute total pipeline steps
 	totalSteps := len(steps)
@@ -2369,11 +2391,109 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// hasModelCheckpoint reports whether dir contains at least one recognized
+// model weight file.
+func hasModelCheckpoint(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if modelExtensions[strings.ToLower(filepath.Ext(entry.Name()))] {
+			return true
+		}
+	}
+	return false
+}
+
+// searchModelOnDisk looks for a model directory or weight file matching name.
+// It searches the known model category roots under the data-root. If name is
+// already an existing path, it is returned directly (directory, or parent
+// directory when it is a file). The returned bool indicates whether a usable
+// model directory was found.
+func searchModelOnDisk(name string) (string, []string, bool) {
+	if name == "" {
+		return "", nil, false
+	}
+
+	// If the caller passed a path that exists, use it as-is.
+	if filepath.IsAbs(name) || strings.ContainsAny(name, `/\`) {
+		if info, err := os.Stat(name); err == nil {
+			if info.IsDir() {
+				return name, []string{name}, true
+			}
+			return filepath.Dir(name), []string{filepath.Dir(name)}, true
+		}
+	}
+
+	base := modelsBasePath()
+	var tried []string
+	for _, subdir := range modelSubdirs {
+		root := filepath.Join(base, subdir)
+		tried = append(tried, root)
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			entryName := entry.Name()
+			if entry.IsDir() {
+				if !strings.EqualFold(entryName, name) {
+					continue
+				}
+				candidate := filepath.Join(root, entryName)
+				if hasModelCheckpoint(candidate) {
+					return candidate, tried, true
+				}
+				continue
+			}
+			ext := strings.ToLower(filepath.Ext(entryName))
+			if !modelExtensions[ext] {
+				continue
+			}
+			baseName := strings.TrimSuffix(entryName, ext)
+			if strings.EqualFold(baseName, name) {
+				return root, tried, true
+			}
+		}
+	}
+	return "", tried, false
+}
+
+// availableModelDirs returns a sorted, deduplicated list of subdirectory names
+// found directly under the tried model roots.
+func availableModelDirs(tried []string) []string {
+	seen := make(map[string]bool)
+	var avail []string
+	for _, root := range tried {
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			if !seen[name] {
+				seen[name] = true
+				avail = append(avail, name)
+			}
+		}
+	}
+	sort.Strings(avail)
+	return avail
+}
+
 // resolveModelDir resolves a model name to a directory path usable by the
 // pipeline. For Demucs PyTorch models (htdemucs_ft, htdemucs, etc.) the name is
 // returned as-is (loaded by name, not path). For all other models (ViperX,
-// Roformer, MDX, etc.), the model is looked up in listModels() and its path
-// under the data-root models directory is returned directly.
+// Roformer, MDX, etc.), the model is searched on disk under the data-root
+// models directory. If it cannot be found, an empty string is returned and a
+// warning is logged with the tried roots and available model directories.
 func resolveModelDir(name string) string {
 	if name == "" {
 		return ""
@@ -2381,13 +2501,36 @@ func resolveModelDir(name string) string {
 	if name == "htdemucs_ft" || (strings.HasPrefix(name, "htdemucs") && !strings.Contains(name, ".onnx")) {
 		return name
 	}
-	models := listModels()
-	for _, m := range models.Models {
-		if m.Name == name || m.DisplayName == name {
-			return filepath.Dir(m.Path)
-		}
+
+	dir, tried, found := searchModelOnDisk(name)
+	if found {
+		return dir
 	}
+	avail := availableModelDirs(tried)
+	Log("backend", "warn", fmt.Sprintf("model %q not found on disk; searched: %s; available model dirs: %s",
+		name, strings.Join(tried, ", "), strings.Join(avail, ", ")))
 	return ""
+}
+
+// resolveModelDirRequired is like resolveModelDir but returns an error with
+// context (tried roots and available models) when the model cannot be resolved.
+// Callers building pipeline arguments use this so a missing model fails clearly
+// and early instead of reaching pipeline.sh as an unresolved name.
+func resolveModelDirRequired(name string) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("model name is empty")
+	}
+	if name == "htdemucs_ft" || (strings.HasPrefix(name, "htdemucs") && !strings.Contains(name, ".onnx")) {
+		return name, nil
+	}
+
+	dir, tried, found := searchModelOnDisk(name)
+	if found {
+		return dir, nil
+	}
+	avail := availableModelDirs(tried)
+	return "", fmt.Errorf("model %q not found on disk; searched: %s; available model dirs: %s",
+		name, strings.Join(tried, ", "), strings.Join(avail, ", "))
 }
 
 // isMdxModel reports whether a model name/path refers to an MDX-C (MDX-Net)
