@@ -133,13 +133,120 @@ func categoryFromType(modelType string) string {
 		return "MDXNet"
 	case "scnet":
 		return "SCNet"
-	case "demucs":
+	case "demucs", "htdemucs":
 		return "Demucs"
 	case "":
 		return ""
 	default:
 		return strings.ToUpper(modelType[:1]) + modelType[1:]
 	}
+}
+
+// strPtr returns a pointer to a string literal.
+func strPtr(s string) *string { return &s }
+
+// inferManifestType guesses the canonical model type for a newly-uploaded model
+// from its filename. It prefers the existing heuristic helpers and falls back
+// to keyword matching so every uploaded file gets a usable manifest.
+func inferManifestType(filename string) string {
+	name := strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
+	if mt, ok := detectModelTypeByName("", name); ok {
+		mt = normalizeModelType(mt)
+		// Canonicalise demucs variants to a single type understood by the UI.
+		if mt == "htdemucs" {
+			mt = "demucs"
+		}
+		return mt
+	}
+	if mt := classifyModelType(name); mt != "unknown" {
+		if mt == "vocal" {
+			return "bs_roformer"
+		}
+		if mt == "mdx" {
+			return "mdx23c"
+		}
+		if mt == "mdxnet" {
+			return "mdx_net"
+		}
+		return mt
+	}
+	lower := strings.ToLower(name)
+	switch {
+	case strings.Contains(lower, "melband") || strings.Contains(lower, "mel_band"):
+		return "mel_band_roformer"
+	case strings.Contains(lower, "roformer"):
+		return "bs_roformer"
+	case strings.Contains(lower, "mdx23c") || strings.Contains(lower, "mdx-c"):
+		return "mdx23c"
+	case strings.Contains(lower, "mdxnet") || strings.Contains(lower, "mdx_net") || strings.HasSuffix(lower, ".onnx"):
+		return "mdx_net"
+	case strings.Contains(lower, "scnet"):
+		return "scnet"
+	case strings.Contains(lower, "demucs") || strings.Contains(lower, "htdemucs"):
+		return "demucs"
+	}
+	return "bs_roformer"
+}
+
+// inferManifestStems returns a sensible stem list for a model type and name.
+// It never invents exotic stems: vocals/instrumental for vocal models and the
+// standard Demucs set for Demucs models.
+func inferManifestStems(modelType, filename string) modelManifestStems {
+	name := strings.ToLower(strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename)))
+	switch modelType {
+	case "demucs":
+		if strings.Contains(name, "6s") || strings.Contains(name, "six") || strings.Contains(name, "6_stem") {
+			return modelManifestStems{Stems: []string{"drums", "bass", "other", "vocals", "guitar", "piano"}, NumStems: 6}
+		}
+		return modelManifestStems{Stems: []string{"drums", "bass", "other", "vocals"}, NumStems: 4}
+	case "mdx_net":
+		if strings.Contains(name, "inst") {
+			return modelManifestStems{Stems: []string{"instrumental"}, NumStems: 1, Target: strPtr("instrumental")}
+		}
+		if strings.Contains(name, "vocal") {
+			return modelManifestStems{Stems: []string{"vocals"}, NumStems: 1, Target: strPtr("vocals")}
+		}
+		return modelManifestStems{Stems: []string{"vocals", "instrumental"}, NumStems: 2, Target: strPtr("vocals")}
+	case "mdx23c", "scnet", "bs_roformer", "mel_band_roformer":
+		return modelManifestStems{Stems: []string{"vocals", "instrumental"}, NumStems: 2, Target: strPtr("vocals")}
+	default:
+		return modelManifestStems{Stems: []string{"vocals", "instrumental"}, NumStems: 2, Target: strPtr("vocals")}
+	}
+}
+
+// inferManifestFlags returns the editable flag set for a canonical model type.
+func inferManifestFlags(modelType string) map[string]modelFlagDef {
+	flagNames, ok := flagsByType[modelType]
+	if !ok {
+		flagNames = []string{"segment_size", "num_overlap", "chunk_size", "batch_size", "device"}
+	}
+	flags := make(map[string]modelFlagDef, len(flagNames))
+	for _, fn := range flagNames {
+		if def, ok := knownFlags[fn]; ok {
+			flags[fn] = copyFlagDef(def)
+		}
+	}
+	return flags
+}
+
+// generateModelManifest writes a model.manifest.json next to an uploaded model.
+// It derives name, type, stems and flags from the filename so the model is
+// immediately usable by the pipeline, model editor and preset editor.
+func generateModelManifest(modelDir, filename string) error {
+	name := strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
+	modelType := inferManifestType(filename)
+	manifest := modelManifest{
+		Name:  name,
+		Type:  modelType,
+		Stems: inferManifestStems(modelType, filename),
+		Flags: inferManifestFlags(modelType),
+	}
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(filepath.Join(modelDir, "model.manifest.json"), data, 0644)
 }
 
 // computeDisplayName derives a human-friendly display name from the file's
