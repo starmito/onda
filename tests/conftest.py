@@ -97,14 +97,14 @@ def _mock_gpu_audio_deps():
     sf = _inject("soundfile")
     sf.write = mock.Mock()
 
-    # lib_v5 model modules (used by onda.viperx)
+    # lib_v5 model modules (used by onda.vocal)
     # Pre-populate the whole namespace so the real files (which need torch) are
     # never read during pure-logic tests.
     lib_v5 = _inject("lib_v5")
     lib_v5.__path__ = []
 
     def _dummy_model(*args, **kwargs):
-        """Return an object that satisfies viperx's model interactions."""
+        """Return an object that satisfies vocal's model interactions."""
         m = mock.MagicMock()
         m.parameters.return_value = []
         m.to.return_value = m

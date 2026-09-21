@@ -1,4 +1,4 @@
-"""Tests for onda.viperx covering pure logic paths.
+"""Tests for onda.vocal covering pure logic paths.
 
 These tests do not need a GPU or the full PyTorch/librosa stack: conftest.py
 injects lightweight import mocks, and each test monkey-patches the parts of the
@@ -16,14 +16,17 @@ import yaml
 
 @pytest.fixture
 def make_args(tmp_path):
-    """Build a SimpleNamespace for run_viperx."""
+    """Build a SimpleNamespace for run_vocal."""
 
     def _make(
         model=None,
         config=None,
         input_file=None,
-        output="viperx_out",
+        output="vocal_out",
         overlap=8,
+        dim_t=0,
+        batch_size=0,
+        chunk_size=0,
         device="cpu",
     ):
         return SimpleNamespace(
@@ -32,6 +35,9 @@ def make_args(tmp_path):
             input=str(input_file) if input_file else str(tmp_path / "input.wav"),
             output=str(tmp_path / output),
             overlap=overlap,
+            dim_t=dim_t,
+            batch_size=batch_size,
+            chunk_size=chunk_size,
             device=device,
         )
 
@@ -50,20 +56,20 @@ def write_config(path, model_type):
         yaml.safe_dump(cfg, f)
 
 
-def test_run_viperx_exits_when_model_missing(make_args, capsys):
-    """run_viperx must exit 1 when the model checkpoint is missing."""
+def test_run_vocal_exits_when_model_missing(make_args, capsys):
+    """run_vocal must exit 1 when the model checkpoint is missing."""
     args = make_args(model="/nonexistent/model.ckpt")
-    import onda.viperx as vx
+    import onda.vocal as vx
 
     with pytest.raises(SystemExit) as exc:
-        vx.run_viperx(args)
+        vx.run_vocal(args)
     assert exc.value.code == 1
     captured = capsys.readouterr()
     assert "model not found" in captured.out.lower()
 
 
-def test_run_viperx_autodetects_config_same_prefix(make_args, tmp_path):
-    """run_viperx auto-detects a .yaml with the same basename as the model."""
+def test_run_vocal_autodetects_config_same_prefix(make_args, tmp_path):
+    """run_vocal auto-detects a .yaml with the same basename as the model."""
     model_path = tmp_path / "my_model.ckpt"
     model_path.write_bytes(b"ckpt")
     write_config(tmp_path / "my_model.yaml", {"num_bands": 4})
@@ -71,7 +77,7 @@ def test_run_viperx_autodetects_config_same_prefix(make_args, tmp_path):
     write_config(tmp_path / "other.yaml", {"freqs_per_bands": [1, 2]})
 
     args = make_args(model=model_path)
-    import onda.viperx as vx
+    import onda.vocal as vx
     import lib_v5.mel_band_roformer as mb
     import lib_v5.bs_roformer as bs
 
@@ -90,23 +96,23 @@ def test_run_viperx_autodetects_config_same_prefix(make_args, tmp_path):
     with mock.patch("builtins.open", side_effect=tracking_open), mock.patch.object(
         mb, "MelBandRoformer", side_effect=raise_after_config
     ), mock.patch.object(bs, "BSRoformer", side_effect=raise_after_config), mock.patch(
-        "onda.viperx.sf.write"
+        "onda.vocal.sf.write"
     ):
         with pytest.raises(RuntimeError, match="config-detected"):
-            vx.run_viperx(args)
+            vx.run_vocal(args)
 
     assert detected is not None
     assert os.path.basename(str(detected)) == "my_model.yaml"
 
 
-def test_run_viperx_autodetects_any_yaml_when_prefix_missing(make_args, tmp_path):
+def test_run_vocal_autodetects_any_yaml_when_prefix_missing(make_args, tmp_path):
     """When no prefix-matching yaml exists, the first yaml is selected."""
     model_path = tmp_path / "model.ckpt"
     model_path.write_bytes(b"ckpt")
     write_config(tmp_path / "only_config.yaml", {"num_bands": 4})
 
     args = make_args(model=model_path)
-    import onda.viperx as vx
+    import onda.vocal as vx
     import lib_v5.mel_band_roformer as mb
     import lib_v5.bs_roformer as bs
 
@@ -125,40 +131,40 @@ def test_run_viperx_autodetects_any_yaml_when_prefix_missing(make_args, tmp_path
     with mock.patch("builtins.open", side_effect=tracking_open), mock.patch.object(
         mb, "MelBandRoformer", side_effect=raise_after_config
     ), mock.patch.object(bs, "BSRoformer", side_effect=raise_after_config), mock.patch(
-        "onda.viperx.sf.write"
+        "onda.vocal.sf.write"
     ):
         with pytest.raises(RuntimeError, match="config-detected"):
-            vx.run_viperx(args)
+            vx.run_vocal(args)
 
     assert detected is not None
     assert os.path.basename(str(detected)) == "only_config.yaml"
 
 
-def test_run_viperx_exits_when_no_config_found(make_args, tmp_path, capsys):
-    """run_viperx exits 1 when no .yaml config is found next to the model."""
+def test_run_vocal_exits_when_no_config_found(make_args, tmp_path, capsys):
+    """run_vocal exits 1 when no .yaml config is found next to the model."""
     model_path = tmp_path / "model.ckpt"
     model_path.write_bytes(b"ckpt")
     args = make_args(model=model_path)
-    import onda.viperx as vx
+    import onda.vocal as vx
 
     with pytest.raises(SystemExit) as exc:
-        vx.run_viperx(args)
+        vx.run_vocal(args)
     assert exc.value.code == 1
     captured = capsys.readouterr()
     assert "no .yaml config found" in captured.out.lower()
 
 
-def test_run_viperx_exits_on_unknown_model_type(make_args, tmp_path, capsys):
-    """run_viperx exits 1 when the config does not match a known model type."""
+def test_run_vocal_exits_on_unknown_model_type(make_args, tmp_path, capsys):
+    """run_vocal exits 1 when the config does not match a known model type."""
     model_path = tmp_path / "model.ckpt"
     model_path.write_bytes(b"ckpt")
     write_config(tmp_path / "model.yaml", {"unknown_key": True})
 
     args = make_args(model=model_path)
-    import onda.viperx as vx
+    import onda.vocal as vx
 
     with pytest.raises(SystemExit) as exc:
-        vx.run_viperx(args)
+        vx.run_vocal(args)
     assert exc.value.code == 1
     captured = capsys.readouterr()
     assert "unknown model type" in captured.out.lower()

@@ -16,12 +16,12 @@ SR = 44100
 
 def _write_progress(progress_file, chunk, total):
     """Write per-chunk progress to a JSON file for real-time tracking.
-    Format: {"step": "viperx", "progress": 0.45, "chunk": 45, "total_chunks": 100}
+    Format: {"step": "vocal", "progress": 0.45, "chunk": 45, "total_chunks": 100}
     """
     progress = chunk / total if total > 0 else 0.0
     try:
         with open(progress_file, 'w') as pf:
-            pf.write('{"step":"viperx","progress":%.4f,"chunk":%d,"total_chunks":%d}' % (progress, chunk, total))
+            pf.write('{"step":"vocal","progress":%.4f,"chunk":%d,"total_chunks":%d}' % (progress, chunk, total))
             pf.flush()
     except Exception:
         pass  # Non-critical; don't crash the pipeline over a progress write failure
@@ -122,7 +122,7 @@ def _process_mix(model, mix, C, step, batch_size, S, device,
                 if progress_file:
                     _write_progress(progress_file, progress_base + chunk_idx, progress_total)
                 if pipeline_status:
-                    _write_pipeline_status(pipeline_status, 'viperx',
+                    _write_pipeline_status(pipeline_status, 'vocal',
                                            (progress_base + chunk_idx) / progress_total if progress_total > 0 else 0.0,
                                            progress_base + chunk_idx, progress_total, str(device))
                 batch_data, batch_starts = [], []

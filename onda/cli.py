@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """onda — Audio source separation pipeline.
 Three independent subcommands for GUI integration:
-  onda viperx   input.wav → vocals + instrumental
+  onda vocal    input.wav → vocals + instrumental
   onda demucs   instrumental.wav → drums, bass, other, vocals
   onda pitch    stems_dir → pitch-shifted stems
 """
@@ -13,18 +13,33 @@ import sys
 def main():
     parser = argparse.ArgumentParser(
         prog="onda",
-        description="Audio source separation pipeline (BS-Roformer → HTDemucs → Rubberband)",
+        description="Audio source separation pipeline (RoFormer → HTDemucs → Rubberband)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    # ── viperx ──────────────────────────────────────────────
-    vx = sub.add_parser("viperx", help="BS-Roformer source separation → vocals + instrumental")
+    # ── vocal ───────────────────────────────────────────────
+    vx = sub.add_parser("vocal", help="RoFormer source separation → vocals + instrumental")
     vx.add_argument("input", help="Input audio file (.wav, .mp3, .flac...)")
     vx.add_argument("-m", "--model", required=True, help="Path to .ckpt checkpoint")
     vx.add_argument("-c", "--config", help="Path to .yaml config (auto-detected if same dir)")
     vx.add_argument("--overlap", type=int, default=8, help="Overlap chunks (default: 8)")
-    vx.add_argument("-o", "--output", default="output_viperx", help="Output directory")
+    vx.add_argument("--dim-t", type=int, default=0, help="Model dim_t override (default: from config)")
+    vx.add_argument("--batch-size", type=int, default=0, help="Batch size override (default: from config)")
+    vx.add_argument("--chunk-size", type=int, default=0, help="Time chunk size in seconds, 0 = whole song")
+    vx.add_argument("-o", "--output", default="output_vocal", help="Output directory")
     vx.add_argument("--device", default="cuda", choices=["cuda","cpu"], help="Device (default: cuda)")
+
+    # Deprecated alias kept for backward compatibility
+    vx_alias = sub.add_parser("viperx", help=argparse.SUPPRESS)
+    vx_alias.add_argument("input", help=argparse.SUPPRESS)
+    vx_alias.add_argument("-m", "--model", required=True, help=argparse.SUPPRESS)
+    vx_alias.add_argument("-c", "--config", help=argparse.SUPPRESS)
+    vx_alias.add_argument("--overlap", type=int, default=8, help=argparse.SUPPRESS)
+    vx_alias.add_argument("--dim-t", type=int, default=0, help=argparse.SUPPRESS)
+    vx_alias.add_argument("--batch-size", type=int, default=0, help=argparse.SUPPRESS)
+    vx_alias.add_argument("--chunk-size", type=int, default=0, help=argparse.SUPPRESS)
+    vx_alias.add_argument("-o", "--output", default="output_vocal", help=argparse.SUPPRESS)
+    vx_alias.add_argument("--device", default="cuda", choices=["cuda","cpu"], help=argparse.SUPPRESS)
 
     # ── demucs ──────────────────────────────────────────────
     dm = sub.add_parser("demucs", help="HTDemucs stem separation → drums, bass, other, vocals")
@@ -42,9 +57,9 @@ def main():
 
     args = parser.parse_args()
 
-    if args.command == "viperx":
-        from onda.viperx import run_viperx
-        run_viperx(args)
+    if args.command in ("vocal", "viperx"):
+        from onda.vocal import run_vocal
+        run_vocal(args)
     elif args.command == "demucs":
         from onda.demucs import run_demucs
         run_demucs(args)
