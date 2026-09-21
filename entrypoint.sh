@@ -18,19 +18,21 @@ if [ "$GPU" != "cpu" ]; then
         mkdir -p "$CACHE_DIR"
         case $GPU in
             cuda)
-                pip install --target "$CACHE_DIR" torch==2.14.0 torchvision==0.29.0 onnxruntime-gpu==1.26.0
+                # --no-deps: solo los wheels nombrados; sus dependencias YA estan en la imagen.
+                # --upgrade: reemplaza lo que hubiera en el volumen en vez de dejar restos mezclados.
+                python3 -m pip install --no-deps --upgrade --target "$CACHE_DIR" torch==2.14.0 torchvision==0.29.0 onnxruntime-gpu==1.26.0
                 ;;
         esac
         echo "✅ $GPU backend installed"
     fi
 
     # Robustness: verify onnxruntime imports from the cache, reinstall if missing/corrupt.
-    if ! PYTHONPATH="$CACHE_DIR" python -c "import onnxruntime" >/dev/null 2>&1; then
+    if ! PYTHONPATH="$CACHE_DIR" python3 -c "import onnxruntime" >/dev/null 2>&1; then
         echo "⚠️  onnxruntime not importable in cache, reinstalling..."
         mkdir -p "$CACHE_DIR"
         case $GPU in
             cuda)
-                pip install --target "$CACHE_DIR" onnxruntime-gpu==1.26.0
+                python3 -m pip install --no-deps --upgrade --target "$CACHE_DIR" onnxruntime-gpu==1.26.0
                 ;;
         esac
         echo "✅ onnxruntime reinstalled"
