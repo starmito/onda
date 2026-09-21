@@ -41,6 +41,8 @@ type VRAMCalculatorResponse struct {
 	AvailableVRAMMB int              `json:"available_vram_mb"`
 	FreeAfterMB     int              `json:"free_after_mb"`
 	Fits            bool             `json:"fits"`
+	Reliable        bool             `json:"reliable"`
+	Warning         string           `json:"warning,omitempty"`
 }
 
 // defaultVRAMMB is used when a model is not catalogued by estimateVRAMMB.
@@ -56,13 +58,19 @@ type VRAMConfig struct {
 	ChunkSize     int
 	BatchSize     int
 	DemucsSegment int
+	Duration      int // audio duration in seconds (0 = unknown)
 }
 
-// measuredVRAMPeak stores an observed real peak for a model/step combination.
+// measuredVRAMPeak stores an observed real peak for a model/step combination
+// under specific inference settings. When a match exists it overrides the
+// analytical estimator so the UI can show a number grounded in reality.
 type measuredVRAMPeak struct {
 	ModelName string
 	StepType  string
 	PeakMB    int
+	ChunkSize int // 0 = whole-song / not relevant
+	BatchSize int // 0 = not relevant
+	Duration  int // seconds, 0 = not relevant
 }
 
 // measuredVRAMPeaks is the live table of observed VRAM peaks. Values are
@@ -72,18 +80,35 @@ type measuredVRAMPeak struct {
 var measuredVRAMPeaks = []measuredVRAMPeak{
 	// Measured 2026-09-19: htdemucs_ft with --shifts 20 --segment 7 -j 8
 	// stays around 1.5 GiB after the vocal model is released.
-	{ModelName: "htdemucs_ft", StepType: "demucs", PeakMB: 1500},
+	{ModelName: "htdemucs_ft", StepType: "demucs", PeakMB: 1500, ChunkSize: 0, BatchSize: 0, Duration: 0},
+	// Measured 2026-09-21: BS_Roformer_SW_6stem, 30 s stereo 44.1 kHz,
+	// chunk_size=485100 samples, overlap=4 (step=121275), batch_size=1.
+	{ModelName: "BS_Roformer_SW_6stem", StepType: "vocal", PeakMB: 2803, ChunkSize: 485100, BatchSize: 1, Duration: 30},
+	// Measured 2026-09-21: SCNet_MUSDB18 with chunk_size=0 (whole song),
+	// 296 s stereo 44.1 kHz, batch_size=1.
+	{ModelName: "SCNet_MUSDB18", StepType: "scnet", PeakMB: 6372, ChunkSize: 0, BatchSize: 1, Duration: 296},
 }
 
 // findMeasuredVRAMPeak returns the measured peak in MiB for a model/step
-// combination, or 0 when no measurement is available.
-func findMeasuredVRAMPeak(modelName, stepType string) int {
+// combination when the requested settings match a real measurement exactly.
+// It returns 0 otherwise so the analytical estimator can run (and warn).
+func findMeasuredVRAMPeak(modelName, stepType string, cfg VRAMConfig) int {
 	lowerModel := strings.ToLower(modelName)
 	lowerStep := strings.ToLower(stepType)
 	for _, m := range measuredVRAMPeaks {
-		if strings.ToLower(m.ModelName) == lowerModel && strings.ToLower(m.StepType) == lowerStep {
-			return m.PeakMB
+		if strings.ToLower(m.ModelName) != lowerModel || strings.ToLower(m.StepType) != lowerStep {
+			continue
 		}
+		if m.ChunkSize > 0 && cfg.ChunkSize != m.ChunkSize {
+			continue
+		}
+		if m.BatchSize > 0 && cfg.BatchSize != m.BatchSize {
+			continue
+		}
+		if m.Duration > 0 && cfg.Duration != m.Duration {
+			continue
+		}
+		return m.PeakMB
 	}
 	return 0
 }
@@ -120,10 +145,10 @@ func checkVramHeadroom(freeMB, totalMB int, modelName, stepType string, cfg VRAM
 	effectiveModel := resolveModelName(modelName, fallbackModel)
 
 	var base int
-	if peak := findMeasuredVRAMPeak(effectiveModel, stepType); peak > 0 {
+	if peak := findMeasuredVRAMPeak(effectiveModel, stepType, cfg); peak > 0 {
 		base = peak
 	} else {
-		base = estimateVRAMMB(effectiveModel, cfg.SegmentSize, cfg.ChunkSize, cfg.BatchSize, cfg.DemucsSegment)
+		base = estimateVRAMMB(effectiveModel, cfg.SegmentSize, cfg.ChunkSize, cfg.BatchSize, cfg.DemucsSegment, cfg.Duration)
 	}
 
 	withMargin := int(math.Round(float64(base) * vramHeadroomMargin))
@@ -266,10 +291,11 @@ func getGPUInfoNvidiaSmi() GPUInfoResponse {
 	}
 }
 
-// estimateVRAMMB returns the empirical VRAM peak in MB for a model name.
-// It uses measured peaks for Roformer/ViperX/Vocal, Demucs, MDX/MDXNet and SCNet.
-// Falls back to defaultVRAMMB for unknown models.
-func estimateVRAMMB(modelName string, segmentSize, chunkSize, batchSize, demucsSegment int) int {
+// estimateVRAMMB returns the analytical VRAM peak in MB for a model name.
+// It does NOT use measured peaks; callers that want measured overrides should
+// call findMeasuredVRAMPeak first. duration is the audio length in seconds
+// (0 = unknown) and matters for whole-song models like SCNet when chunk_size is 0.
+func estimateVRAMMB(modelName string, segmentSize, chunkSize, batchSize, demucsSegment, duration int) int {
 	lower := strings.ToLower(modelName)
 
 	// MDX / MDXNet / ONNX: empirical peak depends on dim_t (derived from
@@ -280,15 +306,18 @@ func estimateVRAMMB(modelName string, segmentSize, chunkSize, batchSize, demucsS
 		return mdxEstimateVRAMMB(segmentSize, batchSize)
 	}
 
-	// SCNet: empirical peak scales linearly with chunk_size and batch size.
-	// Overlap does not affect the estimate.
+	// SCNet: empirical peak scales with chunk_size and batch size when chunked.
+	// With chunk_size=0 the whole song is processed at once, so the peak scales
+	// with audio duration.
 	if strings.Contains(lower, "scnet") {
-		return scnetEstimateVRAMMB(chunkSize, batchSize)
+		return scnetEstimateVRAMMB(chunkSize, batchSize, duration)
 	}
 
 	// Roformer / ViperX / Vocal: measured peak with real long audio:
 	// pico ≈ 1100 + (106 + 6.72*segment_size) * batch_size.
 	// batch_size is multiplicative because chunks are processed in parallel.
+	// This formula ignores chunk_size, so callers should mark the estimate as
+	// unreliable when chunk_size dominates VRAM (e.g. SW 6-stem).
 	if isVocalOrRoformer(lower) {
 		b := batchSize
 		if b < 1 {
@@ -497,13 +526,26 @@ var scnetChunkPoints = []int{242550, 485100, 970200}
 // scnetVRAMPoints are the measured VRAM peaks (MiB, batch 1) for scnetChunkPoints.
 var scnetVRAMPoints = []int{600, 948, 1762}
 
+// scnetWholeSongReference is the measured peak for a whole-song SCNet run.
+const scnetWholeSongReferenceMB = 6372
+const scnetWholeSongReferenceDuration = 296 // seconds
+
 // scnetEstimateVRAMMB returns the empirical SCNet VRAM peak in MB.
 // It uses a base linear in chunk_size (interpolated from batch-1 measurements)
 // and multiplies by batch size. Overlap is ignored.
-func scnetEstimateVRAMMB(chunkSize, batchSize int) int {
+// When chunk_size is 0 the whole song is processed at once, so the peak scales
+// with audio duration.
+func scnetEstimateVRAMMB(chunkSize, batchSize, duration int) int {
 	b := batchSize
 	if b < 1 {
 		b = 1
+	}
+	if chunkSize <= 0 {
+		if duration <= 0 {
+			duration = scnetWholeSongReferenceDuration
+		}
+		base := float64(scnetWholeSongReferenceMB) * float64(duration) / float64(scnetWholeSongReferenceDuration)
+		return int(math.Round(base)) * b
 	}
 	base := interpolatePeak(chunkSize, scnetChunkPoints, scnetVRAMPoints)
 	return base * b
@@ -578,6 +620,34 @@ func classifyModelType(modelName string) string {
 	return "unknown"
 }
 
+// vramEstimateReliable reports whether an analytical estimate is trustworthy
+// for the given model family and configuration, and returns a human-readable
+// warning when it is not.
+func vramEstimateReliable(modelType string, cfg VRAMConfig) (bool, string) {
+	switch modelType {
+	case "scnet":
+		if cfg.ChunkSize <= 0 {
+			if cfg.Duration <= 0 {
+				return false, "SCNet con chunk_size=0 procesa la canción entera: la estimación asume ~300 s."
+			}
+			if cfg.Duration > scnetWholeSongReferenceDuration {
+				return false, fmt.Sprintf("SCNet con chunk_size=0: el pico real crece con la duración; la medición de referencia es de %d s.", scnetWholeSongReferenceDuration)
+			}
+		} else if cfg.Duration > 120 {
+			return false, "La fórmula de SCNet se midió con clips de ~100 s; para audio muy largo el pico puede subir."
+		}
+	case "vocal":
+		if cfg.ChunkSize > 0 {
+			return false, "La estimación no tiene en cuenta chunk_size, que puede cambiar mucho el pico real de VRAM."
+		}
+	case "mdx", "mdxnet":
+		if cfg.SegmentSize == 0 {
+			return false, "Falta segment_size: se usa una estimación genérica que puede no coincidir con este modelo."
+		}
+	}
+	return true, ""
+}
+
 // handleVRAMCalculator serves GET /api/gpu/vram-calculator with VRAM estimates
 // for the requested models and available GPU memory.
 func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
@@ -599,7 +669,7 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Parse chunk_size query parameter (affects VRAM for SCNet models).
+	// Parse chunk_size query parameter (affects VRAM for SCNet and Roformer models).
 	chunkSize := 0
 	chunkSizeParam := r.URL.Query().Get("chunk_size")
 	if chunkSizeParam != "" {
@@ -626,6 +696,14 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Parse duration query parameter in seconds (affects whole-song models like SCNet).
+	duration := 0
+	if d := r.URL.Query().Get("duration"); d != "" {
+		if v, err := strconv.Atoi(d); err == nil && v > 0 {
+			duration = v
+		}
+	}
+
 	// Parse models query parameter: models=vocal=melband_kj,stems=htdemucs_ft
 	modelsParam := r.URL.Query().Get("models")
 	if modelsParam == "" {
@@ -637,8 +715,18 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	cfg := VRAMConfig{
+		SegmentSize:   segmentSize,
+		ChunkSize:     chunkSize,
+		BatchSize:     batchSize,
+		DemucsSegment: demucsSegment,
+		Duration:      duration,
+	}
+
 	var models []VRAMModelEntry
 	totalVRAM := 0
+	allReliable := true
+	var warnings []string
 
 	// Split by comma: "vocal=melband_kj,stems=htdemucs_ft"
 	pairs := strings.Split(modelsParam, ",")
@@ -656,12 +744,24 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 			modelName = strings.TrimSpace(pair[eqIdx+1:])
 		}
 		modelName = strings.TrimSpace(modelName)
+		modelType := classifyModelType(modelName)
 
-		vramMB := estimateVRAMMB(modelName, segmentSize, chunkSize, batchSize, demucsSegment)
+		var vramMB int
+		if peak := findMeasuredVRAMPeak(modelName, modelType, cfg); peak > 0 {
+			vramMB = peak
+		} else {
+			vramMB = estimateVRAMMB(modelName, segmentSize, chunkSize, batchSize, demucsSegment, duration)
+			if ok, w := vramEstimateReliable(modelType, cfg); !ok {
+				allReliable = false
+				if w != "" {
+					warnings = append(warnings, modelName+": "+w)
+				}
+			}
+		}
 
 		models = append(models, VRAMModelEntry{
 			Name:   modelName,
-			Type:   classifyModelType(modelName),
+			Type:   modelType,
 			VRAMMB: vramMB,
 		})
 		totalVRAM += vramMB
@@ -682,6 +782,10 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 		AvailableVRAMMB: availableVRAM,
 		FreeAfterMB:     freeAfter,
 		Fits:            freeAfter >= 0,
+		Reliable:        allReliable,
+	}
+	if !allReliable && len(warnings) > 0 {
+		resp.Warning = strings.Join(warnings, " ")
 	}
 
 	w.Header().Set("Content-Type", "application/json")
