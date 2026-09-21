@@ -70,10 +70,6 @@ type measuredVRAMPeak struct {
 // the analytical estimator so the guard reflects reality instead of an
 // optimistic formula.
 var measuredVRAMPeaks = []measuredVRAMPeak{
-	// Measured 2026-09-19 on a real job: BS_Roformer_Viperx (dim_t 3105,
-	// overlap 2, batch 2, chunk 35) peaked at 14.944 MiB of pipeline VRAM.
-	{ModelName: "BS_Roformer_Viperx", StepType: "vocal", PeakMB: 14944},
-	{ModelName: "BS_Roformer_Viperx", StepType: "viperx", PeakMB: 14944},
 	// Measured 2026-09-19: htdemucs_ft with --shifts 20 --segment 7 -j 8
 	// stays around 1.5 GiB after the vocal model is released.
 	{ModelName: "htdemucs_ft", StepType: "demucs", PeakMB: 1500},

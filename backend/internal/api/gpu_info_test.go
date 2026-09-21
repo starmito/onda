@@ -169,24 +169,24 @@ func TestCheckVramHeadroom_NeverRequiresMoreThanTotal(t *testing.T) {
 		wantWarning   string
 	}{
 		{
-			name:         "viperx ample free warns margin dropped",
+			name:         "viperx ample free fits with margin",
 			freeMB:       16000,
 			totalMB:      16311,
 			model:        "BS_Roformer_Viperx",
 			stepType:     "vocal",
 			wantOK:       true,
-			wantRequired: 14944,
-			wantWarning:  `VRAM tight: model "BS_Roformer_Viperx" (step "vocal") needs ~14944 MiB and the card has 16311 MiB total - proceeding without safety margin`,
+			wantRequired: 1447,
+			wantWarning:  "",
 		},
 		{
-			name:         "viperx free below base blocks with real requirement",
+			name:         "viperx free below requirement blocks",
 			freeMB:       950,
 			totalMB:      16311,
 			model:        "BS_Roformer_Viperx",
 			stepType:     "vocal",
 			wantOK:       false,
-			wantRequired: 14944,
-			wantReason:   `insufficient VRAM: model "BS_Roformer_Viperx" (step "vocal") needs ~14944 MiB, only 950 MiB free`,
+			wantRequired: 1447,
+			wantReason:   `insufficient VRAM: model "BS_Roformer_Viperx" (step "vocal") needs ~1447 MiB (with 20% margin), only 950 MiB free`,
 		},
 		{
 			name:         "demucs margin fits free above requirement",
@@ -215,8 +215,8 @@ func TestCheckVramHeadroom_NeverRequiresMoreThanTotal(t *testing.T) {
 			stepType:      "vocal",
 			fallbackModel: "BS_Roformer_Viperx",
 			wantOK:        true,
-			wantRequired:  14944,
-			wantWarning:   `VRAM tight: model "BS_Roformer_Viperx" (step "vocal") needs ~14944 MiB and the card has 16311 MiB total - proceeding without safety margin`,
+			wantRequired:  1447,
+			wantWarning:   "",
 		},
 	}
 
