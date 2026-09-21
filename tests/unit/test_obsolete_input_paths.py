@@ -22,7 +22,6 @@ BUILD_FILES = [
     ROOT / "entrypoint.sh",
     ROOT / "docker-compose.yml",
     ROOT / "docker-compose.cuda.yml",
-    ROOT / "docker-compose.rocm.yml",
 ]
 
 # Any .sh file under scripts/ is considered a build/orchestration helper.

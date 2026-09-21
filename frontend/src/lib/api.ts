@@ -42,7 +42,7 @@ export interface HealthComponent {
   ok: boolean;
   detail?: string;
   version?: string;
-  type?: 'cuda' | 'rocm' | 'cpu';
+  type?: 'cuda' | 'cpu';
   warning?: string;
   info?: string;
 }
@@ -272,9 +272,12 @@ export async function getLocalModels(): Promise<LocalModelsResponse> {
 }
 
 export interface DownloadModelRequest {
-  source: 'huggingface';
-  repo: string;
+  source: 'huggingface' | 'direct';
+  repo?: string;
+  url?: string;
   filename?: string;  // optional specific file to download
+  category?: string;
+  name?: string;
 }
 
 export interface DownloadModelResponse {
@@ -309,10 +312,45 @@ export async function downloadModel(repo: string, filename?: string): Promise<Do
   return (await res.json()) as DownloadModelResponse;
 }
 
-export async function getDownloadStatus(repo: string): Promise<DownloadStatusResponse> {
-  const res = await fetch(`${API_BASE}/api/models/download/status?repo=${encodeURIComponent(repo)}`);
+export async function downloadModelDirect(
+  url: string,
+  filename?: string,
+  category?: string,
+): Promise<DownloadModelResponse> {
+  const body: DownloadModelRequest = { source: 'direct', url, filename, category };
+  const res = await fetch(`${API_BASE}/api/models/download`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(`Model download failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as DownloadModelResponse;
+}
+
+export async function getDownloadStatus(
+  key: string,
+  opts: { byUrl?: boolean } = {},
+): Promise<DownloadStatusResponse> {
+  const param = opts.byUrl ? 'url' : 'repo';
+  const res = await fetch(`${API_BASE}/api/models/download/status?${param}=${encodeURIComponent(key)}`);
   if (!res.ok) {
     throw new Error(`Download status fetch failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as DownloadStatusResponse;
+}
+
+export async function cancelDownload(
+  key: string,
+  opts: { byUrl?: boolean } = {},
+): Promise<DownloadStatusResponse> {
+  const param = opts.byUrl ? 'url' : 'repo';
+  const res = await fetch(`${API_BASE}/api/models/download?${param}=${encodeURIComponent(key)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    throw new Error(`Cancel download failed with status ${res.status}: ${res.statusText}`);
   }
   return (await res.json()) as DownloadStatusResponse;
 }
@@ -378,6 +416,14 @@ export async function stopBackend(): Promise<BackendActionResponse> {
 }
 
 // ---- Queue (cola secuencial) ----
+export interface FailureDetails {
+  step: string;
+  exit_code: number;
+  error: string;
+  stderr: string;
+  failed_dir: string;
+}
+
 export interface QueueJob {
   song: string;
   status: 'waiting' | 'processing' | 'done' | 'error' | 'blocked_no_gpu';
@@ -390,6 +436,7 @@ export interface QueueJob {
   current_model?: string;
   current_flags?: string;
   error?: string;
+  failure_details?: FailureDetails;
   files?: { name: string; path: string }[];
 }
 
@@ -588,12 +635,7 @@ export async function getModelCatalog(): Promise<UVRModelEntry[]> {
     if (!res.ok) {
       throw new Error(`Catalog fetch failed with status ${res.status}: ${res.statusText}`);
     }
-    const data = (await res.json()) as UVRModelEntry[];
-    // Map download_url to huggingface_repo for UI compatibility
-    return data.map((entry: any) => ({
-      ...entry,
-      huggingface_repo: entry.huggingface_repo || entry.download_url,
-    }));
+    return (await res.json()) as UVRModelEntry[];
   } catch (err) {
     if (err instanceof Error) throw err;
     throw new Error(`Unexpected error fetching model catalog: ${String(err)}`);
@@ -606,6 +648,25 @@ export async function getHfCatalog(): Promise<HfCatalogResponse> {
     throw new Error(`HF catalog fetch failed with status ${res.status}: ${res.statusText}`);
   }
   return (await res.json()) as HfCatalogResponse;
+}
+
+// ---- Model Catalog (Official Demucs) ----
+export interface DemucsCatalogEntry {
+  name: string;
+  display_name: string;
+  repo: string;
+  downloaded: boolean;
+  downloads: number;
+  likes: number;
+  source: string;
+}
+
+export async function getDemucsCatalog(): Promise<DemucsCatalogEntry[]> {
+  const res = await fetch(`${API_BASE}/api/models/catalog/demucs`);
+  if (!res.ok) {
+    throw new Error(`Demucs catalog fetch failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as DemucsCatalogEntry[];
 }
 
 export interface DeleteModelResponse {
@@ -744,6 +805,41 @@ export async function deletePitchStem(song: string, pitch: number, fileName: str
     method: 'DELETE',
   });
   if (!res.ok) throw new Error(`Failed to delete pitch stem: ${res.status}`);
+}
+
+export interface KeyAlternative {
+  key: string;
+  scale: string;
+  strength: number;
+}
+
+export interface KeyResponse {
+  key: string;
+  scale: string;
+  strength: number;
+  alternatives: KeyAlternative[];
+  dubious: boolean;
+}
+
+export async function detectKey(file: File): Promise<KeyResponse> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${API_BASE}/api/key`, {
+    method: 'POST',
+    body: formData,
+  });
+  if (!res.ok) {
+    let detail = `Key detection failed with status ${res.status}: ${res.statusText}`;
+    try {
+      const data = (await res.json()) as { error?: string; detail?: string };
+      if (data.error) detail = data.error;
+      if (data.detail) detail += `: ${data.detail}`;
+    } catch {
+      // keep default detail
+    }
+    throw new Error(detail);
+  }
+  return (await res.json()) as KeyResponse;
 }
 
 export interface TempoGridBar {

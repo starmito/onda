@@ -2,13 +2,17 @@
   import {
     getModelCatalog,
     getHfCatalog,
+    getDemucsCatalog,
     getLocalModels,
     downloadModel,
+    downloadModelDirect,
     getDownloadStatus,
+    cancelDownload,
     uploadModel,
     deleteModel,
     type UVRModelEntry,
     type HFModelEntry,
+    type DemucsCatalogEntry,
     type LocalModel,
     type DownloadProgress,
   } from './api';
@@ -42,7 +46,7 @@
   let catalogError = $state(false);
 
   // ---- Source filter state ----
-  type SourceFilter = 'all' | 'uvr' | 'hf';
+  type SourceFilter = 'all' | 'uvr' | 'hf' | 'demucs';
   let sourceFilter = $state<SourceFilter>('all');
 
   // ---- HF catalog state ----
@@ -50,12 +54,18 @@
   let hfCatalogLoading = $state(false);
   let hfCatalogError = $state(false);
 
+  // ---- Official Demucs catalog state ----
+  let demucsCatalog = $state<DemucsCatalogEntry[]>([]);
+  let demucsCatalogLoading = $state(true);
+  let demucsCatalogError = $state(false);
+
   // ---- Downloading state ----
   // Track progress per model: key = model.filename || model.name
   interface DownloadProgressInfo {
     percentage: number;
-    status: string;      // "downloading", "done", "error"
+    status: string;      // "downloading", "done", "error", "cancelled"
     pollKeys: string[];  // repo/URL keys to poll on backend
+    pollByUrl?: Set<string>; // which pollKeys are direct URLs
     intervalId?: ReturnType<typeof setInterval>;
     error?: string;
   }
@@ -128,6 +138,20 @@
       });
   });
 
+  // Load official Demucs catalog
+  $effect(() => {
+    demucsCatalogLoading = true;
+    getDemucsCatalog()
+      .then(data => {
+        demucsCatalog = data;
+        demucsCatalogLoading = false;
+      })
+      .catch(() => {
+        demucsCatalogError = true;
+        demucsCatalogLoading = false;
+      });
+  });
+
   // ---- Load installed models when tab changes ----
   $effect(() => {
     if (tab !== 'installed') return;
@@ -144,23 +168,27 @@
   });
 
   // ---- Derived: combined catalog, filtered, grouped ----
-  type SourceType = 'uvr' | 'hf';
+  type SourceType = 'uvr' | 'hf' | 'demucs';
 
   interface CombinedModel {
     name: string;
     display_name?: string;
     category: string;
-    size_mb: number;
+    size_mb?: number;
     description?: string;
     downloaded: boolean;
     source: SourceType;
     huggingface_repo?: string;
+    download_url?: string;
     filename?: string;
     hf_path?: string;
+    repo?: string;
+    downloads?: number;
+    likes?: number;
   }
 
   let combinedModels = $derived.by(() => {
-    const uvrMapped: CombinedModel[] = (sourceFilter === 'hf' ? [] : catalog).map(m => ({
+    const uvrMapped: CombinedModel[] = (sourceFilter === 'hf' || sourceFilter === 'demucs' ? [] : catalog).map(m => ({
       name: m.name,
       display_name: m.display_name,
       category: m.category,
@@ -169,10 +197,11 @@
       downloaded: m.downloaded,
       source: 'uvr' as SourceType,
       huggingface_repo: m.huggingface_repo,
+      download_url: m.download_url,
       filename: m.filename,
     }));
 
-    const hfMapped: CombinedModel[] = (sourceFilter === 'uvr' ? [] : hfCatalog).map(m => ({
+    const hfMapped: CombinedModel[] = (sourceFilter === 'uvr' || sourceFilter === 'demucs' ? [] : hfCatalog).map(m => ({
       name: m.name,
       category: m.category,
       size_mb: m.size_mb,
@@ -182,7 +211,18 @@
       filename: m.filename,
     }));
 
-    return [...uvrMapped, ...hfMapped];
+    const demucsMapped: CombinedModel[] = (sourceFilter === 'uvr' || sourceFilter === 'hf' ? [] : demucsCatalog).map(m => ({
+      name: m.name,
+      display_name: m.display_name,
+      category: 'Demucs',
+      downloaded: m.downloaded,
+      source: 'demucs' as SourceType,
+      repo: m.repo,
+      downloads: m.downloads,
+      likes: m.likes,
+    }));
+
+    return [...uvrMapped, ...hfMapped, ...demucsMapped];
   });
 
   let filtered = $derived.by(() => {
@@ -304,7 +344,7 @@
 
   async function startDownload(model: CombinedModel) {
     const key = model.filename || model.name;
-// Initialize progress
+    // Initialize progress
     downloadProgress = {
       ...downloadProgress,
       [key]: { percentage: 0, status: 'downloading', pollKeys: [] }
@@ -315,17 +355,29 @@
     try {
       // Determine what to POST and poll
       let pollKeys: string[] = [];
+      const pollByUrl: Set<string> = new Set();
 
       if (model.source === 'uvr') {
-        const repo = model.huggingface_repo!;
-        pollKeys = [repo];
-        // Fire POST without awaiting — download runs async on backend
-        downloadModel(repo).catch(err => {
-          // Store error but don't block; polling will reflect actual failure
-          const errors = new Map(downloadErrors);
-          errors.set(key, err.message || 'Download failed');
-          downloadErrors = errors;
-        });
+        if (model.download_url) {
+          // Direct URL from the UVR catalog (e.g. Roformers hosted on GitHub).
+          pollKeys = [model.download_url];
+          pollByUrl.add(model.download_url);
+          downloadModelDirect(model.download_url, model.filename, model.category).catch(err => {
+            const errors = new Map(downloadErrors);
+            errors.set(key, err.message || 'Download failed');
+            downloadErrors = errors;
+          });
+        } else if (model.huggingface_repo) {
+          // HuggingFace repo referenced by the UVR catalog.
+          pollKeys = [model.huggingface_repo];
+          downloadModel(model.huggingface_repo).catch(err => {
+            const errors = new Map(downloadErrors);
+            errors.set(key, err.message || 'Download failed');
+            downloadErrors = errors;
+          });
+        } else {
+          throw new Error('Model has no download source');
+        }
       } else {
         // HF model: download from Politrees/UVR_resources
         const repo = 'Politrees/UVR_resources';
@@ -347,10 +399,10 @@
         }
       }
 
-// Update progress with poll keys
+      // Update progress with poll keys
       downloadProgress = {
         ...downloadProgress,
-        [key]: { ...downloadProgress[key], pollKeys }
+        [key]: { ...downloadProgress[key], pollKeys, pollByUrl }
       };
 
       // Start polling
@@ -358,35 +410,51 @@
         // Check each poll key; use the one with most progress
         let bestPct = 0;
         let bestStatus = 'downloading';
+        let bestError = '';
         let completedCount = 0;
 
+        let cancelledCount = 0;
         for (const pk of pollKeys) {
           try {
-            const st = await getDownloadStatus(pk);
+            const st = await getDownloadStatus(pk, { byUrl: pollByUrl.has(pk) });
             if (st.percentage > bestPct) bestPct = st.percentage;
             if (st.status === 'done') completedCount++;
-            if (st.status === 'error') { bestStatus = 'error'; break; }
+            if (st.status === 'cancelled') {
+              cancelledCount++;
+            }
+            if (st.status === 'error') {
+              bestStatus = 'error';
+              bestError = st.error || 'Download failed';
+              break;
+            }
           } catch {
             // Poll failed — skip this key
           }
         }
 
-        // All done or first error
-        const finalStatus = completedCount === pollKeys.length ? 'done' : bestStatus;
+        // All done, first error, or all cancelled
+        let finalStatus = bestStatus;
+        if (bestStatus !== 'error') {
+          if (cancelledCount === pollKeys.length) {
+            finalStatus = 'cancelled';
+          } else if (completedCount === pollKeys.length) {
+            finalStatus = 'done';
+          }
+        }
 
         downloadProgress = {
           ...downloadProgress,
-          [key]: { ...downloadProgress[key], percentage: bestPct, status: finalStatus, intervalId }
+          [key]: { ...downloadProgress[key], percentage: bestPct, status: finalStatus, intervalId, error: bestError }
         };
 
-        if (finalStatus === 'done' || finalStatus === 'error') {
+        if (finalStatus === 'done' || finalStatus === 'error' || finalStatus === 'cancelled') {
           clearInterval(intervalId);
           if (finalStatus === 'done') {
             await refreshCatalog();
-            // Clean up progress after a short delay
-            const { [key]: _, ...rest } = downloadProgress;
-            setTimeout(() => { downloadProgress = rest; }, 2000);
           }
+          // Clean up progress after a short delay
+          const { [key]: _, ...rest } = downloadProgress;
+          setTimeout(() => { downloadProgress = rest; }, 2000);
         }
       }, 1500);
 
@@ -399,9 +467,45 @@
       const errors = new Map(downloadErrors);
       errors.set(key, err.message || 'Download failed');
       downloadErrors = errors;
-const { [key]: _, ...rest } = downloadProgress;
+      const { [key]: _, ...rest } = downloadProgress;
       downloadProgress = rest;
     }
+  }
+
+  async function cancelDownloadHandler(model: CombinedModel) {
+    const key = model.filename || model.name;
+    const prog = downloadProgress[key];
+    if (!prog) return;
+
+    // Stop polling immediately so the UI doesn't flicker back to downloading.
+    if (prog.intervalId) {
+      clearInterval(prog.intervalId);
+    }
+
+    downloadProgress = {
+      ...downloadProgress,
+      [key]: { ...prog, status: 'cancelled', percentage: 0 }
+    };
+
+    try {
+      for (const pk of prog.pollKeys) {
+        await cancelDownload(pk, { byUrl: prog.pollByUrl?.has(pk) ?? false });
+      }
+    } catch (err: any) {
+      const errors = new Map(downloadErrors);
+      errors.set(key, err.message || 'No se pudo cancelar la descarga');
+      downloadErrors = errors;
+      downloadProgress = {
+        ...downloadProgress,
+        [key]: { ...downloadProgress[key], status: 'error', error: err.message || 'Cancel failed' }
+      };
+    }
+
+    // Clean up the cancelled entry after a short delay.
+    setTimeout(() => {
+      const { [key]: _, ...rest } = downloadProgress;
+      downloadProgress = rest;
+    }, 2000);
   }
 
   function formatSize(mb: number): string {
@@ -552,11 +656,16 @@ const { [key]: _, ...rest } = downloadProgress;
             class:active={sourceFilter === 'hf'}
             onclick={() => (sourceFilter = 'hf')}
           >Hugging Face</button>
+          <button
+            class="source-btn"
+            class:active={sourceFilter === 'demucs'}
+            onclick={() => (sourceFilter = 'demucs')}
+          >Demucs (oficial)</button>
         </div>
 
-      {#if catalogLoading}
+      {#if (sourceFilter === 'demucs' && demucsCatalogLoading) || (sourceFilter !== 'demucs' && catalogLoading)}
         <div class="empty-state">Cargando catálogo...</div>
-      {:else if catalogError}
+      {:else if (sourceFilter === 'demucs' && demucsCatalogError) || (sourceFilter !== 'demucs' && catalogError)}
         <div class="empty-state error">Error al cargar el catálogo</div>
       {:else if filtered.length === 0}
         <div class="empty-state">
@@ -571,36 +680,56 @@ const { [key]: _, ...rest } = downloadProgress;
                 <div class="model-row">
                   <div class="model-info">
                     <span class="model-name">{model.display_name || model.name}</span>
-                    {#if model.description}
-                      <span class="model-desc">{model.description}</span>
+                    {#if model.source === 'demucs'}
+                      <span class="model-desc">{model.repo}</span>
+                      <span class="model-size">
+                        {#if model.downloads}↓ {model.downloads.toLocaleString()}{/if}
+                        {#if model.likes} · ♥ {model.likes.toLocaleString()}{/if}
+                      </span>
+                    {:else}
+                      {#if model.description}
+                        <span class="model-desc">{model.description}</span>
+                      {/if}
+                      <span class="model-size">{formatSize(model.size_mb ?? 0)}</span>
                     {/if}
-                    <span class="model-size">{formatSize(model.size_mb)}</span>
                   </div>
                   <div class="model-action">
-                    <span class="source-badge" class:uvr={model.source === 'uvr'} class:hf={model.source === 'hf'}>
-                      {model.source === 'uvr' ? 'UVR' : 'HF'}
+                    <span class="source-badge" class:uvr={model.source === 'uvr'} class:hf={model.source === 'hf'} class:demucs={model.source === 'demucs'}>
+                      {model.source === 'uvr' ? 'UVR' : model.source === 'hf' ? 'HF' : 'Demucs'}
                     </span>
                     {#if model.downloaded}
                       <span class="check-icon" title="Ya instalado">✅</span>
-{:else if downloadProgress[model.filename || model.name]}
+                    {:else if model.source === 'demucs'}
+                      <!-- Official Demucs catalog is read-only; downloads use the existing flow -->
+                    {:else if downloadProgress[model.filename || model.name]}
                       {@const prog = downloadProgress[model.filename || model.name]}
                       {#if prog.status === 'error'}
                         <span class="download-error" title={prog.error}>❌</span>
+                        {#if prog.error}
+                          <span class="error-detail" title={prog.error}>{prog.error}</span>
+                        {/if}
                       {:else if prog.status === 'done'}
                         <span class="check-icon" title="Completado">✅</span>
+                      {:else if prog.status === 'cancelled'}
+                        <span class="download-cancelled" title="Descarga cancelada">🚫 Cancelada</span>
                       {:else}
                         <div class="progress-bar-wrap">
                           <div class="progress-bar">
                             <div class="progress-fill" style="width: {prog.percentage}%"></div>
                           </div>
                           <span class="progress-text">{Math.round(prog.percentage)}%</span>
+                          <button
+                            class="btn-cancel"
+                            onclick={() => cancelDownloadHandler(model)}
+                            title="Cancelar descarga"
+                          >✕</button>
                         </div>
                       {/if}
                     {:else}
                       <button
                         class="btn-download"
                         onclick={() => startDownload(model)}
-                        disabled={model.source === 'uvr' ? !model.huggingface_repo : !model.hf_path}
+                        disabled={model.source === 'uvr' ? !model.huggingface_repo && !model.download_url : !model.hf_path}
                       >
                         Descargar
                       </button>
@@ -958,6 +1087,41 @@ const { [key]: _, ...rest } = downloadProgress;
     cursor: help;
   }
 
+  .error-detail {
+    font-size: 0.7rem;
+    color: #e57373;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .download-cancelled {
+    font-size: 0.7rem;
+    color: #ffb74d;
+    white-space: nowrap;
+  }
+
+  .btn-cancel {
+    background: transparent;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    color: #e57373;
+    font-size: 0.65rem;
+    width: 20px;
+    height: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+  }
+  .btn-cancel:hover {
+    background: rgba(229, 115, 115, 0.15);
+    border-color: #e57373;
+  }
+
   /* Progress bar */
   .progress-bar-wrap {
     display: flex;
@@ -1146,5 +1310,9 @@ const { [key]: _, ...rest } = downloadProgress;
   .source-badge.hf {
     background: #1b2a3a;
     color: #64b5f6;
+  }
+  .source-badge.demucs {
+    background: #2a1b3a;
+    color: #ba68c8;
   }
 </style>

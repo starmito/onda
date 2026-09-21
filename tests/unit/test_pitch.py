@@ -72,9 +72,10 @@ def test_run_pitch_calls_rubberband_for_non_skipped_stems(make_args, tmp_path):
         for call in mock_run.call_args_list:
             cmd = call.args[0]
             assert cmd[0] == "rubberband"
-            assert cmd[1] == "-p"
-            assert float(cmd[2]) == pytest.approx(args.semitones)
-            called_stems.add(os.path.basename(cmd[3]))
+            assert "--fine" in cmd
+            assert "-p" in cmd
+            assert float(cmd[cmd.index("-p") + 1]) == pytest.approx(args.semitones)
+            called_stems.add(os.path.basename(cmd[-2]))
 
         assert called_stems == {"bass.wav", "other.wav", "vocals.wav"}
 

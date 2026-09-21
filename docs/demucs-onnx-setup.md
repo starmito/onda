@@ -9,8 +9,6 @@
 demucs-onnx==0.3.4        # Wrapper StemSplitio (0.1 MB, sin PyTorch)
 onnxruntime-gpu==1.26.0   # NVIDIA CUDA (recomendado)
 # OR
-onnxruntime-rocm==1.26.0  # AMD ROCM (alternativa)
-# OR
 onnxruntime==1.26.0       # CPU-only (fallback universal)
 ```
 
@@ -70,32 +68,19 @@ print('Providers:', ort.get_available_providers())
 # Expected: CUDA available: True, Providers: ['CUDAExecutionProvider', 'CPUExecutionProvider']
 ```
 
-### AMD (ROCM)
+### AMD (ROCm) — retirado
 
-Para tarjetas AMD (RX 7000+, Instinct), usar `onnxruntime-rocm` en lugar de `onnxruntime-gpu`:
-
-```dockerfile
-# AMD ROCM
-RUN pip install --no-cache-dir onnxruntime-rocm==1.26.0
-```
-
-El código del wrapper (`inference_demucs_onnx.py`) ya es portable — usa `providers="auto"` que detecta automáticamente CUDA, ROCM, CoreML, DirectML, o CPU.
-
-**Verificar ROCM:**
-```bash
-docker exec onda python -c "
-import onnxruntime as ort
-print('ROCM available:', 'ROCMExecutionProvider' in ort.get_available_providers())
-print('Providers:', ort.get_available_providers())
-"
-```
+> **La ruta AMD/ROCm fue retirada del proyecto en v3.5.0.** A medio plazo no se va a
+> trabajar en ella y sus dependencias ya no se mantienen. Si en el futuro se
+> recupera, el punto de partida está en la historia de git (anterior a
+> `feat/v3.5.0`).
 
 ### CPU (fallback universal)
 
 Siempre disponible. Sin dependencias GPU. ~1.3-1.6x realtime.
 
 ```bash
-pip install onnxruntime  # sin sufijo -gpu ni -rocm
+pip install onnxruntime  # sin sufijo -gpu
 ```
 
 ## Bind Mounts
@@ -174,8 +159,7 @@ files = separate(
 - [x] CPU inferencia funcional (1.6x realtime)
 - [x] Bind mounts estables
 - [x] Documentación de setup y troubleshooting
-- [x] Previsión AMD documentada (onnxruntime-rocm)
+- [x] Previsión AMD documentada (onnxruntime-rocm) — **retirada en v3.5.0**
 - [ ] GPU inferencia (NVIDIA) — viable con CUDA 12.8, pendiente de rebuild del contenedor
-- [ ] GPU inferencia (AMD) — imagen con onnxruntime-rocm
 - [ ] Benchmark GPU vs CPU
 - [ ] Integración en pipeline Go (`onda pipeline --preset master --onnx`)

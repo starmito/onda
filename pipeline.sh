@@ -12,7 +12,7 @@
 # Flags:
 #   --steps JSON          Chained mode: JSON array of step objects
 #   --vocal-model PATH    Vocal model path (default: $MODELS_DIR/VR_Models/BS_Roformer_Viperx)
-#   --vocal-type TYPE     Vocal model type: mdx | mdxnet | roformer | auto (default: auto)
+#   --vocal-type TYPE     Vocal model type: mdx | mdxnet | polarformer | roformer | auto (default: auto)
 #   --vocal-keep WHAT     What to save: instrumental | vocals | both (default) (alias: --viperx-keep)
 #   --viperx-model PATH   Same as --vocal-model (deprecated)
 #   --viperx-keep WHAT    Same as --vocal-keep (deprecated)
@@ -106,11 +106,82 @@ report_progress() {
 {"status":"$status","step":"$step","progress":$progress_float,"song":"${SONG:-}","elapsed":$elapsed,"eta":$eta,"vocal_model":"${VOCAL_MODEL_DISPLAY:-${VIPERX_MODEL_DISPLAY:-}}","stem_model":"${DEMUCS_MODEL_DISPLAY:-}","segment_size":${VIPERX_DIM_T:-0},"overlap":${VIPERX_NUM_OVERLAP:-0},"chunk_size":${ONDA_CHUNK_SIZE:-0},"batch_size":${VIPERX_BATCH_SIZE:-0},"device":"${DEVICE:-cpu}","gpu_type":"${GPU_TYPE:-unknown}","shifts":${SHIFTS:-1},"demucs_segment":${DEMUCS_SEGMENT:-0},"jobs":${JOBS:-0}}
 JSONEOF
 }
-trap 'report_progress "error" "${CURRENT_STEP:-unknown}" 0' ERR
-# Normalize rocm -> cuda immediately so DEVICE is always "cuda" in status reports
-case "${DEVICE:-}" in
-    rocm) DEVICE="cuda" ;;
-esac
+# Report a step failure, persist its stderr log, and print the last lines.
+# Args: step_name exit_code [stderr_log_file] [fallback_message]
+report_step_failure() {
+    local step_name="${1:-unknown}"
+    local exit_code="${2:-1}"
+    local stderr_file="${3:-}"
+    local fallback_message="${4:-}"
+    local failed_dir=""
+    local persisted_stderr=""
+    local error_message=""
+    local last_lines=""
+
+    # run_demucs_step stores its diagnostic log here so the ERR trap can
+    # report the real stderr without printing the failure banner twice.
+    if [ -z "${stderr_file}" ] && [ "${step_name}" = "demucs" ] && [ -n "${DEMUCS_STEP_LOG:-}" ] && [ -f "${DEMUCS_STEP_LOG}" ]; then
+        stderr_file="${DEMUCS_STEP_LOG}"
+    fi
+
+    if [ -n "${OUTPUT:-}" ]; then
+        failed_dir="${OUTPUT}/_failed_${step_name}"
+        persisted_stderr="${failed_dir}/stderr.log"
+        mkdir -p "${failed_dir}"
+    fi
+
+    if [ -n "${stderr_file}" ] && [ -f "${stderr_file}" ] && [ -s "${stderr_file}" ]; then
+        if [ -n "${persisted_stderr}" ]; then
+            cp "${stderr_file}" "${persisted_stderr}"
+        fi
+        last_lines=$(tail -n 20 "${stderr_file}" 2>/dev/null || true)
+        error_message=$(tail -n 1 "${stderr_file}" 2>/dev/null | tr -d '\r\n' | head -c 200 || true)
+    elif [ -n "${fallback_message}" ]; then
+        error_message="${fallback_message}"
+        last_lines="${fallback_message}"
+        if [ -n "${persisted_stderr}" ]; then
+            echo "${fallback_message}" > "${persisted_stderr}"
+        fi
+    fi
+
+    if [ -z "${error_message}" ]; then
+        error_message="Paso ${step_name} fallo con codigo de salida ${exit_code}"
+    fi
+
+    echo ""
+    echo "❌ Paso ${step_name} fallo. Ultimas lineas:"
+    if [ -n "${last_lines}" ]; then
+        echo "${last_lines}" | sed 's/^/   /'
+    else
+        echo "   (stderr no disponible)"
+    fi
+
+    # Update status with failure details.
+    python3 -c "
+import json, os, sys
+status_file = '${STATUS_FILE}'
+error_message = sys.argv[1]
+try:
+    if os.path.exists(status_file):
+        with open(status_file) as f:
+            d = json.load(f)
+    else:
+        d = {}
+except Exception:
+    d = {}
+d['status'] = 'failed'
+d['step'] = '${step_name}'
+d['error'] = error_message
+d['exit_code'] = ${exit_code}
+try:
+    with open(status_file, 'w') as f:
+        json.dump(d, f)
+except Exception:
+    pass
+" "${error_message}" 2>/dev/null || true
+}
+
+trap 'report_step_failure "${CURRENT_STEP:-unknown}" $? "${CURRENT_STEP_LOG:-}"' ERR
 
 # Clear stale pipeline status from previous run and signal that a new pipeline has started
 report_progress "running" "starting" 0
@@ -185,8 +256,23 @@ run_with_elapsed() {
     # Ensure the background loop is always cleaned up, even on failure or exit.
     # Use ${elapsed_pid:-} so set -u never aborts the trap before cleanup.
     trap 'kill_wait "${elapsed_pid:-}"; cleanup_legacy_temps' EXIT
-    "$@"
-    local cmd_rc=$?
+
+    # Capture per-step output so failure reports can include the real stderr.
+    # The log is also exposed to the backend via the _failed_<step>/stderr.log
+    # copy performed by report_step_failure.
+    local step_log="${CURRENT_STEP_LOG:-}"
+    if [ -z "$step_log" ] && [ -n "${OUTPUT:-}" ]; then
+        step_log="${OUTPUT}/_step_${CURRENT_STEP:-unknown}.log"
+    fi
+    local cmd_rc
+    if [ -n "$step_log" ]; then
+        mkdir -p "$(dirname "$step_log")"
+        : > "$step_log"
+        "$@" > >(tee -a "$step_log") 2>&1
+    else
+        "$@"
+    fi
+    cmd_rc=$?
     kill_wait "${elapsed_pid:-}"
     eval "${prev_exit_trap:-trap - EXIT}"
     return $cmd_rc
@@ -359,6 +445,61 @@ PYEOF
     done
 }
 
+# Detect whether a vocal model directory contains a BS PolarFormer ONNX model.
+# Heuristic: explicit --vocal-type polarformer, OR a YAML config with
+# ``model.use_pope: True`` (the canonical PolarFormer flag), OR the directory
+# or .onnx filename contains "polarformer".
+#
+# This must run before is_onnx_model_dir() so PolarFormer does not fall into
+# the generic MDXNet ONNX path.
+is_polarformer_model_dir() {
+    local model_path="$1"
+    local model_dir="$model_path"
+    if [ -f "$model_path" ]; then
+        model_dir="$(dirname "$model_path")"
+    fi
+
+    case "$VOCAL_TYPE" in
+        polarformer) return 0 ;;
+        mdx|mdxnet|roformer|scnet) return 1 ;;
+    esac
+
+    # YAML with the canonical PolarFormer flag.
+    local yaml_file
+    yaml_file=$(ls "${model_dir}"/*.yaml "${model_dir}"/*.yml 2>/dev/null | head -1 || true)
+    if [ -n "$yaml_file" ]; then
+        local has_pope
+        has_pope=$(python3 - <<PY
+import yaml, sys
+try:
+    cfg = yaml.load(open('${yaml_file}'), Loader=yaml.FullLoader)
+    if cfg.get('model', {}).get('use_pope') is True:
+        sys.exit(0)
+except Exception:
+    pass
+sys.exit(1)
+PY
+        ) && return 0
+    fi
+
+    # Model directory or ONNX filename contains "polarformer".
+    local base
+    base=$(basename "$model_dir" | tr '[:upper:]' '[:lower:]')
+    if [[ "$base" =~ polarformer ]]; then
+        return 0
+    fi
+    local onnx_name
+    onnx_name=$(ls "${model_dir}"/*.onnx 2>/dev/null | head -1 || true)
+    if [ -n "$onnx_name" ]; then
+        onnx_name=$(basename "$onnx_name" | tr '[:upper:]' '[:lower:]')
+        if [[ "$onnx_name" =~ polarformer ]]; then
+            return 0
+        fi
+    fi
+
+    return 1
+}
+
 # Detect whether a vocal model directory contains an MDX-C (MDX-Net) model.
 # Heuristic: explicit --vocal-type mdx, OR a YAML with MDX-C fields
 # (num_scales / num_subbands), OR the checkpoint filename contains MDX23C.
@@ -373,7 +514,7 @@ is_mdx_model_dir() {
 
     case "$VOCAL_TYPE" in
         mdx) return 0 ;;
-        roformer) return 1 ;;
+        polarformer|roformer) return 1 ;;
     esac
 
     # Explicit MDX checkpoint name.
@@ -420,6 +561,7 @@ is_scnet_model_dir() {
 
     case "$VOCAL_TYPE" in
         scnet) return 0 ;;
+        polarformer) return 1 ;;
     esac
 
     # Explicit SCNet checkpoint name.
@@ -468,6 +610,7 @@ is_onnx_model_dir() {
 
     case "$VOCAL_TYPE" in
         mdxnet) return 0 ;;
+        polarformer) return 1 ;;
     esac
 
     if ls "${model_dir}"/*.onnx >/dev/null 2>&1; then
@@ -477,7 +620,218 @@ is_onnx_model_dir() {
     return 1
 }
 
-# Run a Vocal model step in chaining mode
+# Resolve the effective model config source for a model name.
+# Priority:
+#   1. User-saved YAML   (config/model_configs/<name>.yaml)
+#   2. UVR-style JSON    (config/model_configs/<name>.json)
+#   3. Model-shipped YAML in the model directory
+#   4. Model-shipped JSON in the model directory
+# Prints "<kind>:<path>" or nothing if no config is found.
+_resolve_model_config_source() {
+    local model_name="$1"
+    local model_dir="${2:-}"
+    local real_model_dir real_model_name
+    real_model_dir=$(readlink -f "$model_dir" 2>/dev/null || echo "$model_dir")
+    real_model_name=$(basename "$real_model_dir" 2>/dev/null || echo "$model_name")
+
+    local d candidate
+    for d in "${CONFIG_DIR}/model_configs" "${ONDA_DATA_DIR}/model_configs"; do
+        for candidate in "${d}/${model_name}.yaml" "${d}/${real_model_name}.yaml"; do
+            if [ -f "$candidate" ]; then
+                echo "user_yaml:${candidate}"
+                return 0
+            fi
+        done
+    done
+
+    for d in "${CONFIG_DIR}/model_configs" "${ONDA_DATA_DIR}/model_configs"; do
+        for candidate in "${d}/${model_name}.json" "${d}/${real_model_name}.json"; do
+            if [ -f "$candidate" ]; then
+                echo "uvr_json:${candidate}"
+                return 0
+            fi
+        done
+    done
+
+    if [ -n "$model_dir" ] && [ -d "$model_dir" ]; then
+        for candidate in "${model_dir}/${model_name}.yaml" "${model_dir}/${real_model_name}.yaml"; do
+            if [ -f "$candidate" ]; then
+                echo "model_yaml:${candidate}"
+                return 0
+            fi
+        done
+        for candidate in "${model_dir}/${model_name}.json" "${model_dir}/${real_model_name}.json" "${model_dir}/model_config.json"; do
+            if [ -f "$candidate" ]; then
+                echo "model_json:${candidate}"
+                return 0
+            fi
+        done
+    fi
+
+    return 0
+}
+
+# Read a value from a model config source (user YAML, UVR JSON or model config).
+# Usage: _read_model_config_value <source> <yaml_path> <json_key> [default]
+# yaml_path is a dot-separated path for YAML (e.g. "inference.dim_t").
+_read_model_config_value() {
+    local source="$1"
+    local yaml_path="$2"
+    local json_key="$3"
+    local default_val="${4:-}"
+    local path="${source#*:}"
+    local kind="${source%%:*}"
+
+    case "$kind" in
+        user_yaml|model_yaml)
+            python3 -c "import yaml; d=yaml.load(open('$path'), Loader=yaml.FullLoader); keys='$yaml_path'.split('.'); v=d;
+for k in keys:
+    v = v.get(k) if isinstance(v, dict) else None
+print(v if v is not None else '')" 2>/dev/null || echo "$default_val"
+            ;;
+        uvr_json|model_json)
+            python3 -c "import json,sys; v=json.load(open('$path')).get('$json_key'); print(v if v is not None else '')" 2>/dev/null || echo "$default_val"
+            ;;
+        *)
+            echo "$default_val"
+            ;;
+    esac
+}
+
+# Read user-saved model config (config/model_configs/<model>.yaml) or UVR-style
+# JSON and derive RoFormer inference parameters. User YAML takes precedence,
+# then JSON, then the model-shipped YAML. segment_size maps directly to dim_t,
+# overlap is a float converted to an integer overlap factor (1/overlap), and
+# batch_size is used as-is when >0. This prevents training-style YAML values
+# (e.g. dim_t=3105) from being used for inference.
+_apply_roformer_model_config_overrides() {
+    local model_dir="$1"
+    local model_name
+    model_name=$(basename "$model_dir")
+    # Accept either a directory named after the model or a generic symlink
+    # (e.g. /app/data/models/model). Resolve symlinks so the real basename is
+    # used as a fallback lookup key.
+    local real_model_dir
+    real_model_dir=$(readlink -f "$model_dir" 2>/dev/null || echo "$model_dir")
+    local real_model_name
+    real_model_name=$(basename "$real_model_dir")
+
+    local source
+    source=$(_resolve_model_config_source "$model_name" "$model_dir")
+    [ -z "$source" ] && return 0
+
+    local kind path
+    kind="${source%%:*}"
+    path="${source#*:}"
+
+    case "$kind" in
+        user_yaml)
+            echo "   ℹ️  RoFormer user config override: ${path}"
+            ;;
+        uvr_json)
+            echo "   ℹ️  RoFormer UVR JSON config override: ${path}"
+            ;;
+        model_yaml|model_json)
+            echo "   ℹ️  RoFormer model config override: ${path}"
+            ;;
+    esac
+
+    local seg overlap batch
+    seg=$(_read_model_config_value "$source" "inference.dim_t" "segment_size" "0")
+    overlap=$(_read_model_config_value "$source" "inference.num_overlap" "num_overlap" "0")
+    batch=$(_read_model_config_value "$source" "inference.batch_size" "batch_size" "0")
+
+    # For model JSON overlap may be stored as a float; convert to integer factor.
+    if [ "$kind" = "uvr_json" ] || [ "$kind" = "model_json" ]; then
+        if [ -n "$overlap" ]; then
+            overlap=$(python3 -c "import sys; v=float('$overlap'); print(int(round(1.0/v))) if v>0 else sys.exit(1)" 2>/dev/null || echo "")
+        fi
+    fi
+
+    if [ -n "$seg" ] && [ "$seg" -gt 0 ] 2>/dev/null; then
+        VOCAL_DIM_T="$seg"
+        VIPERX_DIM_T="$seg"
+    fi
+    if [ -n "$overlap" ] && [ "$overlap" -gt 0 ] 2>/dev/null; then
+        VOCAL_NUM_OVERLAP="$overlap"
+        VIPERX_NUM_OVERLAP="$overlap"
+    fi
+    if [ -n "$batch" ] && [ "$batch" -gt 0 ] 2>/dev/null; then
+        VOCAL_BATCH_SIZE="$batch"
+        VIPERX_BATCH_SIZE="$batch"
+    fi
+}
+
+# Resolve a bare model name to an absolute model directory under MODELS_DIR.
+# If the input is already an existing path (file or directory), it is returned
+# unchanged. The lookup searches the known model category roots for a matching
+# directory or weight file. This is a defensive fallback so the pipeline also
+# accepts model names, not only full paths.
+resolve_model_path() {
+    local name="$1"
+    if [ -z "$name" ]; then
+        return
+    fi
+    # Existing path: return as-is (directory or parent of a file).
+    if [ -d "$name" ]; then
+        echo "$name"
+        return
+    fi
+    if [ -f "$name" ]; then
+        dirname "$name"
+        return
+    fi
+
+    local subdirs="VR_Models MDX_Net_Models RoFormer_Models Demucs_Models Demucs_ONNX"
+    for sub in $subdirs; do
+        local root="$MODELS_DIR/$sub"
+        [ -d "$root" ] || continue
+
+        # Match a model-specific subdirectory.
+        local candidate_dir="$root/$name"
+        if [ -d "$candidate_dir" ]; then
+            for ext in ckpt pth onnx th safetensors; do
+                if ls "$candidate_dir"/*.$ext >/dev/null 2>&1; then
+                    echo "$candidate_dir"
+                    return
+                fi
+            done
+        fi
+
+        # Match a weight file sitting directly in the category root.
+        for ext in ckpt pth onnx th safetensors; do
+            if [ -f "$root/$name.$ext" ]; then
+                echo "$root"
+                return
+            fi
+        done
+    done
+}
+
+# Build a human-readable "not found" error for a model name. It lists the
+# category roots that were searched and the model directories available in them.
+model_not_found_error() {
+    local name="$1"
+    local label="$2"
+    local msg="❌ ${label} model not found: ${name}"
+    msg="${msg}",
+    msg="${msg} searched under: $MODELS_DIR"
+    local subdirs="VR_Models MDX_Net_Models RoFormer_Models Demucs_Models Demucs_ONNX"
+    for sub in $subdirs; do
+        local root="$MODELS_DIR/$sub"
+        if [ -d "$root" ]; then
+            local found
+            found=$(ls -1 "$root" 2>/dev/null | head -20 | tr '\n' ' ')
+            if [ -n "$found" ]; then
+                msg="${msg}; ${sub}: ${found}"
+            else
+                msg="${msg}; ${sub}: (empty)"
+            fi
+        fi
+    done
+    echo "$msg"
+}
+
 # Args: model_path (file or dir), input_file, output_dir
 run_vocal_step() {
     local model_path="$1"
@@ -491,8 +845,15 @@ run_vocal_step() {
     fi
 
     if [ ! -d "$model_dir" ]; then
-        echo "❌ Model not found: ${model_path}" >&2
-        exit 2
+        local resolved
+        resolved=$(resolve_model_path "$model_path")
+        if [ -n "$resolved" ] && [ -d "$resolved" ]; then
+            model_dir="$resolved"
+            model_path="$resolved"
+        else
+            model_not_found_error "$model_path" "Vocal" >&2
+            exit 2
+        fi
     fi
 
     if is_mdx_model_dir "$model_dir"; then
@@ -501,14 +862,24 @@ run_vocal_step() {
             exit 2
         fi
         echo "   ℹ️  Detected MDX-C vocal model"
+        local model_name
+        model_name=$(basename "$model_dir")
+        local source
+        source=$(_resolve_model_config_source "$model_name" "$model_dir")
         local mdx_overlap="8"
         local mdx_batch_size="1"
-        local mdx_yaml
-        mdx_yaml=$(ls "${model_dir}"/*.yaml 2>/dev/null | head -1)
-        if [ -n "$mdx_yaml" ]; then
-            mdx_overlap=$(python3 -c "import yaml; print(yaml.load(open('$mdx_yaml'), Loader=yaml.FullLoader).get('inference',{}).get('num_overlap',8))" 2>/dev/null || echo "8")
-            mdx_batch_size=$(python3 -c "import yaml; print(yaml.load(open('$mdx_yaml'), Loader=yaml.FullLoader).get('inference',{}).get('batch_size',1))" 2>/dev/null || echo "1")
+        if [ -n "$source" ]; then
+            mdx_overlap=$(_read_model_config_value "$source" "inference.num_overlap" "num_overlap" "8")
+            mdx_batch_size=$(_read_model_config_value "$source" "inference.batch_size" "batch_size" "1")
+            local kind
+            kind="${source%%:*}"
+            case "$kind" in
+                user_yaml) echo "   ℹ️  MDX-C user config override: ${source#*:}" ;;
+                uvr_json)  echo "   ℹ️  MDX-C UVR JSON config override: ${source#*:}" ;;
+                model_yaml|model_json) echo "   ℹ️  MDX-C model config override: ${source#*:}" ;;
+            esac
         fi
+        echo "   ℹ️  MDX-C effective params: overlap=${mdx_overlap}, batch_size=${mdx_batch_size}"
         run_with_elapsed python3 -u /app/inference_mdx.py \
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
@@ -520,22 +891,132 @@ run_vocal_step() {
             exit 2
         fi
         echo "   ℹ️  Detected SCNet vocal model"
+        local model_name
+        model_name=$(basename "$model_dir")
+        local source
+        source=$(_resolve_model_config_source "$model_name" "$model_dir")
+        local scnet_config_arg=""
+        local scnet_chunk_size="" scnet_num_overlap="" scnet_batch_size=""
+        if [ -n "$source" ]; then
+            local kind path
+            kind="${source%%:*}"
+            path="${source#*:}"
+            case "$kind" in
+                user_yaml) echo "   ℹ️  SCNet user config override: ${path}" ;;
+                uvr_json)  echo "   ℹ️  SCNet UVR JSON config override: ${path}" ;;
+                model_yaml|model_json) echo "   ℹ️  SCNet model config override: ${path}" ;;
+            esac
+            scnet_chunk_size=$(_read_model_config_value "$source" "inference.chunk_size" "chunk_size" "")
+            scnet_num_overlap=$(_read_model_config_value "$source" "inference.num_overlap" "num_overlap" "")
+            scnet_batch_size=$(_read_model_config_value "$source" "inference.batch_size" "batch_size" "")
+            if [ "$kind" = "user_yaml" ] || [ "$kind" = "uvr_json" ]; then
+                if [ -n "$scnet_chunk_size" ] || [ -n "$scnet_num_overlap" ] || [ -n "$scnet_batch_size" ]; then
+                    local model_yaml
+                    model_yaml=$(ls "${model_dir}"/*.yaml 2>/dev/null | head -1)
+                    if [ -n "$model_yaml" ]; then
+                        local merged_config
+                        merged_config="${output_dir}/.scnet_config.yaml"
+                        mkdir -p "${output_dir}"
+                        python3 - "$model_yaml" "$scnet_chunk_size" "$scnet_num_overlap" "$scnet_batch_size" "$merged_config" << 'PYEOF'
+import yaml, sys
+src_path, chunk, overlap, batch, dst = sys.argv[1:6]
+with open(src_path) as f:
+    cfg = yaml.full_load(f)
+if not isinstance(cfg.get('inference'), dict):
+    cfg['inference'] = {}
+if chunk:
+    cfg['inference']['chunk_size'] = int(float(chunk))
+if overlap:
+    cfg['inference']['num_overlap'] = int(float(overlap))
+if batch:
+    cfg['inference']['batch_size'] = int(float(batch))
+with open(dst, 'w') as f:
+    yaml.dump(cfg, f, default_flow_style=False)
+PYEOF
+                        scnet_config_arg="--config ${merged_config}"
+                    fi
+                fi
+            fi
+        fi
+        # Effective values read by inference_scnet.py.
+        local eff_config_path
+        eff_config_path="${scnet_config_arg#--config }"
+        if [ -z "$eff_config_path" ]; then
+            eff_config_path=$(ls "${model_dir}"/*.yaml 2>/dev/null | head -1)
+        fi
+        local eff_chunk="?" eff_overlap="?" eff_batch="?"
+        if [ -n "$eff_config_path" ] && [ -f "$eff_config_path" ]; then
+            eff_chunk=$(python3 -c "import yaml; c=yaml.load(open('$eff_config_path'), Loader=yaml.FullLoader); print(c.get('inference',{}).get('chunk_size', c.get('audio',{}).get('chunk_size','?')))" 2>/dev/null || echo "?")
+            eff_overlap=$(python3 -c "import yaml; c=yaml.load(open('$eff_config_path'), Loader=yaml.FullLoader); print(c.get('inference',{}).get('num_overlap','?'))" 2>/dev/null || echo "?")
+            eff_batch=$(python3 -c "import yaml; c=yaml.load(open('$eff_config_path'), Loader=yaml.FullLoader); print(c.get('inference',{}).get('batch_size','?'))" 2>/dev/null || echo "?")
+        fi
+        echo "   ℹ️  SCNet effective params: chunk_size=${eff_chunk}, num_overlap=${eff_overlap}, batch_size=${eff_batch}"
         run_with_elapsed python3 -u /app/inference_scnet.py \
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
+            ${scnet_config_arg} \
             "${model_dir}" "${input_file}" "${output_dir}"
+    elif is_polarformer_model_dir "$model_dir"; then
+        if [ ! -f /app/inference_polarformer.py ]; then
+            echo "❌ inference_polarformer.py not found" >&2
+            exit 2
+        fi
+        echo "   ℹ️  Detected BS PolarFormer ONNX vocal model"
+        local model_name
+        model_name=$(basename "$model_dir")
+        local source
+        source=$(_resolve_model_config_source "$model_name" "$model_dir")
+        local pf_chunk_size="882000"
+        local pf_num_overlap="2"
+        local pf_batch_size="4"
+        if [ -n "$source" ]; then
+            pf_chunk_size=$(_read_model_config_value "$source" "inference.chunk_size" "chunk_size" "882000")
+            pf_num_overlap=$(_read_model_config_value "$source" "inference.num_overlap" "num_overlap" "2")
+            pf_batch_size=$(_read_model_config_value "$source" "inference.batch_size" "batch_size" "4")
+            # UVR JSON stores overlap as a float factor; PolarFormer expects an integer.
+            local kind
+            kind="${source%%:*}"
+            case "$kind" in
+                user_yaml) echo "   ℹ️  PolarFormer user config override: ${source#*:}" ;;
+                uvr_json)  echo "   ℹ️  PolarFormer UVR JSON config override: ${source#*:}" ;;
+                model_yaml|model_json) echo "   ℹ️  PolarFormer model config override: ${source#*:}" ;;
+            esac
+            if [ "$kind" = "uvr_json" ] || [ "$kind" = "model_json" ]; then
+                if [ -n "$pf_num_overlap" ]; then
+                    pf_num_overlap=$(python3 -c "import sys; v=float('$pf_num_overlap'); print(int(round(1.0/v))) if v>0 else sys.exit(1)" 2>/dev/null || echo "2")
+                fi
+            fi
+        fi
+        echo "   ℹ️  PolarFormer effective params: chunk_size=${pf_chunk_size}, num_overlap=${pf_num_overlap}, batch_size=${pf_batch_size}"
+        run_with_elapsed python3 -u /app/inference_polarformer.py \
+            --pipeline-status "$STATUS_FILE" \
+            --device "$DEVICE" \
+            --chunk-size "${pf_chunk_size}" \
+            --batch-size "${pf_batch_size}" \
+            "${model_dir}" "${input_file}" "${output_dir}" "${pf_num_overlap}"
     elif is_onnx_model_dir "$model_dir"; then
         if [ ! -f /app/inference_onnx.py ]; then
             echo "❌ inference_onnx.py not found" >&2
             exit 2
         fi
         echo "   ℹ️  Detected MDXNet ONNX vocal model"
+        local model_name
+        model_name=$(basename "$model_dir")
+        local source
+        source=$(_resolve_model_config_source "$model_name" "$model_dir")
         local onnx_overlap="4"
-        local onnx_json
-        onnx_json=$(ls "${model_dir}"/*.json 2>/dev/null | head -1)
-        if [ -n "$onnx_json" ]; then
-            onnx_overlap=$(python3 -c "import json; print(json.load(open('$onnx_json')).get('overlap',4))" 2>/dev/null || echo "4")
+        if [ -n "$source" ]; then
+            onnx_overlap=$(_read_model_config_value "$source" "inference.num_overlap" "overlap" "4")
+            # UVR JSON stores overlap as a float factor; inference_onnx.py expects a float.
+            local kind
+            kind="${source%%:*}"
+            case "$kind" in
+                user_yaml) echo "   ℹ️  MDXNet ONNX user config override: ${source#*:}" ;;
+                uvr_json)  echo "   ℹ️  MDXNet ONNX UVR JSON config override: ${source#*:}" ;;
+                model_yaml|model_json) echo "   ℹ️  MDXNet ONNX model config override: ${source#*:}" ;;
+            esac
         fi
+        echo "   ℹ️  MDXNet ONNX effective params: overlap=${onnx_overlap}"
         run_with_elapsed python3 -u /app/inference_onnx.py \
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
@@ -555,10 +1036,25 @@ run_vocal_step() {
             yaml_chunk_size=$(python3 -c "import yaml; print(yaml.load(open('$vocal_yaml'), Loader=yaml.FullLoader).get('inference',{}).get('chunk_size',0))" 2>/dev/null || echo "0")
         fi
 
+        # Apply model_configs/<model>.json overrides so training YAML values
+        # (e.g. dim_t=3105) do not leak into inference.
+        _apply_roformer_model_config_overrides "$model_dir"
+        local roformer_dim_t="${VOCAL_DIM_T:-${VIPERX_DIM_T:-}}"
+        local roformer_batch="${VOCAL_BATCH_SIZE:-${VIPERX_BATCH_SIZE:-}}"
+        local roformer_overlap="${VOCAL_NUM_OVERLAP:-${VIPERX_NUM_OVERLAP:-${yaml_num_overlap}}}"
+        local extra_args=()
+        if [ -n "$roformer_dim_t" ]; then
+            extra_args+=("--dim-t" "$roformer_dim_t")
+        fi
+        if [ -n "$roformer_batch" ]; then
+            extra_args+=("--batch-size" "$roformer_batch")
+        fi
+
         # Pass chunk size to inference via environment (0 = whole song)
         ONDA_CHUNK_SIZE="${yaml_chunk_size}" run_with_elapsed python3 -u /app/inference_universal.py \
             --pipeline-status "$STATUS_FILE" \
-            "${model_dir}" "${input_file}" "${output_dir}" "${yaml_num_overlap}"
+            "${extra_args[@]}" \
+            "${model_dir}" "${input_file}" "${output_dir}" "${roformer_overlap}"
     fi
 }
 
@@ -567,9 +1063,9 @@ run_viperx_step() {
     run_vocal_step "$@"
 }
 
-# Apply fallback Demucs parameters from config/model_configs/<model>.yaml
+# Apply fallback Demucs parameters from the effective model config source
 # when the caller did not explicitly pass --shifts / --demucs-segment / --jobs.
-# This keeps the pipeline aligned with values saved via the UI/API.
+# Priority: user YAML > UVR JSON > model-shipped YAML/JSON.
 apply_demucs_fallback_config() {
     local model_name="${1:-htdemucs_ft}"
 
@@ -577,37 +1073,63 @@ apply_demucs_fallback_config() {
         return 0
     fi
 
-    local config_dir="${SCRIPT_DIR}/config/model_configs"
-    if [ ! -d "$config_dir" ]; then
-        config_dir="$CONFIG_DIR/model_configs"
+    # Demucs model YAMLs live one level under models/Demucs (e.g. Demucs_v4/htdemucs_ft.yaml).
+    local model_yaml model_dir
+    model_yaml=$(find "${MODELS_DIR}/Demucs_Models/models/Demucs" -maxdepth 2 -name "${model_name}.yaml" -print -quit 2>/dev/null || true)
+    model_dir="${MODELS_DIR}/Demucs_Models/models/Demucs"
+    if [ -n "$model_yaml" ]; then
+        model_dir=$(dirname "$model_yaml")
     fi
-    local yaml_file="${config_dir}/${model_name}.yaml"
-    if [ ! -f "$yaml_file" ]; then
-        return 0
-    fi
+
+    local source
+    source=$(_resolve_model_config_source "$model_name" "$model_dir")
+    [ -z "$source" ] && return 0
+
+    local kind path
+    kind="${source%%:*}"
+    path="${source#*:}"
+
+    case "$kind" in
+        user_yaml)
+            echo "   ℹ️  Demucs user config override: ${path}"
+            ;;
+        uvr_json)
+            echo "   ℹ️  Demucs UVR JSON config override: ${path}"
+            ;;
+        model_yaml|model_json)
+            echo "   ℹ️  Demucs model config override: ${path}"
+            ;;
+    esac
 
     if ! $SHIFTS_SET_EXPLICITLY; then
-        SHIFTS=$(python3 -c "import yaml; print(yaml.load(open('$yaml_file'), Loader=yaml.FullLoader).get('demucs',{}).get('shifts',1))" 2>/dev/null || echo "1")
+        SHIFTS=$(_read_model_config_value "$source" "demucs.shifts" "shifts" "1")
     fi
     if ! $DEMUCS_SEGMENT_SET_EXPLICITLY; then
-        DEMUCS_SEGMENT=$(python3 -c "import yaml; print(yaml.load(open('$yaml_file'), Loader=yaml.FullLoader).get('demucs',{}).get('segment',0))" 2>/dev/null || echo "0")
+        DEMUCS_SEGMENT=$(_read_model_config_value "$source" "demucs.segment" "segment" "0")
     fi
     if ! $JOBS_SET_EXPLICITLY; then
-        JOBS=$(python3 -c "import yaml; print(yaml.load(open('$yaml_file'), Loader=yaml.FullLoader).get('demucs',{}).get('jobs',0))" 2>/dev/null || echo "0")
+        JOBS=$(_read_model_config_value "$source" "demucs.jobs" "jobs" "0")
     fi
+
+    # Ensure integer-looking values for the demucs worker CLI.
+    SHIFTS=$(python3 -c "print(int(float('${SHIFTS:-1}')))" 2>/dev/null || echo "1")
+    DEMUCS_SEGMENT=$(python3 -c "print(int(float('${DEMUCS_SEGMENT:-0}')))" 2>/dev/null || echo "0")
+    JOBS=$(python3 -c "print(int(float('${JOBS:-0}')))" 2>/dev/null || echo "0")
+
+    echo "   ℹ️  Demucs effective params: shifts=${SHIFTS}, segment=${DEMUCS_SEGMENT}, jobs=${JOBS}"
 }
 
-# Run a Demucs step (chaining or legacy mode).
+# Run a Demucs step using tools/demucs_worker.py (official demucs.api).
 # Args: model_name, input_file, output_dir, [expected_stems_count], [step_index]
 # If step_index is empty the legacy report_progress path is used; otherwise
-# multi_step_progress is updated with real progress parsed from demucs stderr.
-    run_demucs_step() {
+# multi_step_progress is updated with real progress parsed from JSON events.
+run_demucs_step() {
     local model_name="$1"
     local input_file="$2"
     local output_dir="$3"
     local expected_stems="${4:-4}"
     local step_idx="${5:-}"
-    local demucs_pid=""
+    local worker_pid=""
     local elapsed_pid=""
     local prev_exit_trap
     prev_exit_trap=$(trap -p EXIT)
@@ -617,93 +1139,174 @@ apply_demucs_fallback_config() {
         expected_stems=4
     fi
 
-    local demucs_args=(-n "${model_name}" --device "${DEVICE}" -o "${output_dir}")
-    [ "${SHIFTS:-1}" -gt 0 ] && demucs_args+=(--shifts "${SHIFTS:-1}")
-    if awk "BEGIN {exit !(${DEMUCS_SEGMENT:-0} > 0)}"; then
-        demucs_args+=(--segment "${DEMUCS_SEGMENT:-0}")
+    # Python interpreter: prefer the container venv, fall back to host python3.
+    local PY="${PYTHON:-/opt/venv/bin/python3}"
+    if [ ! -x "$PY" ]; then
+        PY="python3"
     fi
-    [ "${JOBS:-0}" -gt 0 ] && demucs_args+=(-j "${JOBS:-0}")
+
+    # Worker script: container path first, then repo-relative for host tests.
+    local DEMUCS_WORKER="${DEMUCS_WORKER:-/app/tools/demucs_worker.py}"
+    if [ ! -f "$DEMUCS_WORKER" ]; then
+        DEMUCS_WORKER="${SCRIPT_DIR}/tools/demucs_worker.py"
+    fi
 
     mkdir -p "${output_dir}"
-    local progress_log="${output_dir}/.demucs_progress.log"
-    rm -f "${progress_log}"
+    local events_file="${output_dir}/.demucs_events.jsonl"
+    local step_log="${output_dir}/.demucs_worker.log"
+    rm -f "${events_file}" "${step_log}"
+
+    local worker_args=(
+        "${DEMUCS_WORKER}"
+        --model "${model_name}"
+        --device "${DEVICE}"
+        --input "${input_file}"
+        --out "${output_dir}"
+        --shifts "${SHIFTS:-1}"
+        --segment "${DEMUCS_SEGMENT:-0}"
+        --jobs "${JOBS:-0}"
+    )
 
     update_elapsed_loop &
     elapsed_pid=$!
 
-    # demucs writes its tqdm progress bars to stderr.  Line-buffer stderr so
-    # updates are available immediately in the log file instead of being fully
-    # buffered until the process ends.  Fall back to plain demucs if stdbuf is
-    # not available (progress will be less granular but still functional).
-    if command -v stdbuf >/dev/null 2>&1; then
-        stdbuf -oL -eL demucs "${demucs_args[@]}" "${input_file}" 2> "${progress_log}" &
-    else
-        demucs "${demucs_args[@]}" "${input_file}" 2> "${progress_log}" &
-    fi
-    demucs_pid=$!
+    # Launch worker with stdout/stderr redirected to files inside output_dir.
+    # This avoids keeping the caller's pipe open, which previously caused EOF
+    # to never arrive and the pipeline to hang forever.
+    (
+        exec "$PY" "${worker_args[@]}"
+    ) > "${events_file}" 2> "${step_log}" &
+    worker_pid=$!
 
-    # Always clean up both background processes when the function exits, even on
-    # error, so the pipeline never hangs on a stray background loop.
+    # Always clean up both background processes when the function exits.
     # Use ${var:-} so set -u never aborts the trap before cleanup.
-    trap 'kill_wait "${demucs_pid:-}"; kill_wait "${elapsed_pid:-}"; cleanup_legacy_temps' EXIT
+    trap 'kill_wait "${worker_pid:-}"; kill_wait "${elapsed_pid:-}"; cleanup_legacy_temps' EXIT
 
-    # Poll the demucs stderr log for real progress percentages.
-    # demucs restarts its 0-100% bar for every stem, so we detect stem
-    # boundaries (a drop of ~30+ percentage points after reaching high values)
-    # and compute a monotonic global progress as:
-    #   (completed_stems * 100 + current_stem_pct) / expected_stems
-    local prev_pct=-1
-    local completed_stems=0
+    # Read JSON events as they arrive. Track line count so we only process new
+    # events and detect silence (no new event for 120s -> abort).
+    local lines_read=0
+    local last_event_time
+    last_event_time=$(date +%s)
     local last_progress=0
-    while kill -0 "$demucs_pid" 2>/dev/null; do
-        if [ -s "${progress_log}" ]; then
-            local pct_line pct
-            pct_line=$(tail -c 4096 "${progress_log}" | tr '\r' '\n' | grep -aE '^ *[0-9]+%' | tail -1)
-            if [ -n "${pct_line}" ]; then
-                pct=$(echo "${pct_line}" | LC_ALL=C sed -E 's/^ *([0-9]+)%.*/\1/')
-                if [ -n "${pct}" ] && [ "${pct}" -ge 0 ] 2>/dev/null; then
-                    # Detect a new stem when the percentage drops significantly.
-                    if [ "${prev_pct}" -ge 85 ] && [ "${pct}" -lt 30 ]; then
-                        completed_stems=$((completed_stems + 1))
-                    fi
-                    prev_pct=${pct}
+    local done_seen=false
+    local silence_timeout=120
 
-                    local monotonic_pct
-                    if [ "${completed_stems}" -ge "${expected_stems}" ]; then
-                        monotonic_pct=100
-                    else
-                        monotonic_pct=$(( (completed_stems * 100 + pct) / expected_stems ))
-                    fi
+    local poll_interval=1
+    while kill -0 "$worker_pid" 2>/dev/null; do
+        local total_lines current_time elapsed_since_event
+        total_lines=$(wc -l < "${events_file}" 2>/dev/null || echo 0)
+        current_time=$(date +%s)
+        elapsed_since_event=$((current_time - last_event_time))
+
+        if [ "${total_lines}" -gt "${lines_read}" ]; then
+            local line
+            local new_events
+            new_events=$(tail -n +$((lines_read + 1)) "${events_file}" 2>/dev/null)
+            while IFS= read -r line; do
+                # Skip empty lines.
+                [ -z "$line" ] && continue
+                # Parse the JSON event defensively with Python.
+                local event_pct event_name
+                event_name=$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('event',''))" "$line" 2>/dev/null || true)
+                if [ "$event_name" = "progress" ]; then
+                    event_pct=$(python3 -c "import json,sys; print(int(float(json.loads(sys.argv[1]).get('pct',0))))" "$line" 2>/dev/null || echo 0)
                     # Enforce monotonic progress — never go backwards.
-                    if [ "${monotonic_pct}" -lt "${last_progress}" ]; then
-                        monotonic_pct=${last_progress}
+                    if [ "${event_pct}" -lt "${last_progress}" ]; then
+                        event_pct=${last_progress}
                     fi
-                    last_progress=${monotonic_pct}
+                    last_progress=${event_pct}
 
                     if [ -n "${step_idx}" ]; then
-                        multi_step_progress "processing" "${step_idx}" "${monotonic_pct}"
+                        multi_step_progress "processing" "${step_idx}" "${event_pct}"
                     else
-                        local global_pct=$(( DEMUCS_START + (monotonic_pct * (DEMUCS_END - DEMUCS_START) / 100) ))
+                        local global_pct=$(( DEMUCS_START + (event_pct * (DEMUCS_END - DEMUCS_START) / 100) ))
                         [ "${global_pct}" -gt "${DEMUCS_END}" ] && global_pct=${DEMUCS_END}
                         [ "${global_pct}" -lt "${DEMUCS_START}" ] && global_pct=${DEMUCS_START}
                         report_progress "running" "demucs" "${global_pct}"
                     fi
+                elif [ "$event_name" = "done" ]; then
+                    done_seen=true
+                    if [ -n "${step_idx}" ]; then
+                        multi_step_progress "processing" "${step_idx}" 100
+                    else
+                        report_progress "running" "demucs" "${DEMUCS_END}"
+                    fi
+                elif [ "$event_name" = "error" ]; then
+                    : # Worker will exit with a non-zero code; handled after wait.
                 fi
-            fi
+                last_event_time=$(date +%s)
+            done <<< "${new_events}"
+            lines_read=${total_lines}
         fi
-        sleep 2
+
+        # Silence detection: 120s without any new event means the worker is stuck.
+        if [ "${elapsed_since_event}" -ge "${silence_timeout}" ]; then
+            echo "⚠️  Demucs worker silent for ${silence_timeout}s, aborting..." >&2
+            kill -INT "$worker_pid" 2>/dev/null || true
+            # Give the worker a moment to shut down cleanly.
+            sleep 1
+            break
+        fi
+
+        sleep "${poll_interval}"
     done
 
-    wait "$demucs_pid"
-    local demucs_rc=$?
+    # Drain any events written between the last poll and worker exit.
+    local total_lines
+    total_lines=$(wc -l < "${events_file}" 2>/dev/null || echo 0)
+    if [ "${total_lines}" -gt "${lines_read}" ]; then
+        local remaining
+        remaining=$(tail -n +$((lines_read + 1)) "${events_file}" 2>/dev/null)
+        while IFS= read -r line; do
+            [ -z "$line" ] && continue
+            local event_name
+            event_name=$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('event',''))" "$line" 2>/dev/null || true)
+            [ "$event_name" = "done" ] && done_seen=true
+        done <<< "${remaining}"
+        lines_read=${total_lines}
+    fi
+
+    # Wait for the worker without set -e so we can inspect its exit code.
+    local old_set_e=false
+    case $- in *e*) old_set_e=true ;; esac
+    set +e
+    wait "$worker_pid"
+    local worker_rc=$?
+    if $old_set_e; then
+        set -e
+    fi
 
     # Clean up the elapsed updater explicitly before dropping the trap, so the
-    # function can return the real demucs exit code without blocking.
+    # function can return the real worker exit code without blocking.
     kill_wait "${elapsed_pid:-}"
     eval "${prev_exit_trap:-trap - EXIT}"
-    rm -f "${progress_log}"
 
-    return $demucs_rc
+    # Final validation: success requires exit code 0, a 'done' event, and the
+    # expected stems present on disk.
+    local final_rc=${worker_rc}
+    if [ "${final_rc}" -eq 0 ]; then
+        if ! $done_seen; then
+            final_rc=99
+            echo "⚠️  Demucs worker exited 0 but no 'done' event was seen" >&2
+        else
+            local stem_count
+            stem_count=$(find "${output_dir}" -maxdepth 3 -type f -iname "*.wav" 2>/dev/null | wc -l)
+            if [ "${stem_count}" -lt "${expected_stems}" ]; then
+                final_rc=40
+                echo "⚠️  Demucs worker exited 0 but only ${stem_count}/${expected_stems} stems found" >&2
+            fi
+        fi
+    fi
+
+    if [ "${final_rc}" -ne 0 ]; then
+        # Make the diagnostic log available to the ERR trap so it prints the
+        # real stderr exactly once, instead of reporting again here.
+        DEMUCS_STEP_LOG="${step_log}"
+    else
+        rm -f "${step_log}"
+    fi
+
+    return ${final_rc}
 }
 
 
@@ -799,6 +1402,15 @@ if ! $VOCAL && ! $VIPERX && ! $DEMUCS && ! $RUBBERBAND && [ -z "$STEPS_JSON" ]; 
     VIPERX=true
     DEMUCS=true
     RUBBERBAND=true
+fi
+
+# Resolve bare vocal model names to paths as a defensive fallback.
+if $VOCAL || $VIPERX; then
+    _resolved_vocal=$(resolve_model_path "${VOCAL_MODEL:-${VIPERX_MODEL}}")
+    if [ -n "$_resolved_vocal" ]; then
+        VOCAL_MODEL="$_resolved_vocal"
+        VIPERX_MODEL="$_resolved_vocal"
+    fi
 fi
 
 # ══════════════════════════════════════════════════════════
@@ -970,7 +1582,7 @@ for k in s.get('stems', {}).keys():
                     fi
                     SRC=$(find "${PARENT_TMP}" -maxdepth 3 -iname "*${stem_name}*" -type f 2>/dev/null | head -1)
                     if [ -n "$SRC" ]; then
-                        run_with_elapsed rubberband --pitch "${PITCH}" --quiet "${SRC}" "${STEP_TMP}/${stem_name}.wav"
+                        run_with_elapsed rubberband --fine --pitch "${PITCH}" --quiet "${SRC}" "${STEP_TMP}/${stem_name}.wav"
                         echo "   ✅ ${stem_name} pitched → ${STEP_TMP}/${stem_name}.wav"
                     else
                         echo "   ⚠️  Stem '${stem_name}' not found for rubberband"
@@ -1063,6 +1675,8 @@ for k, v in s.get('stems', {}).items():
 
     # ── Final cleanup ──
     rm -rf "${ROUTED_DIR}" "${STEPS_STATE_FILE}" "${STEPS_CONFIG_FILE}" 2>/dev/null || true
+    # Remove per-step diagnostic logs on success; keep them on failure.
+    rm -f "${OUTPUT}"/_step_*.log 2>/dev/null || true
 
     # Final progress report
     multi_step_progress "done" -1 100
@@ -1133,6 +1747,13 @@ if $VOCAL || $VIPERX; then
             VIPERX_CHUNK_SIZE="${VOCAL_CHUNK_SIZE}"
             echo "   ℹ️  Model YAML: dim_t=${VOCAL_DIM_T}, overlap=${VOCAL_NUM_OVERLAP}, batch=${VOCAL_BATCH_SIZE}, chunk=${VOCAL_CHUNK_SIZE}"
         fi
+        # model_configs/<model>.json overrides YAML inference parameters.
+        # This is the source of truth for UVR-style models and prevents using
+        # training values such as dim_t=3105 at inference time.
+        _apply_roformer_model_config_overrides "$MODEL_DIR"
+        if [ -n "${VOCAL_DIM_T:-${VIPERX_DIM_T:-}}" ]; then
+            echo "   ℹ️  RoFormer effective inference params: dim_t=${VOCAL_DIM_T:-${VIPERX_DIM_T}}, overlap=${VOCAL_NUM_OVERLAP:-${VIPERX_NUM_OVERLAP}}, batch=${VOCAL_BATCH_SIZE:-${VIPERX_BATCH_SIZE}}, chunk=${ONDA_CHUNK_SIZE:-${VIPERX_CHUNK_SIZE:-${VOCAL_CHUNK_SIZE:-0}}}"
+        fi
     fi
 fi
 
@@ -1187,61 +1808,27 @@ if $VOCAL || $VIPERX; then
         vocal_model_dir="$(dirname "${vocal_model_dir}")"
     fi
     if [ ! -d "${vocal_model_dir}" ]; then
-        echo "❌ Vocal model not found: ${VOCAL_MODEL:-${VIPERX_MODEL}}" >&2
-        exit 2
+        # Last-chance resolution and a detailed error message.
+        _resolved_vocal=$(resolve_model_path "${VOCAL_MODEL:-${VIPERX_MODEL}}")
+        if [ -n "$_resolved_vocal" ] && [ -d "$_resolved_vocal" ]; then
+            vocal_model_dir="$_resolved_vocal"
+            VOCAL_MODEL="$_resolved_vocal"
+            VIPERX_MODEL="$_resolved_vocal"
+        else
+            vocal_err=$(model_not_found_error "${VOCAL_MODEL:-${VIPERX_MODEL}}" "Vocal")
+            echo "${vocal_err}" >&2
+            report_step_failure "vocal" 2 "" "${vocal_err}"
+            exit 2
+        fi
     fi
     # Launch inference — Python writes pipeline_status.json directly on each chunk.
     # Pass num_overlap as positional arg for backward compatibility.
     VOCAL_OVERLAP_INT="${VOCAL_NUM_OVERLAP:-${VIPERX_NUM_OVERLAP:-4}}"
 
-    if is_mdx_model_dir "${vocal_model_dir}"; then
-        if [ ! -f /app/inference_mdx.py ]; then
-            echo "❌ inference_mdx.py not found" >&2
-            exit 2
-        fi
-        echo "   ℹ️  Using MDX-C inference"
-        VOCAL_OVERLAP_INT="${VOCAL_NUM_OVERLAP:-${VIPERX_NUM_OVERLAP:-8}}"
-        VOCAL_BATCH_SIZE_INT="${VOCAL_BATCH_SIZE:-${VIPERX_BATCH_SIZE:-1}}"
-        run_with_elapsed python3 -u /app/inference_mdx.py \
-            --pipeline-status "$STATUS_FILE" \
-            --device "$DEVICE" \
-            --batch-size "${VOCAL_BATCH_SIZE_INT}" \
-            "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}" ${VOCAL_OVERLAP_INT}
-    elif is_scnet_model_dir "${vocal_model_dir}"; then
-        if [ ! -f /app/inference_scnet.py ]; then
-            echo "❌ inference_scnet.py not found" >&2
-            exit 2
-        fi
-        echo "   ℹ️  Using SCNet inference"
-        run_with_elapsed python3 -u /app/inference_scnet.py \
-            --pipeline-status "$STATUS_FILE" \
-            --device "$DEVICE" \
-            "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}"
-    elif is_onnx_model_dir "${vocal_model_dir}"; then
-        if [ ! -f /app/inference_onnx.py ]; then
-            echo "❌ inference_onnx.py not found" >&2
-            exit 2
-        fi
-        echo "   ℹ️  Using MDXNet ONNX inference"
-        onnx_overlap="4"
-        onnx_json=$(ls "${vocal_model_dir}"/*.json 2>/dev/null | head -1)
-        if [ -n "$onnx_json" ]; then
-            onnx_overlap=$(python3 -c "import json; print(json.load(open('$onnx_json')).get('overlap',4))" 2>/dev/null || echo "4")
-        fi
-        run_with_elapsed python3 -u /app/inference_onnx.py \
-            --pipeline-status "$STATUS_FILE" \
-            --device "$DEVICE" \
-            "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}" "${onnx_overlap}"
-    else
-        if [ ! -f /app/inference_universal.py ]; then
-            echo "❌ inference_universal.py not found" >&2
-            exit 2
-        fi
-        echo "   ℹ️  Using RoFormer inference"
-        run_with_elapsed python3 -u /app/inference_universal.py \
-            --pipeline-status "$STATUS_FILE" \
-            "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}" ${VOCAL_OVERLAP_INT}
-    fi
+    # Delegate to the same step function used in chained mode so user/UVR/model
+    # config precedence and effective-param logging is identical for all vocal
+    # model types (MDX-C, SCNet, MDXNet ONNX, RoFormer).
+    run_vocal_step "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}"
     echo "   ✅ Vocal model done"
 
     # Find instrumental (for demucs)
@@ -1277,12 +1864,12 @@ if $VOCAL || $VIPERX; then
 fi
 
 # ══════════════════════════════════════════════════════
-# STEP 2: HTDemucs_ft → drums, bass, other, vocals
+# STEP 2: Demucs stem model → drums, bass, other, vocals
 # ══════════════════════════════════════════════════════
 if $DEMUCS; then
     DEMUCS_INPUT="${INSTRUMENTAL:-${INPUT}}"
     echo ""
-    echo "🥁 HTDemucs_ft → drums, bass, other, vocals..."
+    echo "🥁 ${DEMUCS_MODEL} → drums, bass, other, vocals..."
     echo "   input: ${DEMUCS_INPUT}"
 
     TMP_DEM="${OUTPUT}/_demucs"
@@ -1315,7 +1902,7 @@ if $DEMUCS; then
     fi
 
     report_progress "running" "demucs" $DEMUCS_END
-    echo "   ✅ HTDemucs_ft done"
+    echo "   ✅ ${DEMUCS_MODEL} done"
 
     # Find stem directory
     DEMUCS_OUT=$(find "${TMP_DEM}" -type d -name "${DEMUCS_MODEL}" | head -1)
@@ -1358,7 +1945,7 @@ if $RUBBERBAND; then
             if [[ "${DEMUCS_KEEP}" == "all" ]] || [[ ",${DEMUCS_KEEP}," == *",${stem},"* ]]; then
                 SRC=$(find "${STEM_DIR}" -maxdepth 1 -iname "*${stem}*" | head -1)
                 if [ -n "${SRC}" ]; then
-                    run_with_elapsed rubberband --pitch "${PITCH}" --quiet "${SRC}" "${OUTPUT}/${stem}.wav"
+                    run_with_elapsed rubberband --fine --pitch "${PITCH}" --quiet "${SRC}" "${OUTPUT}/${stem}.wav"
                     echo "   ✅ ${stem} → ${OUTPUT}/${stem}.wav"
                 fi
             else
@@ -1380,7 +1967,7 @@ if $RUBBERBAND; then
         # Only pitch if it's a mono/stereo track (not stems)
         OUT_FILE="${OUTPUT}/${SONG}_pitch${PITCH}.wav"
         CURRENT_STEP="rubberband"
-        run_with_elapsed rubberband --pitch "${PITCH}" --quiet "${INPUT}" "${OUT_FILE}"
+        run_with_elapsed rubberband --fine --pitch "${PITCH}" --quiet "${INPUT}" "${OUT_FILE}"
         echo "   ✅ pitch shift → ${OUT_FILE}"
     fi
 fi
@@ -1389,6 +1976,8 @@ report_progress "done" "complete" 100
 
 # ── Cleanup temps ────────────────────────────────
 rm -rf "${OUTPUT}/_vocal" "${OUTPUT}/_demucs" 2>/dev/null || true
+# Remove per-step diagnostic logs on success; keep them on failure.
+rm -f "${OUTPUT}"/_step_*.log 2>/dev/null || true
 
 echo ""
 echo "═══════════════════════════════════════"

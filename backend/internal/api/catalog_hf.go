@@ -6,7 +6,7 @@ import (
 )
 
 func loadHFCatalog() ([]byte, error) {
-	return readProjectFile("hf_models.json")
+	return readImageFile("hf_models.json")
 }
 
 func (s *Server) handleModelsCatalogHF(w http.ResponseWriter, r *http.Request) {

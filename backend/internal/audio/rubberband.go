@@ -23,6 +23,7 @@ func RubberbandPitch(semitones int, input, output string) error {
 
 	// Usar rubberband-cli (calidad profesional, no ffmpeg)
 	cmd := exec.CommandContext(ctx, "rubberband",
+		"--fine",
 		"-p", fmt.Sprintf("%d", semitones),
 		input, output)
 

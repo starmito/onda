@@ -1,8 +1,9 @@
 <script lang="ts">
   import { onDestroy } from 'svelte';
-  import { listStems, mergeStems, getExportProfiles, downloadUrl } from './api';
+  import { listStems, mergeStems, getExportProfiles, downloadUrl, deleteSong } from './api';
   import type { StemsResponse, AudioExportProfiles } from './api';
-  import { IconDownload, IconRefresh } from './icons';
+  import { IconDownload, IconRefresh, IconTrash } from './icons';
+  import { removeGroup } from './exportHelpers';
 
   // ── State ──
   let stemsResponse = $state<StemsResponse | null>(null);
@@ -90,6 +91,20 @@
       showToast(`Error al unir stems: ${err.message || 'desconocido'}`, 'error');
     } finally {
       exporting = { ...exporting, [song]: false };
+    }
+  }
+
+  async function handleDeleteGroup(song: string) {
+    if (!stemsResponse?.output[song]) return;
+    if (!confirm(`¿Eliminar el grupo "${groupDisplayName(song)}"?\n\nSe borrará la carpeta de este grupo y todo su contenido. Esta acción no se puede deshacer.`)) {
+      return;
+    }
+    try {
+      await deleteSong(song);
+      stemsResponse = removeGroup(stemsResponse, song);
+      showToast('Grupo eliminado', 'success');
+    } catch (err: any) {
+      showToast(`Error al eliminar el grupo: ${err.message || 'desconocido'}`, 'error');
     }
   }
 
@@ -226,19 +241,31 @@
                 {/each}
               </select>
 
-              <button
-                class="merge-export-btn"
-                onclick={() => handleMerge(song)}
-                disabled={exporting[song]}
-              >
-                {#if exporting[song]}
-                  <span class="spinner"></span>
-                  Exportando…
-                {:else}
-                  <span class="btn-icon">{@html IconDownload}</span>
-                  Unir y exportar
-                {/if}
-              </button>
+              <div class="export-merge-actions">
+                <button
+                  class="delete-group-btn"
+                  onclick={() => handleDeleteGroup(song)}
+                  disabled={exporting[song]}
+                  title="Eliminar este grupo"
+                >
+                  <span class="btn-icon">{@html IconTrash}</span>
+                  Eliminar grupo
+                </button>
+
+                <button
+                  class="merge-export-btn"
+                  onclick={() => handleMerge(song)}
+                  disabled={exporting[song]}
+                >
+                  {#if exporting[song]}
+                    <span class="spinner"></span>
+                    Exportando…
+                  {:else}
+                    <span class="btn-icon">{@html IconDownload}</span>
+                    Unir y exportar
+                  {/if}
+                </button>
+              </div>
             </div>
           </div>
         {/each}
@@ -349,14 +376,14 @@
   }
 
   .export-song-name {
+    flex: 1 1 auto;
+    min-width: 0;
     font-size: 0.95rem;
     font-weight: 700;
     color: var(--accent-light);
-    word-break: break-word;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 260px;
   }
 
   .export-stem-count {
@@ -426,6 +453,13 @@
     padding-top: 0.75rem;
   }
 
+  .export-merge-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 1.75rem;
+    flex-wrap: wrap;
+  }
+
   .format-label {
     font-size: 0.8rem;
     color: var(--text-secondary);
@@ -451,7 +485,6 @@
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
-    margin-left: auto;
     padding: 0.45rem 0.9rem;
     border-radius: 6px;
     border: 1px solid var(--accent);
@@ -465,6 +498,28 @@
   .merge-export-btn:hover:not(:disabled) { background: var(--accent-subtle); }
   .merge-export-btn:active:not(:disabled) { transform: scale(0.97); }
   .merge-export-btn:disabled { opacity: 0.65; cursor: not-allowed; }
+
+  .delete-group-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.45rem 0.9rem;
+    border-radius: 6px;
+    border: 1px solid var(--border-light);
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s, border-color 0.2s, transform 0.1s;
+  }
+  .delete-group-btn:hover:not(:disabled) {
+    background: #3a1a1a;
+    color: #f44336;
+    border-color: #f44336;
+  }
+  .delete-group-btn:active:not(:disabled) { transform: scale(0.97); }
+  .delete-group-btn:disabled { opacity: 0.65; cursor: not-allowed; }
 
   .btn-icon :global(svg) {
     width: 14px;
@@ -508,9 +563,10 @@
   @media (max-width: 600px) {
     .export-page { padding: 0.5rem; }
     .export-section { padding: 0.75rem; }
-    .export-song-name { max-width: 160px; }
-    .merge-export-btn { margin-left: 0; width: 100%; justify-content: center; }
-    .export-actions-row { flex-direction: column; align-items: stretch; }
+    .export-merge-actions { width: 100%; flex-direction: column; align-items: stretch; gap: 0.75rem; }
+    .merge-export-btn { width: 100%; justify-content: center; }
+    .delete-group-btn { width: 100%; justify-content: center; }
+    .export-actions-row { flex-direction: column; align-items: stretch; gap: 0.75rem; }
     .format-select { width: 100%; }
   }
 </style>

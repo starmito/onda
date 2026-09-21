@@ -237,7 +237,7 @@ func (s *Server) handleTempoPerBar(w http.ResponseWriter, r *http.Request) {
 			}
 			tempFiles = append(tempFiles, segPath)
 
-			cmd := exec.Command("rubberband", "--tempo", fmt.Sprintf("%f", ratio), "--pitch", "0", segPath, procPath)
+			cmd := exec.Command("rubberband", "--fine", "--tempo", fmt.Sprintf("%f", ratio), "--pitch", "0", segPath, procPath)
 			out, err := cmd.CombinedOutput()
 			if err != nil {
 				w.Header().Set("Content-Type", "application/json")

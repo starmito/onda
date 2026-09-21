@@ -1,6 +1,6 @@
 # 🎵 Onda — Separación de fuentes musicales con IA
 
-Interfaz web para separar voces e instrumentos de cualquier canción usando modelos deep learning (Demucs, ViperX) con aceleración GPU (NVIDIA CUDA / AMD ROCm) o CPU.
+Interfaz web para separar voces e instrumentos de cualquier canción usando modelos deep learning (Demucs, ViperX) con aceleración GPU (NVIDIA CUDA) o CPU.
 
 ![Version](https://img.shields.io/badge/version-desde%20tags%20git-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -23,7 +23,7 @@ Interfaz web para separar voces e instrumentos de cualquier canción usando mode
 - 🎨 **Interfaz personalizable**: 8 colores de acento, tema claro/oscuro, escala 75-150%
 - 🖥️ **WebUI responsive**: Svelte 5 + backend Go
 - 🐳 **Un solo contenedor**: Python + Go + Nginx + Svelte en una misma imagen
-- 🚀 **Auto-detección GPU**: detecta CUDA → ROCm → CPU automáticamente en runtime
+- 🚀 **Auto-detección GPU**: detecta CUDA → CPU automáticamente en runtime
 
 ---
 
@@ -31,7 +31,6 @@ Interfaz web para separar voces e instrumentos de cualquier canción usando mode
 
 - **Docker** y **docker compose** v2
 - **GPU NVIDIA**: drivers NVIDIA + [nvidia-container-toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
-- **GPU AMD ROCm**: drivers ROCm instalados en el host, acceso a `/dev/kfd` y `/dev/dri`
 - **CPU**: sin requisitos adicionales
 - **16 GB RAM** recomendados (8 GB mínimo)
 - **Modelos**: descarga automática desde la interfaz web (~2-4 GB)
@@ -55,12 +54,6 @@ docker compose up -d --build
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.cuda.yml up -d --build
-```
-
-### ROCm (AMD)
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.rocm.yml up -d --build
 ```
 
 Abre **http://localhost:3000** en tu navegador.
@@ -90,7 +83,7 @@ Abre **http://localhost:3000** en tu navegador.
 │  └──────┬───────┘   └────────┬────────┘  │
 │         │                    │           │
 │  ┌──────┴────────────────────┴───────┐   │
-│  │         PyTorch / CUDA / ROCm      │   │
+│  │         PyTorch / CUDA / CPU       │   │
 │  └────────────────────────────────────┘   │
 │                                          │
 └──────────────────────────────────────────┘
@@ -128,89 +121,6 @@ docker compose -f docker-compose.yml -f docker-compose.cuda.yml up -d --build
 curl http://localhost:3000/api/health
 # → "gpu": { "type": "cuda", ... }
 ```
-
----
-
-## 💻 Despliegue en ROCm
-
-### Requisitos específicos
-
-- GPU AMD compatible con ROCm (ver [lista oficial](https://rocm.docs.amd.com/en/latest/release/gpu_os_support.html))
-- Drivers ROCm instalados en el host
-- El contenedor necesita acceso a `/dev/kfd` y `/dev/dri`
-- Grupo `render` (GID 991) para acceso a GPU
-
-### Pasos
-
-```bash
-# Construir y arrancar con soporte ROCm
-docker compose -f docker-compose.yml -f docker-compose.rocm.yml up -d --build
-
-# Verificar que la GPU está activa
-curl http://localhost:3000/api/health
-# → "gpu": { "type": "rocm", ... }
-```
-
-### HSA_OVERRIDE_GFX_VERSION (APUs únicamente)
-
-Las AMD APU (Radeon 780M/760M/740M, arquitectura gfx1103) **no están soportadas oficialmente** por ROCm. Para forzar su detección, se necesita la variable de entorno `HSA_OVERRIDE_GFX_VERSION`.
-
-Crea un archivo `.env` en la raíz del proyecto:
-
-```bash
-echo 'HSA_OVERRIDE_GFX_VERSION=11.0.2' > .env
-```
-
-Valores posibles:
-
-| Valor | Objetivo | Notas |
-|-------|----------|-------|
-| `11.0.0` | gfx1100 | Funcionalidad básica, kernels limitados |
-| `11.0.2` | gfx1102 | Mayor compatibilidad, estable para carga ligera |
-
-### ⚠️ ADVERTENCIA — HSA_OVERRIDE NO ES SOPORTADO OFICIALMENTE
-
-**`HSA_OVERRIDE_GFX_VERSION` es una variable de depuración (DEBUG) no soportada por AMD.**
-
-Obliga a ROCm a cargar kernels de una arquitectura diferente a la real de tu GPU. Esto **no es seguro** y puede causar:
-
-- **GPU Hang** que congela el sistema completo y requiere reinicio forzado
-- **Pérdida de datos de VRAM** durante el GPU reset
-- **CRTC flip_done timeout** — congelación de la pantalla por caída del controlador de display
-- **MES scheduler en estado irrecuperable**
-- **Resultados incorrectos** en operaciones edge-case (inferencia silenciosamente errónea)
-
-**NO usar en entornos de producción. Usar bajo tu propio riesgo.**
-
-### amdgpu.dcdebugmask=0x10
-
-Si experimentas congelaciones de pantalla (error `[CRTC:*] flip_done timed out` en los logs del kernel), el parámetro de kernel `amdgpu.dcdebugmask=0x10` desactiva **Panel Self Refresh (PSR)**, una función de ahorro de energía que interfiere con ROCm en APUs.
-
-**⚠️ Tampoco es un parámetro soportado oficialmente.** Uso:
-
-```bash
-# Añadir a GRUB
-sudo sed -i 's/GRUB_CMDLINE_LINUX_DEFAULT="/GRUB_CMDLINE_LINUX_DEFAULT="amdgpu.dcdebugmask=0x10 /' /etc/default/grub
-sudo update-grub
-# Reiniciar
-```
-
-### Limitaciones conocidas de ROCm en APUs
-
-| Limitación | Descripción |
-|------------|-------------|
-| **iGPU compartida** | Display y compute compiten por el mismo hardware |
-| **Resolución alta** | 4K agrava la inestabilidad (más ancho de banda consumido por display) |
-| **Carga sostenida** | Audios >10s pueden causar GPU Hang (~6-7 chunks es el límite típico) |
-| **Sin soporte oficial** | AMD no ofrece soporte para iGPUs en workloads AI/ML |
-| **Mitigación** | Cerrar apps que usen GPU durante inferencia mejora la estabilidad |
-
-### Recomendaciones para ROCm en APUs
-
-1. Usar `--batch-size 1` y `--dim-t 256` para inferencias
-2. Cerrar aplicaciones que consuman GPU (navegador, juegos, etc.)
-3. Para cargas largas, dividir el audio en fragmentos de 5-10s
-4. Alternativamente, usar el servidor `.87` (NVIDIA CUDA) para cargas pesadas y `.21` para pruebas rápidas
 
 ---
 
@@ -266,8 +176,8 @@ Desde **Ajustes → Interfaz**:
 | Versión | Hitos |
 |---------|-------|
 | **v3.2.x** | DAW ligero integrado (waveform, BPM, tempo, effects, piano roll MIDI, mixer), seguridad API (CORS, sanitización, path traversal), versionado por tags de git |
-| **v3.1.x** | Fixes ROCm, auto-detección GPU dinámica (HelpPage), single-container unificado, PYTHONPATH fix, GPU type-aware, Removed ResultsPanel |
-| **v3.0.0** | Multi-platform: CUDA, ROCm y CPU en un solo contenedor |
+| **v3.1.x** | Fixes ROCm (retirado en v3.5.0), auto-detección GPU dinámica (HelpPage), single-container unificado, PYTHONPATH fix, GPU type-aware, Removed ResultsPanel |
+| **v3.0.0** | Multi-platform: CUDA, ROCm (retirado en v3.5.0) y CPU en un solo contenedor |
 | **v2.9.x** | Pitch shift con rubberband, persistencia UI settings, routing de stems por preset |
 | **v2.8.x** | Pipeline chaining, presets reales con routing, matriz de stems en PipelineEditor |
 | **v2.7.x** | Peak meters RMS en vivo, YAML config con Go puro, cancel real |
@@ -313,7 +223,6 @@ onda/
 ├── Dockerfile          # Imagen unificada
 ├── docker-compose.yml  # Orquestación (CPU)
 ├── docker-compose.cuda.yml    # Override CUDA
-├── docker-compose.rocm.yml    # Override ROCm
 ├── pipeline.sh         # Script de pipeline de separación
 ├── build.sh            # Build nativo/Docker con versiones desde tags
 ├── deploy.sh           # Script de despliegue con auto-detección

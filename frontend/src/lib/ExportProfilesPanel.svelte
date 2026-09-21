@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from 'svelte';
   import {
     getExportProfiles,
     saveExportProfiles,
@@ -23,6 +24,7 @@
   let loading = $state(true);
   let saving = $state(false);
   let saved = $state(false);
+  let error = $state<string | null>(null);
 
   function normalizeProfiles(p: AudioExportProfiles): AudioExportProfiles {
     return {
@@ -36,12 +38,16 @@
     };
   }
 
-  $effect(() => {
+  onMount(() => {
     getExportProfiles()
       .then((p) => {
         profiles = normalizeProfiles(p);
+        error = null;
       })
-      .catch(() => {
+      .catch((err) => {
+        error = err instanceof Error
+          ? err.message
+          : 'No se pudieron cargar los perfiles de exportación.';
         profiles = structuredClone(defaultProfiles);
       })
       .finally(() => {
@@ -85,6 +91,12 @@
   {#if loading}
     <p class="loading-text">Cargando perfiles…</p>
   {:else}
+    {#if error}
+      <p class="error-text">
+        Error al cargar los perfiles: {error}. Se muestran los valores por
+        defecto; puedes editarlos y guardarlos.
+      </p>
+    {/if}
     <div class="field">
       <span class="field-label">Formato predeterminado</span>
       <div class="format-selector">
@@ -109,7 +121,7 @@
         class="name-template-input"
         type="text"
         bind:value={profiles.nameTemplate}
-        placeholder="{song} ({pitches}) ({suffix})"
+        placeholder="{'{song} ({pitches}) ({suffix})'}"
       />
       <p class="param-desc">
         Variables: <code>{'{song}'}</code>, <code>{'{pitches}'}</code>,
@@ -497,5 +509,14 @@
   .loading-text {
     color: var(--text-secondary);
     font-size: 0.9rem;
+  }
+
+  .error-text {
+    color: #ff6b6b;
+    font-size: 0.85rem;
+    background: #3a1b1b;
+    padding: 0.6rem 0.8rem;
+    border-radius: 6px;
+    margin: 0;
   }
 </style>

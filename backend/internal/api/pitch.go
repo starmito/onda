@@ -153,7 +153,7 @@ func (s *Server) handlePitchShift(w http.ResponseWriter, r *http.Request) {
 			}
 		} else {
 			// Apply rubberband pitch shift directly (same container).
-			Log("pipeline", "debug", fmt.Sprintf("Rubberband command: rubberband -p %d %s %s", req.Pitch, inputPath, outputPath))
+			Log("pipeline", "debug", fmt.Sprintf("Rubberband command: rubberband --fine -p %d %s %s", req.Pitch, inputPath, outputPath))
 			if err := audio.RubberbandPitch(req.Pitch, inputPath, outputPath); err != nil {
 				Log("pipeline", "error", fmt.Sprintf("rubberband FAILED for stem %q: %v", name, err))
 				w.Header().Set("Content-Type", "application/json")

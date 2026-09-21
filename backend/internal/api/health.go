@@ -32,7 +32,7 @@ func checkGPU() (bool, string, error) {
 }
 
 // detectGPUType ejecuta detect_gpu.sh directamente.
-// Devuelve "cuda", "rocm", o "cpu".
+// Devuelve "cuda" o "cpu" (la ruta ROCm fue retirada en v3.5.0).
 func detectGPUType() string {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

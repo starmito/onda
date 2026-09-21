@@ -1,6 +1,7 @@
 package api
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -47,7 +48,7 @@ func TestBuildPipelineArgs_NormalizesRelativeInput(t *testing.T) {
 		Viperx: true,
 		Demucs: true,
 	}
-	song, args, steps, _ := buildPipelineArgs(req)
+	song, args, steps, _, _ := buildPipelineArgs(req)
 	if song != "fiesta_pagana" {
 		t.Errorf("expected song fiesta_pagana, got %q", song)
 	}
@@ -67,7 +68,7 @@ func TestBuildPipelineArgs_KeepsContainerInput(t *testing.T) {
 		Input:  "/app/input/fiesta_pagana.flac",
 		Viperx: true,
 	}
-	song, args, steps, _ := buildPipelineArgs(req)
+	song, args, steps, _, _ := buildPipelineArgs(req)
 	if song != "fiesta_pagana" {
 		t.Errorf("expected song fiesta_pagana, got %q", song)
 	}
@@ -85,7 +86,7 @@ func TestBuildPipelineArgs_KeepsOtherAbsoluteInput(t *testing.T) {
 		Input:  "/home/user/music/fiesta_pagana.flac",
 		Viperx: true,
 	}
-	song, args, steps, _ := buildPipelineArgs(req)
+	song, args, steps, _, _ := buildPipelineArgs(req)
 	if song != "fiesta_pagana" {
 		t.Errorf("expected song fiesta_pagana, got %q", song)
 	}
@@ -99,6 +100,15 @@ func TestBuildPipelineArgs_KeepsOtherAbsoluteInput(t *testing.T) {
 }
 
 func TestBuildPipelineArgs_MultiStepNormalizesInput(t *testing.T) {
+	root := setTestRoot(t, "input-test-")
+	modelDir := filepath.Join(root, "models", "VR_Models", "BS_Roformer_Viperx")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatalf("failed to create model dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "BS_Roformer_Viperx.ckpt"), []byte("fake"), 0o644); err != nil {
+		t.Fatalf("failed to create dummy checkpoint: %v", err)
+	}
+
 	expectedInput := filepath.Join(mustSub("input"), "fiesta_pagana.flac")
 	req := &SeparateRequest{
 		Input: "fiesta_pagana.flac",
@@ -107,11 +117,46 @@ func TestBuildPipelineArgs_MultiStepNormalizesInput(t *testing.T) {
 		},
 		Device: "cuda",
 	}
-	_, args, _, _ := buildPipelineArgs(req)
+	_, args, _, _, _ := buildPipelineArgs(req)
 	if !contains(args, expectedInput) {
 		t.Errorf("expected multi-step args to contain normalized input path, got %v", args)
 	}
 	if req.Input != expectedInput {
 		t.Errorf("expected request input to be normalized for multi-step, got %q", req.Input)
+	}
+}
+
+func TestBuildPipelineArgs_UsesOutputOverride(t *testing.T) {
+	req := &SeparateRequest{
+		Input:  "/app/input/fiesta_pagana.flac",
+		Viperx: true,
+		Output: "fiesta_pagana (copia01)",
+	}
+	song, args, _, _, _ := buildPipelineArgs(req)
+	if song != "fiesta_pagana" {
+		t.Errorf("expected song fiesta_pagana, got %q", song)
+	}
+	expectedOutput := filepath.Join(mustSub("output"), "fiesta_pagana (copia01)")
+	if !contains(args, "--output") {
+		t.Errorf("expected args to contain --output flag, got %v", args)
+	}
+	if !contains(args, expectedOutput) {
+		t.Errorf("expected args to contain output override %q, got %v", expectedOutput, args)
+	}
+}
+
+func TestBuildPipelineArgs_IgnoresTraversalOutputOverride(t *testing.T) {
+	req := &SeparateRequest{
+		Input:  "/app/input/fiesta_pagana.flac",
+		Viperx: true,
+		Output: "../outside",
+	}
+	song, args, _, _, _ := buildPipelineArgs(req)
+	if song != "fiesta_pagana" {
+		t.Errorf("expected song fiesta_pagana, got %q", song)
+	}
+	expectedOutput := filepath.Join(mustSub("output"), "fiesta_pagana")
+	if !contains(args, expectedOutput) {
+		t.Errorf("expected traversal override to be ignored, want output %q, got %v", expectedOutput, args)
 	}
 }

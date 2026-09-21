@@ -14,23 +14,14 @@
   import PresetsPanel from './lib/PresetsPanel.svelte';
   import type { ResultStem } from './lib/types';
   import { detectStemType } from './lib/types';
-  import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getPresets, getDefaultPreset, clearQueue, cancelQueue, loadUISettings, type InputEntry } from './lib/api';
+  import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getPresets, getDefaultPreset, clearQueue, cancelQueue, loadUISettings, type InputEntry, type ResultsGroup } from './lib/api';
   import type { QueueJob } from './lib/api';
+  import { deriveQueueFileStatus, resolveOutputGroupName, songNameForQueueFile } from './lib/queueState';
   import { IconOnda, IconStar, IconVoiceRemove, IconSeparate, IconInstruments, IconUser } from './lib/icons';
+  import { getDefaultChecked, applyDefaultChecked, withToggledCheck, withToggledAll } from './lib/queueDefaults';
+  import type { QueueFile } from './lib/queueDefaults';
 
 
-  interface QueueFile {
-    file: File;
-    id: string;
-    status: string;
-    checked: boolean;
-    progress?: number;
-    path?: string;
-    errorMsg?: string;
-    current_step?: number;
-    total_steps?: number;
-    step_name?: string;
-  }
   interface PipelineConfigType {
     preset?: string;
     steps?: Array<{
@@ -46,6 +37,7 @@
   let queueFiles = $state<QueueFile[]>([]);
   let separating = $state(false);
   let results = $state<ResultStem[]>([]);
+  let resultGroups = $state<ResultsGroup[]>([]);
   let pipelineStatus = $state<'idle'|'running'|'done'|'error'>('idle');
   let pipelineStep = $state('');
   let pipelineSong = $state('');
@@ -68,6 +60,10 @@
   // ---- Live inputs refresh state ----
   let inputsRefreshTimer: ReturnType<typeof setInterval> | null = null;
   const INPUTS_REFRESH_INTERVAL_MS = 20000; // 20 s
+
+  // ---- Live results refresh state ----
+  let resultsRefreshTimer: ReturnType<typeof setInterval> | null = null;
+  const RESULTS_REFRESH_INTERVAL_MS = 5000; // 5 s
 
   function isQueueVisible(tab: string): boolean {
     return tab === 'personalizado' || isPresetTab(tab);
@@ -92,10 +88,16 @@
     syncInputsPolling();
   });
 
+  // ---- Live results refresh: keep the "done" state in sync with disk ----
+  $effect(() => {
+    activeTab;
+    syncResultsPolling();
+  });
+
   // ---- Health / Version from backend ----
   let healthVersion = $state('');
   const appVersion = $state(import.meta.env.VITE_ONDA_VERSION || '');
-  let gpuType = $state<'cuda' | 'rocm' | 'cpu' | ''>('');
+  let gpuType = $state<'cuda' | 'cpu' | ''>('');
   let gpuWarning = $state('');
 
   // Toast
@@ -104,7 +106,8 @@
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Persistent error banner
-  let errorBanner = $state<{ message: string } | null>(null);
+  let errorBanner = $state<{ message: string; log?: string } | null>(null);
+  let errorLogDetail = $state<string | null>(null);
 
   // ---- New layout state ----
   let activeTab = $state('personalizado');
@@ -191,7 +194,8 @@
         file: new File([], input.name),
         id: crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}-${input.name}`,
         status: 'waiting',
-        checked: true,
+        checked: getDefaultChecked('waiting'),
+        userTouched: false,
         path: input.path,
       });
     }
@@ -200,7 +204,7 @@
       queueFiles = [...queueFiles, ...newQueueFiles];
       console.log('Merged', newQueueFiles.length, 'inputs from disk');
     }
-    markDoneRowsFromResults();
+    syncQueueFileStatusFromDisk();
   }
 
   async function refreshInputsFromDisk() {
@@ -232,6 +236,34 @@
     } else {
       stopInputsPolling();
     }
+  }
+
+  function startResultsPolling() {
+    if (resultsRefreshTimer) return;
+    refreshResultsFromDisk();
+    resultsRefreshTimer = setInterval(() => {
+      refreshResultsFromDisk();
+    }, RESULTS_REFRESH_INTERVAL_MS);
+  }
+
+  function stopResultsPolling() {
+    if (resultsRefreshTimer) {
+      clearInterval(resultsRefreshTimer);
+      resultsRefreshTimer = null;
+    }
+  }
+
+  function syncResultsPolling() {
+    if (isQueueVisible(activeTab) && document.visibilityState !== 'hidden') {
+      startResultsPolling();
+    } else {
+      stopResultsPolling();
+    }
+  }
+
+  function handleVisibilityChange() {
+    syncInputsPolling();
+    syncResultsPolling();
   }
 
   /** Fallback: load UI settings from localStorage */
@@ -333,26 +365,12 @@
       .catch(() => {}); // silent fail
 
     // ── Load persisted results from filesystem (/output/) ──
-    getResults()
-      .then((groups) => {
-        console.log('getResults response:', groups.length, 'songs');
-        if (groups.length > 0) {
-          const loadedResults: ResultStem[] = [];
-          for (const group of groups) {
-            for (const f of group.files) {
-              loadedResults.push({
-                name: f.name,
-                path: f.path,
-                song: group.song,
-                stemType: detectStemType(f.name),
-              });
-            }
-          }
-          results = loadedResults;
+    refreshResultsFromDisk()
+      .then(() => {
+        if (results.length > 0) {
           pipelineStatus = 'done';
           currentProgress = 1;
           console.log('Loaded existing results from filesystem:', results.length, 'stems');
-          markDoneRowsFromResults();
         }
       })
       .catch((err) => {
@@ -374,23 +392,9 @@
           pipelineStatus = 'running';
           startQueuePolling();
         }
-        // Also accumulate results from any done jobs in the queue
-        for (const job of (status.jobs || [])) {
-          if (job.status === 'done' && job.files && job.files.length > 0) {
-            const alreadyLoaded = new Set(results.map(r => `${r.song}/${r.name}`));
-            const newResults: ResultStem[] = job.files
-              .filter((f: any) => !alreadyLoaded.has(`${job.song}/${f.name}`))
-              .map((f: any) => ({
-                name: f.name,
-                path: f.path,
-                song: job.song,
-                stemType: detectStemType(f.name),
-              }));
-            if (newResults.length > 0) {
-              results = [...results, ...newResults];
-            }
-          }
-        }
+        // Rebuild results from the current authoritative job.files, replacing
+        // any previous stems for songs that are now done.
+        rebuildResultsFromJobs(status.jobs || []);
       })
       .catch((err) => {
         console.error('Failed to restore queue status:', err);
@@ -413,16 +417,18 @@
       });
     }).catch(() => {});
 
-    // ── Start live input refresh while the queue view is visible ──
+    // ── Start live input/results refresh while the queue view is visible ──
     syncInputsPolling();
-    document.addEventListener('visibilitychange', syncInputsPolling);
+    syncResultsPolling();
+    document.addEventListener('visibilitychange', handleVisibilityChange);
   });
 
   // Cleanup timers on unmount
   onDestroy(() => {
     if (queuePollingTimer) clearInterval(queuePollingTimer);
     stopInputsPolling();
-    document.removeEventListener('visibilitychange', syncInputsPolling);
+    stopResultsPolling();
+    document.removeEventListener('visibilitychange', handleVisibilityChange);
   });
 
   // ---- Presets refresh (called when editor closes) ----
@@ -447,18 +453,23 @@
         file: f,
         id,
         status: 'uploading',
-        checked: true,
+        checked: getDefaultChecked('uploading'),
+        userTouched: false,
       };
       queueFiles = [...queueFiles, qf];
       try {
         const res = await uploadAudio(f);
-        queueFiles = queueFiles.map(q =>
-          q.id === id ? { ...q, status: 'waiting', path: res.path } : q
-        );
+        queueFiles = queueFiles.map(q => {
+          if (q.id !== id) return q;
+          const checked = q.userTouched ? q.checked : getDefaultChecked('waiting');
+          return { ...q, status: 'waiting', path: res.path, checked };
+        });
       } catch (err: any) {
-        queueFiles = queueFiles.map(q =>
-          q.id === id ? { ...q, status: 'error', errorMsg: err.message || 'Upload failed' } : q
-        );
+        queueFiles = queueFiles.map(q => {
+          if (q.id !== id) return q;
+          const checked = q.userTouched ? q.checked : getDefaultChecked('error');
+          return { ...q, status: 'error', errorMsg: err.message || 'Upload failed', checked };
+        });
       }
     }
     // Pick up files uploaded from other tabs / sources without reloading
@@ -482,14 +493,11 @@
   }
 
   function handleToggleQueueFile(id: string) {
-    queueFiles = queueFiles.map((qf) =>
-      qf.id === id ? { ...qf, checked: !qf.checked } : qf,
-    );
+    queueFiles = withToggledCheck(queueFiles, id);
   }
 
   function handleToggleAll() {
-    const allChecked = queueFiles.every(qf => qf.checked);
-    queueFiles = queueFiles.map(qf => ({ ...qf, checked: !allChecked }));
+    queueFiles = withToggledAll(queueFiles);
   }
 
   // ---- Pipeline start ----
@@ -560,17 +568,24 @@
       }
 
       const preset = config.preset || '';
+      const reservedOutputs = new Set<string>();
 
-      // Enqueue each uploaded file via separateAudio
+      // Enqueue each uploaded file via separateAudio.
+      // When the song already has a stem group on disk, create a fresh copy
+      // (e.g. "song (copia01)") so we never overwrite existing stems.
       for (const { qf, path } of uploaded) {
-        // Track song name for total progress
-        const songName = path.split('/').pop()?.replace(/\.[^.]+$/, '') || '';
+        const songName = songNameForQueueFile(qf);
         activeSongNames.add(songName);
+        const outputName = resolveOutputGroupName(songName, resultGroups, reservedOutputs);
+        reservedOutputs.add(outputName);
         try {
           const opts: any = {
             preset,
             input: path,
           };
+          if (outputName !== songName) {
+            opts.output = outputName;
+          }
           if (config.steps && config.steps.length > 0) {
             opts.steps = config.steps;
           }
@@ -591,21 +606,61 @@
     }
   }
 
-  function songNameForQueueFile(qf: QueueFile): string {
-    const raw = qf.path?.split('/').pop() || qf.file.name;
-    return raw.replace(/\.[^.]+$/, '');
+  function formatJobFailureMessage(job: QueueJob): string {
+    const d = job.failure_details;
+    if (!d) return job.error || 'Error desconocido';
+    let msg = `Error en "${job.song}" — paso ${d.step} (código ${d.exit_code})`;
+    if (d.error) msg += `: ${d.error}`;
+    return msg;
   }
 
-  /** Mark queue rows as done when their song already has stems on disk. */
-  function markDoneRowsFromResults() {
-    const songsWithResults = new Set(results.map(r => r.song));
-    queueFiles = queueFiles.map(qf => {
-      const song = songNameForQueueFile(qf);
-      if (songsWithResults.has(song)) {
-        return { ...qf, status: 'done', progress: 100 };
+  /** Convert flat stems back into groups for disk-state checks. */
+  function resultsToGroups(stems: ResultStem[]): ResultsGroup[] {
+    const bySong = new Map<string, ResultsGroup>();
+    for (const r of stems) {
+      if (!bySong.has(r.song)) {
+        bySong.set(r.song, { song: r.song, files: [] });
       }
-      return qf;
+      bySong.get(r.song)!.files.push({ name: r.name, path: r.path });
+    }
+    return Array.from(bySong.values());
+  }
+
+  /** Sync queue rows with the current disk + backend state. */
+  function syncQueueFileStatusFromDisk() {
+    queueFiles = queueFiles.map(qf => {
+      const derived = deriveQueueFileStatus(qf, resultGroups, queueJobs);
+      if (qf.status === derived.status) return qf;
+      const checked = qf.userTouched ? qf.checked : derived.checked;
+      return {
+        ...qf,
+        status: derived.status,
+        progress: derived.status === 'done' ? 100 : 0,
+        checked,
+      };
     });
+  }
+
+  async function refreshResultsFromDisk() {
+    try {
+      const groups = await getResults();
+      resultGroups = groups;
+      const loadedResults: ResultStem[] = [];
+      for (const group of groups) {
+        for (const f of group.files) {
+          loadedResults.push({
+            name: f.name,
+            path: f.path,
+            song: group.song,
+            stemType: detectStemType(f.name),
+          });
+        }
+      }
+      results = loadedResults;
+      syncQueueFileStatusFromDisk();
+    } catch (err) {
+      console.error('Failed to refresh results from disk:', err);
+    }
   }
 
   function resetPipelineUI() {
@@ -691,28 +746,15 @@
         }
       }
 
-      // Accumulate results and surface per-job errors once per song
+      // Rebuild results from the current authoritative job.files and surface
+      // per-job errors once per song.
+      rebuildResultsFromJobs(jobs);
       for (const job of jobs) {
-        if (job.status === 'done' && !processedDoneSongs.has(job.song)) {
+        if (job.status === 'error' && !processedDoneSongs.has(job.song)) {
           processedDoneSongs.add(job.song);
-          if (job.files && job.files.length > 0) {
-            const alreadyLoaded = new Set(results.map(r => `${r.song}/${r.name}`));
-            const newResults: ResultStem[] = job.files
-              .filter((f: any) => !alreadyLoaded.has(`${job.song}/${f.name}`))
-              .map((f: any) => ({
-                name: f.name,
-                path: f.path,
-                song: job.song,
-                stemType: detectStemType(f.name),
-              }));
-            if (newResults.length > 0) {
-              results = [...results, ...newResults];
-            }
-          }
-        }
-        if (job.status === 'error' && job.error && !processedDoneSongs.has(job.song)) {
-          processedDoneSongs.add(job.song);
-          showToast(`Error en "${job.song}": ${job.error.slice(0, 200)}`, 'error');
+          const message = formatJobFailureMessage(job);
+          const log = job.failure_details?.stderr || job.error || '';
+          errorBanner = { message, log };
         }
       }
 
@@ -721,14 +763,19 @@
         const qfSong = songNameForQueueFile(qf);
         const job = jobs.find(j => j.song === qfSong || j.song.startsWith(qfSong));
         if (!job) return qf;
+        const statusChanged = qf.status !== job.status;
+        const checked = statusChanged && !qf.userTouched
+          ? getDefaultChecked(job.status)
+          : qf.checked;
         return {
           ...qf,
           status: job.status,
+          checked,
           progress: job.status === 'done' ? 100 : (job.progress ?? 0),
           current_step: job.current_step,
           total_steps: job.total_steps,
           step_name: job.step_name,
-          errorMsg: job.status === 'error' ? (job.error || qf.errorMsg) : qf.errorMsg,
+          errorMsg: job.status === 'error' ? (job.failure_details?.error || job.error || qf.errorMsg) : qf.errorMsg,
         };
       });
 
@@ -780,6 +827,9 @@
         queuePollingTimer = null;
       }
 
+      // Disk is the source of truth: done rows without stems become pending again.
+      syncQueueFileStatusFromDisk();
+
       return hasActive;
     } catch (e) {
       // Keep polling on transient network errors; return true so callers don't think we are done
@@ -812,9 +862,39 @@
         }
       }
       results = allStems;
+      resultGroups = resultsToGroups(results);
     } catch {
       // silently ignore
     }
+  }
+
+  // Rebuild the results list from the current authoritative job.files.
+  // Stems for any song reported as done are replaced entirely, so
+  // intermediate/discarded stems that disappeared from the backend do not
+  // become ghosts in the UI.  Songs not present in the queue are left intact
+  // (e.g. results loaded from disk on mount).  Mute/solo/volume state is keyed
+  // by song/name in the player store and survives the rebuild.
+  function rebuildResultsFromJobs(jobs: QueueJob[]) {
+    const doneJobs = jobs.filter(j => j.status === 'done' && j.files && j.files.length > 0);
+    if (doneJobs.length === 0) return;
+
+    const songsToReplace = new Set(doneJobs.map(j => j.song));
+    const keptResults = results.filter(r => !songsToReplace.has(r.song));
+
+    const rebuilt: ResultStem[] = [];
+    for (const job of doneJobs) {
+      for (const f of job.files!) {
+        rebuilt.push({
+          name: f.name,
+          path: f.path,
+          song: job.song,
+          stemType: detectStemType(f.name),
+        });
+      }
+    }
+
+    results = [...keptResults, ...rebuilt];
+    resultGroups = resultsToGroups(results);
   }
 
   // ---- DropZone + FileQueue helpers ----
@@ -899,7 +979,12 @@
       collapsed={sidebarCollapsed}
       presets={sidebarPresets}
       ontoggle={() => sidebarCollapsed = !sidebarCollapsed}
-      ontabchange={(tab) => activeTab = tab}
+      ontabchange={(tab) => {
+        activeTab = tab;
+        if (isQueueVisible(tab)) {
+          queueFiles = applyDefaultChecked(queueFiles);
+        }
+      }}
     />
 
     <div class="main-area">
@@ -908,7 +993,7 @@
         <span class="version">{appVersion || healthVersion || ''}</span>
         {#if gpuType}
           <span class="gpu-label" class:cpu={gpuType === 'cpu'}>
-            {#if gpuType === 'cuda'}⚡ CUDA{:else if gpuType === 'rocm'}🔥 ROCm{:else}⚠️ CPU{/if}
+            {#if gpuType === 'cuda'}⚡ CUDA{:else}⚠️ CPU{/if}
           </span>
         {/if}
       </header>
@@ -1026,10 +1111,18 @@
     <div class="error-banner">
       <span class="error-banner-text">{errorBanner.message}</span>
       <div class="error-banner-actions">
+        {#if errorBanner.log}
+          <button class="btn-icon" title="Ver log completo" onclick={() => errorLogDetail = errorLogDetail ? null : errorBanner!.log || null}>
+            {errorLogDetail ? 'Ocultar log' : 'Ver log'}
+          </button>
+        {/if}
         <button class="btn-icon" title="Copiar error" onclick={() => copyToClipboard(errorBanner!.message)}>Copiar</button>
-        <button class="btn-icon" title="Cerrar" onclick={() => errorBanner = null}>✕</button>
+        <button class="btn-icon" title="Cerrar" onclick={() => { errorBanner = null; errorLogDetail = null; }}>✕</button>
       </div>
     </div>
+    {#if errorLogDetail}
+      <pre class="error-log-detail">{errorLogDetail}</pre>
+    {/if}
   {/if}
 </main>
 
@@ -1492,6 +1585,23 @@
   }
   .btn-icon:hover {
     background: rgba(255,255,255,0.3);
+  }
+  .error-log-detail {
+    position: fixed;
+    bottom: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1a1a2e;
+    color: #e0e0e0;
+    border: 1px solid #2a2a4a;
+    border-radius: 8px;
+    padding: 16px;
+    max-width: 90vw;
+    max-height: 40vh;
+    overflow: auto;
+    white-space: pre-wrap;
+    z-index: 9999;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.3);
   }
 
   .btn-refresh {

@@ -42,7 +42,7 @@ def run_pitch(args):
 
         print(f"   🎵 {stem}.wav → +{semitones:g} semitones...")
 
-        cmd = ["rubberband", "-p", str(semitones), input_file, output_file]
+        cmd = ["rubberband", "--fine", "-p", str(semitones), input_file, output_file]
         result = subprocess.run(cmd, capture_output=True, text=True)
 
         if result.returncode != 0:

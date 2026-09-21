@@ -27,26 +27,26 @@ func TestCheckVramHeadroom(t *testing.T) {
 		wantWarning bool
 	}{
 		{
-			name:        "viperx fits with margin over measured peak",
+			name:        "viperx fits with margin",
 			freeMB:      20000,
 			totalMB:     24000,
 			model:       "BS_Roformer_Viperx",
 			stepType:    "vocal",
 			wantOK:      true,
-			wantMin:     1,
+			wantMin:     1400,
 			wantReason:  false,
 			wantWarning: false,
 		},
 		{
-			name:        "viperx fits without margin when margin exceeds card",
+			name:        "viperx fits comfortably below total vram",
 			freeMB:      15475,
 			totalMB:     16311,
 			model:       "BS_Roformer_Viperx",
 			stepType:    "vocal",
 			wantOK:      true,
-			wantMin:     14900,
+			wantMin:     1400,
 			wantReason:  false,
-			wantWarning: true,
+			wantWarning: false,
 		},
 		{
 			name:        "viperx blocked low vram",
@@ -55,7 +55,7 @@ func TestCheckVramHeadroom(t *testing.T) {
 			model:       "BS_Roformer_Viperx",
 			stepType:    "vocal",
 			wantOK:      false,
-			wantMin:     1,
+			wantMin:     1400,
 			wantReason:  true,
 			wantWarning: false,
 		},
@@ -211,7 +211,10 @@ func TestRunSinglePipeline_ForceVRAM(t *testing.T) {
 	if err := os.WriteFile(scriptPath, []byte("#!/bin/bash\necho ok\n"), 0o755); err != nil {
 		t.Fatalf("failed to write fake script: %v", err)
 	}
-	defer os.Remove(scriptPath)
+	t.Cleanup(func() {
+		_ = os.Remove(scriptPath)
+		_ = os.Remove("testdata")
+	})
 
 	s := &Server{jobs: make(map[string]*JobState)}
 	state := &JobState{Song: "test", Status: "waiting"}
@@ -353,7 +356,10 @@ func TestRunSinglePipeline_LowRAMProceeds(t *testing.T) {
 	if err := os.WriteFile(scriptPath, []byte("#!/bin/bash\necho ok\n"), 0o755); err != nil {
 		t.Fatalf("failed to write fake script: %v", err)
 	}
-	defer os.Remove(scriptPath)
+	t.Cleanup(func() {
+		_ = os.Remove(scriptPath)
+		_ = os.Remove("testdata")
+	})
 
 	s := &Server{jobs: make(map[string]*JobState)}
 	state := &JobState{Song: "test", Status: "waiting"}

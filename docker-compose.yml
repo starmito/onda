@@ -4,7 +4,6 @@
 # Uso:
 #   docker compose up -d --build                      # CPU mode (default)
 #   docker compose -f docker-compose.yml -f docker-compose.cuda.yml up -d --build   # CUDA
-#   docker compose -f docker-compose.yml -f docker-compose.rocm.yml up -d --build   # ROCm
 #
 # O simplemente: bash deploy.sh   (detección automática)
 #

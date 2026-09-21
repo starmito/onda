@@ -1,5 +1,48 @@
 # Changelog
 
+## [v3.5.0] - 2026-09-21
+
+### Added
+- **Descarga de modelos por enlace de HuggingFace**: nuevos endpoints `POST /api/models/resolve` (valida el enlace y lista los ficheros del repositorio) y `POST /api/models/download-hf` (descarga pesos y configuración con progreso real y cancelación).
+- **PolarFormer disponible vía ONNX**: runner ONNX propio en el pipeline para RoFormer con `use_pope`, sin depender de `PoPE` ni de `flash-attn`.
+- **Kim Vocal 2 (Mel-Band Roformer, MIT)** en el catálogo vocal por defecto, con sus parámetros reales de inferencia.
+- **Pestaña Demucs (oficial)** en el gestor de modelos, con `/api/models/catalog/demucs` leyendo los repos de `adefossez` en HuggingFace.
+- **Cancelación de descargas de modelo** y mensajes de error visibles en la interfaz.
+- **Guardianes del repo**: nuevo `tools/check-licenses.sh` que bloquea licencias prohibidas (AGPL-*, GPL-2.0, GPL-3.0, SSPL-*, BUSL-*) en dependencias de producción del frontal, dependencias Python conocidas y código vendorizado (`lib_v5/`), y verifica que `go mod tidy -diff` esté vacío. Integrado en la suite como `tests/unit/test_guards.py`.
+- **`tools/verify-deps.sh`**: script para comparar la salida del pipeline entre la imagen actual y la misma imagen con paquetes candidatos instalados encima. Usa audio sintético, monta el volumen CUDA en solo lectura, no arranca servidor y devuelve código `0` solo si duración y niveles están dentro del umbral.
+- **Detección de tonalidad en el backend** con `librosa` (licencia ISC): nuevo endpoint `POST /api/key` que recibe un archivo de audio y devuelve tonalidad, escala, fuerza, alternativas y flag `dubious`. Usa `librosa.estimate_tuning`, `chroma_cqt` y perfiles de Krumhansl-Schmuckler con mediana para robustez.
+- **Documentación de procedencia de `lib_v5/`**: nuevo `lib_v5/PROVENANCE.md` y ficheros de licencia originales (`LICENSE-ZFTurbo.txt`, `LICENSE-UVR.txt`) (MIT) para el código vendorizado.
+
+### Fixed
+- **mute/solo funcional y compartido** en todos los reproductores multi-stem y de pistas (auditoría completa del frontal).
+- **Cola de proceso**: estado real leído de disco, reproceso con sufijo `(copiaNN)` y el check de la fila ya no navega por su cuenta.
+- **Unir y exportar**: grupos y subgrupos con tono en el mismo directorio base, botón de borrar grupo con confirmación y posición corregida.
+- **Rubberband**: motor fino **R3** (`--fine`) por defecto en todas las invocaciones.
+- **Precedencia de configuración unificada** (ajustes del usuario > JSON del modelo > catálogo) para todos los tipos de modelo, con los overrides de RoFormer aplicados de verdad en la inferencia.
+- **Resolución de modelos por nombre** tolerante, con error detallado, y estimador de VRAM con inferencia efectiva.
+- **Trim de padding** seguro cuando `overlap=1` o los chunks son cortos.
+- **Diagnóstico de fallo del pipeline**: se conserva el diagnóstico (`_failed_*`) y se elimina el doble reporte.
+- **Descargas de modelos en Go puro** (sin `wget`) con progreso real; dos URLs muertas del catálogo UVR repuntadas al espejo de HuggingFace.
+- **Interfaz**: stems fantasma eliminados, perfiles de exportación que ya no se quedan cargando, títulos de grupo que no se cortan, stems de subgrupos de tono servidos por `pitchDownloadUrl` y selección por defecto solo de canciones `pending` en la cola de presets.
+- **`tools/check-licenses.sh`**: el resumen final ahora cuenta correctamente los avisos impresos por el script Python (p. ej. el aviso de `lib_v5/ -> no se detectaron cabeceras ni ficheros LICENSE*`), de modo que las líneas `[WARN]`/`[FAIL]` y el contador del resumen cuadran siempre.
+
+### Changed
+- **Base Ubuntu 26.04 con Python 3.14 nativo** y apps del sistema; `torch` 2.14.0 y `demucs` 4.0.1 fijados tras validación en GPU.
+- **Pines de dependencias Python actualizados y validados** en GPU con `tools/verify-deps.sh`: `librosa` 0.11.0 → 1.0.0, `omegaconf` 2.3.0 → 2.3.1, `soundfile` 0.13.1 → 0.14.0, `onnx` 1.21.0 → 1.23.0, `scipy` 1.17.1 → 1.18.1. `requirements.lock` regenerado a partir del freeze de la imagen `onda:deps-20260920` (114 paquetes).
+- **`demucs` se mantiene en `4.0.1`**: la versión `4.1.0` falla al 65 % de su paso en GPU (exit 1, sin mensaje, solo 2 de 4 pistas escritas) y arrastra `sphn`. Se documenta en `docs/dependencies-notes.md`; no se sube hasta entender el motivo. La retirada de `torchaudio` queda aparcada porque dependía de `demucs 4.1.0`.
+- La detección de tonalidad pasa del frontal (`essentia.js`) al backend (`keydetect.py`), unificando el procesamiento de audio en el servidor.
+- **`tools/verify-deps.sh`** ahora ejecuta el pipeline en **GPU** (`cuda` por defecto, configurable con `DEVICE`), monta el modelo vocal real de producción (`BS_Roformer_Viperx`) en solo lectura y usa `htdemucs_ft`, mostrando evidencia de CUDA en la salida.
+- **`tools/verify-deps.sh`**: el veredicto se basa ahora en la energía media (`mean_volume`), no en el pico; el pico (`max_volume`) se sigue mostrando en la tabla solo como información. El ruido de medición se calcula con **tres corridas A/A**, y una pista con ruido excesivo se marca como **no concluyente**. La duración y los bytes siguen siendo bloqueantes.
+
+### Removed
+- **Retirada la dependencia y el componente de Tauri** del frontal (código muerto), junto con artefactos, scripts y restos sin uso del repositorio.
+- **Retirados `diffq` y `torchcodec`** (no los usa el pipeline).
+- **Retirado el bloque Apollo (`lib_v5/apollo_model_data/`)** por licencia **CC BY-SA 4.0** (cláusula ShareAlike) y ausencia total de importadores activos en el pipeline. `lib_v5/` queda al 100 % bajo licencias permisivas (MIT). Se conserva el registro en `lib_v5/PROVENANCE.md`.
+- **Retirado `lib_v5/results.py`** (Matchering/Sergree) por licencia **GPL-3.0+**; no estaba en uso (hoja suelta sin importadores activos). El guardián `tools/check-licenses.sh` ya no necesita excepciones.
+- **Retirada la ruta AMD/ROCm** (`Dockerfile.amd`, `docker-compose.rocm.yml`, `requirements-docker-amd.txt` y la rama ROCm de `entrypoint.sh`). Decisión: a medio plazo no se trabaja en ella; recuperable desde la historia de git. Ver `docs/retired-rocm.md`.
+- Retirada la copia parcial y obsoleta de `demucs` del repo; el pipeline usa el demucs instalado por pip (4.0.1).
+- **Retirado `essentia.js` del frontend** (licencia AGPL-3.0); la detección de tonalidad se realiza ahora en el backend mediante `librosa`.
+
 ## [v3.4.14] - 2026-09-19
 
 ### Fixed

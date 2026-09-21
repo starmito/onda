@@ -91,7 +91,7 @@
     "display_name": "MDX23C Model VIP: MDX23C-InstVoc HQ 2",
     "category": "MDX",
     "filename": "MDX23C-8KFFT-InstVoc_HQ_2.ckpt",
-    "download_url": "https://github.com/TRvlvr/model_repo/releases/download/all_public_uvr_models/MDX23C-8KFFT-InstVoc_HQ_2.ckpt",
+    "download_url": "https://huggingface.co/Politrees/UVR_resources/resolve/main/models/MDX23C/MDX23C-8KFFT-InstVoc_HQ_2.ckpt",
     "name": "MDX23C-8KFFT-InstVoc_HQ_2",
     "size_mb": 0
   },
@@ -755,7 +755,7 @@
     "display_name": "DrumSep 6stem | (by aufr33 & jarredou)",
     "category": "MDX",
     "filename": "aufr33-jarredou_DrumSep_model_mdx23c_ep_141_sdr_10.8059.ckpt",
-    "download_url": "https://github.com/jarredou/models/releases/download/aufr33-jarredou_MDX23C_DrumSep_model_v0.1/aufr33-jarredou_DrumSep_model_mdx23c_ep_141_sdr_10.8059.ckpt",
+    "download_url": "https://huggingface.co/Politrees/UVR_resources/resolve/main/models/MDX23C/MDX23C-DrumSep-aufr33-jarredou.ckpt",
     "name": "aufr33-jarredou_DrumSep_model_mdx23c_ep_141_sdr_10.8059",
     "size_mb": 417
   },

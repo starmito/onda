@@ -1,4 +1,4 @@
-# Onda v3.4.4 — Contenedor unificado (Python + Go + Svelte)
+# Onda v3.5.0 — Contenedor unificado (Python + Go + Svelte)
 # GPU auto-detect en runtime via entrypoint.sh
 # Build: docker compose build
 # Deploy: docker compose up -d  (o bash deploy.sh para auto-detectar GPU)
@@ -27,36 +27,46 @@ RUN cd backend && GOTOOLCHAIN=go1.26.0 go mod tidy && CGO_ENABLED=0 GOOS=linux g
 RUN chmod +x /onda-backend
 
 # ── Stage 3: Dependencias Python (torch CPU en build time) ─
-FROM python:3.12-slim AS python-base
+FROM ubuntu:26.04 AS python-base
 ENV PIP_ROOT_USER_ACTION=ignore
 ENV PIP_NO_PYTHON_VERSION_WARNING=1
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
+    python3.14 \
+    python3.14-dev \
+    python3.14-venv \
+    python3-pip \
     && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir torch==2.11.0+cpu torchaudio==2.11.0+cpu torchvision==0.26.0+cpu --index-url https://download.pytorch.org/whl/cpu
+RUN python3.14 -m venv /opt/venv && \
+    /opt/venv/bin/pip install --no-cache-dir --upgrade pip setuptools wheel
 
-# Demucs con --no-deps (no necesita torch en build)
-RUN pip install --no-cache-dir demucs==4.0.1 --no-deps
-RUN printf '#!/bin/bash\ncd /tmp\nexec python -m demucs "$@"\n' > /usr/local/bin/demucs && \
-    chmod +x /usr/local/bin/demucs
+RUN /opt/venv/bin/pip install --no-cache-dir torch==2.14.0+cpu torchvision==0.29.0+cpu --index-url https://download.pytorch.org/whl/cpu
+
+# Demucs 4.1.0 con --no-deps (torch ya esta instalado; sphn es su nueva dependencia)
+RUN /opt/venv/bin/pip install --no-cache-dir demucs==4.1.0 --no-deps sphn==0.2.1
+RUN printf '#!/bin/bash\ncd /tmp\nexec python -m demucs "$@"\n' > /opt/venv/bin/demucs && \
+    chmod +x /opt/venv/bin/demucs
 
 # Dependencias comunes SIN torch (numpy, scipy, etc.)
 COPY requirements-common.txt /tmp/
 RUN SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True \
-    pip install --no-cache-dir -r /tmp/requirements-common.txt
+    /opt/venv/bin/pip install --no-cache-dir -r /tmp/requirements-common.txt
 
 # Paquetes que dependen de torch (torch CPU ya está instalado, pip NO descargará CUDA)
-RUN pip install --no-cache-dir \
-    diffq pytorch_lightning ml_collections onnx2pytorch \
+# NOTA: no se instalan asteroid/openunmix/torch_audiomentations porque arrastran torchaudio,
+# y Onda v3.5.0 usa demucs 4.1.0 que no lo necesita.
+# NOTA: diffq y torchcodec se omiten porque no se usan (diffq solo para modelos
+# cuantizados de demucs; torchcodec no es requerido por ningun paquete ni importado por Onda).
+RUN /opt/venv/bin/pip install --no-cache-dir \
+    pytorch_lightning ml_collections onnx2pytorch \
     rotary_embedding_torch segmentation_models_pytorch \
     transformers timm torchmetrics spafe julius \
-    torch_audiomentations asteroid openunmix dora-search \
-    torchcodec==0.12.0
+    dora-search
 
 # ── Stage 4: Imagen final ────────────────────────────────
-FROM python:3.12-slim AS runtime
+FROM ubuntu:26.04 AS runtime
 
 ARG USER_UID=1000
 ARG USER_GID=1000
@@ -65,16 +75,19 @@ ENV ONDAP_VERSION=${ONDAP_VERSION:-unknown}
 
 # Solo lo necesario para PRODUCCIÓN (sin build-essential)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    libsndfile1 \
-    rubberband-cli \
-    ffmpeg \
-    aubio-tools \
-    sox \
+    python3.14 \
+    python3.14-venv \
+    python3-pip \
+    libsndfile1=1.2.2-4 \
+    rubberband-cli=4.0.0+dfsg-2ubuntu1 \
+    ffmpeg=7:8.0.1-3ubuntu2 \
+    aubio-tools=0.4.9-5build2 \
+    sox=14.7.0.9+ds1-1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Python deps (desde python-base)
-COPY --from=python-base /usr/local/lib/python3.12/site-packages/ /usr/local/lib/python3.12/site-packages/
-COPY --from=python-base /usr/local/bin/demucs /usr/local/bin/demucs
+COPY --from=python-base /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 # Go backend
 COPY --from=go-builder /onda-backend /usr/local/bin/onda-backend
@@ -84,11 +97,17 @@ RUN chmod +x /usr/local/bin/onda-backend
 COPY pipeline.sh /app/pipeline.sh
 RUN chmod +x /app/pipeline.sh
 
+# Demucs API worker used by pipeline.sh
+COPY tools/demucs_worker.py /app/tools/demucs_worker.py
+RUN chmod +x /app/tools/demucs_worker.py
+
 # ViperX / MDX inference
 COPY inference_universal.py /app/inference_universal.py
 COPY inference_mdx.py /app/inference_mdx.py
 COPY inference_scnet.py /app/inference_scnet.py
 COPY inference_onnx.py /app/inference_onnx.py
+COPY inference_polarformer.py /app/inference_polarformer.py
+COPY keydetect.py /app/keydetect.py
 COPY lib_v5/ /app/lib_v5/
 COPY onda/ /app/onda/
 
@@ -107,10 +126,13 @@ RUN mkdir -p /usr/share/nginx/html && cp /VERSION /usr/share/nginx/html/VERSION
 # UVR model catalog
 COPY uvr_models.json /app/uvr_models.json
 COPY hf_models.json /app/hf_models.json
+COPY model_configs/ /app/model_configs/
 
-# Crear usuario no privilegiado (mismo UID/GID que el instalador host)
-RUN groupadd -g ${USER_GID} appgroup && \
-    useradd -m -u ${USER_UID} -g appgroup -d /app -s /bin/bash appuser
+# Crear usuario no privilegiado (mismo UID/GID que el instalador host).
+# Ubuntu 26.04 ya trae un usuario 'ubuntu' con UID/GID 1000; lo renombramos.
+RUN usermod -l appuser ubuntu && \
+    groupmod -n appgroup ubuntu && \
+    usermod -d /app appuser
 
 # Directorios runtime (bind mounts del host) propiedad del usuario
 RUN mkdir -p /input /output /input_rubberband /config /daw-data /opt/pytorch-backends /app/.cache && \

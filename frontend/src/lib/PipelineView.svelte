@@ -4,19 +4,8 @@
   import { uploadAudio, deleteInput, clearQueue, separateAudio, cancelQueue, getProcessesStatus } from './api';
   import type { ProcessStatus, QueueJob } from './api';
   import { IconUpload } from './icons';
-
-  interface QueueFile {
-    file: File;
-    id: string;
-    status: string;
-    checked: boolean;
-    progress?: number;
-    path?: string;
-    errorMsg?: string;
-    current_step?: number;
-    total_steps?: number;
-    step_name?: string;
-  }
+  import { getDefaultChecked, withToggledCheck, withToggledAll } from './queueDefaults';
+  import type { QueueFile } from './queueDefaults';
 
   let {
     presetName = '',
@@ -161,7 +150,8 @@
         file: f,
         id,
         status: 'uploading',
-        checked: true,
+        checked: getDefaultChecked('uploading'),
+        userTouched: false,
       };
       updated.push(qf);
       onQueueChange([...updated]);
@@ -169,13 +159,17 @@
         const res = await uploadAudio(f);
         const idx = updated.findIndex(q => q.id === id);
         if (idx !== -1) {
-          updated[idx] = { ...updated[idx], status: 'waiting', path: res.path };
+          const q = updated[idx];
+          const checked = q.userTouched ? q.checked : getDefaultChecked('waiting');
+          updated[idx] = { ...q, status: 'waiting', path: res.path, checked };
           onQueueChange([...updated]);
         }
       } catch (err: any) {
         const idx = updated.findIndex(q => q.id === id);
         if (idx !== -1) {
-          updated[idx] = { ...updated[idx], status: 'error', errorMsg: err.message || 'Upload failed' };
+          const q = updated[idx];
+          const checked = q.userTouched ? q.checked : getDefaultChecked('error');
+          updated[idx] = { ...q, status: 'error', errorMsg: err.message || 'Upload failed', checked };
           onQueueChange([...updated]);
         }
       }
@@ -214,16 +208,11 @@
   }
 
   function handleToggleQueueFile(id: string) {
-    const updated = queueFiles.map((qf) =>
-      qf.id === id ? { ...qf, checked: !qf.checked } : qf,
-    );
-    onQueueChange(updated);
+    onQueueChange(withToggledCheck(queueFiles, id));
   }
 
   function handleToggleAll() {
-    const allChecked = queueFiles.every(qf => qf.checked);
-    const updated = queueFiles.map(qf => ({ ...qf, checked: !allChecked }));
-    onQueueChange(updated);
+    onQueueChange(withToggledAll(queueFiles));
   }
 
   async function handleClearQueue() {
@@ -324,39 +313,58 @@
         <span class="col-action"></span>
       </div>
       <div class="queue-list">
-        {#each queueFiles as qf (qf.id)}
-          <div class="queue-row" class:done-row={qf.status === 'done'} role="button" tabindex={qf.status === 'done' ? 0 : -1} onclick={() => { if (qf.status === 'done') onViewResult(); }} onkeydown={(e) => { if (e.key === 'Enter' && qf.status === 'done') onViewResult(); }}>
-            <input
-              type="checkbox"
-              checked={qf.checked}
-              onchange={(e) => { e.stopPropagation(); handleToggleQueueFile(qf.id); }}
-              title={qf.status === 'done' ? 'Marcar para reprocesar' : 'Seleccionar archivo'}
-            />
-            <span class="queue-name" title={qf.file.name}>{qf.file.name}</span>
-            <span class="queue-progress">
-              {#if qf.status === 'processing' && qf.current_step != null && qf.total_steps != null}
-                <span class="step-label">Paso {qf.current_step}/{qf.total_steps}{#if qf.step_name}: {qf.step_name}{/if}</span>
-                <div class="mini-progress-bar">
-                  <div class="mini-progress-fill" style="width: {qf.progress ?? 0}%"></div>
-                </div>
-              {:else if qf.status === 'done'}
-                <span class="step-label done">Completado ✓</span>
-                <div class="mini-progress-bar">
-                  <div class="mini-progress-fill done" style="width:100%"></div>
-                </div>
-              {:else if qf.status === 'error'}
-                <span class="step-label error">Error</span>
-                {#if qf.errorMsg}
-                  <span class="queue-error-msg" title={qf.errorMsg}>{qf.errorMsg}</span>
-                {/if}
-                <div class="mini-progress-bar">
-                  <div class="mini-progress-fill error" style="width:100%"></div>
-                </div>
+        {#snippet queueRow(qf)}
+          <input
+            type="checkbox"
+            checked={qf.checked}
+            onclick={(e) => { e.stopPropagation(); }}
+            onchange={(e) => { e.stopPropagation(); handleToggleQueueFile(qf.id); }}
+            title={qf.status === 'done' ? 'Marcar para reprocesar' : 'Seleccionar archivo'}
+          />
+          <span
+            class="queue-name"
+            title={qf.file.name}
+          >{qf.file.name}</span>
+          <span class="queue-progress">
+            {#if qf.status === 'processing' && qf.current_step != null && qf.total_steps != null}
+              <span class="step-label">Paso {qf.current_step}/{qf.total_steps}{#if qf.step_name}: {qf.step_name}{/if}</span>
+              <div class="mini-progress-bar">
+                <div class="mini-progress-fill" style="width: {qf.progress ?? 0}%"></div>
+              </div>
+            {:else if qf.status === 'done'}
+              <span class="step-label done">Completado ✓</span>
+              <div class="mini-progress-bar">
+                <div class="mini-progress-fill done" style="width:100%"></div>
+              </div>
+            {:else if qf.status === 'error'}
+              <span class="step-label error">Error</span>
+              {#if qf.errorMsg}
+                <span class="queue-error-msg" title={qf.errorMsg}>{qf.errorMsg}</span>
               {/if}
-            </span>
-            <span class={statusBadgeClass(qf.status)}>{qf.status}</span>
-            <button class="btn-remove" onclick={(e) => { e.stopPropagation(); handleRemoveQueueFile(qf.id); }}>✕</button>
-          </div>
+              <div class="mini-progress-bar">
+                <div class="mini-progress-fill error" style="width:100%"></div>
+              </div>
+            {/if}
+          </span>
+          <span class={statusBadgeClass(qf.status)}>{qf.status}</span>
+          <button class="btn-remove" onclick={(e) => { e.stopPropagation(); handleRemoveQueueFile(qf.id); }}>✕</button>
+        {/snippet}
+        {#each queueFiles as qf (qf.id)}
+          {#if qf.status === 'done'}
+            <div
+              class="queue-row done-row"
+              role="button"
+              tabindex="0"
+              onclick={() => onViewResult()}
+              onkeydown={(e) => { if (e.key === 'Enter') onViewResult(); }}
+            >
+              {@render queueRow(qf)}
+            </div>
+          {:else}
+            <div class="queue-row">
+              {@render queueRow(qf)}
+            </div>
+          {/if}
         {/each}
       </div>
     </section>
@@ -590,6 +598,7 @@
   .queue-row input[type="checkbox"] {
     accent-color: var(--accent);
     flex-shrink: 0;
+    cursor: default;
   }
   .queue-name {
     flex: 1;

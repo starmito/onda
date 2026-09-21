@@ -70,10 +70,6 @@ type measuredVRAMPeak struct {
 // the analytical estimator so the guard reflects reality instead of an
 // optimistic formula.
 var measuredVRAMPeaks = []measuredVRAMPeak{
-	// Measured 2026-09-19 on a real job: BS_Roformer_Viperx (dim_t 3105,
-	// overlap 2, batch 2, chunk 35) peaked at 14.944 MiB of pipeline VRAM.
-	{ModelName: "BS_Roformer_Viperx", StepType: "vocal", PeakMB: 14944},
-	{ModelName: "BS_Roformer_Viperx", StepType: "viperx", PeakMB: 14944},
 	// Measured 2026-09-19: htdemucs_ft with --shifts 20 --segment 7 -j 8
 	// stays around 1.5 GiB after the vocal model is released.
 	{ModelName: "htdemucs_ft", StepType: "demucs", PeakMB: 1500},
@@ -477,22 +473,21 @@ func (s *Server) handleGPUInfo(w http.ResponseWriter, r *http.Request) {
 }
 
 // mdxDimTPoints are today's measured MDX23C dim_t values ordered increasingly.
-// dim_t is derived from segment_size as: dim_t = segment_size*3 + 33.
+// segment_size is now dim_t directly (UI "Segment Size" == dim_t).
 var mdxDimTPoints = []int{417, 801, 1569, 2337}
 
 // mdxVRAMPoints are the measured VRAM peaks (MiB, batch 1) for mdxDimTPoints.
 var mdxVRAMPoints = []int{2080, 2478, 6748, 9872}
 
 // mdxEstimateVRAMMB returns the empirical MDX-family VRAM peak in MB.
-// It derives dim_t from segment_size, interpolates the base peak from the
-// measured table, and multiplies by batch size.
+// segment_size is dim_t directly; it interpolates the base peak from the
+// measured table and multiplies by batch size.
 func mdxEstimateVRAMMB(segmentSize, batchSize int) int {
 	b := batchSize
 	if b < 1 {
 		b = 1
 	}
-	dimT := segmentSize*3 + 33
-	base := interpolatePeak(dimT, mdxDimTPoints, mdxVRAMPoints)
+	base := interpolatePeak(segmentSize, mdxDimTPoints, mdxVRAMPoints)
 	return base * b
 }
 

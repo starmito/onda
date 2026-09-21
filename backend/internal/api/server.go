@@ -87,8 +87,9 @@ type JobState struct {
 	Song             string      `json:"song"`
 	Status           string      `json:"status"` // waiting, processing, done, error, blocked_no_gpu
 	Progress         int         `json:"progress"`
-	Error            string      `json:"error,omitempty"`
-	Files            []FileEntry `json:"files,omitempty"`
+	Error            string                `json:"error,omitempty"`
+	FailureDetails   *FailureDiagnostics   `json:"failure_details,omitempty"`
+	Files            []FileEntry           `json:"files,omitempty"`
 	Index            int         `json:"index"`
 	CurrentStep      int         `json:"current_step"`
 	TotalSteps       int         `json:"total_steps"`
@@ -231,12 +232,16 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("GET /api/logs/services", s.handleGetServiceLogs)
 	s.mux.HandleFunc("/api/models", s.handleModels)
 	s.mux.HandleFunc("GET /api/models/list", s.handleModelsList)
+	s.mux.HandleFunc("POST /api/models/resolve", s.handleModelsResolve)
 	s.mux.HandleFunc("POST /api/models/download", s.handleModelsDownload)
+	s.mux.HandleFunc("POST /api/models/download-hf", s.handleModelsDownloadHF)
 	s.mux.HandleFunc("GET /api/models/download/status", s.handleModelsDownloadStatus)
+	s.mux.HandleFunc("DELETE /api/models/download", s.handleModelsDownloadCancel)
 	s.mux.HandleFunc("GET /api/models/{name}/config", s.handleModelsConfig)
 	s.mux.HandleFunc("POST /api/models/{name}/config", s.handleModelsConfig)
 	s.mux.HandleFunc("GET /api/models/catalog", s.handleModelsCatalog)
 	s.mux.HandleFunc("GET /api/models/catalog/hf", s.handleModelsCatalogHF)
+	s.mux.HandleFunc("GET /api/models/catalog/demucs", s.handleModelsCatalogDemucs)
 	s.mux.HandleFunc("/api/gpu", s.handleGPU)
 	s.mux.HandleFunc("GET /api/gpu/info", s.handleGPUInfo)
 	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)
@@ -245,6 +250,7 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("GET /api/audio/tempo", s.handleTempo)
 	s.mux.HandleFunc("GET /api/audio/tempo-grid", s.handleTempoGrid)
 	s.mux.HandleFunc("POST /api/audio/tempo", s.handleTempoShift)
+	s.mux.HandleFunc("/api/key", s.handleKeyDetect)
 	s.mux.HandleFunc("POST /api/audio/tempo-per-bar", s.handleTempoPerBar)
 	s.mux.HandleFunc("POST /api/audio/trim", s.handleTrim)
 	s.mux.HandleFunc("POST /api/audio/fade", s.handleFade)
@@ -452,7 +458,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 
 	// ── Build components ──
 	var gpuObj map[string]interface{}
-	if gpuAvailable || gpuType == "rocm" {
+	if gpuAvailable {
 		gpuObj = map[string]interface{}{"ok": true, "type": gpuType, "detail": gpuInfo}
 	} else {
 		gpuObj = map[string]interface{}{"ok": false, "type": gpuType, "code": "E3", "detail": gpuInfo}
@@ -860,6 +866,8 @@ func (s *Server) collectQueueJobs() []*JobState {
 			j.Progress = 100
 			j.StepName = "Completado"
 			j.CurrentStep = j.TotalSteps
+		} else if j.Status == "error" {
+			j.FailureDetails = readFailureDiagnostics(filepath.Join(outputDir, j.Song))
 		}
 		jobList = append(jobList, j)
 	}
@@ -1149,6 +1157,29 @@ func compactFlags(args []string) string {
 	return strings.Join(parts, " ")
 }
 
+// resolvePipelineScript returns the path to the pipeline.sh entrypoint.
+// Production images use /app/pipeline.sh. For local development (go run from
+// the repo) we fall back to a pipeline.sh found in the current working tree.
+func resolvePipelineScript() string {
+	if path := os.Getenv("ONDA_PIPELINE_SCRIPT"); path != "" {
+		return path
+	}
+	if _, err := os.Stat("/app/pipeline.sh"); err == nil {
+		return "/app/pipeline.sh"
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "/app/pipeline.sh"
+	}
+	for dir := cwd; dir != "/" && dir != "."; dir = filepath.Dir(dir) {
+		candidate := filepath.Join(dir, "pipeline.sh")
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate
+		}
+	}
+	return "/app/pipeline.sh"
+}
+
 // runSinglePipeline executes a single pipeline.sh invocation.
 func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	// VRAM headroom check before launching.
@@ -1187,6 +1218,9 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 		}
 	}
 
+	songDir := filepath.Join(mustSub("output"), job.Song)
+	_ = cleanupOldFailedDirs(songDir, maxFailedDiagnosticsDirs, "")
+
 	// Resource headroom checks before launching.
 	if !job.Config.ForceVRAM {
 		gpu := gpuInfoProvider()
@@ -1215,9 +1249,7 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	// /app/pipeline.sh is the pipeline entrypoint inside the container image, not a
-	// data path, so it stays as an absolute container path.
-	script := "/app/pipeline.sh"
+	script := resolvePipelineScript()
 	pipelineArgs := job.Args
 	// Tests may pass an explicit fake script as the first argument.
 	if len(job.Args) > 0 && strings.HasSuffix(job.Args[0], ".sh") {
@@ -1299,12 +1331,13 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 			state.Error = tail
 			statusPath := filepath.Join(mustSub("output"), "pipeline_status.json")
 			writePipelineStatusFailed(statusPath, stepName, exitCode, signalName)
+			_ = cleanupOldFailedDirs(songDir, maxFailedDiagnosticsDirs, stepName)
 			logMsg := fmt.Sprintf("Pipeline failed for %s (step=%s, exit=%d, signal=%s, duration=%.1fs): %s",
 				job.Song, stepName, exitCode, signalName, duration.Seconds(), tail)
 			Log("pipeline", "error", logMsg)
 		} else {
 			state.Status = "done"
-			state.Files = listStems(job.Song)
+			state.Files = listResultStems(job.Song, job.Steps)
 			state.CurrentModel = ""
 			state.CurrentFlags = ""
 			Log("pipeline", "success", fmt.Sprintf("Pipeline completed: %s (%d stems, duration=%.1fs)", job.Song, len(state.Files), duration.Seconds()))
@@ -1322,6 +1355,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 
 	// Ensure output directory exists
 	os.MkdirAll(outputDir, 0o755)
+	_ = cleanupOldFailedDirs(outputDir, maxFailedDiagnosticsDirs, "")
 
 	currentInput := job.Config.Input
 	allStems := make([]FileEntry, 0)
@@ -1364,7 +1398,17 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		}
 
 		// Build args for this specific step
-		stepArgs, stepEnv := buildStepPipelineArgs(step, currentInput, containerOutput, job.Config.Device)
+		stepArgs, stepEnv, stepErr := buildStepPipelineArgs(step, currentInput, containerOutput, job.Config.Device)
+		if stepErr != nil {
+			s.jobsMu.Lock()
+			if state, ok := s.jobs[job.Song]; ok {
+				state.Status = "error"
+				state.Error = stepErr.Error()
+				Log("pipeline", "error", fmt.Sprintf("Step %d/%d failed for %s: %v", i+1, len(steps), job.Song, stepErr))
+			}
+			s.jobsMu.Unlock()
+			return
+		}
 		stepArgs = append(stepArgs, "--output", containerOutput)
 
 		// For steps after the first, add --no-clean to preserve previous outputs
@@ -1391,7 +1435,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 
 		// Execute this step (pipeline.sh is the container entrypoint, not data).
 		ctx, cancel := context.WithCancel(context.Background())
-		script := "/app/pipeline.sh"
+		script := resolvePipelineScript()
 		// Tests may pass an explicit fake script as the first argument.
 		if len(job.Args) > 0 && strings.HasSuffix(job.Args[0], ".sh") {
 			if info, err := os.Stat(job.Args[0]); err == nil && !info.IsDir() {
@@ -1447,6 +1491,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 			tail := tailOutput(errMsg, 40, 8192)
 			statusPath := filepath.Join(outputDir, "pipeline_status.json")
 			writePipelineStatusFailed(statusPath, step.ID, exitCode, signalName)
+			_ = cleanupOldFailedDirs(outputDir, maxFailedDiagnosticsDirs, step.ID)
 			s.jobsMu.Lock()
 			if state, ok := s.jobs[job.Song]; ok {
 				state.Status = "error"
@@ -1501,7 +1546,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 	s.jobsMu.Lock()
 	if state, ok := s.jobs[job.Song]; ok {
 		state.Status = "done"
-		state.Files = listStems(song)
+		state.Files = listResultStems(song, steps)
 		state.CurrentStep = len(steps)
 		state.CurrentModel = ""
 		state.CurrentFlags = ""
@@ -1833,6 +1878,55 @@ func listStems(song string) []FileEntry {
 	return files
 }
 
+// listResultStems returns the stems that should be exposed as final results for
+// a song. When steps are provided, only stems explicitly marked with
+// action: save and target: result are included; routed/discarded intermediates
+// (e.g. instrumental chained into another step) are omitted even if they still
+// exist on disk.
+func listResultStems(song string, steps []cli.PipelineStep) []FileEntry {
+	outputDir := filepath.Join(mustSub("output"), song)
+	entries, err := os.ReadDir(outputDir)
+	if err != nil {
+		return nil
+	}
+
+	finalNames := make(map[string]struct{})
+	for _, step := range steps {
+		for stem, route := range step.Stems {
+			if route.Action == cli.StemSave && route.Target == "result" {
+				finalNames[stem] = struct{}{}
+			}
+		}
+	}
+
+	var files []FileEntry
+	// Only enforce the final-result filter when the steps actually declare
+	// result stems. This keeps tests and legacy callers that pass bare steps
+	// (no Stems metadata) behaving the same as before.
+	hasFinalNames := len(steps) > 0 && len(finalNames) > 0
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		ext := strings.ToLower(filepath.Ext(name))
+		if ext != ".wav" && ext != ".mp3" && ext != ".flac" && ext != ".ogg" && ext != ".m4a" {
+			continue
+		}
+		base := strings.TrimSuffix(name, filepath.Ext(name))
+		if hasFinalNames {
+			if _, ok := finalNames[base]; !ok {
+				continue
+			}
+		}
+		files = append(files, FileEntry{
+			Name: name,
+			Path: "/api/files/" + song + "/" + name,
+		})
+	}
+	return files
+}
+
 // normalizeContainerInput converts a relative filename or a bare input name into
 // the absolute input path under the data root. Absolute paths and paths already
 // under the input directory are left untouched so callers can pass explicit
@@ -1849,12 +1943,23 @@ func normalizeContainerInput(input string) string {
 
 // buildPipelineArgs constructs the argument list for pipeline.sh from a SeparateRequest.
 // If a preset with Steps is referenced, those steps are returned separately for multi-step chaining.
-// Returns: song name, pipeline args, list of steps for chaining (if any), and any extra
-// environment variables that must be set for the subprocess (e.g. ONDA_CHUNK_SIZE).
-func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps []cli.PipelineStep, env []string) {
+// Returns: song name, pipeline args, list of steps for chaining (if any), any extra
+// environment variables that must be set for the subprocess (e.g. ONDA_CHUNK_SIZE), and an error
+// if a requested model cannot be resolved on disk.
+func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps []cli.PipelineStep, env []string, err error) {
 	req.Input = normalizeContainerInput(req.Input)
 	song = strings.TrimSuffix(filepath.Base(req.Input), filepath.Ext(req.Input))
 	containerOutput := filepath.Join(mustSub("output"), song)
+
+	// Optional output override lets the caller create a new stem group (e.g.
+	// "song (copia01)") without overwriting the original output directory.
+	// We sanitize it to keep the output inside the project output dir.
+	if req.Output != "" {
+		safe := filepath.Clean(req.Output)
+		if !filepath.IsAbs(safe) && !strings.Contains(safe, "..") {
+			containerOutput = filepath.Join(mustSub("output"), safe)
+		}
+	}
 
 	// --- Resolve preset steps if a named preset is provided ---
 	if req.Preset != "" {
@@ -1873,7 +1978,10 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 	if len(steps) > 0 {
 		// For multi-step presets, build args for the FIRST step only.
 		// The worker will iterate through remaining steps.
-		stepArgs, stepEnv := buildStepPipelineArgs(steps[0], req.Input, containerOutput, req.Device)
+		stepArgs, stepEnv, stepErr := buildStepPipelineArgs(steps[0], req.Input, containerOutput, req.Device)
+		if stepErr != nil {
+			return "", nil, nil, nil, stepErr
+		}
 		args = append(args, stepArgs...)
 		env = append(env, stepEnv...)
 		args = append(args, "--output", containerOutput)
@@ -1887,7 +1995,7 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 			args = append(args, "--no-clean")
 			args = append(args, req.Input)
 		}
-		return song, args, steps, env
+		return song, args, steps, env, nil
 	}
 
 	// --- BACKWARD COMPAT: old format (no steps) ---
@@ -1906,11 +2014,9 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 		vocalModel = req.ViperxModel
 	}
 	if vocalModel != "" {
-		modelDir := resolveModelDir(vocalModel)
-		if modelDir == "" {
-			// Model not found on disk yet; pass the name through so callers
-			// still see the requested --viperx-model flag.
-			modelDir = vocalModel
+		modelDir, resolveErr := resolveModelDirRequired(vocalModel)
+		if resolveErr != nil {
+			return "", nil, nil, nil, resolveErr
 		}
 		args = append(args, "--viperx-model", modelDir)
 		if isMdxModel(vocalModel) {
@@ -1963,15 +2069,21 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 		if jobs > 0 {
 			args = append(args, "--jobs", fmt.Sprintf("%d", jobs))
 		}
+		Log("backend", "info", fmt.Sprintf("Effective Demucs config for %s: shifts=%d segment=%d jobs=%d", stemModel, shifts, int(segment), jobs))
 	}
 	// Device override (defaults to cuda in pipeline.sh)
 	if req.Device != "" && req.Device != "cuda" {
 		args = append(args, "--device", req.Device)
 	}
 
+	if vocalModel != "" {
+		vocalCfg := readModelConfigFromYaml(vocalModel)
+		Log("backend", "info", fmt.Sprintf("Effective vocal config for %s: dim_t=%d overlap=%.2f batch=%d chunk=%d", vocalModel, vocalCfg.SegmentSize, vocalCfg.Overlap, vocalCfg.BatchSize, vocalCfg.ChunkSize))
+	}
+
 	args = append(args, "--output", containerOutput)
 	args = append(args, req.Input)
-	return song, args, nil, env
+	return song, args, nil, env, nil
 }
 
 // vocalChunkSizeEnv returns an ONDA_CHUNK_SIZE env var when the model has a
@@ -1990,27 +2102,28 @@ func vocalChunkSizeEnv(model string) string {
 // buildStepPipelineArgs builds pipeline.sh arguments for a single PipelineStep.
 // The returned env slice contains any extra environment variables that must be
 // set for the step (e.g. ONDA_CHUNK_SIZE).
-func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device string) (args []string, env []string) {
+func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device string) (args []string, env []string, err error) {
 
 	switch step.Type {
 	case "viperx", "vocal":
-		args = append(args, "--vocal-model", "BS_Roformer_Viperx")
-		// Model
-		if step.Model != "" {
-			modelDir := resolveModelDir(step.Model)
-			if modelDir != "" {
-				args = append(args, "--vocal-model", modelDir)
-			}
-			if isMdxModel(step.Model) {
-				args = append(args, "--vocal-type", "mdx")
-			} else if isOnnxModel(step.Model) {
-				args = append(args, "--vocal-type", "mdxnet")
-			} else if isScnetModel(step.Model) {
-				args = append(args, "--vocal-type", "scnet")
-			}
-			if envVar := vocalChunkSizeEnv(step.Model); envVar != "" {
-				env = append(env, envVar)
-			}
+		modelName := step.Model
+		if modelName == "" {
+			modelName = "BS_Roformer_Viperx"
+		}
+		modelDir, resolveErr := resolveModelDirRequired(modelName)
+		if resolveErr != nil {
+			return nil, nil, resolveErr
+		}
+		args = append(args, "--vocal-model", modelDir)
+		if isMdxModel(modelName) {
+			args = append(args, "--vocal-type", "mdx")
+		} else if isOnnxModel(modelName) {
+			args = append(args, "--vocal-type", "mdxnet")
+		} else if isScnetModel(modelName) {
+			args = append(args, "--vocal-type", "scnet")
+		}
+		if envVar := vocalChunkSizeEnv(modelName); envVar != "" {
+			env = append(env, envVar)
 		}
 		// Keep setting based on stem routing
 		if step.Stems != nil {
@@ -2055,6 +2168,7 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 			if cfg.Jobs > 0 {
 				args = append(args, "--jobs", fmt.Sprintf("%d", cfg.Jobs))
 			}
+			Log("backend", "info", fmt.Sprintf("Effective step Demucs config for %s: shifts=%d segment=%d jobs=%d", stemModel, cfg.Shifts, int(segment), cfg.Jobs))
 		}
 	}
 
@@ -2063,8 +2177,15 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 		args = append(args, "--device", device)
 	}
 
+	if step.Type == "viperx" || step.Type == "vocal" {
+		if step.Model != "" {
+			vocalCfg := readModelConfigFromYaml(step.Model)
+			Log("backend", "info", fmt.Sprintf("Effective step vocal config for %s: dim_t=%d overlap=%.2f batch=%d chunk=%d", step.Model, vocalCfg.SegmentSize, vocalCfg.Overlap, vocalCfg.BatchSize, vocalCfg.ChunkSize))
+		}
+	}
+
 	args = append(args, "--output", outputDir)
-	return args, env
+	return args, env, nil
 }
 
 // findRouteTargets returns a list of stem filenames that should be routed to a specific step.
@@ -2207,7 +2328,16 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 
 	// Build pipeline arguments and extract song name
 	// The third return value is the list of steps for multi-step chaining
-	song, pipelineArgs, steps, pipelineEnv := buildPipelineArgs(&req)
+	song, pipelineArgs, steps, pipelineEnv, buildErr := buildPipelineArgs(&req)
+	if buildErr != nil {
+		Log("backend", "warn", fmt.Sprintf("Job rejected: %v", buildErr))
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": buildErr.Error(),
+		})
+		return
+	}
 
 	// Compute total pipeline steps
 	totalSteps := len(steps)
@@ -2263,11 +2393,109 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// hasModelCheckpoint reports whether dir contains at least one recognized
+// model weight file.
+func hasModelCheckpoint(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if modelExtensions[strings.ToLower(filepath.Ext(entry.Name()))] {
+			return true
+		}
+	}
+	return false
+}
+
+// searchModelOnDisk looks for a model directory or weight file matching name.
+// It searches the known model category roots under the data-root. If name is
+// already an existing path, it is returned directly (directory, or parent
+// directory when it is a file). The returned bool indicates whether a usable
+// model directory was found.
+func searchModelOnDisk(name string) (string, []string, bool) {
+	if name == "" {
+		return "", nil, false
+	}
+
+	// If the caller passed a path that exists, use it as-is.
+	if filepath.IsAbs(name) || strings.ContainsAny(name, `/\`) {
+		if info, err := os.Stat(name); err == nil {
+			if info.IsDir() {
+				return name, []string{name}, true
+			}
+			return filepath.Dir(name), []string{filepath.Dir(name)}, true
+		}
+	}
+
+	base := modelsBasePath()
+	var tried []string
+	for _, subdir := range modelSubdirs {
+		root := filepath.Join(base, subdir)
+		tried = append(tried, root)
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			entryName := entry.Name()
+			if entry.IsDir() {
+				if !strings.EqualFold(entryName, name) {
+					continue
+				}
+				candidate := filepath.Join(root, entryName)
+				if hasModelCheckpoint(candidate) {
+					return candidate, tried, true
+				}
+				continue
+			}
+			ext := strings.ToLower(filepath.Ext(entryName))
+			if !modelExtensions[ext] {
+				continue
+			}
+			baseName := strings.TrimSuffix(entryName, ext)
+			if strings.EqualFold(baseName, name) {
+				return root, tried, true
+			}
+		}
+	}
+	return "", tried, false
+}
+
+// availableModelDirs returns a sorted, deduplicated list of subdirectory names
+// found directly under the tried model roots.
+func availableModelDirs(tried []string) []string {
+	seen := make(map[string]bool)
+	var avail []string
+	for _, root := range tried {
+		entries, err := os.ReadDir(root)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			if !seen[name] {
+				seen[name] = true
+				avail = append(avail, name)
+			}
+		}
+	}
+	sort.Strings(avail)
+	return avail
+}
+
 // resolveModelDir resolves a model name to a directory path usable by the
 // pipeline. For Demucs PyTorch models (htdemucs_ft, htdemucs, etc.) the name is
 // returned as-is (loaded by name, not path). For all other models (ViperX,
-// Roformer, MDX, etc.), the model is looked up in listModels() and its path
-// under the data-root models directory is returned directly.
+// Roformer, MDX, etc.), the model is searched on disk under the data-root
+// models directory. If it cannot be found, an empty string is returned and a
+// warning is logged with the tried roots and available model directories.
 func resolveModelDir(name string) string {
 	if name == "" {
 		return ""
@@ -2275,13 +2503,36 @@ func resolveModelDir(name string) string {
 	if name == "htdemucs_ft" || (strings.HasPrefix(name, "htdemucs") && !strings.Contains(name, ".onnx")) {
 		return name
 	}
-	models := listModels()
-	for _, m := range models.Models {
-		if m.Name == name || m.DisplayName == name {
-			return filepath.Dir(m.Path)
-		}
+
+	dir, tried, found := searchModelOnDisk(name)
+	if found {
+		return dir
 	}
+	avail := availableModelDirs(tried)
+	Log("backend", "warn", fmt.Sprintf("model %q not found on disk; searched: %s; available model dirs: %s",
+		name, strings.Join(tried, ", "), strings.Join(avail, ", ")))
 	return ""
+}
+
+// resolveModelDirRequired is like resolveModelDir but returns an error with
+// context (tried roots and available models) when the model cannot be resolved.
+// Callers building pipeline arguments use this so a missing model fails clearly
+// and early instead of reaching pipeline.sh as an unresolved name.
+func resolveModelDirRequired(name string) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("model name is empty")
+	}
+	if name == "htdemucs_ft" || (strings.HasPrefix(name, "htdemucs") && !strings.Contains(name, ".onnx")) {
+		return name, nil
+	}
+
+	dir, tried, found := searchModelOnDisk(name)
+	if found {
+		return dir, nil
+	}
+	avail := availableModelDirs(tried)
+	return "", fmt.Errorf("model %q not found on disk; searched: %s; available model dirs: %s",
+		name, strings.Join(tried, ", "), strings.Join(avail, ", "))
 }
 
 // isMdxModel reports whether a model name/path refers to an MDX-C (MDX-Net)
@@ -2445,8 +2696,189 @@ func modelConfigYamlPath(name string) string {
 	return filepath.Join(modelConfigsDir(), name+".yaml")
 }
 
+// uvrModelConfigJSONPath returns the UVR-style JSON config path for a model name.
+func uvrModelConfigJSONPath(name string) string {
+	return filepath.Join(modelConfigsDir(), name+".json")
+}
+
+// parseModelYaml parses inference and demucs parameters from a YAML file.
+// SegmentSize is returned as dim_t directly (UI "Segment Size" == dim_t).
+func parseModelYaml(yamlPath string) (ModelConfigResponse, bool) {
+	data, err := os.ReadFile(yamlPath)
+	if err != nil {
+		return ModelConfigResponse{}, false
+	}
+
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		log.Printf("WARN: failed to parse YAML %s: %v", yamlPath, err)
+		return ModelConfigResponse{}, false
+	}
+
+	if len(doc.Content) == 0 {
+		return ModelConfigResponse{}, false
+	}
+
+	cfg := ModelConfigResponse{
+		SegmentSize: 512, Overlap: 0.25, ChunkSize: 0, BatchSize: 1,
+		Device: "cuda", Shifts: 1, Segment: 0, Jobs: 0,
+	}
+
+	infNode := findYamlChildNode(doc.Content[0], "inference")
+	if infNode != nil && infNode.Kind == yaml.MappingNode {
+		if n := findYamlChildNode(infNode, "dim_t"); n != nil {
+			if v, err := strconv.Atoi(n.Value); err == nil {
+				cfg.SegmentSize = v
+				cfg.DimT = v
+			}
+		}
+		if n := findYamlChildNode(infNode, "num_overlap"); n != nil {
+			if v, err := strconv.Atoi(n.Value); err == nil {
+				cfg.NumOverlap = v
+			}
+		}
+		if n := findYamlChildNode(infNode, "batch_size"); n != nil {
+			if v, err := strconv.Atoi(n.Value); err == nil {
+				cfg.BatchSize = v
+			}
+		}
+		if n := findYamlChildNode(infNode, "chunk_size"); n != nil {
+			if v, err := strconv.Atoi(n.Value); err == nil {
+				cfg.ChunkSize = v
+			}
+		}
+	}
+
+	if cfg.NumOverlap > 0 {
+		cfg.Overlap = 1.0 / float64(cfg.NumOverlap)
+	}
+
+	if demNode := findYamlChildNode(doc.Content[0], "demucs"); demNode != nil && demNode.Kind == yaml.MappingNode {
+		if n := findYamlChildNode(demNode, "shifts"); n != nil {
+			if v, err := strconv.Atoi(n.Value); err == nil {
+				cfg.Shifts = v
+			}
+		}
+		if n := findYamlChildNode(demNode, "segment"); n != nil {
+			if v, err := strconv.ParseFloat(n.Value, 64); err == nil {
+				cfg.Segment = v
+			}
+		}
+		if n := findYamlChildNode(demNode, "jobs"); n != nil {
+			if v, err := strconv.Atoi(n.Value); err == nil {
+				cfg.Jobs = v
+			}
+		}
+	}
+
+	return cfg, true
+}
+
+// readUVRModelConfigJSON reads a UVR-style JSON config. segment_size is treated
+// as dim_t directly.
+func readUVRModelConfigJSON(path string) (ModelConfigResponse, bool) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return ModelConfigResponse{}, false
+	}
+	var raw map[string]interface{}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return ModelConfigResponse{}, false
+	}
+
+	cfg := ModelConfigResponse{
+		SegmentSize: 512, Overlap: 0.25, ChunkSize: 0, BatchSize: 1,
+		Device: "cuda", Shifts: 1, Segment: 0, Jobs: 0,
+	}
+
+	if v, ok := raw["segment_size"].(float64); ok && v > 0 {
+		cfg.SegmentSize = int(v)
+	}
+	if v, ok := raw["overlap"].(float64); ok && v > 0 && v < 1 {
+		cfg.Overlap = v
+	}
+	if v, ok := raw["chunk_size"].(float64); ok && v >= 0 {
+		cfg.ChunkSize = int(v)
+	}
+	if v, ok := raw["batch_size"].(float64); ok && v >= 0 {
+		cfg.BatchSize = int(v)
+	}
+	if v, ok := raw["shifts"].(float64); ok && v >= 0 {
+		cfg.Shifts = int(v)
+	}
+	if v, ok := raw["segment"].(float64); ok && v >= 0 {
+		cfg.Segment = v
+	}
+	if v, ok := raw["jobs"].(float64); ok && v >= 0 {
+		cfg.Jobs = int(v)
+	}
+	if v, ok := raw["device"].(string); ok && v != "" {
+		cfg.Device = v
+	}
+
+	cfg.DimT = cfg.SegmentSize
+	if cfg.Overlap > 0 && cfg.Overlap < 1 {
+		cfg.NumOverlap = int(math.Round(1.0 / cfg.Overlap))
+	}
+	return cfg, true
+}
+
+// writeUVRModelConfigJSON writes a UVR-style JSON config for pipeline.sh overrides.
+func writeUVRModelConfigJSON(name string, cfg ModelConfigResponse) error {
+	path := uvrModelConfigJSONPath(name)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("failed to create model config directory: %w", err)
+	}
+
+	numOverlap := 4
+	if cfg.Overlap > 0 && cfg.Overlap < 1 {
+		numOverlap = int(math.Round(1.0 / cfg.Overlap))
+	}
+	if numOverlap < 1 {
+		numOverlap = 1
+	}
+
+	payload := map[string]interface{}{
+		"segment_size": cfg.SegmentSize,
+		"overlap":      cfg.Overlap,
+		"chunk_size":   cfg.ChunkSize,
+		"batch_size":   cfg.BatchSize,
+		"device":       cfg.Device,
+		"dim_t":        cfg.SegmentSize,
+		"num_overlap":  numOverlap,
+	}
+	if cfg.Shifts > 0 {
+		payload["shifts"] = cfg.Shifts
+	}
+	if cfg.Segment > 0 {
+		payload["segment"] = cfg.Segment
+	}
+	if cfg.Jobs > 0 {
+		payload["jobs"] = cfg.Jobs
+	}
+
+	data, err := json.MarshalIndent(payload, "", "  ")
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+	data = append(data, '\n')
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("failed to write JSON: %w", err)
+	}
+	return nil
+}
+
 // findModelYaml returns the path to the model's YAML config file, or empty string.
+// User-saved configs under config/model_configs take precedence over any YAML
+// shipped with the model directory, so UI changes are always effective.
 func findModelYaml(modelName string) string {
+	// 1. User override (saved via UI/API).
+	cfgPath := modelConfigYamlPath(modelName)
+	if info, err := os.Stat(cfgPath); err == nil && !info.IsDir() {
+		return cfgPath
+	}
+
+	// 2. Model-shipped YAML.
 	modelDir := resolveModelDir(modelName)
 	if modelDir != "" {
 		if info, err := os.Stat(modelDir); err == nil && info.IsDir() {
@@ -2457,11 +2889,6 @@ func findModelYaml(modelName string) string {
 				}
 			}
 		}
-	}
-
-	cfgPath := modelConfigYamlPath(modelName)
-	if info, err := os.Stat(cfgPath); err == nil && !info.IsDir() {
-		return cfgPath
 	}
 	return ""
 }
@@ -2479,153 +2906,116 @@ func findYamlChildNode(parent *yaml.Node, key string) *yaml.Node {
 	return nil
 }
 
-// readModelConfigFromYaml reads inference parameters from a model's YAML file using Go yaml.Node.
-// Returns defaults if reading fails or model has no YAML.
+// readModelConfigFromYaml reads inference parameters for a model.
+// Priority:
+//  1. User-saved YAML (config/model_configs/<name>.yaml)
+//  2. UVR JSON shipped in config/model_configs/<name>.json
+//  3. Model-shipped YAML, but with training-only values (e.g. dim_t > 2048) replaced
+//     by safe inference defaults.
 func readModelConfigFromYaml(name string) ModelConfigResponse {
 	defaults := ModelConfigResponse{
-		SegmentSize: 256, Overlap: 0.25, ChunkSize: 0, BatchSize: 0,
+		SegmentSize: 512, Overlap: 0.25, ChunkSize: 0, BatchSize: 1,
 		Device: "cuda", Shifts: 1, Segment: 0, Jobs: 0,
 	}
 
+	// 1. User override YAML.
+	userYaml := modelConfigYamlPath(name)
+	if info, err := os.Stat(userYaml); err == nil && !info.IsDir() {
+		if cfg, ok := parseModelYaml(userYaml); ok {
+			log.Printf("INFO: model config for %s loaded from user YAML: dim_t=%d overlap=%.2f batch=%d chunk=%d shifts=%d segment=%.0f jobs=%d",
+				name, cfg.SegmentSize, cfg.Overlap, cfg.BatchSize, cfg.ChunkSize, cfg.Shifts, cfg.Segment, cfg.Jobs)
+			return cfg
+		}
+	}
+
+	// 2. UVR JSON fallback (shipped inference defaults).
+	uvrJSON := uvrModelConfigJSONPath(name)
+	if info, err := os.Stat(uvrJSON); err == nil && !info.IsDir() {
+		if cfg, ok := readUVRModelConfigJSON(uvrJSON); ok {
+			log.Printf("INFO: model config for %s loaded from UVR JSON: dim_t=%d overlap=%.2f batch=%d chunk=%d shifts=%d segment=%.0f jobs=%d",
+				name, cfg.SegmentSize, cfg.Overlap, cfg.BatchSize, cfg.ChunkSize, cfg.Shifts, cfg.Segment, cfg.Jobs)
+			return cfg
+		}
+	}
+
+	// 3. Model-shipped YAML.
 	yamlPath := findModelYaml(name)
 	if yamlPath == "" {
 		return defaults
 	}
-
-	data, err := os.ReadFile(yamlPath)
-	if err != nil {
+	cfg, ok := parseModelYaml(yamlPath)
+	if !ok {
 		return defaults
 	}
 
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		log.Printf("WARN: failed to parse YAML %s: %v", yamlPath, err)
-		return defaults
+	// Sanitize: training YAMLs often contain huge dim_t values that are not valid
+	// for inference (e.g. 3105). Clamp to a safe range.
+	if cfg.SegmentSize > 2048 || cfg.SegmentSize < 64 {
+		log.Printf("WARN: model %s shipped YAML has dim_t=%d; using inference default %d", name, cfg.SegmentSize, defaults.SegmentSize)
+		cfg.SegmentSize = defaults.SegmentSize
+		cfg.DimT = defaults.SegmentSize
 	}
+	if cfg.NumOverlap < 1 {
+		cfg.NumOverlap = 4
+	}
+	if cfg.Overlap <= 0 || cfg.Overlap >= 1 {
+		cfg.Overlap = 1.0 / float64(cfg.NumOverlap)
+	}
+	if cfg.BatchSize < 1 {
+		cfg.BatchSize = 1
+	}
+	if cfg.Shifts < 1 {
+		cfg.Shifts = 1
+	}
+	cfg.Segment = clampDemucsSegment(cfg.Segment)
 
-	// doc.Content[0] is the root mapping
-	if len(doc.Content) == 0 {
-		return defaults
-	}
-	infNode := findYamlChildNode(doc.Content[0], "inference")
-	if infNode == nil || infNode.Kind != yaml.MappingNode {
-		return defaults
-	}
-
-	dimT := 801
-	numOverlap := 4
-	batchSize := 1
-	chunkSize := 0
-
-	if n := findYamlChildNode(infNode, "dim_t"); n != nil {
-		if v, err := strconv.Atoi(n.Value); err == nil {
-			dimT = v
-		}
-	}
-	if n := findYamlChildNode(infNode, "num_overlap"); n != nil {
-		if v, err := strconv.Atoi(n.Value); err == nil {
-			numOverlap = v
-		}
-	}
-	if n := findYamlChildNode(infNode, "batch_size"); n != nil {
-		if v, err := strconv.Atoi(n.Value); err == nil {
-			batchSize = v
-		}
-	}
-	if n := findYamlChildNode(infNode, "chunk_size"); n != nil {
-		if v, err := strconv.Atoi(n.Value); err == nil {
-			chunkSize = v
-		}
-	}
-
-	segSize := (dimT - 33) / 3
-	if segSize < 1 {
-		segSize = 1
-	}
-	overlap := 0.25
-	if numOverlap > 0 {
-		overlap = 1.0 / float64(numOverlap)
-	}
-
-	resp := ModelConfigResponse{
-		SegmentSize: segSize,
-		Overlap:     overlap,
-		ChunkSize:   chunkSize,
-		BatchSize:   batchSize,
-		Device:      "cuda",
-		Shifts:      1,
-		Segment:     0,
-		Jobs:        0,
-		DimT:        dimT,
-		NumOverlap:  numOverlap,
-	}
-
-	// Read Demucs-specific overrides if present.
-	if demNode := findYamlChildNode(doc.Content[0], "demucs"); demNode != nil && demNode.Kind == yaml.MappingNode {
-		if n := findYamlChildNode(demNode, "shifts"); n != nil {
-			if v, err := strconv.Atoi(n.Value); err == nil {
-				resp.Shifts = v
-			}
-		}
-		if n := findYamlChildNode(demNode, "segment"); n != nil {
-			if v, err := strconv.ParseFloat(n.Value, 64); err == nil {
-				resp.Segment = v
-			}
-		}
-		if n := findYamlChildNode(demNode, "jobs"); n != nil {
-			if v, err := strconv.Atoi(n.Value); err == nil {
-				resp.Jobs = v
-			}
-		}
-	}
-
-	return resp
+	log.Printf("INFO: model config for %s loaded from shipped YAML (sanitized): dim_t=%d overlap=%.2f batch=%d chunk=%d shifts=%d segment=%.0f jobs=%d",
+		name, cfg.SegmentSize, cfg.Overlap, cfg.BatchSize, cfg.ChunkSize, cfg.Shifts, cfg.Segment, cfg.Jobs)
+	return cfg
 }
 
-// writeModelConfigToYaml writes inference parameters to a model's YAML file using Go yaml.Node.
-// If the model has no YAML on disk, it creates one at config/model_configs/<name>.yaml.
+// writeModelConfigToYaml writes inference parameters to the user-saved model YAML
+// at config/model_configs/<name>.yaml. It never modifies model-shipped YAMLs.
 func writeModelConfigToYaml(name string, cfg ModelConfigResponse) error {
 	// Clamp Demucs segment to the valid integer range accepted by the CLI.
 	cfg.Segment = clampDemucsSegment(cfg.Segment)
 
-	// Convert segment_size → dim_t, overlap → num_overlap
-	dimT := cfg.SegmentSize*3 + 33
-	numOverlap := 0
-	if cfg.Overlap > 0 {
-		numOverlap = int(1.0 / cfg.Overlap)
+	// UI "Segment Size" is dim_t directly; num_overlap is derived from overlap.
+	numOverlap := 4
+	if cfg.Overlap > 0 && cfg.Overlap < 1 {
+		numOverlap = int(math.Round(1.0 / cfg.Overlap))
 	}
 	if numOverlap < 1 {
-		numOverlap = 4
+		numOverlap = 1
 	}
 	batchSize := cfg.BatchSize
-	if batchSize < 1 {
-		batchSize = 1
+	if batchSize < 0 {
+		batchSize = 0
 	}
 	chunkSize := cfg.ChunkSize
 	if chunkSize < 0 {
 		chunkSize = 0
 	}
 
-	yamlPath := findModelYaml(name)
+	yamlPath := modelConfigYamlPath(name)
+	if err := os.MkdirAll(filepath.Dir(yamlPath), 0o755); err != nil {
+		return fmt.Errorf("failed to create model config directory: %w", err)
+	}
+
 	var doc yaml.Node
-	if yamlPath == "" {
-		// No YAML yet: create one in the fallback config directory.
-		yamlPath = modelConfigYamlPath(name)
-		if err := os.MkdirAll(filepath.Dir(yamlPath), 0o755); err != nil {
-			return fmt.Errorf("failed to create model config directory: %w", err)
-		}
-		raw := fmt.Sprintf("inference:\n  dim_t: %d\n  num_overlap: %d\n  batch_size: %d\n  chunk_size: %d\ndemucs:\n  shifts: %d\n  segment: %s\n  jobs: %d\n",
-			dimT, numOverlap, batchSize, chunkSize, cfg.Shifts, strconv.FormatFloat(cfg.Segment, 'f', -1, 64), cfg.Jobs)
-		if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
-			return fmt.Errorf("failed to seed YAML: %w", err)
-		}
-	} else {
+	if _, err := os.Stat(yamlPath); err == nil {
 		data, err := os.ReadFile(yamlPath)
 		if err != nil {
-			return fmt.Errorf("failed to read YAML: %w", err)
+			return fmt.Errorf("failed to read existing YAML: %w", err)
 		}
 		if err := yaml.Unmarshal(data, &doc); err != nil {
-			return fmt.Errorf("failed to parse YAML: %w", err)
+			return fmt.Errorf("failed to parse existing YAML: %w", err)
+		}
+	} else {
+		raw := fmt.Sprintf("inference:\n  dim_t: %d\n  num_overlap: %d\n  batch_size: %d\n  chunk_size: %d\ndemucs:\n  shifts: %d\n  segment: %s\n  jobs: %d\n",
+			cfg.SegmentSize, numOverlap, batchSize, chunkSize, cfg.Shifts, strconv.FormatFloat(cfg.Segment, 'f', -1, 64), cfg.Jobs)
+		if err := yaml.Unmarshal([]byte(raw), &doc); err != nil {
+			return fmt.Errorf("failed to seed YAML: %w", err)
 		}
 	}
 
@@ -2647,7 +3037,7 @@ func writeModelConfigToYaml(name string, cfg ModelConfigResponse) error {
 			infNode,
 		)
 	}
-	setYamlChildInt(infNode, "dim_t", dimT)
+	setYamlChildInt(infNode, "dim_t", cfg.SegmentSize)
 	setYamlChildInt(infNode, "num_overlap", numOverlap)
 	setYamlChildInt(infNode, "batch_size", batchSize)
 	setYamlChildInt(infNode, "chunk_size", chunkSize)
@@ -2822,7 +3212,15 @@ func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		Log("backend", "success", "Config saved to YAML: "+name)
+		// Keep the UVR-style JSON override in sync so pipeline.sh can pick it up
+		// without having to read training-only YAML values.
+		if err := writeUVRModelConfigJSON(name, cfg); err != nil {
+			log.Printf("ERROR: failed to sync UVR JSON for %s: %v", name, err)
+			// Non-fatal: the YAML is the source of truth for the backend.
+		}
+
+		Log("backend", "success", fmt.Sprintf("Config saved for %s: dim_t=%d overlap=%.2f batch=%d chunk=%d shifts=%d segment=%.0f jobs=%d",
+			name, cfg.SegmentSize, cfg.Overlap, cfg.BatchSize, cfg.ChunkSize, cfg.Shifts, cfg.Segment, cfg.Jobs))
 
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{
@@ -3123,24 +3521,12 @@ func (s *Server) handleModelsCatalog(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// /app/uvr_models.json is the catalog bundled in the container image (not a
-	// data path). It is the only legitimate source for the catalog.
-	data, err := os.ReadFile("/app/uvr_models.json")
+	catalog, err := loadUVRCatalog()
 	if err != nil {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusInternalServerError)
 		json.NewEncoder(w).Encode(map[string]string{
 			"error": "failed to read uvr_models.json catalog file",
-		})
-		return
-	}
-
-	var catalog []UVRModelEntry
-	if err := json.Unmarshal(data, &catalog); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{
-			"error": "failed to parse uvr_models.json: " + err.Error(),
 		})
 		return
 	}

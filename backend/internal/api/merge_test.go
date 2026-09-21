@@ -280,9 +280,17 @@ func TestHandleStemsMerge_PitchSubgroup(t *testing.T) {
 		t.Errorf("expected flac file, got %q", resp.File)
 	}
 
-	mergePath := filepath.Join(songDir, resp.File)
+	// The merged file must live under the base song dir, not inside the
+	// pitch-shifted stem subdirectory, so the static handler can serve it.
+	baseSongDir := filepath.Join(root, "output", "Base")
+	mergePath := filepath.Join(baseSongDir, resp.File)
 	if _, err := os.Stat(mergePath); err != nil {
 		t.Errorf("merged file not found at %s: %v", mergePath, err)
+	}
+
+	wantURL := "/output/Base/" + resp.File
+	if resp.URL != wantURL {
+		t.Errorf("expected download URL %q, got %q", wantURL, resp.URL)
 	}
 }
 
@@ -324,5 +332,96 @@ func TestHandleStemsMerge_PitchSubgroupWithoutPitchStemsStillWorks(t *testing.T)
 	mergePath := filepath.Join(songDir, "merge_Normal.flac")
 	if _, err := os.Stat(mergePath); err != nil {
 		t.Errorf("merged file not found at %s: %v", mergePath, err)
+	}
+}
+
+func TestHandleStemsMerge_ResolutionGroupAndSubgroup(t *testing.T) {
+	skipIfMissingBinary(t, "ffmpeg")
+
+	root := setTestRoot(t, "merge-")
+
+	baseSong := "Mi Canción"
+	baseDir := filepath.Join(root, "output", baseSong)
+	pitchStemsDir := filepath.Join(baseDir, baseSong+"_pitch+1")
+	if err := os.MkdirAll(pitchStemsDir, 0o755); err != nil {
+		t.Fatalf("failed to create pitch subgroup dir: %v", err)
+	}
+
+	for _, stem := range []string{"bass_pitch+1.wav", "drums.wav"} {
+		cmd := exec.Command("ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "0.1", "-acodec", "pcm_s16le", filepath.Join(pitchStemsDir, stem))
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("failed to create test wav %s: %v\n%s", stem, err, string(out))
+		}
+	}
+
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("POST /api/stems/merge", s.handleStemsMerge)
+
+	cases := []struct {
+		name       string
+		song       string
+		stems      []string
+		outputName string
+		wantPath   string
+		wantURL    string
+	}{
+		{
+			name:       "original group",
+			song:       "Otra",
+			stems:      []string{"vocals.wav"},
+			outputName: "Otra (0).flac",
+			wantPath:   filepath.Join(root, "output", "Otra", "Otra (0).flac"),
+			wantURL:    "/output/Otra/Otra (0).flac",
+		},
+		{
+			name:       "pitch subgroup",
+			song:       baseSong + " (pitch +1)",
+			stems:      []string{"bass_pitch+1.wav", "drums.wav"},
+			outputName: baseSong + " (+1).flac",
+			wantPath:   filepath.Join(baseDir, baseSong+" (+1).flac"),
+			wantURL:    "/output/" + baseSong + "/" + baseSong + " (+1).flac",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.name == "original group" {
+				otherDir := filepath.Join(root, "output", "Otra")
+				if err := os.MkdirAll(otherDir, 0o755); err != nil {
+					t.Fatalf("failed to create group dir: %v", err)
+				}
+				cmd := exec.Command("ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "0.1", "-acodec", "pcm_s16le", filepath.Join(otherDir, "vocals.wav"))
+				if out, err := cmd.CombinedOutput(); err != nil {
+					t.Fatalf("failed to create test wav: %v\n%s", err, string(out))
+				}
+			}
+
+			reqBody := MergeRequest{
+				Song:       tc.song,
+				Stems:      tc.stems,
+				Format:     "flac",
+				OutputName: tc.outputName,
+			}
+			body, _ := json.Marshal(reqBody)
+			req := httptest.NewRequest(http.MethodPost, "/api/stems/merge", bytes.NewReader(body))
+			req.Header.Set("Content-Type", "application/json")
+			rr := httptest.NewRecorder()
+			s.mux.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+			}
+
+			var resp MergeResponse
+			if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("failed to decode response: %v", err)
+			}
+			if resp.URL != tc.wantURL {
+				t.Errorf("expected URL %q, got %q", tc.wantURL, resp.URL)
+			}
+			if _, err := os.Stat(tc.wantPath); err != nil {
+				t.Errorf("merged file not found at %s: %v", tc.wantPath, err)
+			}
+		})
 	}
 }

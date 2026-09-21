@@ -147,7 +147,7 @@ def _chunked_process(model, audio, C, step, batch_size, S, device, chunk_seconds
               torch.tensor(audio, dtype=torch.float32, device=device)
         result = _process_mix(model, mix, C, step, batch_size, S, device,
                               progress_file, pipeline_status)
-        if audio.shape[1] > 2 * pad_len:
+        if pad_len > 0 and audio.shape[1] > 2 * pad_len:
             result = result[:, :, pad_len:-pad_len]
         return result
 
@@ -184,7 +184,7 @@ def _chunked_process(model, audio, C, step, batch_size, S, device, chunk_seconds
         result_chunk = _process_mix(model, mix_chunk, C, step, batch_size, S, device,
                                     progress_file, pipeline_status,
                                     progress_base=progress_base, progress_total=progress_total)
-        if apply_pad:
+        if pad_len > 0 and apply_pad:
             result_chunk = result_chunk[:, :, pad_len:-pad_len]
 
         # Place into the global result, crossfading the C-sample overlap with
@@ -279,20 +279,20 @@ def separate(model_dir, input_path, output_dir="output", progress_file=None, num
     if chunk_seconds < 0:
         chunk_seconds = 0.0
 
+    pad_len = C - step
     if chunk_seconds > 0:
         result = _chunked_process(model, audio, C, step, batch_size, S, device, chunk_seconds,
                                   progress_file, pipeline_status)
     else:
         mix = torch.tensor(audio, dtype=torch.float32).to(device)
-        pad_len = C - step
         if audio.shape[1] > 2 * pad_len:
             mix = nn.functional.pad(mix, (pad_len, pad_len), mode='reflect')
         result = _process_mix(model, mix, C, step, batch_size, S, device,
                               progress_file, pipeline_status)
-        if audio.shape[1] > 2 * pad_len:
-            result = result[:, :, pad_len:-pad_len]
-
+    if pad_len > 0 and audio.shape[1] > 2 * pad_len:
+        result = result[:, :, pad_len:-pad_len]
     result = result.cpu().numpy()
+
 
     os.makedirs(output_dir, exist_ok=True)
     basename = os.path.splitext(os.path.basename(input_path))[0]
@@ -350,10 +350,13 @@ if __name__ == '__main__':
     input_path = args[1] if len(args) > 1 else 'prueba_onda.mp3'
     output_dir = args[2] if len(args) > 2 else 'output'
 
-    # Inject CLI overrides into separate() via globals
-    import inference_universal
-    inference_universal._CLI_BATCH_SIZE = cli_batch_size
-    inference_universal._CLI_DIM_T = cli_dim_t
+    # Inject CLI overrides into separate() via globals.
+    # The script is running as __main__, so assign directly to the current
+    # module; importing inference_universal would create a *second* module
+    # object and the globals inside separate() would not see the overrides.
+    global _CLI_BATCH_SIZE, _CLI_DIM_T
+    _CLI_BATCH_SIZE = cli_batch_size
+    _CLI_DIM_T = cli_dim_t
     num_overlap = int(args[3]) if len(args) > 3 else None
 
     sys.exit(0 if separate(model_dir, input_path, output_dir, progress_file,
