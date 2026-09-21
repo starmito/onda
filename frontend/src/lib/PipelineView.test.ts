@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, unmount } from 'svelte';
 import PipelineView from './PipelineView.svelte';
 import type { QueueFile } from './queueDefaults';
+import type { QueueJob } from './api';
 
 describe('PipelineView', () => {
   let target: HTMLDivElement;
@@ -72,6 +73,65 @@ describe('PipelineView', () => {
     progress.click();
 
     expect(onViewResult).toHaveBeenCalledTimes(1);
+
+    unmount(app);
+  });
+
+  it('shows a CPU badge next to a queue row that ran on CPU', () => {
+    const queueFiles: QueueFile[] = [
+      {
+        file: new File([], 'cpu-song.wav'),
+        id: 'cpu-1',
+        status: 'done',
+        checked: false,
+        path: 'uploads/cpu-song.wav',
+      },
+    ];
+    const queueJobs: QueueJob[] = [
+      {
+        song: 'cpu-song',
+        status: 'done',
+        progress: 100,
+        device: 'cpu',
+        gpu_type: 'N/A',
+        ran_on_cpu: true,
+      },
+    ];
+
+    const { app } = render({ queueFiles, queueJobs });
+
+    const badge = target.querySelector('.cpu-row-badge');
+    expect(badge).not.toBeNull();
+    expect(badge!.textContent).toBe('CPU');
+
+    unmount(app);
+  });
+
+  it('does not show a CPU badge for GPU jobs', () => {
+    const queueFiles: QueueFile[] = [
+      {
+        file: new File([], 'cuda-song.wav'),
+        id: 'cuda-1',
+        status: 'done',
+        checked: false,
+        path: 'uploads/cuda-song.wav',
+      },
+    ];
+    const queueJobs: QueueJob[] = [
+      {
+        song: 'cuda-song',
+        status: 'done',
+        progress: 100,
+        device: 'cuda',
+        gpu_type: 'NVIDIA GeForce RTX 5060 Ti',
+        ran_on_cpu: false,
+      },
+    ];
+
+    const { app } = render({ queueFiles, queueJobs });
+
+    const badge = target.querySelector('.cpu-row-badge');
+    expect(badge).toBeNull();
 
     unmount(app);
   });

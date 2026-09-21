@@ -45,6 +45,9 @@ export interface HealthComponent {
   type?: 'cuda' | 'cpu';
   warning?: string;
   info?: string;
+  usable_by_torch?: boolean;
+  torch_info?: string;
+  code?: string;
 }
 
 export interface VersionMismatchItem {
@@ -377,6 +380,9 @@ export interface GpuInfo {
   temperature_c: number;
   runtime: string;
   ok: boolean;
+  usable_by_torch: boolean;
+  torch_info?: string;
+  error?: string;
 }
 
 export async function getGpuInfo(): Promise<GpuInfo> {
@@ -384,11 +390,7 @@ export async function getGpuInfo(): Promise<GpuInfo> {
   if (!res.ok) {
     throw new Error(`Failed to fetch GPU info (status ${res.status}): ${res.statusText}`);
   }
-  const gpu = (await res.json()) as GpuInfo;
-  if (!gpu.ok) {
-    throw new Error(`GPU not available: ${(gpu as any).error || 'unknown error'}`);
-  }
-  return gpu;
+  return (await res.json()) as GpuInfo;
 }
 
 export async function startBackend(): Promise<BackendActionResponse> {
@@ -433,6 +435,8 @@ export interface QueueJob {
   step_name?: string;
   eta?: string;
   device?: string;
+  gpu_type?: string;
+  ran_on_cpu?: boolean;
   current_model?: string;
   current_flags?: string;
   error?: string;

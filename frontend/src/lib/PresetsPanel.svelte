@@ -64,7 +64,9 @@
         {#if song}<span class="progress-song">{song}</span>{/if}
         {#if eta}<span class="progress-eta">⏱ {eta}</span>{/if}
         {#if device}
-          <span class="progress-device">{device === 'cuda' || device === 'gpu' ? 'Ejecutando en GPU' : 'Ejecutando en CPU'}</span>
+          <span class="progress-device" class:cpu={device !== 'cuda' && device !== 'gpu'}>
+            {device === 'cuda' || device === 'gpu' ? 'Ejecutando en GPU' : '⚠️ Ejecutando en CPU'}
+          </span>
         {/if}
         {#if model}
           <span class="progress-model" title="Modelo en uso">model: {model}</span>
@@ -113,6 +115,7 @@
   .progress-song { color: var(--text-secondary); }
   .progress-eta { color: #ff9800; }
   .progress-device { color: var(--text-secondary); font-size: 11px; background: rgba(128,128,128,0.1); padding: 2px 8px; border-radius: 4px; }
+  .progress-device.cpu { color: #ffb74d; background: rgba(255, 152, 0, 0.12); border: 1px solid rgba(255, 152, 0, 0.25); }
   .progress-model { color: var(--accent-light); font-size: 11px; background: rgba(128,128,128,0.1); padding: 2px 8px; border-radius: 4px; }
   .progress-flags { color: var(--text-secondary); font-size: 11px; background: rgba(128,128,128,0.1); padding: 2px 8px; border-radius: 4px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>
