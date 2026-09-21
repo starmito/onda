@@ -4,6 +4,7 @@
     getHfCatalog,
     getDemucsCatalog,
     getLocalModels,
+    getUploadedModels,
     downloadModel,
     downloadModelDirect,
     getDownloadStatus,
@@ -78,7 +79,19 @@
   let uploadMessage = $state('');
   let uploadMessageType = $state<'success' | 'error'>('success');
   let uploadingModel = $state(false);
-  let uploadedModels = $state<ModelUploadResponse[]>([]);
+  let uploadedModels = $state<LocalModel[]>([]);
+
+  // Load manually-uploaded models from the backend so the list survives reloads.
+  $effect(() => {
+    if (tab !== 'upload') return;
+    getUploadedModels()
+      .then((res) => {
+        uploadedModels = res.models || [];
+      })
+      .catch(() => {
+        uploadedModels = [];
+      });
+  });
 
   // ---- Installed models ----
   let localModels = $state<LocalModel[]>([]);
@@ -534,14 +547,25 @@
     input.value = '';
   }
 
+  function fileBaseName(name: string): string {
+    return name.replace(/\.[^.]+$/, '');
+  }
+
   async function uploadFiles(files: File[]) {
-    const valid = files.filter((f) => {
+    const weightExts = ['.ckpt', '.pth', '.onnx', '.safetensors', '.pt'];
+    const configExts = ['.yaml', '.yml', '.json'];
+
+    const weights = files.filter((f) => {
       const ext = '.' + f.name.split('.').pop()?.toLowerCase();
-      return ['.ckpt', '.pth', '.onnx', '.safetensors', '.pt'].includes(ext);
+      return weightExts.includes(ext);
+    });
+    const configs = files.filter((f) => {
+      const ext = '.' + f.name.split('.').pop()?.toLowerCase();
+      return configExts.includes(ext);
     });
 
-    if (valid.length === 0) {
-      uploadMessage = 'Solo archivos .ckpt, .pth, .onnx, .safetensors, .pt';
+    if (weights.length === 0) {
+      uploadMessage = 'Se requiere al menos un archivo de pesos (.ckpt, .pth, .onnx, .safetensors, .pt)';
       uploadMessageType = 'error';
       setTimeout(() => (uploadMessage = ''), 3000);
       return;
@@ -552,11 +576,18 @@
     let successCount = 0;
     let failCount = 0;
 
-    for (const file of valid) {
+    for (const weight of weights) {
+      const weightBase = fileBaseName(weight.name);
+      // Match sidecar configs by base name; if none match and there is a single
+      // weight, assume all configs belong to it.
+      let related = configs.filter((c) => fileBaseName(c.name) === weightBase);
+      if (related.length === 0 && weights.length === 1) {
+        related = configs;
+      }
       try {
-        const uploaded = await uploadModel(file);
+        const uploaded = await uploadModel([weight, ...related]);
         successCount++;
-        uploadedModels = [...uploadedModels, uploaded];
+        uploadedModels = [...uploadedModels, uploaded as LocalModel];
       } catch {
         failCount++;
       }
@@ -763,13 +794,13 @@
         <span class="dropzone-text">
           {uploadingModel ? 'Subiendo...' : 'Arrastra archivos de modelo aquí o haz clic'}
         </span>
-        <span class="dropzone-hint">.ckpt, .pth, .onnx, .safetensors, .pt</span>
+        <span class="dropzone-hint">.ckpt, .pth, .onnx, .safetensors, .pt + .yaml/.yml/.json</span>
       </div>
       <input
         id="model-upload-input"
         type="file"
         hidden
-        accept=".ckpt,.pth,.onnx,.safetensors,.pt"
+        accept=".ckpt,.pth,.onnx,.safetensors,.pt,.yaml,.yml,.json"
         multiple
         onchange={handleUploadSelect}
       />
@@ -794,6 +825,9 @@
                     <span class="uploaded-stems" title={m.stems.join(', ')}>
                       {m.num_stems ?? m.stems.length} stems
                     </span>
+                  {/if}
+                  {#if m.inferred}
+                    <span class="uploaded-inferred" title="Tipo y stems estimados; revisa el manifiesto">suposición</span>
                   {/if}
                 </span>
               </div>
@@ -1436,5 +1470,11 @@
   .uploaded-stems {
     font-size: 0.65rem;
     color: var(--text-muted);
+  }
+
+  .uploaded-inferred {
+    font-size: 0.65rem;
+    color: var(--warning, #f59e0b);
+    font-weight: 600;
   }
 </style>

@@ -121,6 +121,7 @@ export interface ModelUploadResponse {
   stems?: string[];
   num_stems?: number;
   manifest_missing?: boolean;
+  inferred?: boolean;
 }
 
 export function downloadUrl(song: string, file: string): string {
@@ -274,6 +275,8 @@ export interface LocalModel {
   num_stems?: number;
   target?: string | null;
   manifest_missing?: boolean;
+  inferred?: boolean;
+  origin?: string;
 }
 
 export interface LocalModelsResponse {
@@ -372,9 +375,11 @@ export async function cancelDownload(
   return (await res.json()) as DownloadStatusResponse;
 }
 
-export async function uploadModel(file: File): Promise<ModelUploadResponse> {
+export async function uploadModel(files: File[]): Promise<ModelUploadResponse> {
   const formData = new FormData();
-  formData.append('file', file);
+  for (const file of files) {
+    formData.append('files', file);
+  }
   const res = await fetch(`${API_BASE}/api/models/upload`, {
     method: 'POST',
     body: formData,
@@ -384,6 +389,14 @@ export async function uploadModel(file: File): Promise<ModelUploadResponse> {
     throw new Error(`Model upload failed (${res.status}): ${body || res.statusText}`);
   }
   return (await res.json()) as ModelUploadResponse;
+}
+
+export async function getUploadedModels(): Promise<LocalModelsResponse> {
+  const res = await fetch(`${API_BASE}/api/models/uploads`);
+  if (!res.ok) {
+    throw new Error(`Uploaded models fetch failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as LocalModelsResponse;
 }
 
 // ---- GPU monitor ----
