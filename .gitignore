@@ -41,6 +41,9 @@ frontend/node_modules
 frontend/node_modules/
 frontend/dist/
 
+# Backend embedded frontend build artifact (copied from frontend/dist during native build)
+backend/internal/api/dist/
+
 # Old/deprecated
 inference/*.py
 demucs_local_old/
