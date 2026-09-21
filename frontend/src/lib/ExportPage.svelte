@@ -241,31 +241,31 @@
                 {/each}
               </select>
 
-              <button
-                class="delete-group-btn"
-                onclick={() => handleDeleteGroup(song)}
-                disabled={exporting[song]}
-                title="Eliminar este grupo"
-              >
-                <span class="btn-icon">{@html IconTrash}</span>
-                Eliminar grupo
-              </button>
+              <div class="export-merge-actions">
+                <button
+                  class="delete-group-btn"
+                  onclick={() => handleDeleteGroup(song)}
+                  disabled={exporting[song]}
+                  title="Eliminar este grupo"
+                >
+                  <span class="btn-icon">{@html IconTrash}</span>
+                  Eliminar grupo
+                </button>
 
-              <div class="export-actions-spacer"></div>
-
-              <button
-                class="merge-export-btn"
-                onclick={() => handleMerge(song)}
-                disabled={exporting[song]}
-              >
-                {#if exporting[song]}
-                  <span class="spinner"></span>
-                  Exportando…
-                {:else}
-                  <span class="btn-icon">{@html IconDownload}</span>
-                  Unir y exportar
-                {/if}
-              </button>
+                <button
+                  class="merge-export-btn"
+                  onclick={() => handleMerge(song)}
+                  disabled={exporting[song]}
+                >
+                  {#if exporting[song]}
+                    <span class="spinner"></span>
+                    Exportando…
+                  {:else}
+                    <span class="btn-icon">{@html IconDownload}</span>
+                    Unir y exportar
+                  {/if}
+                </button>
+              </div>
             </div>
           </div>
         {/each}
@@ -453,9 +453,11 @@
     padding-top: 0.75rem;
   }
 
-  .export-actions-spacer {
-    flex: 1 1 auto;
-    min-width: 6rem;
+  .export-merge-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 1.75rem;
+    flex-wrap: wrap;
   }
 
   .format-label {
@@ -561,7 +563,7 @@
   @media (max-width: 600px) {
     .export-page { padding: 0.5rem; }
     .export-section { padding: 0.75rem; }
-    .export-actions-spacer { display: none; }
+    .export-merge-actions { width: 100%; flex-direction: column; align-items: stretch; gap: 0.75rem; }
     .merge-export-btn { width: 100%; justify-content: center; }
     .delete-group-btn { width: 100%; justify-content: center; }
     .export-actions-row { flex-direction: column; align-items: stretch; gap: 0.75rem; }
