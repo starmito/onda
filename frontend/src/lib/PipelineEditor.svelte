@@ -23,13 +23,13 @@
   const vocalDefault: ModelOption[] = [
     { name: 'MelBand_Karaoke', display_name: 'MelBand Karaoke', category: 'Roformer' },
     { name: 'BS_Roformer_Viperx', display_name: 'BS Roformer ViperX', category: 'Roformer' },
+    { name: 'MelBandRoformer', display_name: 'Kim Vocal 2', category: 'Roformer' },
     { name: 'BS_PolarFormer', display_name: 'BS PolarFormer', category: 'VR_Arch' },
   ];
 
   const demucsDefault: ModelOption[] = [
     { name: 'htdemucs_ft', display_name: 'HTDemucs FT', category: 'Demucs' },
     { name: 'htdemucs_6s', display_name: 'HTDemucs 6s', category: 'Demucs' },
-    { name: 'Kim_Vocal_2', display_name: 'Kim Vocal 2', category: 'MDX' },
   ];
 
   // ── Types ──
