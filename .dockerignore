@@ -6,6 +6,7 @@ models/
 input/
 output/
 output_*/
+data/
 gui_data/
 *.egg-info/
 .git/
