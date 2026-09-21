@@ -14,6 +14,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -75,7 +76,7 @@ func detectCategory(subdir, relPath string) string {
 	if len(parts) >= 2 {
 		modelDir := strings.ToLower(parts[0])
 		switch {
-		case strings.Contains(modelDir, "roformer") || strings.Contains(modelDir, "viperx") || strings.Contains(modelDir, "vocal"):
+		case strings.Contains(modelDir, "roformer"):
 			return "Roformer"
 		case strings.Contains(modelDir, "melband"):
 			return "Roformer/MelBand"
@@ -84,6 +85,60 @@ func detectCategory(subdir, relPath string) string {
 		}
 	}
 	return baseCat
+}
+
+// modelManifestStems holds the stem metadata written by the Python manifest
+// generator.
+type modelManifestStems struct {
+	Stems    []string `json:"stems"`
+	Target   *string  `json:"target"`
+	NumStems int      `json:"num_stems"`
+}
+
+// modelManifest is the JSON written next to each model by
+// ``python3 -m onda.cli manifest --regenerate``.
+type modelManifest struct {
+	Name  string             `json:"name"`
+	Type  string             `json:"type"`
+	Stems modelManifestStems `json:"stems"`
+}
+
+// loadModelManifest reads and parses the manifest for a model directory.
+// It returns the parsed manifest and true when the file exists and is valid.
+func loadModelManifest(modelDir string) (*modelManifest, bool) {
+	p := filepath.Join(modelDir, "model.manifest.json")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return nil, false
+	}
+	var m modelManifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		log.Printf("[models] failed to parse manifest %s: %v", p, err)
+		return nil, false
+	}
+	return &m, true
+}
+
+// categoryFromType derives the user-facing category from the real model type
+// stored in the manifest. This is the single source of truth for categories;
+// no part of the code invents categories from filenames or folder names.
+func categoryFromType(modelType string) string {
+	switch modelType {
+	case "bs_roformer", "mel_band_roformer":
+		return "Roformer"
+	case "mdx23c":
+		return "MDX"
+	case "mdx_net":
+		return "MDXNet"
+	case "scnet":
+		return "SCNet"
+	case "demucs":
+		return "Demucs"
+	case "":
+		return ""
+	default:
+		return strings.ToUpper(modelType[:1]) + modelType[1:]
+	}
 }
 
 // computeDisplayName derives a human-friendly display name from the file's
@@ -117,12 +172,17 @@ func demucsONNXDisplayName(name string) string {
 
 // ModelEntry describes a single model file found on disk.
 type ModelEntry struct {
-	Name           string `json:"name"`
-	DisplayName    string `json:"display_name"`
-	Category       string `json:"category"`
-	Path           string `json:"path"`
-	SizeMB         int64  `json:"size_mb"`
-	VramEstimateMB int64  `json:"vram_estimate_mb"`
+	Name            string   `json:"name"`
+	DisplayName     string   `json:"display_name"`
+	Category        string   `json:"category"`
+	Type            string   `json:"type"`
+	Path            string   `json:"path"`
+	SizeMB          int64    `json:"size_mb"`
+	VramEstimateMB  int64    `json:"vram_estimate_mb"`
+	Stems           []string `json:"stems"`
+	NumStems        int      `json:"num_stems"`
+	Target          *string  `json:"target"`
+	ManifestMissing bool     `json:"manifest_missing"`
 }
 
 // estimateVRAM returns an estimated VRAM usage in MB for a model based on its
@@ -305,14 +365,36 @@ func listModels() ModelsListResponse {
 			name := strings.TrimSuffix(info.Name(), ext)
 			category := detectCategory(subdir, rel)
 			displayName := computeDisplayName(subdir, rel, name)
+			modelType := ""
+			var stems []string
+			numStems := 0
+			var target *string
+			manifestMissing := true
+
+			if manifest, ok := loadModelManifest(filepath.Dir(path)); ok {
+				manifestMissing = false
+				if manifest.Name != "" {
+					displayName = manifest.Name
+				}
+				modelType = manifest.Type
+				category = categoryFromType(modelType)
+				stems = manifest.Stems.Stems
+				numStems = manifest.Stems.NumStems
+				target = manifest.Stems.Target
+			}
 
 			models = append(models, ModelEntry{
-				Name:           name,
-				DisplayName:    displayName,
-				Category:       category,
-				Path:           modelPath,
-				SizeMB:         info.Size() / (1024 * 1024),
-				VramEstimateMB: estimateVRAM(name, category, info.Size()/(1024*1024)),
+				Name:            name,
+				DisplayName:     displayName,
+				Category:        category,
+				Type:            modelType,
+				Path:            modelPath,
+				SizeMB:          info.Size() / (1024 * 1024),
+				VramEstimateMB:  estimateVRAM(name, category, info.Size()/(1024*1024)),
+				Stems:           stems,
+				NumStems:        numStems,
+				Target:          target,
+				ManifestMissing: manifestMissing,
 			})
 			categorySet[category] = true
 			return nil
@@ -331,22 +413,25 @@ func listModels() ModelsListResponse {
 	}
 	if !hasHtdemucsFT {
 		models = append(models, ModelEntry{
-			Name:           "htdemucs_ft",
-			DisplayName:    "HTDemucs FT",
-			Category:       "Demucs",
-			Path:           "",
-			SizeMB:         2800,
-			VramEstimateMB: 2800,
+			Name:            "htdemucs_ft",
+			DisplayName:     "HTDemucs FT",
+			Category:        "Demucs",
+			Type:            "demucs",
+			Path:            "",
+			SizeMB:          2800,
+			VramEstimateMB:  2800,
+			Stems:           []string{"drums", "bass", "other", "vocals"},
+			NumStems:        4,
+			ManifestMissing: true,
 		})
 		categorySet["Demucs"] = true
 	}
 
 	var categories []string
-	for _, cat := range []string{"VR_Arch", "MDXNet", "Roformer", "Roformer/MelBand", "SCnet", "Demucs", "Demucs ONNX"} {
-		if categorySet[cat] {
-			categories = append(categories, cat)
-		}
+	for cat := range categorySet {
+		categories = append(categories, cat)
 	}
+	sort.Strings(categories)
 	// If none found in subdirs, categories stays empty (not nil)
 	if categories == nil {
 		categories = []string{}
@@ -1231,9 +1316,10 @@ func detectCategoryFromFilename(filename string) string {
 	if strings.Contains(lower, "scnet") {
 		return "VR_Models"
 	}
-	// Roformer-based models (including ViperX, MelBand, Bandit) go to VR_Models
+	// Roformer-based models (MelBand, Bandit, etc.) go to VR_Models.
+	// ViperX is not a category; a model named BS_Roformer_Viperx is already
+	// matched by the "roformer" check.
 	if strings.Contains(lower, "roformer") ||
-		strings.Contains(lower, "viperx") ||
 		strings.Contains(lower, "melband") ||
 		strings.Contains(lower, "mel_band") ||
 		strings.Contains(lower, "bandit") ||
