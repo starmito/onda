@@ -8,29 +8,9 @@
 
   let { onclose, initialModel }: Props = $props();
 
-  type ModelType = 'Roformer' | 'Demucs' | 'MDX' | 'MDXNet' | 'SCNet';
-  const MODEL_TYPES: ModelType[] = ['Roformer', 'Demucs', 'MDX', 'MDXNet', 'SCNet'];
-
-  function modelTypeFromModel(name?: string, category?: string): ModelType | '' {
-    const n = (name || '').toLowerCase();
-    if (n.includes('mdxnet')) return 'MDXNet';
-    if (n.includes('roformer')) return 'Roformer';
-    if (n.includes('mdx')) return 'MDX';
-    if (n.includes('scnet')) return 'SCNet';
-    if (n.includes('demucs')) return 'Demucs';
-
-    const c = (category || '').toLowerCase();
-    if (c.includes('mdxnet')) return 'MDXNet';
-    if (c.includes('roformer')) return 'Roformer';
-    if (c.includes('demucs')) return 'Demucs';
-    if (c.includes('mdx')) return 'MDX';
-    if (c.includes('scnet')) return 'SCNet';
-    return '';
-  }
-
   // ---- State ----
   let models = $state<LocalModel[]>([]);
-  let selectedType = $state<ModelType | ''>('');
+  let selectedCategory = $state<string>('');
   let selectedModel = $state('');
   let previousModel = $state('');
   let configLoaded = $state(false);
@@ -62,32 +42,37 @@
     return (vramCalcResult.total_vram_mb / totalVramMb) * 100;
   });
 
-  // Group all models by type for quick lookup
-  let modelsByType = $derived.by(() => {
-    const map: Record<ModelType, LocalModel[]> = { Roformer: [], Demucs: [], MDX: [], MDXNet: [], SCNet: [] };
+  // Categories come from the backend (derived from the real model type).
+  let categories = $derived.by(() => {
+    const set = new Set(models.map((m) => m.category).filter(Boolean));
+    return [...set].sort((a, b) => a.localeCompare(b));
+  });
+
+  // Group all models by category for quick lookup.
+  let modelsByCategory = $derived.by(() => {
+    const map: Record<string, LocalModel[]> = {};
     for (const m of models) {
-      const t = modelTypeFromModel(m.name, m.category);
-      if (t) map[t].push(m);
+      const cat = m.category;
+      if (!cat) continue;
+      if (!map[cat]) map[cat] = [];
+      map[cat].push(m);
     }
-    // Stable order: prefer the catalog order
-    for (const t of MODEL_TYPES) {
-      map[t].sort((a, b) => (a.display_name || a.name).localeCompare(b.display_name || b.name));
+    for (const cat of Object.keys(map)) {
+      map[cat].sort((a, b) => (a.display_name || a.name).localeCompare(b.display_name || b.name));
     }
     return map;
   });
 
-  // Models available for the selected type
+  // Models available for the selected category.
   let filteredModels = $derived.by(() => {
-    if (!selectedType) return [];
-    return modelsByType[selectedType] ?? [];
+    if (!selectedCategory) return [];
+    return modelsByCategory[selectedCategory] ?? [];
   });
 
-  // Type booleans
-  let isRoformer = $derived.by(() => selectedType === 'Roformer');
-  let isDemucs = $derived.by(() => selectedType === 'Demucs');
-  let isMdx = $derived.by(() => selectedType === 'MDX');
-  let isMdxNet = $derived.by(() => selectedType === 'MDXNet');
-  let isScnet = $derived.by(() => selectedType === 'SCNet');
+  // Category booleans (used to show the right parameter sliders).
+  let isRoformer = $derived.by(() => selectedCategory === 'Roformer');
+  let isDemucs = $derived.by(() => selectedCategory === 'Demucs');
+  let isMdx = $derived.by(() => ['MDX', 'MDXNet', 'SCNet'].includes(selectedCategory));
 
   // Display name for the selected model
   let selectedModelDisplayName = $derived.by(() => {
@@ -106,20 +91,15 @@
         if (initialModel && models.some(m => m.name === initialModel)) {
           selectedModel = initialModel;
           const found = models.find(m => m.name === initialModel);
-          selectedType = modelTypeFromModel(found?.name, found?.category) || '';
+          selectedCategory = found?.category || '';
         }
 
-        // If nothing pre-selected, pick the first type that has models
-        if (!selectedType) {
-          for (const t of MODEL_TYPES) {
-            if (modelsByType[t].length > 0) {
-              selectedType = t;
-              break;
-            }
-          }
+        // If nothing pre-selected, pick the first category that has models.
+        if (!selectedCategory && categories.length > 0) {
+          selectedCategory = categories[0];
         }
 
-        // Auto-select the first model of the active type if none selected
+        // Auto-select the first model of the active category if none selected.
         if (!selectedModel && filteredModels.length > 0) {
           selectedModel = filteredModels[0].name;
         }
@@ -156,13 +136,12 @@
     loadGpu();
   });
 
-  // Keep selectedType in sync when the user changes the model directly
+  // Keep selectedCategory in sync when the user changes the model directly.
   $effect(() => {
     if (selectedModel) {
       const found = models.find(m => m.name === selectedModel);
-      const t = modelTypeFromModel(found?.name, found?.category);
-      if (t && selectedType !== t) {
-        selectedType = t;
+      if (found?.category && selectedCategory !== found.category) {
+        selectedCategory = found.category;
       }
     }
   });
@@ -245,7 +224,7 @@
       dimT = cfg.dim_t ?? 801;
       numOverlap = cfg.num_overlap ?? 4;
       // MDX/SCNet/MDXNet sliders start at 1; auto (0) is not a valid choice here.
-      if ((isMdx || isScnet || isMdxNet) && batchSize < 1) {
+      if (isMdx && batchSize < 1) {
         batchSize = 1;
       }
       configLoaded = true;
@@ -254,9 +233,9 @@
     }
   }
 
-  function handleTypeSelect(t: ModelType) {
-    selectedType = t;
-    const list = modelsByType[t] ?? [];
+  function handleCategorySelect(category: string) {
+    selectedCategory = category;
+    const list = modelsByCategory[category] ?? [];
     selectedModel = list.length > 0 ? list[0].name : '';
     if (selectedModel) {
       loadConfig(selectedModel);
@@ -335,16 +314,16 @@
     <div class="fullscreen-body">
       <!-- Type tabs -->
       <div class="type-tabs" role="tablist" aria-label="Tipo de modelo">
-        {#each MODEL_TYPES as t}
+        {#each categories as cat}
           <button
             type="button"
             role="tab"
-            aria-selected={selectedType === t}
+            aria-selected={selectedCategory === cat}
             class="type-tab"
-            class:active={selectedType === t}
-            onclick={() => handleTypeSelect(t)}
+            class:active={selectedCategory === cat}
+            onclick={() => handleCategorySelect(cat)}
           >
-            {t}
+            {cat}
           </button>
         {/each}
       </div>
@@ -460,7 +439,7 @@
           </div>
         {/if}
 
-        {#if isMdx || isScnet || isMdxNet}
+        {#if isMdx}
           <!-- Segment Size -->
           <div class="field">
             <label for="seg-size-mdx">
@@ -522,7 +501,7 @@
           </div>
 
           <!-- Chunk Size (SCNet only) -->
-          {#if isScnet}
+          {#if selectedCategory === 'SCNet'}
             <div class="field">
               <label for="chunk-size-scnet">
                 Chunk Size: <strong>{chunkSize === 0 ? 'YAML óptimo' : chunkSize}</strong>

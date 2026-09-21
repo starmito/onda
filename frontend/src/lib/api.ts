@@ -254,9 +254,14 @@ export interface LocalModel {
   name: string;
   display_name?: string;
   category: string;
+  type: string;
   size_mb: number;
   vram_estimate_mb?: number;
   path: string;
+  stems?: string[];
+  num_stems?: number;
+  target?: string | null;
+  manifest_missing?: boolean;
 }
 
 export interface LocalModelsResponse {
@@ -693,7 +698,7 @@ export interface StemRoute {
 export interface PipelineStep {
   id: string;
   model: string;
-  type: string;      // 'vocal' | 'viperx' | 'demucs'
+  type: string;      // 'vocal' | 'demucs'
   enabled: boolean;
   stems: Record<string, StemRoute>;
 }
