@@ -63,7 +63,7 @@ def default_models_dir() -> Path:
 def _find_config_files(model_dir: Path) -> tuple[Path | None, Path | None]:
     """Find YAML and optional JSON config files in a model directory.
 
-    ``*.orig`` files are ignored.
+    ``*.orig`` files and generated manifests are ignored.
     """
     yaml_path: Path | None = None
     json_path: Path | None = None
@@ -71,6 +71,8 @@ def _find_config_files(model_dir: Path) -> tuple[Path | None, Path | None]:
         if entry.is_dir():
             continue
         lower = entry.name.lower()
+        if lower == "model.manifest.json":
+            continue
         if lower.endswith((".yaml", ".yml")) and not lower.endswith(".orig"):
             yaml_path = entry
         elif lower.endswith(".json"):
@@ -138,30 +140,30 @@ def detect_model_type(
 def extract_stems(
     cfg: dict[str, Any], json_cfg: dict[str, Any] | None = None
 ) -> dict[str, Any]:
-    """Extract the ordered stem list, target stem and stem count.
+    """Extract the stems Onda will actually produce.
 
-    Sources, in order of preference:
+    The manifest must describe what Onda generates, not only what the YAML
+    declares. When a model has a ``target_instrument``, Onda derives the
+    complementary ``instrumental`` stem by subtraction, so the produced stems
+    are ``[target, "instrumental"]`` and ``num_stems`` is 2.
 
-    1. ``training.instruments`` from the YAML.
-    2. ``model.sources`` from the YAML.
-    3. ``target_instrument`` from a sidecar JSON (MDX-Net ONNX style), with an
-       inferred residual stem.
+    The originally declared instruments/count are preserved as
+    ``declared_instruments`` / ``declared_num_stems`` so the drift between
+    "what the model predicts" and "what Onda writes" is always visible.
     """
     training = cfg.get("training", {}) or {}
     model_cfg = cfg.get("model", {}) or {}
 
-    instruments = training.get("instruments")
-    if instruments:
-        stems = [str(s).strip().lower() for s in instruments]
-    else:
-        sources = model_cfg.get("sources")
-        if sources:
-            stems = [str(s).strip().lower() for s in sources]
-        elif json_cfg is not None and json_cfg.get("target_instrument"):
-            target = str(json_cfg["target_instrument"]).strip().lower()
-            stems = [target, "other"]
-        else:
-            stems = []
+    # 1. What the YAML/JSON declares.
+    declared_instruments: list[str] = []
+    if training.get("instruments"):
+        declared_instruments = [str(s).strip().lower() for s in training["instruments"]]
+    elif model_cfg.get("sources"):
+        declared_instruments = [str(s).strip().lower() for s in model_cfg["sources"]]
+    elif json_cfg is not None and json_cfg.get("target_instrument"):
+        declared_instruments = [
+            str(json_cfg["target_instrument"]).strip().lower()
+        ]
 
     if "target_instrument" in training:
         target = training["target_instrument"]
@@ -173,10 +175,18 @@ def extract_stems(
     if target is not None:
         target = str(target).strip().lower()
 
+    # 2. What Onda will generate.
+    if target is not None:
+        stems = [target, "instrumental"]
+    else:
+        stems = declared_instruments[:]
+
     return {
         "stems": stems,
         "target": target,
         "num_stems": len(stems),
+        "declared_instruments": declared_instruments,
+        "declared_num_stems": len(declared_instruments),
     }
 
 
@@ -187,6 +197,7 @@ def _flag(
     min: Any | None = None,
     max: Any | None = None,
     step: Any | None = None,
+    choices: list[Any] | None = None,
 ) -> dict[str, Any]:
     entry: dict[str, Any] = {"default": default, "editable": editable}
     if min is not None:
@@ -195,38 +206,138 @@ def _flag(
         entry["max"] = max
     if step is not None:
         entry["step"] = step
+    if choices is not None:
+        entry["choices"] = choices
     return entry
 
 
-def extract_flags(cfg: dict[str, Any]) -> dict[str, Any]:
-    """Extract editable inference/demucs flags with safe default ranges.
+def _int(value: Any, fallback: int) -> int:
+    """Coerce *value* to int, returning *fallback* if impossible."""
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return fallback
 
-    Ranges are only included when they can be deduced from the semantics of the
-    parameter; the YAML is the source of truth for the default value.
+
+def _float(value: Any, fallback: float) -> float:
+    """Coerce *value* to float, returning *fallback* if impossible."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def extract_flags(cfg: dict[str, Any]) -> dict[str, Any]:
+    """Extract editable inference flags using the app's vocabulary.
+
+    The returned keys match the names used by the backend and pipeline
+    (``segment_size``, ``num_overlap``, ``batch_size``, ``chunk_size``,
+    ``device``, ``shifts``, ``segment``, ``jobs``).  Raw architecture keys such
+    as ``dim_t`` are kept as metadata, not as editable flags.
+
+    Defaults come from the model config when available; otherwise the app-wide
+    fallback is used and documented explicitly.
     """
-    flags: dict[str, Any] = {}
     inference = cfg.get("inference", {}) or {}
     demucs = cfg.get("demucs", {}) or {}
 
-    if "dim_t" in inference:
-        flags["dim_t"] = _flag(inference["dim_t"], min=1, step=1)
-    if "num_overlap" in inference:
-        flags["num_overlap"] = _flag(inference["num_overlap"], min=1, max=16, step=1)
-    if "batch_size" in inference:
-        flags["batch_size"] = _flag(inference["batch_size"], min=1, max=16, step=1)
-    if "chunk_size" in inference:
-        flags["chunk_size"] = _flag(inference["chunk_size"], min=0, step=1)
-    if "normalize" in inference:
-        flags["normalize"] = _flag(inference["normalize"], editable=True)
+    # Values declared by the model.
+    segment_size = _int(inference.get("dim_t"), 0)
+    num_overlap = _int(inference.get("num_overlap"), 0)
+    batch_size = _int(inference.get("batch_size"), 0)
+    chunk_size = _int(inference.get("chunk_size"), 0) if "chunk_size" in inference else 0
 
-    if "shifts" in demucs:
-        flags["shifts"] = _flag(demucs["shifts"], min=0, max=10, step=1)
-    if "segment" in demucs:
-        flags["segment"] = _flag(demucs["segment"], min=0, step=1)
-    if "jobs" in demucs:
-        flags["jobs"] = _flag(demucs["jobs"], min=0, max=16, step=1)
+    shifts = _int(demucs["shifts"], 0) if "shifts" in demucs else 1
+    segment = _float(demucs["segment"], 0.0) if "segment" in demucs else 0.0
+    jobs = _int(demucs["jobs"], 0) if "jobs" in demucs else 0
 
+    # Effective defaults matching the backend pipeline.  Keys present in the
+    # model config keep their declared value even when it is 0; missing keys
+    # fall back to the app-wide default.
+    effective_num_overlap = num_overlap if num_overlap > 0 else 4
+    effective_batch_size = batch_size if batch_size > 0 else 1
+    effective_chunk_size = chunk_size
+    effective_segment = segment
+
+    flags: dict[str, Any] = {
+        "segment_size": _flag(
+            segment_size if segment_size > 0 else 512,
+            min=1,
+            step=1,
+        ),
+        "num_overlap": _flag(
+            effective_num_overlap,
+            min=1,
+            max=16,
+            step=1,
+        ),
+        "overlap": _flag(
+            1.0 / effective_num_overlap,
+            min=0.0,
+            max=1.0,
+            step=0.05,
+        ),
+        "batch_size": _flag(
+            effective_batch_size,
+            min=1,
+            max=16,
+            step=1,
+        ),
+        "chunk_size": _flag(
+            effective_chunk_size,
+            min=0,
+            step=1,
+        ),
+        "device": _flag(
+            "cuda",
+            choices=["cuda", "cpu"],
+        ),
+        "shifts": _flag(
+            shifts,
+            min=0,
+            max=10,
+            step=1,
+        ),
+        "segment": _flag(
+            segment,
+            min=0,
+            max=7,
+            step=1,
+        ),
+        "jobs": _flag(
+            jobs,
+            min=0,
+            max=16,
+            step=1,
+        ),
+    }
     return flags
+
+
+def extract_metadata(
+    cfg: dict[str, Any], json_cfg: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Preserve raw architecture/inference keys as read-only metadata.
+
+    Values such as ``dim_t`` or ``normalize`` describe the trained model; they
+    are not user-editable inference flags, but they are useful for traceability
+    and for mapping between the YAML vocabulary and the app vocabulary.
+    """
+    metadata: dict[str, Any] = {}
+    inference = cfg.get("inference", {}) or {}
+    if inference:
+        metadata["inference"] = dict(inference)
+    model_cfg = cfg.get("model", {}) or {}
+    model_meta = {
+        k: v
+        for k, v in model_cfg.items()
+        if k in ("num_stems", "type")
+    }
+    if model_meta:
+        metadata["model"] = model_meta
+    if json_cfg:
+        metadata["sidecar_json"] = dict(json_cfg)
+    return metadata
 
 
 def generate_manifest(
@@ -268,12 +379,14 @@ def generate_manifest(
     model_type = detect_model_type(cfg, checkpoint)
     stems_info = extract_stems(cfg, json_cfg)
     flags = extract_flags(cfg)
+    metadata = extract_metadata(cfg, json_cfg)
 
     manifest: dict[str, Any] = {
         "name": name,
         "type": model_type,
         "stems": stems_info,
         "flags": flags,
+        "metadata": metadata,
         "source_yaml": source_yaml,
         "checkpoint": checkpoint.name if checkpoint else None,
         "generated_at": (now or datetime.now(timezone.utc)).isoformat(),

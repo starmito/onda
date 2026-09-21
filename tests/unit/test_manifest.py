@@ -65,40 +65,46 @@ def test_detect_model_type(cfg, checkpoint, expected) -> None:
 
 
 @pytest.mark.parametrize(
-    "cfg, json_cfg, expected_stems, expected_target",
+    "cfg, json_cfg, expected_stems, expected_target, expected_declared",
     [
         (
             {"training": {"instruments": ["bass", "drums", "vocals"]}},
             None,
             ["bass", "drums", "vocals"],
             None,
+            ["bass", "drums", "vocals"],
         ),
         (
             {"training": {"instruments": ["bass", "drums"], "target_instrument": "drums"}},
             None,
-            ["bass", "drums"],
+            ["drums", "instrumental"],
             "drums",
+            ["bass", "drums"],
         ),
         (
             {"model": {"sources": ["drums", "bass"]}},
             None,
             ["drums", "bass"],
             None,
+            ["drums", "bass"],
         ),
         (
             {},
             {"target_instrument": "Vocals"},
-            ["vocals", "other"],
+            ["vocals", "instrumental"],
             "vocals",
+            ["vocals"],
         ),
-        ({}, None, [], None),
+        ({}, None, [], None, []),
     ],
 )
-def test_extract_stems(cfg, json_cfg, expected_stems, expected_target) -> None:
+def test_extract_stems(cfg, json_cfg, expected_stems, expected_target, expected_declared) -> None:
     result = extract_stems(cfg, json_cfg)
     assert result["stems"] == expected_stems
     assert result["target"] == expected_target
     assert result["num_stems"] == len(expected_stems)
+    assert result["declared_instruments"] == expected_declared
+    assert result["declared_num_stems"] == len(expected_declared)
 
 
 def test_extract_flags_extracts_inference_and_demucs() -> None:
@@ -113,9 +119,19 @@ def test_extract_flags_extracts_inference_and_demucs() -> None:
         "demucs": {"shifts": 0, "segment": 0, "jobs": 0},
     }
     flags = extract_flags(cfg)
+    assert flags["segment_size"]["default"] == 256
     assert flags["num_overlap"]["default"] == 4
-    assert flags["batch_size"]["editable"] is True
-    assert flags["shifts"]["min"] == 0
+    assert flags["overlap"]["default"] == 0.25
+    assert flags["batch_size"]["default"] == 1
+    assert flags["chunk_size"]["default"] == 0
+    assert flags["device"]["default"] == "cuda"
+    assert flags["device"]["choices"] == ["cuda", "cpu"]
+    assert flags["shifts"]["default"] == 0
+    assert flags["segment"]["default"] == 0.0
+    assert flags["jobs"]["default"] == 0
+    # Raw architecture keys live in metadata, not in editable flags.
+    assert "dim_t" not in flags
+    assert "normalize" not in flags
 
 
 def test_generate_manifest_with_valid_config(tmp_path: Path) -> None:
@@ -137,10 +153,16 @@ def test_generate_manifest_with_valid_config(tmp_path: Path) -> None:
     manifest = generate_manifest(model_dir)
     assert manifest["name"] == "MyModel"
     assert manifest["type"] == "bs_roformer"
-    assert manifest["stems"]["stems"] == ["vocals", "other"]
+    assert manifest["stems"]["stems"] == ["vocals", "instrumental"]
     assert manifest["stems"]["target"] == "vocals"
     assert manifest["stems"]["num_stems"] == 2
+    assert manifest["stems"]["declared_instruments"] == ["vocals", "other"]
+    assert manifest["stems"]["declared_num_stems"] == 2
+    assert manifest["flags"]["segment_size"]["default"] == 512
     assert manifest["flags"]["num_overlap"]["default"] == 2
+    assert manifest["flags"]["batch_size"]["default"] == 1
+    # dim_t was not declared in this synthetic YAML, so it is not invented in metadata.
+    assert "dim_t" not in manifest["metadata"].get("inference", {})
     assert manifest["source_yaml"] == "MyModel.yaml"
     assert manifest["checkpoint"] == "MyModel.ckpt"
     assert "warnings" not in manifest
@@ -173,7 +195,9 @@ def test_generate_manifest_without_yaml(tmp_path: Path) -> None:
     manifest = generate_manifest(model_dir)
     assert manifest["name"] == "OnnxOnly"
     assert manifest["type"] == "mdx_net"
-    assert manifest["stems"]["stems"] == ["vocals", "other"]
+    assert manifest["stems"]["stems"] == ["vocals", "instrumental"]
+    assert manifest["stems"]["declared_instruments"] == ["vocals"]
+    assert manifest["stems"]["declared_num_stems"] == 1
     assert manifest["source_yaml"] is None
     assert "No YAML config found" in manifest["warnings"]
 
@@ -200,7 +224,7 @@ class TestRealModels:
     """Read-only assertions against the real models shipped in the repo."""
 
     @pytest.mark.parametrize(
-        "category, model, expected_type, expected_stems, expected_target",
+        "category, model, expected_type, expected_stems, expected_target, expected_declared",
         [
             (
                 "VR_Models",
@@ -208,13 +232,15 @@ class TestRealModels:
                 "bs_roformer",
                 ["bass", "drums", "other", "vocals", "guitar", "piano"],
                 None,
+                ["bass", "drums", "other", "vocals", "guitar", "piano"],
             ),
             (
                 "VR_Models",
                 "BS_Roformer_Viperx",
                 "bs_roformer",
-                ["vocals"],
+                ["vocals", "instrumental"],
                 "vocals",
+                ["vocals"],
             ),
             (
                 "VR_Models",
@@ -222,6 +248,7 @@ class TestRealModels:
                 "mdx23c",
                 ["vocals", "instrumental"],
                 None,
+                ["vocals", "instrumental"],
             ),
             (
                 "VR_Models",
@@ -229,13 +256,15 @@ class TestRealModels:
                 "scnet",
                 ["drums", "bass", "other", "vocals"],
                 None,
+                ["drums", "bass", "other", "vocals"],
             ),
             (
                 "MDX_Net_Models",
                 "Kim_Vocal_1",
                 "mdx_net",
-                ["vocals", "other"],
+                ["vocals", "instrumental"],
                 "vocals",
+                ["vocals"],
             ),
         ],
     )
@@ -246,6 +275,7 @@ class TestRealModels:
         expected_type: str,
         expected_stems: list[str],
         expected_target: str | None,
+        expected_declared: list[str],
     ) -> None:
         model_dir = MODELS_DIR / category / model
         if not model_dir.exists():
@@ -256,6 +286,8 @@ class TestRealModels:
         assert manifest["stems"]["stems"] == expected_stems
         assert manifest["stems"]["target"] == expected_target
         assert manifest["stems"]["num_stems"] == len(expected_stems)
+        assert manifest["stems"]["declared_instruments"] == expected_declared
+        assert manifest["stems"]["declared_num_stems"] == len(expected_declared)
         assert manifest["source_yaml"] is not None
         assert "generated_at" in manifest
 
