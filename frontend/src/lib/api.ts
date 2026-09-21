@@ -111,6 +111,18 @@ export interface UploadResponse {
   path: string;
 }
 
+export interface ModelUploadResponse {
+  name: string;
+  display_name: string;
+  category: string;
+  type: string;
+  path: string;
+  size_mb: number;
+  stems?: string[];
+  num_stems?: number;
+  manifest_missing?: boolean;
+}
+
 export function downloadUrl(song: string, file: string): string {
   return `${API_BASE}/api/files/${encodeURIComponent(song)}/${encodeURIComponent(file)}`;
 }
@@ -360,17 +372,18 @@ export async function cancelDownload(
   return (await res.json()) as DownloadStatusResponse;
 }
 
-export async function uploadModel(file: File): Promise<UploadResponse> {
+export async function uploadModel(file: File): Promise<ModelUploadResponse> {
   const formData = new FormData();
   formData.append('file', file);
-  const res = await fetch(`${API_BASE}/api/upload?type=model`, {
+  const res = await fetch(`${API_BASE}/api/models/upload`, {
     method: 'POST',
     body: formData,
   });
   if (!res.ok) {
-    throw new Error(`Model upload failed with status ${res.status}: ${res.statusText}`);
+    const body = await res.text();
+    throw new Error(`Model upload failed (${res.status}): ${body || res.statusText}`);
   }
-  return (await res.json()) as UploadResponse;
+  return (await res.json()) as ModelUploadResponse;
 }
 
 // ---- GPU monitor ----

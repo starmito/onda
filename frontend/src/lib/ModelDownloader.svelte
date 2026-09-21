@@ -15,6 +15,7 @@
     type DemucsCatalogEntry,
     type LocalModel,
     type DownloadProgress,
+    type ModelUploadResponse,
   } from './api';
 
   // Cleanup polling intervals on component destroy
@@ -77,6 +78,7 @@
   let uploadMessage = $state('');
   let uploadMessageType = $state<'success' | 'error'>('success');
   let uploadingModel = $state(false);
+  let uploadedModels = $state<ModelUploadResponse[]>([]);
 
   // ---- Installed models ----
   let localModels = $state<LocalModel[]>([]);
@@ -205,7 +207,7 @@
       name: m.name,
       category: m.category,
       size_mb: m.size_mb,
-      downloaded: false,
+      downloaded: m.downloaded,
       source: 'hf' as SourceType,
       hf_path: m.hf_path,
       filename: m.filename,
@@ -552,8 +554,9 @@
 
     for (const file of valid) {
       try {
-        await uploadModel(file);
+        const uploaded = await uploadModel(file);
         successCount++;
+        uploadedModels = [...uploadedModels, uploaded];
       } catch {
         failCount++;
       }
@@ -774,6 +777,28 @@
       {#if uploadMessage}
         <div class="feedback" class:success={uploadMessageType === 'success'} class:error={uploadMessageType === 'error'}>
           {uploadMessage}
+        </div>
+      {/if}
+
+      {#if uploadedModels.length > 0}
+        <div class="uploaded-list">
+          <h3 class="uploaded-title">Modelos subidos manualmente</h3>
+          {#each uploadedModels as m (m.path)}
+            <div class="uploaded-row">
+              <div class="uploaded-info">
+                <span class="uploaded-name">{m.display_name || m.name}</span>
+                <span class="uploaded-meta">
+                  <span class="uploaded-cat">{m.category}</span>
+                  {#if m.type}<span class="uploaded-type">{m.type}</span>{/if}
+                  {#if m.stems && m.stems.length > 0}
+                    <span class="uploaded-stems" title={m.stems.join(', ')}>
+                      {m.num_stems ?? m.stems.length} stems
+                    </span>
+                  {/if}
+                </span>
+              </div>
+            </div>
+          {/each}
         </div>
       {/if}
 
@@ -1343,5 +1368,73 @@
   .source-badge.demucs {
     background: #2a1b3a;
     color: #ba68c8;
+  }
+
+  /* Uploaded models list */
+  .uploaded-list {
+    margin-top: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .uploaded-title {
+    margin: 0;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--accent-light);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .uploaded-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0.6rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    gap: 0.5rem;
+  }
+
+  .uploaded-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .uploaded-name {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .uploaded-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+
+  .uploaded-cat {
+    font-size: 0.68rem;
+    color: var(--accent-light);
+  }
+
+  .uploaded-type {
+    font-size: 0.68rem;
+    color: var(--text-secondary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+
+  .uploaded-stems {
+    font-size: 0.65rem;
+    color: var(--text-muted);
   }
 </style>
