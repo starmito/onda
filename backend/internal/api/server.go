@@ -816,6 +816,22 @@ func readPipelineStatusForSong(outputDir, song string) pipelineStatusJSON {
 	return pipelineStatusJSON{}
 }
 
+// normalizePipelineProgress converts a progress value written by the Python
+// progress tracker to a 0-1 fraction. The tracker contract (see
+// tools/progress_tracker.py) publishes every public progress field
+// (progress, overall_progress, step_progress) as a 0-100 percentage, so the
+// backend must normalize before exposing it as an integer 0-100 value.
+func normalizePipelineProgress(value float64) float64 {
+	value = value / 100.0
+	if value < 0 {
+		return 0
+	}
+	if value > 1 {
+		return 1
+	}
+	return value
+}
+
 // collectQueueJobs returns the current list of jobs ordered by status priority.
 // It mirrors the internal logic of handleQueueStatus so it can be reused by
 // the real-time process status endpoint.
@@ -894,26 +910,34 @@ func (s *Server) collectQueueJobs() []*JobState {
 
 		// For the processing job, inject live step/progress/eta/elapsed from pipeline_status.json
 		if j.Status == "processing" && st.Status != "" {
+			prevStepName := j.StepName
+			prevCurrentStep := j.CurrentStep
+			prevProgress := j.Progress
+
 			j.StepName = capitalizeStep(st.Step)
 			j.CurrentStep = stepOrder[st.Step]
 			if j.CurrentStep == 0 {
 				j.CurrentStep = 1
 			}
-			// Prefer the per-step progress field; fall back to the multi-step overall
-			// progress reported by chained pipelines.
-			liveProgress := st.Progress
-			if liveProgress == 0 && st.OverallProgress > 0 {
-				// multi-step mode reports overall_progress as a 0-100 integer, so
-				// normalize it to the 0-1 fraction used by the rest of the handler.
-				liveProgress = st.OverallProgress / 100.0
+			// The progress tracker always writes public progress fields as 0-100
+			// percentages. Prefer the per-step progress field and fall back to the
+			// multi-step overall progress reported by chained pipelines.
+			liveProgress := normalizePipelineProgress(st.Progress)
+			if st.Progress == 0 && st.OverallProgress > 0 {
+				liveProgress = normalizePipelineProgress(st.OverallProgress)
 			}
-			if liveProgress < 0 {
-				liveProgress = 0
+			newProgress := int(math.Round(liveProgress * 100))
+
+			// Invariant: a non-done job must never report 100 %.
+			if newProgress >= 100 {
+				newProgress = 99
 			}
-			if liveProgress > 1 {
-				liveProgress = 1
+			// Within the same step progress cannot go backwards. A step change is
+			// allowed to reset the value (e.g. from 100 % to the weighted start).
+			if j.StepName == prevStepName && j.CurrentStep == prevCurrentStep && newProgress < prevProgress {
+				newProgress = prevProgress
 			}
-			j.Progress = int(math.Round(liveProgress * 100))
+			j.Progress = newProgress
 			j.ETA = int(st.ETA)
 			j.Elapsed = int(st.Elapsed)
 			// Ensure total_steps is at least current_step
