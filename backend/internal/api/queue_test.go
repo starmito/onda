@@ -193,7 +193,7 @@ func TestHandleQueueStatus_PipelineProgress(t *testing.T) {
 		t.Fatalf("failed to create song output dir: %v", err)
 	}
 	statusPath := filepath.Join(outputRoot, "pipeline_status.json")
-	status := `{"status":"running","step":"demucs","progress":0.42,"device":"cuda","gpu_type":"NVIDIA GeForce RTX 5060 Ti"}`
+	status := `{"status":"running","step":"demucs","progress":42,"device":"cuda","gpu_type":"NVIDIA GeForce RTX 5060 Ti"}`
 	if err := os.WriteFile(statusPath, []byte(status), 0o644); err != nil {
 		t.Fatalf("failed to write pipeline status: %v", err)
 	}
@@ -291,7 +291,7 @@ func TestHandleQueueStatus_OverallProgressClamped(t *testing.T) {
 		t.Fatalf("failed to create song output dir: %v", err)
 	}
 	statusPath := filepath.Join(outputRoot, "pipeline_status.json")
-	// An out-of-range overall_progress must be clamped to 0-100.
+	// An out-of-range overall_progress for a non-done job must be clamped below 100.
 	status := `{"status":"running","step":"vocal","overall_progress":150,"device":"cpu","gpu_type":"N/A"}`
 	if err := os.WriteFile(statusPath, []byte(status), 0o644); err != nil {
 		t.Fatalf("failed to write pipeline status: %v", err)
@@ -314,8 +314,8 @@ func TestHandleQueueStatus_OverallProgressClamped(t *testing.T) {
 	if len(resp.Jobs) != 1 {
 		t.Fatalf("expected 1 job, got %d", len(resp.Jobs))
 	}
-	if resp.Jobs[0].Progress != 100 {
-		t.Errorf("expected progress clamped to 100, got %d", resp.Jobs[0].Progress)
+	if resp.Jobs[0].Progress != 99 {
+		t.Errorf("expected progress clamped to 99 for non-done job, got %d", resp.Jobs[0].Progress)
 	}
 }
 
@@ -910,7 +910,7 @@ func TestHandleQueueStatus_PipelineETAAndElapsed(t *testing.T) {
 	if err := os.MkdirAll(songDir, 0o755); err != nil {
 		t.Fatalf("failed to create song output dir: %v", err)
 	}
-	status := `{"status":"running","step":"vocal","progress":0.58,"eta":120,"elapsed":179,"device":"cuda","gpu_type":"NVIDIA GeForce RTX 3060"}`
+	status := `{"status":"running","step":"vocal","progress":58,"eta":120,"elapsed":179,"device":"cuda","gpu_type":"NVIDIA GeForce RTX 3060"}`
 	if err := os.WriteFile(filepath.Join(songDir, "pipeline_status.json"), []byte(status), 0o644); err != nil {
 		t.Fatalf("failed to write per-song pipeline status: %v", err)
 	}
@@ -1065,10 +1065,10 @@ func TestHandleQueueStatus_PerSongValuesDoNotBleed(t *testing.T) {
 			t.Fatalf("failed to create song output dir: %v", err)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(outputRoot, "song-a", "pipeline_status.json"), []byte(`{"status":"running","step":"vocal","progress":0.25,"eta":60,"elapsed":20,"device":"cuda"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(outputRoot, "song-a", "pipeline_status.json"), []byte(`{"status":"running","step":"vocal","progress":25,"eta":60,"elapsed":20,"device":"cuda"}`), 0o644); err != nil {
 		t.Fatalf("failed to write song-a status: %v", err)
 	}
-	if err := os.WriteFile(filepath.Join(outputRoot, "song-b", "pipeline_status.json"), []byte(`{"status":"running","step":"demucs","progress":0.75,"eta":15,"elapsed":45,"device":"cpu"}`), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(outputRoot, "song-b", "pipeline_status.json"), []byte(`{"status":"running","step":"demucs","progress":75,"eta":15,"elapsed":45,"device":"cpu"}`), 0o644); err != nil {
 		t.Fatalf("failed to write song-b status: %v", err)
 	}
 
@@ -1110,5 +1110,126 @@ func TestHandleQueueStatus_PerSongValuesDoNotBleed(t *testing.T) {
 	}
 	if b.Progress != 75 || b.ETA != 15 || b.Elapsed != 45 {
 		t.Errorf("song-b mismatch: progress=%d eta=%d elapsed=%d", b.Progress, b.ETA, b.Elapsed)
+	}
+}
+
+// TestHandleQueueStatus_ChainedStep2DoesNotShow100WithStemsOnDisk reproduces the
+// bug where a chained job (vocal -> demucs) reported 100 % to the UI at the
+// very beginning of the second step, just because the first step's stems were
+// already on disk. The queue must always derive the progress of an active job
+// from pipeline_status.json, never from the presence of result stems.
+func TestHandleQueueStatus_ChainedStep2DoesNotShow100WithStemsOnDisk(t *testing.T) {
+	root := setupQueueTestRoot(t)
+	s := newQueueTestServer(t)
+
+	outputRoot := filepath.Join(root, "output")
+	songDir := filepath.Join(outputRoot, "e2e_final")
+	if err := os.MkdirAll(songDir, 0o755); err != nil {
+		t.Fatalf("failed to create song output dir: %v", err)
+	}
+	// Stems from the first step are already on disk, as happens between steps.
+	if err := os.WriteFile(filepath.Join(songDir, "vocals.wav"), []byte("stem"), 0o644); err != nil {
+		t.Fatalf("failed to create step-1 stem: %v", err)
+	}
+
+	// pipeline_status.json reports the real weighted overall progress at the
+	// start of the second step. Values are 0-100 percentages per the tracker contract.
+	status := `{"status":"running","step":"demucs","progress":33.3333,"overall_progress":33.3333,"step_progress":0.0,"eta":1,"elapsed":37.32}`
+	if err := os.WriteFile(filepath.Join(songDir, "pipeline_status.json"), []byte(status), 0o644); err != nil {
+		t.Fatalf("failed to write per-song pipeline status: %v", err)
+	}
+
+	s.jobsMu.Lock()
+	s.jobs["e2e_final"] = &JobState{
+		Song:        "e2e_final",
+		Status:      "processing",
+		Index:       0,
+		TotalSteps:  2,
+		CurrentStep: 1,
+		StepName:    "Vocal",
+		Progress:    99, // previous step completed, non-done cap
+	}
+	s.jobsMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/queue/status", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		Jobs []*JobState `json:"jobs"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(resp.Jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(resp.Jobs))
+	}
+	j := resp.Jobs[0]
+	if j.Status != "processing" {
+		t.Errorf("expected status processing, got %q", j.Status)
+	}
+	if j.Progress == 100 {
+		t.Errorf("progress must not be 100 while the job is processing; got %d", j.Progress)
+	}
+	if j.Progress != 33 {
+		t.Errorf("expected progress 33 (33.3333 %% rounded), got %d", j.Progress)
+	}
+	if j.CurrentStep != 2 {
+		t.Errorf("expected current_step 2, got %d", j.CurrentStep)
+	}
+	if j.StepName != "Demucs" {
+		t.Errorf("expected step name Demucs, got %q", j.StepName)
+	}
+}
+
+// TestHandleQueueStatus_NonDoneProgressIsBelow100 enforces the invariant that
+// only finished jobs report 100 %. Every other status must stay strictly below
+// 100 even when the status file contains values at or above 100 %.
+func TestHandleQueueStatus_NonDoneProgressIsBelow100(t *testing.T) {
+	root := setupQueueTestRoot(t)
+	s := newQueueTestServer(t)
+
+	outputRoot := filepath.Join(root, "output")
+	songDir := filepath.Join(outputRoot, "song")
+	if err := os.MkdirAll(songDir, 0o755); err != nil {
+		t.Fatalf("failed to create song output dir: %v", err)
+	}
+	// A pathological status file claims 150 % while still running.
+	status := `{"status":"running","step":"demucs","progress":150,"overall_progress":150,"eta":1,"elapsed":10}`
+	if err := os.WriteFile(filepath.Join(songDir, "pipeline_status.json"), []byte(status), 0o644); err != nil {
+		t.Fatalf("failed to write per-song pipeline status: %v", err)
+	}
+
+	for _, st := range []string{"waiting", "processing", "blocked_no_gpu", "error"} {
+		s.jobsMu.Lock()
+		s.jobs = map[string]*JobState{
+			"song": {Song: "song", Status: st, Index: 0, TotalSteps: 2},
+		}
+		s.jobsMu.Unlock()
+
+		req := httptest.NewRequest(http.MethodGet, "/api/queue/status", nil)
+		rr := httptest.NewRecorder()
+		s.mux.ServeHTTP(rr, req)
+
+		var resp struct {
+			Jobs []*JobState `json:"jobs"`
+		}
+		if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("status %s: failed to decode response: %v", st, err)
+		}
+		if len(resp.Jobs) != 1 {
+			t.Fatalf("status %s: expected 1 job, got %d", st, len(resp.Jobs))
+		}
+		j := resp.Jobs[0]
+		if j.Status != st {
+			t.Errorf("status %s: expected status unchanged, got %q", st, j.Status)
+		}
+		if j.Progress >= 100 {
+			t.Errorf("status %s: progress must be < 100, got %d", st, j.Progress)
+		}
 	}
 }
