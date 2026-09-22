@@ -189,12 +189,13 @@ print(json.dumps({"event": "done", "seconds": 1.0}), flush=True)
             str(input_wav),
         ]
 
-        progress_by_step: dict[int, list[float]] = {0: [], 1: []}
+        step_progress_by_step: dict[int, list[float]] = {0: [], 1: []}
         overall_values: list[float] = []
+        eta_while_running: list[int] = []
+        elapsed_values: list[float] = []
         with subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
         ) as proc:
-            last_step = -1
             while proc.poll() is None:
                 if status_file.exists():
                     try:
@@ -202,9 +203,12 @@ print(json.dumps({"event": "done", "seconds": 1.0}), flush=True)
                     except (json.JSONDecodeError, OSError):
                         data = {}
                     step = data.get("step", -1)
-                    if isinstance(step, int) and step in progress_by_step:
-                        progress_by_step[step].append(data.get("progress", 0))
+                    if isinstance(step, int) and step in step_progress_by_step:
+                        step_progress_by_step[step].append(data.get("step_progress", 0))
                     overall_values.append(data.get("overall_progress", 0))
+                    if data.get("status") == "running":
+                        eta_while_running.append(data.get("eta", 0))
+                    elapsed_values.append(data.get("elapsed", 0))
                 time.sleep(0.03)
 
         stdout, stderr = proc.communicate()
@@ -215,9 +219,9 @@ print(json.dumps({"event": "done", "seconds": 1.0}), flush=True)
         assert final.get("overall_progress") == 100
 
         # The second step must start near 0, not inherit 100 from step 0.
-        assert progress_by_step[1], "no progress samples for step 1"
-        assert min(progress_by_step[1]) < 20, (
-            f"step 1 did not reset: {progress_by_step[1][:5]}"
+        assert step_progress_by_step[1], "no progress samples for step 1"
+        assert min(step_progress_by_step[1]) < 20, (
+            f"step 1 did not reset: {step_progress_by_step[1][:5]}"
         )
 
         # Overall progress must never claim 100 while step 1 is still running.
@@ -228,8 +232,162 @@ print(json.dumps({"event": "done", "seconds": 1.0}), flush=True)
         )
 
         # Step progress is monotonic within each step.
-        for step_idx, values in progress_by_step.items():
+        for step_idx, values in step_progress_by_step.items():
             for prev, curr in zip(values, values[1:]):
                 assert curr >= prev, (
                     f"step {step_idx} progress went backwards: {prev} -> {curr}"
                 )
+
+        # ETA must never be 0 while the pipeline is still running.
+        assert all(eta > 0 for eta in eta_while_running), (
+            f"eta dropped to 0 while running: {eta_while_running}"
+        )
+
+        # Elapsed must advance during the run.
+        assert max(elapsed_values) > 0, "elapsed never advanced"
+
+    def test_fake_two_step_chain_reports_honest_global_progress(
+        self, tmp_path, monkeypatch
+    ):
+        """A fake two-step chain must use a single tracker path and tell the truth.
+
+        Verifies the contract required by Encargo I:
+          * ``step_progress`` starts at 0 for each step;
+          * ``progress`` (global) only goes above 50 % once step 0 has finished;
+          * ``eta`` is never 0 while ``status`` is running;
+          * ``elapsed`` advances in both steps;
+          * progress never claims 100 % while work is still pending.
+        """
+        _skip_if_missing_bin("bash")
+
+        input_wav = tmp_path / "input.wav"
+        input_wav.write_bytes(b"RIFF" + b"\x00" * 100)
+
+        output_dir = tmp_path / "output" / "input"
+        status_file = tmp_path / "pipeline_status.json"
+        monkeypatch.setenv("PIPELINE_STATUS_FILE", str(status_file))
+
+        bin_dir = tmp_path / "workers"
+        bin_dir.mkdir()
+        fake = self._write_fake_worker(bin_dir)
+        monkeypatch.setenv("DEMUCS_WORKER", str(fake))
+
+        steps = [
+            {
+                "type": "demucs",
+                "model": "htdemucs_ft",
+                "stems": {
+                    "drums": {"action": "save"},
+                    "bass": {"action": "save"},
+                    "other": {"action": "save"},
+                    "vocals": {"action": "route", "target": "step:1"},
+                },
+            },
+            {
+                "type": "demucs",
+                "model": "htdemucs_ft",
+                "stems": {
+                    "drums": {"action": "save"},
+                    "bass": {"action": "save"},
+                    "other": {"action": "save"},
+                    "vocals": {"action": "save"},
+                },
+            },
+        ]
+
+        cmd = [
+            "bash",
+            str(PIPELINE_SH),
+            "--device", "cuda",
+            "--steps", json.dumps(steps),
+            "--output", str(output_dir),
+            str(input_wav),
+        ]
+
+        samples: list[dict] = []
+        with subprocess.Popen(
+            cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
+        ) as proc:
+            while proc.poll() is None:
+                if status_file.exists():
+                    try:
+                        data = json.loads(status_file.read_text())
+                    except (json.JSONDecodeError, OSError):
+                        data = {}
+                    samples.append(
+                        {
+                            "status": data.get("status"),
+                            "step": data.get("step"),
+                            "step_progress": data.get("step_progress", 0),
+                            "progress": data.get("progress", 0),
+                            "overall_progress": data.get("overall_progress", 0),
+                            "eta": data.get("eta", 0),
+                            "elapsed": data.get("elapsed", 0),
+                        }
+                    )
+                time.sleep(0.03)
+
+        stdout, stderr = proc.communicate()
+        assert proc.returncode == 0, stderr or stdout
+
+        final = json.loads(status_file.read_text())
+        assert final.get("status") == "done"
+        assert final.get("overall_progress") == 100
+
+        # Per-step progress samples.
+        step_progress_by_step: dict[int, list[float]] = {0: [], 1: []}
+        for s in samples:
+            step = s["step"]
+            if isinstance(step, int) and step in step_progress_by_step:
+                step_progress_by_step[step].append(s["step_progress"])
+
+        # Each step must start at 0.
+        for step_idx, values in step_progress_by_step.items():
+            assert values, f"no samples for step {step_idx}"
+            assert values[0] == 0, (
+                f"step {step_idx} did not start at 0: {values[:3]}"
+            )
+            for prev, curr in zip(values, values[1:]):
+                assert curr >= prev, (
+                    f"step {step_idx} progress went backwards: {prev} -> {curr}"
+                )
+
+        # Global progress may only exceed 50 % once step 0 is done.
+        step0_done_index = None
+        for i, s in enumerate(samples):
+            if s["step"] == 0 and s["step_progress"] == 100:
+                step0_done_index = i
+                break
+        assert step0_done_index is not None, "step 0 never reported 100 %"
+        before_step0_done = samples[: step0_done_index + 1]
+        assert all(s["progress"] <= 50 for s in before_step0_done), (
+            "global progress crossed 50 % before step 0 finished: "
+            f"{[(s['step_progress'], s['progress']) for s in before_step0_done if s['progress'] > 50]}"
+        )
+        after_step0_done = samples[step0_done_index + 1 :]
+        assert any(s["progress"] > 50 for s in after_step0_done), (
+            "global progress never crossed 50 % after step 0 finished"
+        )
+
+        # ETA is never 0 while running and progress never claims 100 early.
+        for s in samples:
+            if s["status"] == "running":
+                assert s["eta"] > 0, f"eta={s['eta']} while status=running"
+                assert s["progress"] < 100, (
+                    f"progress={s['progress']} with work pending (status=running)"
+                )
+
+        # Elapsed must advance in both steps.
+        elapsed_by_step: dict[int, list[float]] = {0: [], 1: []}
+        for s in samples:
+            step = s["step"]
+            if isinstance(step, int) and step in elapsed_by_step:
+                elapsed_by_step[step].append(s["elapsed"])
+        for step_idx, values in elapsed_by_step.items():
+            assert values, f"no elapsed samples for step {step_idx}"
+            assert max(values) > min(values), (
+                f"elapsed did not advance in step {step_idx}: {values[:3]}..{values[-3:]}"
+            )
+
+        # Surface the sampled values so the report can include the table.
+        self._last_fake_chain_samples = samples

@@ -101,11 +101,22 @@ class ProgressTracker:
         if self.current_step_idx is not None:
             self.step_progress[self.current_step_idx] = progress
 
+        eta = self._compute_eta(elapsed, progress, finished)
+        overall = self._overall_progress(progress)
+        return {
+            "eta": round(eta),
+            "progress": round(progress, 4),
+            "overall_progress": round(overall, 4),
+        }
+
+    def _compute_eta(self, elapsed: float, progress: float, finished: bool) -> float:
+        """Return an ETA in seconds; never 0 while work is unfinished."""
         eta: float = 0.0
         if finished:
             self.last_eta = 0.0
-            eta = 0.0
-        elif progress >= 100.0:
+            return 0.0
+
+        if progress >= 100.0:
             # Step reports 100% but the pipeline has not declared completion yet;
             # keep a small, honest ETA instead of claiming zero while work may
             # still continue.
@@ -127,33 +138,37 @@ class ProgressTracker:
             eta = self.last_eta if self.last_eta is not None else 0.0
 
         # Never publish eta: 0 while work is unfinished.
-        if not finished and eta < 1.0:
+        if eta < 1.0:
             eta = 1.0
-
-        overall = self._overall_progress(progress)
-        return {
-            "eta": round(eta),
-            "progress": round(progress, 4),
-            "overall_progress": round(overall, 4),
-        }
+        return eta
 
     def _overall_progress(self, current_progress: float) -> float:
-        """Weighted overall: completed steps count fully, current step partial."""
+        """Weighted overall: completed steps count fully, current step partial.
+
+        The current step is *not* counted twice: its contribution is
+        ``current_progress`` while previous completed steps contribute 100%.
+        Until every step is completed the value is clamped strictly below 100.
+        """
         if self.total_steps <= 1:
-            return current_progress
-        completed = sum(
-            1 for status in self.step_status.values() if status in ("completed", "done")
+            return 100.0 if current_progress >= 100.0 else current_progress
+
+        completed_before = sum(
+            1
+            for idx, status in self.step_status.items()
+            if status in ("completed", "done") and idx != self.current_step_idx
         )
-        # The current step contributes its fraction; pending steps contribute 0.
-        current_step_contribution = current_progress / 100.0
-        total = completed + current_step_contribution
-        overall = (total / self.total_steps) * 100.0
+        total = completed_before * 100.0 + current_progress
+        overall = total / self.total_steps
+
+        all_done = all(
+            status in ("completed", "done")
+            for status in self.step_status.values()
+        ) and len(self.step_status) >= self.total_steps
+
+        if all_done:
+            return 100.0
         # Clamp strictly below 100 until every step is done.
-        if completed < self.total_steps:
-            overall = min(overall, 99.99)
-        else:
-            overall = 100.0
-        return overall
+        return min(overall, 99.99)
 
     def set_step_status(self, step_idx: int, status: str, progress: float | None = None):
         """Record per-step status and optional progress for multi-step mode."""
@@ -168,7 +183,11 @@ class ProgressTracker:
         progress: float,
         elapsed: float,
     ) -> dict[str, float]:
-        """Update a single step in multi-step mode and return ETA/overall."""
+        """Update a single step in multi-step mode and return ETA/overall.
+
+        The returned ``progress`` is the *step* progress; ``overall_progress``
+        is the weighted global value.
+        """
         # When the step changes, reset the sample window and ETA baseline so the
         # new step starts from an honest 0 and does not drag the previous step's
         # rate into its estimate.
@@ -184,8 +203,23 @@ class ProgressTracker:
             progress = max(progress, prev)
         self.set_step_status(step_idx, status, progress)
 
-        finished = status in ("completed", "done")
+        # ``completed`` means this step is done but the pipeline may continue,
+        # so ETA must not collapse to 0 until the whole job is ``done``.
+        finished = status == "done"
         return self.update(elapsed, progress, finished=finished)
+
+    def tick(self, elapsed: float) -> dict[str, float]:
+        """Refresh ETA/elapsed without changing the reported progress.
+
+        Uses the last known step progress so the background elapsed updater
+        does not publish a fake progress value.
+        """
+        last_progress = (
+            self.step_progress.get(self.current_step_idx, 0.0)
+            if self.current_step_idx is not None
+            else 0.0
+        )
+        return self.update(elapsed, last_progress, finished=False)
 
     def reset_step_progress(self):
         """Reset the per-call progress baseline so the next step starts at 0."""
@@ -311,19 +345,68 @@ def update_step_status(
     total_steps: int,
     extra: dict | None = None,
     steps_state_file: str | Path | None = None,
+    step_name: str | None = None,
 ) -> dict:
-    """Update a multi-step status file and persist tracker state."""
+    """Update a multi-step status file and persist tracker state.
+
+    The status file receives:
+      * ``progress`` / ``overall_progress`` = weighted global progress (0-100)
+      * ``step_progress``                 = progress of the current step (0-100)
+      * ``step``                          = human step name when provided,
+                                            step index otherwise
+      * ``step_idx``                      = numeric step index
+      * ``eta`` / ``elapsed``             = honest global ETA and elapsed seconds
+    """
     status_file = Path(status_file)
     tracker = load_tracker(status_file, total_steps=total_steps)
     data = load_or_init(status_file)
     result = tracker.update_step(step_idx, status, progress, elapsed)
-    data.update(result)
-    data["step"] = step_idx
+
+    # ``progress`` is the global value; keep ``step_progress`` for the UI.
+    data["progress"] = result["overall_progress"]
+    data["overall_progress"] = result["overall_progress"]
+    data["step_progress"] = result["progress"]
+    data["eta"] = result["eta"]
     data["elapsed"] = elapsed
+    data["step_idx"] = step_idx
+    if step_name is not None:
+        try:
+            data["step"] = int(step_name)
+        except ValueError:
+            data["step"] = step_name
+    else:
+        data["step"] = step_idx
+
+    # If every step is already completed we can safely report ``done``,
+    # otherwise keep the pipeline ``running`` while a step is merely
+    # ``completed``.
+    all_done = (
+        all(s in ("completed", "done") for s in tracker.step_status.values())
+        and len(tracker.step_status) >= total_steps
+    )
+    if all_done:
+        data["status"] = "done"
+    elif status == "completed":
+        data["status"] = "running"
+    else:
+        data["status"] = status
     if steps_state_file:
         data["steps"] = load_steps_state(steps_state_file)
     if extra:
         data.update(extra)
+    write_status_atomic(status_file, data)
+    save_tracker(status_file, tracker)
+    return data
+
+
+def tick_status(status_file: str | Path, elapsed: float) -> dict:
+    """Refresh ``elapsed`` and ``eta`` without touching progress values."""
+    status_file = Path(status_file)
+    tracker = load_tracker(status_file)
+    data = load_or_init(status_file)
+    result = tracker.tick(elapsed)
+    data["eta"] = result["eta"]
+    data["elapsed"] = elapsed
     write_status_atomic(status_file, data)
     save_tracker(status_file, tracker)
     return data
@@ -342,7 +425,8 @@ def main():
 
     Usage:
         python3 tools/progress_tracker.py update <status_file> <elapsed> <progress> [finished]
-        python3 tools/progress_tracker.py update-step <status_file> <step_idx> <status> <progress> <elapsed> <total_steps>
+        python3 tools/progress_tracker.py update-step <status_file> <step_idx> <status> <progress> <elapsed> <total_steps> [step_name] [steps_state_file]
+        python3 tools/progress_tracker.py tick <status_file> <elapsed>
         python3 tools/progress_tracker.py reset-step <status_file>
         python3 tools/progress_tracker.py write <status_file> <json_data>
     """
@@ -368,7 +452,8 @@ def main():
         progress = float(sys.argv[5])
         elapsed = float(sys.argv[6])
         total_steps = int(sys.argv[7])
-        steps_state_file = sys.argv[8] if len(sys.argv) > 8 else None
+        step_name = sys.argv[8] if len(sys.argv) > 8 else None
+        steps_state_file = sys.argv[9] if len(sys.argv) > 9 else None
         update_step_status(
             status_file,
             step_idx,
@@ -376,8 +461,12 @@ def main():
             progress,
             elapsed,
             total_steps,
+            step_name=step_name,
             steps_state_file=steps_state_file,
         )
+
+    elif cmd == "tick" and len(sys.argv) >= 4:
+        tick_status(sys.argv[2], float(sys.argv[3]))
 
     elif cmd == "reset-step" and len(sys.argv) >= 3:
         reset_step(sys.argv[2])
