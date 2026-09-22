@@ -196,13 +196,31 @@ Desde **Ajustes → Interfaz**:
 
 ## 🏷️ Versionado
 
-Versionado semántico (MAJOR.MINOR.PATCH). Prefijo `v` consistente, etiqueta `-alpha` para desarrollo activo.
+Versionado semántico (MAJOR.MINOR.PATCH). Prefijo `v` consistente.
 
-Las versiones de cada servicio se resuelven en tiempo de build desde los tags de git:
-- `onda-vX.Y.Z` → backend Go + pipeline Python
-- `gui-vX.Y.Z`  → frontend Svelte
+**El fichero `VERSION` es la única fuente de verdad.** Todos los consumidores deben coincidir con él:
+- `onda/_version.py` → igual que `VERSION` (con `v`)
+- `pyproject.toml`   → igual que `VERSION` **sin** la `v` inicial (PEP 440)
+- `frontend/package.json` → igual que `VERSION` (con `v`)
 
-No se hardcodean versiones en el código; `build.sh` y `deploy.sh` leen los tags y las inyectan como `ARG` en Docker y como variables de entorno en el build nativo.
+`build.sh` y `deploy.sh` **leen** `VERSION`; nunca la deducen de los tags de git. El tag `onda-vX.Y.Z` es una **etiqueta de release** creada a partir de `VERSION`, no su origen.
+
+### Orden de release
+
+```
+1. Actualiza VERSION (y los ficheros derivados)  →  vX.Y.Z
+2. Commitea y mergea el cambio de versión
+3. Crea y empuja el tag:  git tag -a onda-vX.Y.Z -m "Release vX.Y.Z"
+                           git push origin onda-vX.Y.Z
+4. Despliega:             bash deploy.sh
+```
+
+`deploy.sh` se niega a desplegar si:
+- los cuatro ficheros de versión no coinciden con `VERSION`,
+- no existe el tag `onda-<VERSION>`, o
+- el tag no es ancestro de `HEAD`.
+
+Para builds de desarrollo sin tag, usa `ONDA_ALLOW_UNTAGGED=1`; la imagen se etiquetará como `onda:<VERSION>-dev`.
 
 [CHANGELOG completo →](CHANGELOG.md)
 
