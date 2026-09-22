@@ -1,5 +1,18 @@
 # Changelog
 
+## [v3.5.2] - 2026-09-22
+
+### Fixed
+- **Separador vocal**: la salida ya tiene la misma longitud que la entrada; si no puede garantizarlo, el pipeline falla con las dos longitudes en el mensaje en vez de dejar el trabajo colgado.
+- **Pipeline**: un worker que muere nunca deja el estado en `running`; se detecta incluso si queda como zombi.
+- **Cola**: publica el progreso real del paso, el ETA y el tiempo transcurrido (antes iban a cero y el ETA no se veía nunca).
+- **ETA honesto**: se calcula por tasa reciente y puede subir y bajar (antes solo bajaba y se congelaba); se mantiene el último valor si la fase se atasca en vez de ponerlo a `0`.
+- **Progreso por pasos**: cada paso arranca su progreso en `0` y el `overall` pondera los pasos (antes era media simple y un paso al 100 % con otro al 0 daba 50 %).
+- **Escritura atómica del fichero de estado**: nadie puede leer un JSON a medias.
+
+### Changed
+- **Interfaz**: mientras hay un trabajo activo de una canción manda el trabajo, no el disco (se acabó el 100 % al arrancar); el ETA se muestra en formato legible; «Completado» exige dos sondeos seguidos y un periodo de gracia, y no se descarta un trabajo porque el pipeline borre un fichero intermedio.
+
 ## [v3.5.0] - 2026-09-21
 
 ### Added

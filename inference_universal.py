@@ -11,14 +11,28 @@ from lib_v5.mel_band_roformer import MelBandRoformer
 from lib_v5.bs_roformer import BSRoformer
 warnings.filterwarnings("ignore")
 
+# Make tools/progress_tracker.py importable both in the container (/app/tools)
+# and when running from the repository root.
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'tools'))
+try:
+    import progress_tracker
+except Exception:
+    progress_tracker = None
+
 SR = 44100
+
+# Global stopwatch anchor for elapsed seconds when the pipeline launcher does
+# not provide PIPELINE_START_TIME (e.g. standalone test runs).
+_MODULE_START = time.time()
 
 
 def _write_progress(progress_file, chunk, total):
     """Write per-chunk progress to a JSON file for real-time tracking.
-    Format: {"step": "vocal", "progress": 0.45, "chunk": 45, "total_chunks": 100}
+
+    Uses the same 0-100 unit convention as the tracker.
+    Format: {"step": "vocal", "progress": 45.0, "chunk": 45, "total_chunks": 100}
     """
-    progress = chunk / total if total > 0 else 0.0
+    progress = (chunk / total * 100.0) if total > 0 else 0.0
     try:
         with open(progress_file, 'w') as pf:
             pf.write('{"step":"vocal","progress":%.4f,"chunk":%d,"total_chunks":%d}' % (progress, chunk, total))
@@ -27,34 +41,70 @@ def _write_progress(progress_file, chunk, total):
         pass  # Non-critical; don't crash the pipeline over a progress write failure
 
 
-def _write_pipeline_status(status_file, step, progress, chunk, total, device='cuda'):
-    """Write progress to pipeline_status.json for the web UI.
-    Reads existing data to preserve fields (song, model names, etc.)
-    set by pipeline.sh on startup, then updates progress fields."""
+def _report_pipeline_status(status_file, step_name, step_idx, total_steps,
+                            progress, chunk, total, device='cuda',
+                            start_time=None):
+    """Report progress to pipeline_status.json through the tracker.
+
+    The tracker is the single writer of progress/eta/elapsed.  This function
+    only translates the local chunk progress into the tracker's contract.
+    """
+    if not status_file or progress_tracker is None:
+        return
     try:
-        if os.path.exists(status_file):
-            with open(status_file) as f:
-                data = json.load(f)
-        else:
-            data = {}
-        data.update({
-            'status': 'running',
-            'step': step,
-            'progress': progress,
+        if start_time is None:
+            start_time = float(os.environ.get('PIPELINE_START_TIME', _MODULE_START))
+        elapsed = time.time() - start_time
+        progress_0_100 = progress * 100.0
+        extra = {
             'chunk': chunk,
             'total_chunks': total,
-            'device': device,
-        })
-        with open(status_file, 'w') as f:
-            json.dump(data, f)
-            f.flush()
+            'device': str(device),
+        }
+        progress_tracker.update_step_status(
+            status_file,
+            step_idx,
+            'processing',
+            progress_0_100,
+            elapsed,
+            total_steps,
+            extra=extra,
+            step_name=step_name,
+        )
     except Exception:
         pass  # Non-critical; don't crash the pipeline over a status write failure
 
 
+def _ensure_output_length(result, expected_len, context=''):
+    """Force a tensor to have the requested time dimension.
+
+    Trims the tail if it is too long, or zero-pads it if it is too short.
+    Raises a clear ValueError if the mismatch is larger than one chunk,
+    which means the assembly itself is broken and must not be silently masked.
+    """
+    if result.shape[-1] == expected_len:
+        return result
+    diff = result.shape[-1] - expected_len
+    msg = (f"{context}: output length {result.shape[-1]} does not match "
+           f"input length {expected_len} (diff={diff})")
+    # Allow small drift up to a tolerance, but never more than a few samples.
+    if abs(diff) > 64:
+        raise ValueError(msg)
+    if diff > 0:
+        result = result[:, :, :expected_len]
+    else:
+        pad = torch.zeros(
+            (*result.shape[:-1], -diff),
+            dtype=result.dtype, device=result.device
+        )
+        result = torch.cat([result, pad], dim=-1)
+    return result
+
+
 def _process_mix(model, mix, C, step, batch_size, S, device,
                  progress_file=None, pipeline_status=None,
-                 progress_base=0, progress_total=1):
+                 progress_base=0, progress_total=1,
+                 step_idx=0, total_steps=1, start_time=None):
     """Run the model on a single contiguous mix tensor.
 
     Returns a tensor of shape (S, channels, mix_len) with the accumulated
@@ -122,9 +172,12 @@ def _process_mix(model, mix, C, step, batch_size, S, device,
                 if progress_file:
                     _write_progress(progress_file, progress_base + chunk_idx, progress_total)
                 if pipeline_status:
-                    _write_pipeline_status(pipeline_status, 'vocal',
-                                           (progress_base + chunk_idx) / progress_total if progress_total > 0 else 0.0,
-                                           progress_base + chunk_idx, progress_total, str(device))
+                    _report_pipeline_status(
+                        pipeline_status, 'vocal', step_idx, total_steps,
+                        (progress_base + chunk_idx) / progress_total if progress_total > 0 else 0.0,
+                        progress_base + chunk_idx, progress_total, str(device),
+                        start_time=start_time,
+                    )
                 batch_data, batch_starts = [], []
 
     result = result / (counter + 1e-8)
@@ -132,7 +185,8 @@ def _process_mix(model, mix, C, step, batch_size, S, device,
 
 
 def _chunked_process(model, audio, C, step, batch_size, S, device, chunk_seconds,
-                     progress_file=None, pipeline_status=None):
+                     progress_file=None, pipeline_status=None,
+                     step_idx=0, total_steps=1, start_time=None):
     """Process a long audio by splitting it into time chunks with C-sample overlap.
 
     Each chunk is processed independently by the normal segment-based flow and
@@ -152,7 +206,8 @@ def _chunked_process(model, audio, C, step, batch_size, S, device, chunk_seconds
                                 (pad_len, pad_len), mode='reflect') if total_samples > 2 * pad_len else \
               torch.tensor(audio, dtype=torch.float32, device=device)
         result = _process_mix(model, mix, C, step, batch_size, S, device,
-                              progress_file, pipeline_status)
+                              progress_file, pipeline_status,
+                              step_idx=step_idx, total_steps=total_steps, start_time=start_time)
         if pad_len > 0 and audio.shape[1] > 2 * pad_len:
             result = result[:, :, pad_len:-pad_len]
         return result
@@ -189,7 +244,8 @@ def _chunked_process(model, audio, C, step, batch_size, S, device, chunk_seconds
 
         result_chunk = _process_mix(model, mix_chunk, C, step, batch_size, S, device,
                                     progress_file, pipeline_status,
-                                    progress_base=progress_base, progress_total=progress_total)
+                                    progress_base=progress_base, progress_total=progress_total,
+                                    step_idx=step_idx, total_steps=total_steps, start_time=start_time)
         if pad_len > 0 and apply_pad:
             result_chunk = result_chunk[:, :, pad_len:-pad_len]
 
@@ -215,7 +271,8 @@ def _chunked_process(model, audio, C, step, batch_size, S, device, chunk_seconds
     return result_global
 
 
-def separate(model_dir, input_path, output_dir="output", progress_file=None, num_overlap=None, pipeline_status=None):
+def separate(model_dir, input_path, output_dir="output", progress_file=None, num_overlap=None, pipeline_status=None,
+             step_idx=0, total_steps=1, start_time=None):
     ckpts = sorted([f for f in os.listdir(model_dir) if f.endswith('.ckpt')])
     yamls = sorted([f for f in os.listdir(model_dir) if f.endswith('.yaml')])
     if not ckpts or not yamls:
@@ -288,15 +345,19 @@ def separate(model_dir, input_path, output_dir="output", progress_file=None, num
     pad_len = C - step
     if chunk_seconds > 0:
         result = _chunked_process(model, audio, C, step, batch_size, S, device, chunk_seconds,
-                                  progress_file, pipeline_status)
+                                  progress_file, pipeline_status,
+                                  step_idx=step_idx, total_steps=total_steps, start_time=start_time)
     else:
         mix = torch.tensor(audio, dtype=torch.float32).to(device)
         if audio.shape[1] > 2 * pad_len:
             mix = nn.functional.pad(mix, (pad_len, pad_len), mode='reflect')
         result = _process_mix(model, mix, C, step, batch_size, S, device,
-                              progress_file, pipeline_status)
-    if pad_len > 0 and audio.shape[1] > 2 * pad_len:
-        result = result[:, :, pad_len:-pad_len]
+                              progress_file, pipeline_status,
+                              step_idx=step_idx, total_steps=total_steps, start_time=start_time)
+        if pad_len > 0 and audio.shape[1] > 2 * pad_len:
+            result = result[:, :, pad_len:-pad_len]
+
+    result = _ensure_output_length(result, audio.shape[1], context='vocal separator output')
     result = result.cpu().numpy()
 
 
@@ -329,12 +390,16 @@ def separate(model_dir, input_path, output_dir="output", progress_file=None, num
     return True
 
 if __name__ == '__main__':
-    # Parse args: model_dir input_path output_dir [overlap] [dim_t] [--batch-size N] [--progress-file FILE] [--pipeline-status FILE]
+    # Parse args: model_dir input_path output_dir [overlap] [dim_t]
+    # [--batch-size N] [--progress-file FILE] [--pipeline-status FILE]
+    # [--step-idx N] [--total-steps N]
     args = sys.argv[1:]
     progress_file = None
     pipeline_status = None
     cli_batch_size = None
     cli_dim_t = None
+    step_idx = 0
+    total_steps = 1
 
     # Parse named flags
     filtered = []
@@ -351,6 +416,12 @@ if __name__ == '__main__':
             i += 2
         elif args[i] == '--dim-t' and i+1 < len(args):
             cli_dim_t = int(args[i+1])
+            i += 2
+        elif args[i] == '--step-idx' and i+1 < len(args):
+            step_idx = int(args[i+1])
+            i += 2
+        elif args[i] == '--total-steps' and i+1 < len(args):
+            total_steps = int(args[i+1])
             i += 2
         else:
             filtered.append(args[i])
@@ -371,4 +442,5 @@ if __name__ == '__main__':
     num_overlap = int(args[3]) if len(args) > 3 else None
 
     sys.exit(0 if separate(model_dir, input_path, output_dir, progress_file,
-                           num_overlap=num_overlap, pipeline_status=pipeline_status) else 1)
+                           num_overlap=num_overlap, pipeline_status=pipeline_status,
+                           step_idx=step_idx, total_steps=total_steps) else 1)

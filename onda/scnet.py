@@ -11,6 +11,7 @@ import json
 import math
 import os
 import sys
+import time
 import warnings
 from collections import deque
 from typing import Dict, List, Optional, Tuple
@@ -22,6 +23,16 @@ import torch.nn.functional as F
 import numpy as np
 import librosa
 import soundfile as sf
+
+# Make tools/progress_tracker.py importable from the onda package location.
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(_PROJECT_ROOT, 'tools'))
+try:
+    import progress_tracker
+except Exception:  # pragma: no cover - tolerate missing tracker in isolated tests
+    progress_tracker = None
+
+_MODULE_START = time.time()
 
 
 # ── Model architecture (from ZFTurbo/Music-Source-Separation-Training) ──
@@ -377,7 +388,8 @@ def _prepare_mix(audio_path: str) -> Tuple[np.ndarray, int]:
 def _write_progress(progress_file: Optional[str], chunk: int, total: int):
     if not progress_file:
         return
-    progress = chunk / total if total > 0 else 0.0
+    # Public progress values always use the 0-100 (percentage) convention.
+    progress = (chunk / total * 100.0) if total > 0 else 0.0
     try:
         with open(progress_file, 'w') as pf:
             pf.write(
@@ -389,27 +401,35 @@ def _write_progress(progress_file: Optional[str], chunk: int, total: int):
         pass
 
 
-def _write_pipeline_status(status_file: Optional[str], step: str, progress: float,
+def _write_pipeline_status(status_file: Optional[str], step: str,
+                           step_idx: int, total_steps: int, progress: float,
                            chunk: int, total: int, device: str):
-    if not status_file:
+    """Report progress to pipeline_status.json through the tracker.
+
+    ``progress`` is a 0-1 fraction and is converted to the tracker's 0-100
+    contract before writing.
+    """
+    if not status_file or progress_tracker is None:
         return
     try:
-        if os.path.exists(status_file):
-            with open(status_file) as f:
-                data = json.load(f)
-        else:
-            data = {}
-        data.update({
-            'status': 'running',
-            'step': step,
-            'progress': progress,
+        start_time = float(os.environ.get('PIPELINE_START_TIME', _MODULE_START))
+        elapsed = time.time() - start_time
+        progress_0_100 = progress * 100.0
+        extra = {
             'chunk': chunk,
             'total_chunks': total,
-            'device': device,
-        })
-        with open(status_file, 'w') as f:
-            json.dump(data, f)
-            f.flush()
+            'device': str(device),
+        }
+        progress_tracker.update_step_status(
+            status_file,
+            step_idx,
+            'processing',
+            progress_0_100,
+            elapsed,
+            total_steps,
+            extra=extra,
+            step_name=step,
+        )
     except Exception:
         pass
 
@@ -442,6 +462,8 @@ def _demix(
     device: torch.device,
     progress_file: Optional[str] = None,
     pipeline_status: Optional[str] = None,
+    step_idx: int = 0,
+    total_steps: int = 1,
 ) -> Dict[str, np.ndarray]:
     """Run SCNet inference with overlap-add chunking."""
     mix_tensor = torch.tensor(mix, dtype=torch.float32)
@@ -481,7 +503,10 @@ def _demix(
     total = int(np.ceil(mix_tensor.shape[1] / step))
 
     _write_progress(progress_file, 0, total)
-    _write_pipeline_status(pipeline_status, 'scnet', 0.0, 0, total, str(device))
+    _write_pipeline_status(
+        pipeline_status, 'scnet', step_idx, total_steps, 0.0,
+        0, total, str(device)
+    )
 
     model.eval()
     with torch.inference_mode():
@@ -518,7 +543,7 @@ def _demix(
                     print(f'  {chunk_idx}/{total} chunks...')
                 _write_progress(progress_file, chunk_idx, total)
                 _write_pipeline_status(
-                    pipeline_status, 'scnet',
+                    pipeline_status, 'scnet', step_idx, total_steps,
                     chunk_idx / total if total > 0 else 0.0,
                     chunk_idx, total, str(device)
                 )
@@ -601,6 +626,8 @@ def run_scnet(args):
         audio, model, config, device,
         progress_file=getattr(args, 'progress_file', None),
         pipeline_status=getattr(args, 'pipeline_status', None),
+        step_idx=getattr(args, 'step_idx', 0),
+        total_steps=getattr(args, 'total_steps', 1),
     )
 
     os.makedirs(args.output, exist_ok=True)

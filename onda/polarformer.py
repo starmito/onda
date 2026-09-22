@@ -23,6 +23,7 @@ import glob
 import json
 import os
 import sys
+import time
 import warnings
 from typing import Any, Dict, Optional, Tuple
 
@@ -38,6 +39,16 @@ try:
     import onnxruntime as ort
 except Exception:  # pragma: no cover - runtime dependency
     ort = None
+
+# Make tools/progress_tracker.py importable from the onda package location.
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(_PROJECT_ROOT, 'tools'))
+try:
+    import progress_tracker
+except Exception:  # pragma: no cover - tolerate missing tracker in isolated tests
+    progress_tracker = None
+
+_MODULE_START = time.time()
 
 
 def _load_config(config_path: str) -> Dict[str, Any]:
@@ -124,7 +135,8 @@ def _resolve_polarformer_config(
 def _write_progress(progress_file: Optional[str], chunk: int, total: int):
     if not progress_file:
         return
-    progress = chunk / total if total > 0 else 0.0
+    # Public progress values always use the 0-100 (percentage) convention.
+    progress = (chunk / total * 100.0) if total > 0 else 0.0
     try:
         with open(progress_file, "w", encoding="utf-8") as pf:
             pf.write(
@@ -138,32 +150,39 @@ def _write_progress(progress_file: Optional[str], chunk: int, total: int):
 
 def _write_pipeline_status(
     status_file: Optional[str],
+    step_idx: int,
+    total_steps: int,
     progress: float,
     chunk: int,
     total: int,
     device: str,
 ):
-    if not status_file:
+    """Report progress to pipeline_status.json through the tracker.
+
+    ``progress`` is a 0-1 fraction and is converted to the tracker's 0-100
+    contract before writing.
+    """
+    if not status_file or progress_tracker is None:
         return
     try:
-        if os.path.exists(status_file):
-            with open(status_file, encoding="utf-8") as f:
-                data = json.load(f)
-        else:
-            data = {}
-        data.update(
-            {
-                "status": "running",
-                "step": "polarformer",
-                "progress": progress,
-                "chunk": chunk,
-                "total_chunks": total,
-                "device": device,
-            }
+        start_time = float(os.environ.get('PIPELINE_START_TIME', _MODULE_START))
+        elapsed = time.time() - start_time
+        progress_0_100 = progress * 100.0
+        extra = {
+            "chunk": chunk,
+            "total_chunks": total,
+            "device": str(device),
+        }
+        progress_tracker.update_step_status(
+            status_file,
+            step_idx,
+            "processing",
+            progress_0_100,
+            elapsed,
+            total_steps,
+            extra=extra,
+            step_name="polarformer",
         )
-        with open(status_file, "w", encoding="utf-8") as f:
-            json.dump(data, f)
-            f.flush()
     except Exception:
         pass
 
@@ -303,6 +322,8 @@ class PolarFormerONNX:
         audio: np.ndarray,
         progress_file: Optional[str] = None,
         pipeline_status: Optional[str] = None,
+        step_idx: int = 0,
+        total_steps: int = 1,
     ) -> np.ndarray:
         """Run PolarFormer ONNX separation on a stereo waveform.
 
@@ -338,7 +359,10 @@ class PolarFormerONNX:
 
         total_chunks = len(chunks)
         _write_progress(progress_file, 0, total_chunks)
-        _write_pipeline_status(pipeline_status, 0.0, 0, total_chunks, str(self.device))
+        _write_pipeline_status(
+            pipeline_status, step_idx, total_steps, 0.0,
+            0, total_chunks, str(self.device)
+        )
 
         for batch_start in range(0, total_chunks, self.batch_size):
             batch_end = min(batch_start + self.batch_size, total_chunks)
@@ -373,6 +397,8 @@ class PolarFormerONNX:
             _write_progress(progress_file, done, total_chunks)
             _write_pipeline_status(
                 pipeline_status,
+                step_idx,
+                total_steps,
                 done / total_chunks if total_chunks > 0 else 0.0,
                 done,
                 total_chunks,
@@ -481,6 +507,8 @@ def run_polarformer(args):
         audio,
         progress_file=getattr(args, "progress_file", None),
         pipeline_status=getattr(args, "pipeline_status", None),
+        step_idx=getattr(args, "step_idx", 0),
+        total_steps=getattr(args, "total_steps", 1),
     )
 
     os.makedirs(args.output, exist_ok=True)

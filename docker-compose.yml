@@ -24,7 +24,7 @@ services:
         USER_GID: "${USER_GID:-1000}"
         ONDAP_VERSION: "${ONDAP_VERSION:-unknown}"
         GUI_VERSION: "${GUI_VERSION:-unknown}"
-    image: onda:${ONDAP_VERSION:-latest}
+    image: onda:${ONDA_IMAGE_TAG:-${ONDAP_VERSION:-latest}}
     container_name: onda
     ports:
       - "${ONDA_PORT:-3000}:3000"

@@ -87,6 +87,8 @@ type JobState struct {
 	Song             string      `json:"song"`
 	Status           string      `json:"status"` // waiting, processing, done, error, blocked_no_gpu
 	Progress         int         `json:"progress"`
+	ETA              int         `json:"eta"`
+	Elapsed          int         `json:"elapsed"`
 	Error            string                `json:"error,omitempty"`
 	FailureDetails   *FailureDiagnostics   `json:"failure_details,omitempty"`
 	Files            []FileEntry           `json:"files,omitempty"`
@@ -102,6 +104,10 @@ type JobState struct {
 	BlockedReason    string      `json:"blocked_reason,omitempty"`
 	BlockedReasonMsg string      `json:"blocked_reason_msg,omitempty"`
 	StartedAt        time.Time   `json:"started_at,omitempty"`
+	// Steps records the pipeline steps so the server can tell final result
+	// stems apart from intermediate ones when deciding whether a done job
+	// should be kept or dropped.
+	Steps []cli.PipelineStep `json:"steps,omitempty"`
 }
 
 // Server wraps the HTTP server with routes, middleware, and a sequential job queue.
@@ -781,6 +787,8 @@ type pipelineStatusJSON struct {
 	Step            string  `json:"step"`
 	Progress        float64 `json:"progress"`
 	OverallProgress float64 `json:"overall_progress"`
+	ETA             float64 `json:"eta"`
+	Elapsed         float64 `json:"elapsed"`
 	Song            string  `json:"song"`
 	Device          string  `json:"device"`
 	GPUType         string  `json:"gpu_type"`
@@ -818,8 +826,9 @@ func (s *Server) collectQueueJobs() []*JobState {
 	outputDir := mustSub("output")
 
 	// ── Disk is the source of truth for completed jobs ──
-	// Filter out files that no longer exist on disk and drop done jobs whose
-	// stems have all disappeared (e.g., deleted externally or via handleDeleteFile).
+	// Filter out files that no longer exist on disk and drop done jobs only when
+	// none of their *result* stems remain. Intermediate stems that the pipeline
+	// cleans up on purpose must not cause a finished job to disappear.
 	type fileCheck struct {
 		existing []FileEntry
 		remove   bool
@@ -830,8 +839,21 @@ func (s *Server) collectQueueJobs() []*JobState {
 		if job.Status != "done" {
 			continue
 		}
+
+		// Determine the result stems we care about. When the job was created from
+		// a preset with step metadata, use that; otherwise fall back to the files
+		// recorded in the job for backwards compatibility.
+		resultFiles := job.Files
+		hasConfiguredResults := false
+		if len(job.Steps) > 0 {
+			hasConfiguredResults = hasConfiguredResultStems(job.Steps)
+			if hasConfiguredResults {
+				resultFiles = listResultStems(song, job.Steps)
+			}
+		}
+
 		var existing []FileEntry
-		for _, f := range job.Files {
+		for _, f := range resultFiles {
 			diskPath := f.Path
 			if strings.HasPrefix(diskPath, "/api/files/") {
 				diskPath = filepath.Join(outputDir, strings.TrimPrefix(diskPath, "/api/files/"))
@@ -840,10 +862,10 @@ func (s *Server) collectQueueJobs() []*JobState {
 				existing = append(existing, f)
 			}
 		}
-		// Only drop a done job if we had recorded files for it and none of them
-		// are still on disk. Jobs without recorded files are kept so the queue
-		// status reflects all known jobs.
-		checks[song] = fileCheck{existing: existing, remove: len(job.Files) > 0 && len(existing) == 0}
+		// Only drop a done job if we know its result files and none of them are
+		// still on disk. Jobs without recorded files are kept so the queue status
+		// reflects all known jobs.
+		checks[song] = fileCheck{existing: existing, remove: (len(resultFiles) > 0 || hasConfiguredResults) && len(existing) == 0}
 	}
 	s.jobsMu.RUnlock()
 
@@ -870,7 +892,7 @@ func (s *Server) collectQueueJobs() []*JobState {
 		// device and GPU type for every job, not only the one in progress.
 		st := readPipelineStatusForSong(outputDir, j.Song)
 
-		// For the processing job, inject live step/progress from pipeline_status.json
+		// For the processing job, inject live step/progress/eta/elapsed from pipeline_status.json
 		if j.Status == "processing" && st.Status != "" {
 			j.StepName = capitalizeStep(st.Step)
 			j.CurrentStep = stepOrder[st.Step]
@@ -891,17 +913,26 @@ func (s *Server) collectQueueJobs() []*JobState {
 			if liveProgress > 1 {
 				liveProgress = 1
 			}
-			j.Progress = int(liveProgress * 100)
+			j.Progress = int(math.Round(liveProgress * 100))
+			j.ETA = int(st.ETA)
+			j.Elapsed = int(st.Elapsed)
 			// Ensure total_steps is at least current_step
 			if j.TotalSteps < j.CurrentStep {
 				j.TotalSteps = j.CurrentStep
 			}
 		} else if j.Status == "done" {
 			j.Progress = 100
+			j.ETA = 0
+			j.Elapsed = 0
 			j.StepName = "Completado"
 			j.CurrentStep = j.TotalSteps
 		} else if j.Status == "error" {
 			j.FailureDetails = readFailureDiagnostics(outputDir, j.Song)
+			j.ETA = 0
+			j.Elapsed = 0
+		} else {
+			j.ETA = 0
+			j.Elapsed = 0
 		}
 		j.Device = st.Device
 		j.GPUType = st.GPUType
@@ -1929,6 +1960,20 @@ func listStems(song string) []FileEntry {
 	return files
 }
 
+// hasConfiguredResultStems reports whether any step explicitly marks a stem as
+// a final result. It lets collectQueueJobs distinguish "no results on disk"
+// from "no results configured" when deciding whether to drop a done job.
+func hasConfiguredResultStems(steps []cli.PipelineStep) bool {
+	for _, step := range steps {
+		for _, route := range step.Stems {
+			if route.Action == cli.StemSave && route.Target == "result" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // listResultStems returns the stems that should be exposed as final results for
 // a song. When steps are provided, only stems explicitly marked with
 // action: save and target: result are included; routed/discarded intermediates
@@ -2468,7 +2513,7 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.jobs[song] = &JobState{Song: song, Status: "waiting", Index: s.nextIndex, TotalSteps: totalSteps, StartedAt: time.Now()}
+	s.jobs[song] = &JobState{Song: song, Status: "waiting", Index: s.nextIndex, TotalSteps: totalSteps, StartedAt: time.Now(), Steps: steps}
 	s.nextIndex++
 	s.jobsMu.Unlock()
 

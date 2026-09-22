@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/starmito/onda/internal/cli"
 )
 
 // setupQueueTestRoot creates a temporary project root with input/output dirs
@@ -612,7 +614,7 @@ func TestHandleDeleteFile_RemovesJobWhenLastFile(t *testing.T) {
 	}
 }
 
-func TestHandleQueueStatus_DoneJobFiltersMissingFiles(t *testing.T) {
+func TestHandleQueueStatus_DoneJobFiltersMissingResultFiles(t *testing.T) {
 	root := setupQueueTestRoot(t)
 	s := newQueueTestServer(t)
 
@@ -628,6 +630,15 @@ func TestHandleQueueStatus_DoneJobFiltersMissingFiles(t *testing.T) {
 	s.jobs["song"] = &JobState{
 		Song:   "song",
 		Status: "done",
+		Steps: []cli.PipelineStep{
+			{
+				ID: "step-1", Type: "demucs",
+				Stems: map[string]cli.StemRoute{
+					"vocals": {Action: cli.StemSave, Target: "result"},
+					"drums":  {Action: cli.StemSave, Target: "result"},
+				},
+			},
+		},
 		Files: []FileEntry{
 			{Name: "vocals.wav", Path: "/api/files/song/vocals.wav"},
 			{Name: "drums.wav", Path: "/api/files/song/drums.wav"},
@@ -657,6 +668,60 @@ func TestHandleQueueStatus_DoneJobFiltersMissingFiles(t *testing.T) {
 	}
 }
 
+func TestHandleQueueStatus_DoneJobKeepsResultWhenIntermediateMissing(t *testing.T) {
+	root := setupQueueTestRoot(t)
+	s := newQueueTestServer(t)
+
+	songDir := filepath.Join(root, "output", "song")
+	if err := os.MkdirAll(songDir, 0o755); err != nil {
+		t.Fatalf("failed to create song dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(songDir, "vocals.wav"), []byte("stem"), 0o644); err != nil {
+		t.Fatalf("failed to create vocals.wav: %v", err)
+	}
+
+	s.jobsMu.Lock()
+	s.jobs["song"] = &JobState{
+		Song:   "song",
+		Status: "done",
+		Steps: []cli.PipelineStep{
+			{
+				ID: "step-1", Type: "vocal",
+				Stems: map[string]cli.StemRoute{
+					"vocals":       {Action: cli.StemSave, Target: "result"},
+					"instrumental": {Action: cli.StemDiscard},
+				},
+			},
+		},
+		Files: []FileEntry{
+			{Name: "vocals.wav", Path: "/api/files/song/vocals.wav"},
+			{Name: "instrumental.wav", Path: "/api/files/song/instrumental.wav"},
+		},
+	}
+	s.jobsMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/queue/status", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		Jobs []*JobState `json:"jobs"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(resp.Jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(resp.Jobs))
+	}
+	if len(resp.Jobs[0].Files) != 1 || resp.Jobs[0].Files[0].Name != "vocals.wav" {
+		t.Errorf("expected job to keep only the existing result vocals.wav, got %+v", resp.Jobs[0].Files)
+	}
+}
+
 func TestHandleQueueStatus_DoneJobRemovedWhenAllFilesMissing(t *testing.T) {
 	setupQueueTestRoot(t)
 	s := newQueueTestServer(t)
@@ -665,7 +730,15 @@ func TestHandleQueueStatus_DoneJobRemovedWhenAllFilesMissing(t *testing.T) {
 	s.jobs["song"] = &JobState{
 		Song:   "song",
 		Status: "done",
-		Files:  []FileEntry{{Name: "vocals.wav", Path: "/api/files/song/vocals.wav"}},
+		Steps: []cli.PipelineStep{
+			{
+				ID: "step-1", Type: "vocal",
+				Stems: map[string]cli.StemRoute{
+					"vocals": {Action: cli.StemSave, Target: "result"},
+				},
+			},
+		},
+		Files: []FileEntry{{Name: "vocals.wav", Path: "/api/files/song/vocals.wav"}},
 	}
 	s.jobsMu.Unlock()
 
@@ -825,5 +898,217 @@ func TestHandleQueueStatus_FailedDeviceStepExposesReason(t *testing.T) {
 	}
 	if !strings.Contains(j.FailureDetails.Error, "no usable GPU") {
 		t.Errorf("expected failure error to mention no usable GPU, got %q", j.FailureDetails.Error)
+	}
+}
+
+func TestHandleQueueStatus_PipelineETAAndElapsed(t *testing.T) {
+	root := setupQueueTestRoot(t)
+	s := newQueueTestServer(t)
+
+	outputRoot := filepath.Join(root, "output")
+	songDir := filepath.Join(outputRoot, "processing-song")
+	if err := os.MkdirAll(songDir, 0o755); err != nil {
+		t.Fatalf("failed to create song output dir: %v", err)
+	}
+	status := `{"status":"running","step":"vocal","progress":0.58,"eta":120,"elapsed":179,"device":"cuda","gpu_type":"NVIDIA GeForce RTX 3060"}`
+	if err := os.WriteFile(filepath.Join(songDir, "pipeline_status.json"), []byte(status), 0o644); err != nil {
+		t.Fatalf("failed to write per-song pipeline status: %v", err)
+	}
+
+	s.jobsMu.Lock()
+	s.jobs["processing-song"] = &JobState{Song: "processing-song", Status: "processing", Index: 0, TotalSteps: 2}
+	s.jobsMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/queue/status", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	var resp struct {
+		Jobs []*JobState `json:"jobs"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(resp.Jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(resp.Jobs))
+	}
+	j := resp.Jobs[0]
+	if j.Progress != 58 {
+		t.Errorf("expected progress 58, got %d", j.Progress)
+	}
+	if j.ETA != 120 {
+		t.Errorf("expected eta 120, got %d", j.ETA)
+	}
+	if j.Elapsed != 179 {
+		t.Errorf("expected elapsed 179, got %d", j.Elapsed)
+	}
+}
+
+func TestHandleQueueStatus_DoneJobETAZero(t *testing.T) {
+	root := setupQueueTestRoot(t)
+	s := newQueueTestServer(t)
+
+	outputRoot := filepath.Join(root, "output")
+	songDir := filepath.Join(outputRoot, "done-song")
+	if err := os.MkdirAll(songDir, 0o755); err != nil {
+		t.Fatalf("failed to create song output dir: %v", err)
+	}
+	// Stale eta/elapsed from when the job was running must not leak to the UI.
+	status := `{"status":"running","step":"vocal","progress":0.75,"eta":30,"elapsed":90,"device":"cuda","gpu_type":"NVIDIA GeForce RTX 3060"}`
+	if err := os.WriteFile(filepath.Join(songDir, "pipeline_status.json"), []byte(status), 0o644); err != nil {
+		t.Fatalf("failed to write per-song pipeline status: %v", err)
+	}
+
+	s.jobsMu.Lock()
+	s.jobs["done-song"] = &JobState{Song: "done-song", Status: "done", Index: 0, TotalSteps: 2}
+	s.jobsMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/queue/status", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	var resp struct {
+		Jobs []*JobState `json:"jobs"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(resp.Jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(resp.Jobs))
+	}
+	j := resp.Jobs[0]
+	if j.Progress != 100 {
+		t.Errorf("expected progress 100 for done job, got %d", j.Progress)
+	}
+	if j.ETA != 0 {
+		t.Errorf("expected eta 0 for done job, got %d", j.ETA)
+	}
+	if j.Elapsed != 0 {
+		t.Errorf("expected elapsed 0 for done job, got %d", j.Elapsed)
+	}
+}
+
+func TestHandleQueueStatus_WaitingJobETAZero(t *testing.T) {
+	setupQueueTestRoot(t)
+	s := newQueueTestServer(t)
+
+	s.jobsMu.Lock()
+	s.jobs["waiting-song"] = &JobState{Song: "waiting-song", Status: "waiting", Index: 0, TotalSteps: 2}
+	s.jobsMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/queue/status", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	var resp struct {
+		Jobs []*JobState `json:"jobs"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(resp.Jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(resp.Jobs))
+	}
+	j := resp.Jobs[0]
+	if j.Progress != 0 {
+		t.Errorf("expected progress 0 for waiting job, got %d", j.Progress)
+	}
+	if j.ETA != 0 {
+		t.Errorf("expected eta 0 for waiting job, got %d", j.ETA)
+	}
+	if j.Elapsed != 0 {
+		t.Errorf("expected elapsed 0 for waiting job, got %d", j.Elapsed)
+	}
+}
+
+func TestHandleQueueStatus_MissingStatusFileDoesNotBreak(t *testing.T) {
+	setupQueueTestRoot(t)
+	s := newQueueTestServer(t)
+
+	s.jobsMu.Lock()
+	s.jobs["processing-song"] = &JobState{Song: "processing-song", Status: "processing", Index: 0, TotalSteps: 2}
+	s.jobsMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/queue/status", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	var resp struct {
+		Jobs []*JobState `json:"jobs"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(resp.Jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(resp.Jobs))
+	}
+	j := resp.Jobs[0]
+	if j.Progress != 0 {
+		t.Errorf("expected progress 0 when status file missing, got %d", j.Progress)
+	}
+	if j.ETA != 0 {
+		t.Errorf("expected eta 0 when status file missing, got %d", j.ETA)
+	}
+	if j.Elapsed != 0 {
+		t.Errorf("expected elapsed 0 when status file missing, got %d", j.Elapsed)
+	}
+}
+
+func TestHandleQueueStatus_PerSongValuesDoNotBleed(t *testing.T) {
+	root := setupQueueTestRoot(t)
+	s := newQueueTestServer(t)
+
+	outputRoot := filepath.Join(root, "output")
+	for _, song := range []string{"song-a", "song-b"} {
+		songDir := filepath.Join(outputRoot, song)
+		if err := os.MkdirAll(songDir, 0o755); err != nil {
+			t.Fatalf("failed to create song output dir: %v", err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(outputRoot, "song-a", "pipeline_status.json"), []byte(`{"status":"running","step":"vocal","progress":0.25,"eta":60,"elapsed":20,"device":"cuda"}`), 0o644); err != nil {
+		t.Fatalf("failed to write song-a status: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(outputRoot, "song-b", "pipeline_status.json"), []byte(`{"status":"running","step":"demucs","progress":0.75,"eta":15,"elapsed":45,"device":"cpu"}`), 0o644); err != nil {
+		t.Fatalf("failed to write song-b status: %v", err)
+	}
+
+	s.jobsMu.Lock()
+	s.jobs["song-a"] = &JobState{Song: "song-a", Status: "processing", Index: 0, TotalSteps: 2}
+	s.jobs["song-b"] = &JobState{Song: "song-b", Status: "processing", Index: 1, TotalSteps: 2}
+	s.jobsMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/queue/status", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	var resp struct {
+		Jobs []*JobState `json:"jobs"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(resp.Jobs) != 2 {
+		t.Fatalf("expected 2 jobs, got %d", len(resp.Jobs))
+	}
+
+	bySong := make(map[string]*JobState)
+	for _, j := range resp.Jobs {
+		bySong[j.Song] = j
+	}
+
+	a, ok := bySong["song-a"]
+	if !ok {
+		t.Fatal("song-a missing from response")
+	}
+	if a.Progress != 25 || a.ETA != 60 || a.Elapsed != 20 {
+		t.Errorf("song-a mismatch: progress=%d eta=%d elapsed=%d", a.Progress, a.ETA, a.Elapsed)
+	}
+
+	b, ok := bySong["song-b"]
+	if !ok {
+		t.Fatal("song-b missing from response")
+	}
+	if b.Progress != 75 || b.ETA != 15 || b.Elapsed != 45 {
+		t.Errorf("song-b mismatch: progress=%d eta=%d elapsed=%d", b.Progress, b.ETA, b.Elapsed)
 	}
 }

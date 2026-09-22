@@ -74,40 +74,83 @@ CONFIG_DIR="$ONDA_DATA_DIR/config"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# Path to the progress tracker helper (container first, repo-relative for tests).
+PROGRESS_TRACKER="${PROGRESS_TRACKER:-/app/tools/progress_tracker.py}"
+if [ ! -f "$PROGRESS_TRACKER" ]; then
+    PROGRESS_TRACKER="${SCRIPT_DIR}/tools/progress_tracker.py"
+fi
+
 # ── Progress reporting ──────────────────────────
 START_TIME=$(date +%s)
-LAST_ETA=""  # cap ETA so it never increases between steps
+export START_TIME
+export PIPELINE_START_TIME=$START_TIME
 STATUS_FILE="${PIPELINE_STATUS_FILE:-$OUTPUT_DIR/pipeline_status.json}"
 export STATUS_FILE
+mkdir -p "$(dirname "$STATUS_FILE")"
 rm -f "$STATUS_FILE"
+rm -f "$STATUS_FILE.tracker.json"
 CURRENT_STEP=""
 
 VOCAL_MODEL_DISPLAY=""   # friendly name like "BS_Roformer_Viperx"
 DEMUCS_MODEL_DISPLAY=""   # friendly name like "htdemucs_ft"
 
-report_progress() {
+# Resolve a step name to its index in legacy mode.  Indices are assigned
+# consecutively to the active steps so the weighted global progress is honest.
+_step_name_to_idx() {
+    local name="$1"
+    case "$name" in
+        vocal|starting)      echo "${_VOCAL_IDX:-0}" ;;
+        demucs)              echo "${_DEMUCS_IDX:-0}" ;;
+        rubberband|complete) echo "${_RUBBERBAND_IDX:-0}" ;;
+        *)                   echo 0 ;;
+    esac
+}
+
+# Single entry point for progress reporting.  ``step_progress`` is the progress
+# of the current step in the 0-100 range; the tracker computes the global
+# ``progress`` / ``overall_progress``, the ETA and the elapsed seconds.
+_report_step() {
     local status="$1"
-    local step="$2"
-    local progress="$3"
-    local now elapsed eta progress_float
+    local step_name="$2"
+    local step_progress="$3"
+    local now elapsed step_idx tracker_step_name
     now=$(date +%s)
     elapsed=$((now - START_TIME))
-    eta=0
-    if [ "$progress" -gt 0 ] && [ "$elapsed" -gt 0 ]; then
-        new_eta=$(awk "BEGIN {printf \"%d\", int(($elapsed * (100 - $progress)) / $progress)}")
-        # Don't let ETA increase — it should only decrease or stay stable
-        if [ -z "$LAST_ETA" ] || [ "$new_eta" -lt "$LAST_ETA" ]; then
-            eta=$new_eta
-            LAST_ETA=$new_eta
+
+    if [ -n "${STEPS_CONFIG_FILE:-}" ]; then
+        # Chained mode: the current step index is known from the main loop.
+        step_idx="${CURRENT_STEP_INDEX:-0}"
+        # Keep the original contract in --steps mode: ``step`` is an integer.
+        tracker_step_name="$step_idx"
+    else
+        step_idx=$(_step_name_to_idx "$step_name")
+        # Legacy mode: ``step`` is the human-readable step name.
+        tracker_step_name="$step_name"
+    fi
+
+    # ``done`` always marks the last step as finished.
+    if [ "$status" = "done" ]; then
+        step_idx=$((TOTAL_STEPS - 1))
+        if [ -n "${STEPS_CONFIG_FILE:-}" ]; then
+            # Chained mode keeps the integer step contract.
+            tracker_step_name="$step_idx"
         else
-            eta=$LAST_ETA
+            # Legacy mode reports the human-readable completion marker.
+            tracker_step_name="complete"
         fi
     fi
-    progress_float=$(awk "BEGIN {printf \"%.2f\", $progress/100}")
-    cat > "$STATUS_FILE" << JSONEOF
-{"status":"$status","step":"$step","progress":$progress_float,"song":"${SONG:-}","elapsed":$elapsed,"eta":$eta,"vocal_model":"${VOCAL_MODEL_DISPLAY:-}","stem_model":"${DEMUCS_MODEL_DISPLAY:-}","segment_size":${VOCAL_DIM_T:-0},"overlap":${VOCAL_NUM_OVERLAP:-0},"chunk_size":${ONDA_CHUNK_SIZE:-0},"batch_size":${VOCAL_BATCH_SIZE:-0},"device":"${DEVICE:-cpu}","gpu_type":"${GPU_TYPE:-unknown}","shifts":${SHIFTS:-1},"demucs_segment":${DEMUCS_SEGMENT:-0},"jobs":${JOBS:-0}}
-JSONEOF
+
+    local tracker_output tracker_rc=0
+    tracker_output=$(python3 "$PROGRESS_TRACKER" update-step "$STATUS_FILE" "$step_idx" "$status" "$step_progress" "$elapsed" "$TOTAL_STEPS" "$tracker_step_name" 2>&1) || tracker_rc=$?
+    if [ "$tracker_rc" -ne 0 ]; then
+        echo "⚠️  Progress tracker failed (rc=$tracker_rc): $tracker_output" >&2
+    fi
     _sync_per_song_status
+}
+
+# Convenience helpers used by the old code paths.
+report_progress() {
+    _report_step "$@"
 }
 # Report a step failure, persist its stderr log, and print the last lines.
 # Args: step_name exit_code [stderr_log_file] [fallback_message]
@@ -177,6 +220,7 @@ d['step'] = '${step_name}'
 d['error'] = error_message
 d['exit_code'] = ${exit_code}
 try:
+    os.makedirs(os.path.dirname(status_file) or '.', exist_ok=True)
     with open(status_file, 'w') as f:
         json.dump(d, f)
 except Exception:
@@ -186,43 +230,6 @@ except Exception:
 }
 
 trap 'report_step_failure "${CURRENT_STEP:-unknown}" $? "${CURRENT_STEP_LOG:-}"' ERR
-
-# ── Background elapsed/eta updater ─────────────
-# Runs in a subshell loop, updating elapsed and eta every second
-# while a long-running docker exec is in progress.
-update_elapsed_loop() {
-    local LOOP_LAST_ETA=""
-    while true; do
-        sleep 1
-        if [ -f "$STATUS_FILE" ]; then
-            now=$(date +%s)
-            e=$((now - START_TIME))
-            # Read current progress from status file
-            prog=$(python3 -c "import json; print(json.load(open('$STATUS_FILE')).get('progress',0))" 2>/dev/null || echo 0)
-            [ -z "$prog" ] && prog=0
-            # Recalculate eta based on current progress
-            new_eta=0
-            if awk "BEGIN {exit !($prog > 0)}" && [ "$e" -gt 0 ]; then
-                new_eta=$(awk "BEGIN {printf \"%d\", int(($e * (1 - $prog)) / $prog)}")
-                # Don't let ETA increase — it should only decrease or stay stable
-                if [ -z "$LOOP_LAST_ETA" ] || [ "$new_eta" -lt "$LOOP_LAST_ETA" ]; then
-                    eta=$new_eta
-                    LOOP_LAST_ETA=$new_eta
-                else
-                    eta=$LOOP_LAST_ETA
-                fi
-            fi
-            # Update only elapsed and eta; preserve status, step, progress, song
-            python3 -c "
-import json
-d=json.load(open('$STATUS_FILE'))
-d['elapsed']=$e
-d['eta']=${eta:-0}
-json.dump(d, open('${STATUS_FILE}.tmp','w'))
-" && mv "${STATUS_FILE}.tmp" "$STATUS_FILE" && _sync_per_song_status
-        fi
-    done
-}
 
 # Helper: terminate a background PID and wait for it, with a forced kill fallback
 # to avoid hanging if the process ignores SIGTERM.
@@ -246,17 +253,30 @@ kill_wait() {
     wait "$pid" 2>/dev/null || true
 }
 
-# Helper: run a command with elapsed/eta updates in background
+# Return 0 if a PID exists and is actually running.
+# ``kill -0`` returns success for zombie/defunct processes, so we also check
+# the process state with ps: a leading Z means dead-but-not-reaped.
+_process_is_alive() {
+    local pid="${1:-}"
+    [ -n "$pid" ] || return 1
+    if ! kill -0 "$pid" 2>/dev/null; then
+        return 1
+    fi
+    local proc_stat
+    proc_stat=$(ps -o stat= -p "$pid" 2>/dev/null || echo "")
+    case "$proc_stat" in
+        Z*|z*) return 1 ;;
+    esac
+    return 0
+}
+
+# Helper: run a command while capturing per-step output for diagnostics.
 # Usage: run_with_elapsed <command...>
 run_with_elapsed() {
     # Preserve the outer EXIT trap so temp-dir cleanup still runs after this helper.
     local prev_exit_trap
     prev_exit_trap=$(trap -p EXIT)
-    update_elapsed_loop &
-    local elapsed_pid=$!
-    # Ensure the background loop is always cleaned up, even on failure or exit.
-    # Use ${elapsed_pid:-} so set -u never aborts the trap before cleanup.
-    trap 'kill_wait "${elapsed_pid:-}"; cleanup_legacy_temps' EXIT
+    trap 'cleanup_legacy_temps' EXIT
 
     # Capture per-step output so failure reports can include the real stderr.
     # The log is also exposed to the backend via the _failed_<step>/stderr.log
@@ -269,12 +289,11 @@ run_with_elapsed() {
     if [ -n "$step_log" ]; then
         mkdir -p "$(dirname "$step_log")"
         : > "$step_log"
-        "$@" > >(tee -a "$step_log") 2>&1
+        "$@" 2>&1 | tee -a "$step_log"
     else
         "$@"
     fi
     cmd_rc=$?
-    kill_wait "${elapsed_pid:-}"
     eval "${prev_exit_trap:-trap - EXIT}"
     return $cmd_rc
 }
@@ -293,17 +312,12 @@ _sync_per_song_status() {
 # Multi-step progress reporting (for --steps chaining mode)
 # ═══════════════════════════════════════════════════════════
 
-# Initialize multi-step progress tracking from the steps config file
-# Reads from STEPS_CONFIG_FILE, writes to STEPS_STATE_FILE and pipeline_status.json
+# Initialize the persistent step state file and reset the tracker so the
+# chained run starts from a clean global progress of 0.
 multi_step_init() {
-    python3 << 'PYEOF'
-import json, os, time
-
-config_file = os.environ.get('STEPS_CONFIG_FILE', '')
-state_file = os.environ.get('STEPS_STATE_FILE', '')
-status_file = os.environ.get('STATUS_FILE', '')
-song = os.environ.get('SONG', '')
-start_time = int(os.environ.get('START_TIME', '0'))
+    python3 - "$STEPS_CONFIG_FILE" "$STEPS_STATE_FILE" "$STATUS_FILE" <<'PYEOF'
+import json, os, sys
+config_file, state_file, status_file = sys.argv[1:4]
 
 with open(config_file) as f:
     steps = json.load(f)
@@ -321,141 +335,63 @@ for s in steps:
 with open(state_file, 'w') as f:
     json.dump(state, f)
 
-# Write initial pipeline_status.json
-now = int(time.time())
-elapsed = now - start_time
-result = {
-    'status': 'running',
-    'song': song,
-    'steps': state['steps'],
-    'overall_progress': 0,
-    'elapsed': elapsed,
-    'eta': 0
-}
-with open(status_file, 'w') as f:
-    json.dump(result, f)
+# Reset tracker state so overall progress starts from scratch.
+for stale in (status_file + '.tracker.json', status_file + '.tracker.json.tmp'):
+    try:
+        os.remove(stale)
+    except FileNotFoundError:
+        pass
 PYEOF
 }
 
-# Update progress for a specific step and refresh pipeline_status.json
+# Update progress for a specific step and refresh pipeline_status.json.
+# The tracker is the only writer of progress/eta/elapsed fields.
 multi_step_progress() {
     local step_status="$1"
     local step_idx="$2"
     local progress_val="$3"
 
-    export STEP_STATUS="$step_status" STEP_IDX="$step_idx" PROGRESS_VAL="$progress_val"
-
-    python3 << 'PYEOF'
-import json, os, time
-
-state_file = os.environ.get('STEPS_STATE_FILE', '')
-status_file = os.environ.get('STATUS_FILE', '')
-song = os.environ.get('SONG', '')
-start_time = int(os.environ.get('START_TIME', '0'))
-last_eta_file = status_file + '.eta'
-
-step_status = os.environ.get('STEP_STATUS', 'running')
-step_idx = int(os.environ.get('STEP_IDX', '-1'))
-progress_val = int(os.environ.get('PROGRESS_VAL', '0'))
-
+    # Update the persistent step state file first.
+    python3 - "$STEPS_STATE_FILE" "$step_idx" "$step_status" "$progress_val" <<'PYEOF'
+import json, sys
+state_file, step_idx, step_status, progress_val = sys.argv[1:5]
+step_idx = int(step_idx)
+progress_val = int(progress_val)
 with open(state_file) as f:
     state = json.load(f)
-
 if 0 <= step_idx < len(state['steps']):
-    state['steps'][step_idx]['progress'] = progress_val
+    # Step progress is monotonic; a completed step stays at 100.
+    state['steps'][step_idx]['progress'] = max(
+        progress_val, state['steps'][step_idx].get('progress', 0)
+    )
     state['steps'][step_idx]['status'] = step_status
+with open(state_file, 'w') as f:
+    json.dump(state, f)
+PYEOF
 
-total = len(state['steps'])
-overall = sum(s['progress'] for s in state['steps']) // max(total, 1)
-state['overall_progress'] = overall
+    CURRENT_STEP_INDEX=$step_idx
+    local step_name
+    step_name=$(python3 -c "import json; steps=json.load(open('$STEPS_CONFIG_FILE')); print(steps[$step_idx].get('type',''))" 2>/dev/null || echo "")
 
-now = int(time.time())
-elapsed = now - start_time
+    _report_step "$step_status" "$step_name" "$progress_val"
 
-eta = 0
-if overall > 0 and elapsed > 0:
-    new_eta = int((elapsed * (100 - overall)) / overall)
-    last_eta = 0
-    try:
-        with open(last_eta_file) as f:
-            last_eta = int(f.read().strip())
-    except Exception:
-        pass
-    if last_eta == 0 or new_eta < last_eta:
-        eta = new_eta
-        with open(last_eta_file, 'w') as f:
-            f.write(str(eta))
-    else:
-        eta = last_eta
-
-all_done = all(s['status'] in ('completed', 'done') for s in state['steps'])
-has_error = any(s['status'] == 'error' for s in state['steps'])
-
-if all_done:
-    final_status = 'done'
-elif has_error:
-    final_status = 'error'
-else:
-    final_status = 'running'
-
-result = {
-    'status': final_status,
-    'song': song,
-    'steps': state['steps'],
-    'overall_progress': overall,
-    'elapsed': elapsed,
-    'eta': eta
-}
-
-with open(status_file, 'w') as f:
-    json.dump(result, f)
+    # Keep the detailed steps array in the status file for the UI.
+    python3 - "$STEPS_STATE_FILE" "$STATUS_FILE" <<'PYEOF'
+import json, os, sys
+state_file, status_file = sys.argv[1:3]
+with open(state_file) as f:
+    state = json.load(f)
+with open(status_file) as f:
+    data = json.load(f)
+data['steps'] = state['steps']
+tmp = status_file + '.tmp'
+with open(tmp, 'w') as f:
+    json.dump(data, f)
+    f.flush()
+    os.fsync(f.fileno())
+os.replace(tmp, status_file)
 PYEOF
     _sync_per_song_status
-}
-
-# Update elapsed/eta for multi-step mode (non-blocking background updater)
-multi_step_elapsed_loop() {
-    while true; do
-        sleep 1
-        if [ -f "$STATUS_FILE" ]; then
-            python3 << 'PYEOF' 2>/dev/null || true
-import json, os, time, shutil
-
-status_file = os.environ.get('STATUS_FILE', '')
-last_eta_file = status_file + '.eta'
-
-with open(status_file) as f:
-    d = json.load(f)
-
-now = int(time.time())
-start_time = int(os.environ.get('START_TIME', '0'))
-elapsed = now - start_time
-d['elapsed'] = elapsed
-
-op = d.get('overall_progress', 0)
-if op > 0 and elapsed > 0:
-    new_eta = int((elapsed * (100 - op)) / op)
-    last_eta = 0
-    try:
-        with open(last_eta_file) as f:
-            last_eta = int(f.read().strip())
-    except Exception:
-        pass
-    if last_eta == 0 or new_eta < last_eta:
-        d['eta'] = new_eta
-        with open(last_eta_file, 'w') as f:
-            f.write(str(new_eta))
-    else:
-        d['eta'] = last_eta
-
-with open(status_file + '.tmp', 'w') as f:
-    json.dump(d, f)
-
-shutil.move(status_file + '.tmp', status_file)
-PYEOF
-            _sync_per_song_status
-        fi
-    done
 }
 
 # Detect whether a vocal model directory contains a BS PolarFormer ONNX model.
@@ -943,6 +879,8 @@ run_vocal_step() {
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
             --batch-size "${mdx_batch_size}" \
+            --step-idx "${CURRENT_STEP_INDEX:-${_VOCAL_IDX:-0}}" \
+            --total-steps "$TOTAL_STEPS" \
             "${model_dir}" "${input_file}" "${output_dir}" "${mdx_overlap}"
     elif is_scnet_model_dir "$model_dir"; then
         if [ ! -f /app/inference_scnet.py ]; then
@@ -1013,6 +951,8 @@ PYEOF
         run_with_elapsed python3 -u /app/inference_scnet.py \
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
+            --step-idx "${CURRENT_STEP_INDEX:-${_VOCAL_IDX:-0}}" \
+            --total-steps "$TOTAL_STEPS" \
             ${scnet_config_arg} \
             "${model_dir}" "${input_file}" "${output_dir}"
     elif is_polarformer_model_dir "$model_dir"; then
@@ -1052,6 +992,8 @@ PYEOF
             --device "$DEVICE" \
             --chunk-size "${pf_chunk_size}" \
             --batch-size "${pf_batch_size}" \
+            --step-idx "${CURRENT_STEP_INDEX:-${_VOCAL_IDX:-0}}" \
+            --total-steps "$TOTAL_STEPS" \
             "${model_dir}" "${input_file}" "${output_dir}" "${pf_num_overlap}"
     elif is_onnx_model_dir "$model_dir"; then
         if [ ! -f /app/inference_onnx.py ]; then
@@ -1079,6 +1021,8 @@ PYEOF
         run_with_elapsed python3 -u /app/inference_onnx.py \
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
+            --step-idx "${CURRENT_STEP_INDEX:-${_VOCAL_IDX:-0}}" \
+            --total-steps "$TOTAL_STEPS" \
             "${model_dir}" "${input_file}" "${output_dir}" "${onnx_overlap}"
     else
         if [ ! -f /app/inference_universal.py ]; then
@@ -1114,6 +1058,8 @@ PYEOF
         local effective_chunk_size="${VOCAL_CHUNK_SIZE:-${yaml_chunk_size}}"
         ONDA_CHUNK_SIZE="${effective_chunk_size}" run_with_elapsed python3 -u /app/inference_universal.py \
             --pipeline-status "$STATUS_FILE" \
+            --step-idx "${CURRENT_STEP_INDEX:-${_VOCAL_IDX:-0}}" \
+            --total-steps "$TOTAL_STEPS" \
             "${extra_args[@]}" \
             "${model_dir}" "${input_file}" "${output_dir}" "${roformer_overlap}"
     fi
@@ -1191,7 +1137,6 @@ run_demucs_step() {
     local expected_stems="${4:-4}"
     local step_idx="${5:-}"
     local worker_pid=""
-    local elapsed_pid=""
     local prev_exit_trap
     prev_exit_trap=$(trap -p EXIT)
 
@@ -1228,9 +1173,6 @@ run_demucs_step() {
         --jobs "${JOBS:-0}"
     )
 
-    update_elapsed_loop &
-    elapsed_pid=$!
-
     # Launch worker with stdout/stderr redirected to files inside output_dir.
     # This avoids keeping the caller's pipe open, which previously caused EOF
     # to never arrive and the pipeline to hang forever.
@@ -1239,9 +1181,9 @@ run_demucs_step() {
     ) > "${events_file}" 2> "${step_log}" &
     worker_pid=$!
 
-    # Always clean up both background processes when the function exits.
+    # Always clean up the worker when the function exits.
     # Use ${var:-} so set -u never aborts the trap before cleanup.
-    trap 'kill_wait "${worker_pid:-}"; kill_wait "${elapsed_pid:-}"; cleanup_legacy_temps' EXIT
+    trap 'kill_wait "${worker_pid:-}"; cleanup_legacy_temps' EXIT
 
     # Read JSON events as they arrive. Track line count so we only process new
     # events and detect silence (no new event for 120s -> abort).
@@ -1253,7 +1195,7 @@ run_demucs_step() {
     local silence_timeout=120
 
     local poll_interval=1
-    while kill -0 "$worker_pid" 2>/dev/null; do
+    while _process_is_alive "$worker_pid"; do
         local total_lines current_time elapsed_since_event
         total_lines=$(wc -l < "${events_file}" 2>/dev/null || echo 0)
         current_time=$(date +%s)
@@ -1277,21 +1219,10 @@ run_demucs_step() {
                     fi
                     last_progress=${event_pct}
 
-                    if [ -n "${step_idx}" ]; then
-                        multi_step_progress "processing" "${step_idx}" "${event_pct}"
-                    else
-                        local global_pct=$(( DEMUCS_START + (event_pct * (DEMUCS_END - DEMUCS_START) / 100) ))
-                        [ "${global_pct}" -gt "${DEMUCS_END}" ] && global_pct=${DEMUCS_END}
-                        [ "${global_pct}" -lt "${DEMUCS_START}" ] && global_pct=${DEMUCS_START}
-                        report_progress "running" "demucs" "${global_pct}"
-                    fi
+                    _report_step "running" "demucs" "${event_pct}"
                 elif [ "$event_name" = "done" ]; then
                     done_seen=true
-                    if [ -n "${step_idx}" ]; then
-                        multi_step_progress "processing" "${step_idx}" 100
-                    else
-                        report_progress "running" "demucs" "${DEMUCS_END}"
-                    fi
+                    _report_step "running" "demucs" 100
                 elif [ "$event_name" = "error" ]; then
                     : # Worker will exit with a non-zero code; handled after wait.
                 fi
@@ -1337,9 +1268,7 @@ run_demucs_step() {
         set -e
     fi
 
-    # Clean up the elapsed updater explicitly before dropping the trap, so the
-    # function can return the real worker exit code without blocking.
-    kill_wait "${elapsed_pid:-}"
+    # Restore the outer EXIT trap before returning.
     eval "${prev_exit_trap:-trap - EXIT}"
 
     # Final validation: success requires exit code 0, a 'done' event, and the
@@ -1362,6 +1291,9 @@ run_demucs_step() {
     if [ "${final_rc}" -ne 0 ]; then
         # Make the diagnostic log available to the ERR trap so it prints the
         # real stderr exactly once, instead of reporting again here.
+        if [ ! -s "${step_log}" ]; then
+            echo "Demucs worker died before completing the step (exit code ${final_rc})" >> "${step_log}"
+        fi
         DEMUCS_STEP_LOG="${step_log}"
     else
         rm -f "${step_log}"
@@ -1417,6 +1349,9 @@ while [[ $# -gt 0 ]]; do
         *)              INPUT="$1"; shift ;;
     esac
 done
+
+# Make flags visible to report_progress without leaking unbound variables.
+export SHIFTS DEMUCS_SEGMENT JOBS
 
 # ── Helpers: GPU detection and naming ──
 # Ask torch whether CUDA is usable; nvidia-smi alone is not enough, because the
@@ -1509,6 +1444,7 @@ elif [ "$DETECTED_DEVICE" = "cuda" ] && [ -n "$GPU_NAME" ]; then
 else
     GPU_TYPE="N/A"
 fi
+export DEVICE GPU_TYPE
 
 SMI_BUT_NO_TORCH_CUDA=false
 if [ "$DETECTED_DEVICE" != "cuda" ] && _nvidia_smi_responds; then
@@ -1579,14 +1515,13 @@ fi
 SONG=$(basename "${INPUT%.*}")
 OUTPUT="${OUTPUT:-$OUTPUT_DIR/${SONG}}"
 
-# Signal that a new pipeline has started, now that the real device is known.
-report_progress "running" "starting" 0
-
 # Ensure temporary vocal/demucs dirs are always removed, even on error or cancellation.
 cleanup_legacy_temps() {
     if [ -n "${OUTPUT:-}" ]; then
         rm -rf "${OUTPUT}/_vocal" "${OUTPUT}/_demucs" 2>/dev/null || true
+        rm -f "${OUTPUT}"/*.eta 2>/dev/null || true
     fi
+    rm -f "${STATUS_FILE}.eta" 2>/dev/null || true
 }
 trap 'cleanup_legacy_temps' EXIT
 
@@ -1867,12 +1802,14 @@ for k, v in s.get('stems', {}).items():
     done
 
     # Final progress report (before deleting step state)
-    multi_step_progress "done" -1 100
+    _report_step "done" "complete" 100
 
     # ── Final cleanup ──
     rm -rf "${ROUTED_DIR}" "${STEPS_STATE_FILE}" "${STEPS_CONFIG_FILE}" 2>/dev/null || true
     # Remove per-step diagnostic logs on success; keep them on failure.
     rm -f "${OUTPUT}"/_step_*.log 2>/dev/null || true
+    # Remove any ETA sidecar files that should never be exposed to the user.
+    rm -f "${STATUS_FILE}.eta" "${OUTPUT}"/*.eta 2>/dev/null || true
 
     echo ""
     echo "════════════════════════════════════════════════════"
@@ -1887,22 +1824,31 @@ fi
 # LEGACY MODE (original behavior, no --steps)
 # ══════════════════════════════════════════════════════════
 
-# ── Progress ranges (dynamic based on active steps) ──
-VOCAL_START=0; VOCAL_END=0
-DEMUCS_START=0; DEMUCS_END=0
-if $VOCAL && $DEMUCS; then
-    VOCAL_START=0; VOCAL_END=65
-    DEMUCS_START=65; DEMUCS_END=100
-elif $VOCAL; then
-    VOCAL_START=0; VOCAL_END=100
-elif $DEMUCS; then
-    DEMUCS_START=0; DEMUCS_END=100
+# ── Assign step indices and total step count for legacy mode ──
+# Steps get consecutive indices so the global progress is always honest:
+# when step N finishes, the global value is > 50% as long as step N+1 exists.
+_VOCAL_IDX=""; _DEMUCS_IDX=""; _RUBBERBAND_IDX=""
+TOTAL_STEPS=0
+if $VOCAL; then
+    _VOCAL_IDX=$TOTAL_STEPS
+    TOTAL_STEPS=$((TOTAL_STEPS + 1))
 fi
+if $DEMUCS; then
+    _DEMUCS_IDX=$TOTAL_STEPS
+    TOTAL_STEPS=$((TOTAL_STEPS + 1))
+fi
+if $RUBBERBAND; then
+    _RUBBERBAND_IDX=$TOTAL_STEPS
+    TOTAL_STEPS=$((TOTAL_STEPS + 1))
+fi
+[ "$TOTAL_STEPS" -eq 0 ] && TOTAL_STEPS=1
+export TOTAL_STEPS
 
 # ── Model display names for status reporting ─────
 VOCAL_MODEL_DISPLAY="${VOCAL_MODEL##*/}"    # strip path, keep filename
 VOCAL_MODEL_DISPLAY="${VOCAL_MODEL_DISPLAY%.*}"  # strip extension
 DEMUCS_MODEL_DISPLAY="$DEMUCS_MODEL"
+export VOCAL_MODEL_DISPLAY DEMUCS_MODEL_DISPLAY
 
 # ── Validate ─────────────────────────────────────
 if [ ! -f "$INPUT" ]; then
@@ -1938,6 +1884,7 @@ fi
 
 # Export chunk size for RoFormer inference (0 = whole song)
 export ONDA_CHUNK_SIZE="${VOCAL_CHUNK_SIZE:-0}"
+export VOCAL_DIM_T VOCAL_NUM_OVERLAP VOCAL_BATCH_SIZE
 
 # ── Smart defaults: Vocal model ya separa vocals, Demucs no necesita repetir ──
 if $VOCAL && $DEMUCS && [ "${DEMUCS_KEEP}" = "all" ]; then
@@ -1979,7 +1926,7 @@ if $VOCAL; then
     TMP_VOCAL="${OUTPUT}/_vocal"
     mkdir -p "${TMP_VOCAL}"  # must exist before progress file write
     CURRENT_STEP="vocal"
-    report_progress "running" "vocal" 0
+    _report_step "running" "vocal" 0
     # Pre-flight: verify model path exists (file or directory)
     vocal_model_dir="${VOCAL_MODEL}"
     if [ -f "${vocal_model_dir}" ]; then
@@ -2006,8 +1953,14 @@ if $VOCAL; then
     # Delegate to the same step function used in chained mode so user/UVR/model
     # config precedence and effective-param logging is identical for all vocal
     # model types (MDX-C, SCNet, MDXNet ONNX, RoFormer).
-    run_vocal_step "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}"
+    run_vocal_step "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}" || {
+        vocal_rc=$?
+        echo "❌ Vocal step failed with exit code ${vocal_rc}" >&2
+        report_step_failure "vocal" "${vocal_rc}" "${OUTPUT}/_step_${CURRENT_STEP:-unknown}.log"
+        exit "${vocal_rc}"
+    }
     echo "   ✅ Vocal model done"
+    _report_step "completed" "vocal" 100
 
     # Find instrumental (for demucs or for keep=all/list)
     INSTRUMENTAL=$(find "${TMP_VOCAL}" -maxdepth 1 -type f \( -iname "*instrumental*" -o -iname "*no_vocals*" \) | head -1)
@@ -2143,7 +2096,7 @@ if $DEMUCS; then
         DEMUCS_EXPECTED=$(echo "${DEMUCS_KEEP}" | tr ',' '\n' | wc -l)
     fi
 
-    report_progress "running" "demucs" $DEMUCS_START
+    _report_step "running" "demucs" 0
 
     # Run Demucs and report real progress parsed from its stderr output
     # instead of counting output WAV files, which caused jumpy progress.
@@ -2154,8 +2107,8 @@ if $DEMUCS; then
         exit $DEMUCS_RC
     fi
 
-    report_progress "running" "demucs" $DEMUCS_END
     echo "   ✅ ${DEMUCS_MODEL} done"
+    _report_step "completed" "demucs" 100
 
     # Find stem directory
     DEMUCS_OUT=$(find "${TMP_DEM}" -type d -name "${DEMUCS_MODEL}" | head -1)
@@ -2225,12 +2178,14 @@ if $RUBBERBAND; then
     fi
 fi
 
-report_progress "done" "complete" 100
+_report_step "done" "complete" 100
 
 # ── Cleanup temps ────────────────────────────────
 rm -rf "${OUTPUT}/_vocal" "${OUTPUT}/_demucs" 2>/dev/null || true
 # Remove per-step diagnostic logs on success; keep them on failure.
 rm -f "${OUTPUT}"/_step_*.log 2>/dev/null || true
+# Remove any ETA sidecar files that should never be exposed to the user.
+rm -f "${STATUS_FILE}.eta" "${OUTPUT}"/*.eta 2>/dev/null || true
 
 echo ""
 echo "═══════════════════════════════════════"

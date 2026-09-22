@@ -97,9 +97,10 @@ RUN chmod +x /usr/local/bin/onda-backend
 COPY pipeline.sh /app/pipeline.sh
 RUN chmod +x /app/pipeline.sh
 
-# Demucs API worker used by pipeline.sh
-COPY tools/demucs_worker.py /app/tools/demucs_worker.py
-RUN chmod +x /app/tools/demucs_worker.py
+# Pipeline helpers used by pipeline.sh (progress tracker, demucs worker, etc.).
+# Copy the whole directory so no invoked script is left behind or stale.
+COPY tools/ /app/tools/
+RUN chmod -R +x /app/tools/
 
 # ViperX / MDX inference
 COPY inference_universal.py /app/inference_universal.py

@@ -47,6 +47,10 @@ def _parse_args(argv=None):
     parser.add_argument("--batch-size", type=int, help="Inference batch size")
     parser.add_argument("--progress-file", help="Per-chunk progress JSON file")
     parser.add_argument("--pipeline-status", help="pipeline_status.json file")
+    parser.add_argument("--step-idx", type=int, default=0,
+                        help="Step index for multi-step progress tracking")
+    parser.add_argument("--total-steps", type=int, default=1,
+                        help="Total number of steps for global progress")
     return parser.parse_args(argv)
 
 
