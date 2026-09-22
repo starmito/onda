@@ -16,6 +16,7 @@
   // ── Model catalogue ──
   interface ModelOption {
     name: string;
+    installed_name: string;
     display_name: string;
     category: string;
   }
@@ -79,8 +80,28 @@
   // Stems come exclusively from the model manifest served by /api/models/list.
   // Never invent stems: if a model does not declare them, the editor shows an
   // explicit warning instead of a hardcoded list.
+  function modelByIdentifier(modelName: string): LocalModel | undefined {
+    return allModels.find((x) =>
+      (x.installed_name && x.installed_name === modelName) || x.name === modelName
+    );
+  }
+
+  function resolveModelIdentifier(modelName: string): string | undefined {
+    const direct = modelByIdentifier(modelName);
+    if (direct) return direct.installed_name || direct.name;
+    // Legacy migration: old presets may store the repo slug or display name.
+    const lower = modelName.toLowerCase();
+    const byDisplay = allModels.find(
+      (m) =>
+        (m.display_name && m.display_name.toLowerCase() === lower) ||
+        m.name.toLowerCase() === lower ||
+        (m.installed_name && m.installed_name.toLowerCase() === lower)
+    );
+    return byDisplay ? byDisplay.installed_name || byDisplay.name : undefined;
+  }
+
   function stemsForModel(modelName: string): string[] {
-    const m = allModels.find((x) => x.name === modelName);
+    const m = modelByIdentifier(modelName);
     if (!m) return [];
     return m.stems ?? [];
   }
@@ -124,28 +145,38 @@
   }
 
   function defaultVocalModel(): string {
-    const preferred = allModels.find((m) => m.name === 'BS_Roformer_Viperx' && isVocalModel(m));
-    if (preferred) return preferred.name;
-    return vocalModels[0]?.name ?? '';
+    const preferred = allModels.find((m) => (m.installed_name || m.name) === 'BS_Roformer_Viperx' && isVocalModel(m));
+    if (preferred) return preferred.installed_name || preferred.name;
+    return vocalModels[0]?.installed_name ?? '';
   }
 
   function defaultDemucsModel(): string {
-    const preferred = allModels.find((m) => m.name === 'htdemucs_ft');
-    if (preferred) return preferred.name;
-    return demucsModels[0]?.name ?? '';
+    const preferred = allModels.find((m) => (m.installed_name || m.name) === 'htdemucs_ft');
+    if (preferred) return preferred.installed_name || preferred.name;
+    return demucsModels[0]?.installed_name ?? '';
   }
 
   // ── Derived model lists ──
   let vocalModels = $derived.by((): ModelOption[] => {
     return allModels
       .filter(isVocalModel)
-      .map((m) => ({ name: m.name, display_name: m.display_name || m.name, category: m.category }));
+      .map((m) => ({
+        name: m.name,
+        installed_name: m.installed_name || m.name,
+        display_name: m.display_name || m.installed_name || m.name,
+        category: m.category,
+      }));
   });
 
   let demucsModels = $derived.by((): ModelOption[] => {
     return allModels
       .filter((m) => !isVocalModel(m))
-      .map((m) => ({ name: m.name, display_name: m.display_name || m.name, category: m.category }));
+      .map((m) => ({
+        name: m.name,
+        installed_name: m.installed_name || m.name,
+        display_name: m.display_name || m.installed_name || m.name,
+        category: m.category,
+      }));
   });
 
   // ── Load real model list from backend ──
@@ -264,9 +295,8 @@
     selectedPreset = name;
     presetNameInput = preset.name;
     steps = preset.steps.map(s => {
-      let model = s.model;
-      const modelExists = allModels.some((m) => m.name === model);
-      if (!modelExists) {
+      let model = resolveModelIdentifier(s.model);
+      if (!model) {
         model = s.type === 'vocal' ? defaultVocalModel() : defaultDemucsModel();
       }
       return { ...s, model, stems: reconcileStemConfigs(model, s.stems) };
@@ -435,7 +465,7 @@
                       {#each [...vocalGroups.entries()] as [cat, models]}
                         <optgroup label={cat}>
                           {#each models as m}
-                            <option value={m.name}>{m.display_name || m.name}</option>
+                            <option value={m.installed_name}>{m.display_name || m.installed_name}</option>
                           {/each}
                         </optgroup>
                       {/each}
@@ -443,7 +473,7 @@
                       {#each [...demucsGroups.entries()] as [cat, models]}
                         <optgroup label={cat}>
                           {#each models as m}
-                            <option value={m.name}>{m.display_name || m.name}</option>
+                            <option value={m.installed_name}>{m.display_name || m.installed_name}</option>
                           {/each}
                         </optgroup>
                       {/each}

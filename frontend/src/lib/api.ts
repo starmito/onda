@@ -268,6 +268,7 @@ export async function deleteStem(song: string, name: string): Promise<void> {
 // ---- ModelLoader ---- 
 export interface LocalModel {
   name: string;
+  installed_name?: string;
   display_name?: string;
   category: string;
   type: string;

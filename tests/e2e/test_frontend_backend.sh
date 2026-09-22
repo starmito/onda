@@ -9,6 +9,7 @@ set -uo pipefail
 BASE_URL="${BASE_URL:-http://localhost:3000}"
 INPUT_DIR="${INPUT_DIR:-./input}"
 OUTPUT_DIR="${OUTPUT_DIR:-./output}"
+CONTAINER_INPUT_DIR="${ONDA_DATA_DIR:-/app/data}/input"
 MAX_WAIT="${MAX_WAIT:-600}"
 
 TMP_DIR="$(mktemp -d)"
@@ -106,7 +107,7 @@ ffmpeg -y -hide_banner -loglevel error \
 
 resp=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/api/separate" \
     -H "Content-Type: application/json" \
-    -d "{\"input\":\"/app/input/${INPUT_NAME}\",\"vocal_model\":\"BS_Roformer_Viperx\"}")
+    -d "{\"input\":\"${CONTAINER_INPUT_DIR}/${INPUT_NAME}\",\"vocal_model\":\"BS_Roformer_Viperx\"}")
 code=$(echo "$resp" | tail -1)
 body=$(echo "$resp" | sed '$d')
 echo "  POST /api/separate → $code"

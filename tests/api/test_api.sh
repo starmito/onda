@@ -5,13 +5,14 @@
 # Requirements: bash, curl
 set -uo pipefail
 
-# Generate test audio in ./input/ mounted as /input/ in container
+# Generate test audio in ./input/ mounted under ONDA_DATA_DIR/input in the container
 TEST_AUDIO="$(dirname "$0")/../input/test_api_valid.wav"
 if [ ! -f "$TEST_AUDIO" ]; then
     ffmpeg -y -f lavfi -i "sine=f=440:r=44100:d=10" -ac 2 "$TEST_AUDIO" 2>/dev/null
 fi
 
 BASE_URL="${BASE_URL:-http://localhost:3000}"
+CONTAINER_INPUT_DIR="${ONDA_DATA_DIR:-/app/data}/input"
 
 PASS=0
 FAIL=0
@@ -46,7 +47,7 @@ expect_status "GET /api/queue/status" GET /api/queue/status 200
 expect_status "GET /api/nonexistent" GET /api/nonexistent 404
 expect_status "POST /api/separate with valid JSON" POST /api/separate 202 \
     -H "Content-Type: application/json" \
-    -d '{"input":"/app/input/test_api_valid.wav","vocal_model":"BS_Roformer_Viperx"}'
+    -d "{\"input\":\"${CONTAINER_INPUT_DIR}/test_api_valid.wav\",\"vocal_model\":\"BS_Roformer_Viperx\"}"
 expect_status "GET /api/separate" GET /api/separate 405
 
 echo ""

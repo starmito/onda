@@ -501,6 +501,7 @@ func demucsONNXDisplayName(name string) string {
 // ModelEntry describes a single model file found on disk.
 type ModelEntry struct {
 	Name            string   `json:"name"`
+	InstalledName   string   `json:"installed_name"`
 	DisplayName     string   `json:"display_name"`
 	Category        string   `json:"category"`
 	Type            string   `json:"type"`
@@ -723,6 +724,11 @@ func listModels() ModelsListResponse {
 			modelPath := filepath.ToSlash(filepath.Join(modelsBasePath(), rel))
 
 		name := strings.TrimSuffix(info.Name(), ext)
+		installedName := name
+		modelDir := filepath.Dir(path)
+		if modelDir != filepath.Join(modelsBasePath(), subdir) {
+			installedName = filepath.Base(modelDir)
+		}
 		category := detectCategory(subdir, rel)
 		displayName := computeDisplayName(subdir, rel, name)
 		modelType := ""
@@ -733,7 +739,7 @@ func listModels() ModelsListResponse {
 		inferred := false
 		origin := ""
 
-		if manifest, ok := loadModelManifest(filepath.Dir(path)); ok {
+		if manifest, ok := loadModelManifest(modelDir); ok {
 			manifestMissing = false
 			if manifest.Name != "" {
 				displayName = manifest.Name
@@ -749,12 +755,13 @@ func listModels() ModelsListResponse {
 
 		models = append(models, ModelEntry{
 			Name:            name,
+			InstalledName:   installedName,
 			DisplayName:     displayName,
 			Category:        category,
 			Type:            modelType,
 			Path:            modelPath,
 			SizeMB:          info.Size() / (1024 * 1024),
-			VramEstimateMB:  estimateVRAM(name, category, info.Size()/(1024*1024)),
+			VramEstimateMB:  estimateVRAM(installedName, category, info.Size()/(1024*1024)),
 			Stems:           stems,
 			NumStems:        numStems,
 			Target:          target,
@@ -780,6 +787,7 @@ func listModels() ModelsListResponse {
 	if !hasHtdemucsFT {
 		models = append(models, ModelEntry{
 			Name:            "htdemucs_ft",
+			InstalledName:   "htdemucs_ft",
 			DisplayName:     "HTDemucs FT",
 			Category:        "Demucs",
 			Type:            "demucs",

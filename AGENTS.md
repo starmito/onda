@@ -28,5 +28,5 @@ Reglas OBLIGATORIAS para cualquier agente que trabaje en este repositorio. Incum
 ## Contexto del proyecto
 
 - **Onda**: separador de fuentes musicales (Demucs/UVR) + DAW ligero. Backend Go (`backend/`), frontend Svelte (`frontend/`), pipeline Python (`onda/`).
-- La API real usa rutas `/app/input/` (NO `/input/` — las referencias viejas a `/input/` son drift obsoleto).
+- La API real usa rutas bajo la raíz de datos configurada (`ONDA_DATA_DIR`, por defecto `/app/data`), p. ej. `/app/data/input/`. Las rutas fijas `/app/input/`, `/app/output/` y el bare `/input/` son drift obsoleto.
 - `onda-gui/` fue eliminado en v3.2.0: no existe ya como directorio ni como servicio.

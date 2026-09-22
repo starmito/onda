@@ -36,7 +36,7 @@ services:
       # Bind-mount del script del pipeline: refleja los cambios del host en el
       # contenedor sin rebuild ni `docker cp`, evitando drift silencioso.
       - ./pipeline.sh:/app/pipeline.sh:ro
-      # Unica raiz de datos: todo bajo /app/data (input/output/daw-data/...)
+      # Unica raiz de datos: todo bajo /app/data (input, output, daw-data, ...)
       - ./data:/app/data
       - pytorch-cache:/opt/pytorch-backends
     restart: unless-stopped

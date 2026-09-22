@@ -9,6 +9,7 @@ set -uo pipefail
 BASE_URL="${BASE_URL:-http://localhost:3000}"
 INPUT_DIR="${INPUT_DIR:-./input}"
 OUTPUT_DIR="${OUTPUT_DIR:-./output}"
+CONTAINER_INPUT_DIR="${ONDA_DATA_DIR:-/app/data}/input"
 MAX_WAIT="${MAX_WAIT:-600}"
 
 TMP_DIR="$(mktemp -d)"
@@ -118,7 +119,7 @@ echo ""
 echo "Test 1: BS-Roformer (vocal)"
 resp=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/api/separate" \
     -H "Content-Type: application/json" \
-    -d "{\"input\":\"/app/input/${VOCAL_NAME}\",\"vocal_model\":\"BS_Roformer_Viperx\"}")
+    -d "{\"input\":\"${CONTAINER_INPUT_DIR}/${VOCAL_NAME}\",\"vocal_model\":\"BS_Roformer_Viperx\"}")
 code=$(echo "$resp" | tail -1)
 body=$(echo "$resp" | sed '$d')
 echo "  HTTP $code"
@@ -138,7 +139,7 @@ echo ""
 echo "Test 2: Demucs"
 resp=$(curl -s -w "\n%{http_code}" -X POST "${BASE_URL}/api/separate" \
     -H "Content-Type: application/json" \
-    -d "{\"input\":\"/app/input/${DEMUCS_NAME}\",\"demucs\":true,\"stem_model\":\"htdemucs\",\"demucs_segment\":5,\"jobs\":1}")
+    -d "{\"input\":\"${CONTAINER_INPUT_DIR}/${DEMUCS_NAME}\",\"demucs\":true,\"stem_model\":\"htdemucs\",\"demucs_segment\":5,\"jobs\":1}")
 code=$(echo "$resp" | tail -1)
 body=$(echo "$resp" | sed '$d')
 echo "  HTTP $code"
