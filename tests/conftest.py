@@ -40,6 +40,11 @@ def _mock_gpu_audio_deps():
         def __exit__(self, *args):
             return False
 
+    def _to_array(value):
+        if isinstance(value, _Tensor):
+            return value._data
+        return np.array(value, dtype=np.float32)
+
     class _Tensor:
         def __init__(self, data):
             self._data = np.array(data, dtype=np.float32)
@@ -52,6 +57,12 @@ def _mock_gpu_audio_deps():
         @property
         def shape(self):
             return self._data.shape
+        @property
+        def dtype(self):
+            return self._data.dtype
+        @property
+        def device(self):
+            return "cpu"
         def __getitem__(self, key):
             return _Tensor(self._data[key])
         def __setitem__(self, key, value):
@@ -60,16 +71,50 @@ def _mock_gpu_audio_deps():
             self._data[key] = value
         def unsqueeze(self, dim):
             return _Tensor(np.expand_dims(self._data, dim))
+        def squeeze(self, dim=None):
+            return _Tensor(np.squeeze(self._data, axis=dim))
         def dim(self):
             return self._data.ndim
         def numel(self):
             return self._data.size
+        def __array__(self, dtype=None):
+            return np.asarray(self._data, dtype=dtype)
+        def __add__(self, other):
+            return _Tensor(self._data + _to_array(other))
+        def __radd__(self, other):
+            return _Tensor(_to_array(other) + self._data)
+        def __sub__(self, other):
+            return _Tensor(self._data - _to_array(other))
+        def __rsub__(self, other):
+            return _Tensor(_to_array(other) - self._data)
+        def __mul__(self, other):
+            return _Tensor(self._data * _to_array(other))
+        def __rmul__(self, other):
+            return _Tensor(_to_array(other) * self._data)
+        def __truediv__(self, other):
+            return _Tensor(self._data / _to_array(other))
+        def __rtruediv__(self, other):
+            return _Tensor(_to_array(other) / self._data)
+        def __iadd__(self, other):
+            self._data = self._data + _to_array(other)
+            return self
+        def __isub__(self, other):
+            self._data = self._data - _to_array(other)
+            return self
+        def __imul__(self, other):
+            self._data = self._data * _to_array(other)
+            return self
+        def __itruediv__(self, other):
+            self._data = self._data / _to_array(other)
+            return self
 
     torch.inference_mode = lambda *args, **kwargs: _InferenceMode()
     torch.tensor = lambda data, *args, **kwargs: _Tensor(data)
     torch.zeros = lambda shape, *args, **kwargs: _Tensor(np.zeros(shape, dtype=np.float32))
+    torch.ones = lambda shape, *args, **kwargs: _Tensor(np.ones(shape, dtype=np.float32))
     torch.linspace = lambda start, end, steps, *args, **kwargs: _Tensor(np.linspace(start, end, steps))
     torch.stack = lambda tensors, dim=0: _Tensor(np.stack([t._data if isinstance(t, _Tensor) else t for t in tensors], axis=dim))
+    torch.cat = lambda tensors, dim=0: _Tensor(np.concatenate([t._data if isinstance(t, _Tensor) else np.array(t) for t in tensors], axis=dim))
     torch.hann_window = lambda size, *args, **kwargs: _Tensor(np.hanning(size).astype(np.float32))
     torch.from_numpy = lambda arr, *args, **kwargs: _Tensor(np.array(arr))
     torch.stft = lambda *args, **kwargs: _Tensor(np.zeros((2, 1025, 10), dtype=np.float32))
@@ -79,7 +124,21 @@ def _mock_gpu_audio_deps():
     torch.nn = _inject("torch.nn")
     torch.nn.Module = type("Module", (), {"eval": lambda self: self, "to": lambda self, *args: self, "parameters": lambda self: []})
     torch.nn.functional = ModuleType("torch.nn.functional")
-    torch.nn.functional.pad = lambda tensor, pad, *args, **kwargs: np.pad(np.array(tensor), [(0, 0)] * (np.array(tensor).ndim - len(pad) // 2) + [(pad[0], pad[1])], mode="edge")
+    def _pad(tensor, pad, mode="constant", value=0):
+        arr = np.array(tensor)
+        ndim = arr.ndim
+        n_padded_dims = len(pad) // 2
+        padding = [(0, 0)] * (ndim - n_padded_dims)
+        for i in range(n_padded_dims):
+            padding.append((pad[-2 * (i + 1)], pad[-2 * (i + 1) + 1]))
+        if mode == "reflect":
+            # numpy reflect is slightly different from torch reflect; edge is enough for tests.
+            mode = "edge"
+        kwargs = {}
+        if mode == "constant":
+            kwargs["constant_values"] = value
+        return np.pad(arr, padding, mode=mode, **kwargs)
+    torch.nn.functional.pad = _pad
 
     # onnxruntime mock (so onda.polarformer imports cleanly)
     ort = _inject("onnxruntime")
