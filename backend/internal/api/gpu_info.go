@@ -24,6 +24,8 @@ type GPUInfoResponse struct {
 	TemperatureC      int    `json:"temperature_c,omitempty"`
 	Runtime           string `json:"runtime,omitempty"`
 	OK                bool   `json:"ok"`
+	UsableByTorch     bool   `json:"usable_by_torch"`
+	TorchInfo         string `json:"torch_info,omitempty"`
 	Error             string `json:"error,omitempty"`
 }
 
@@ -491,8 +493,12 @@ func (s *Server) handleGPUInfo(w http.ResponseWriter, r *http.Request) {
 
 	info := getGPUInfo()
 
+	// Expose whether torch actually sees CUDA, because nvidia-smi may report a
+	// card while the installed torch runtime cannot use it.
+	info.UsableByTorch, info.TorchInfo, _ = checkGPU()
+
 	w.Header().Set("Content-Type", "application/json")
-	if !info.OK {
+	if !info.OK && !info.UsableByTorch {
 		w.WriteHeader(http.StatusServiceUnavailable)
 	} else {
 		w.WriteHeader(http.StatusOK)
