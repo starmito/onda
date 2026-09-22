@@ -18,19 +18,24 @@ if [ "$GPU" != "cpu" ]; then
         mkdir -p "$CACHE_DIR"
         case $GPU in
             cuda)
-                pip install --target "$CACHE_DIR" torch==2.14.0 torchvision==0.29.0 onnxruntime-gpu==1.26.0
+                # Fijamos numpy en la misma orden para evitar que pip lo actualice a una version
+                # distinta de la declarada en pyproject.toml. NO usamos --no-deps: las ruedas de
+                # torch para Linux traen las librerias CUDA (cublasLt, cudnn, triton...) como
+                # dependencias de pip; sin ellas torch no ve la GPU.
+                python3 -m pip install --target "$CACHE_DIR" torch==2.14.0 torchvision==0.29.0 onnxruntime-gpu==1.26.0 numpy==2.4.6
                 ;;
         esac
         echo "✅ $GPU backend installed"
     fi
 
     # Robustness: verify onnxruntime imports from the cache, reinstall if missing/corrupt.
-    if ! PYTHONPATH="$CACHE_DIR" python -c "import onnxruntime" >/dev/null 2>&1; then
+    if ! PYTHONPATH="$CACHE_DIR" python3 -c "import onnxruntime" >/dev/null 2>&1; then
         echo "⚠️  onnxruntime not importable in cache, reinstalling..."
         mkdir -p "$CACHE_DIR"
         case $GPU in
             cuda)
-                pip install --target "$CACHE_DIR" onnxruntime-gpu==1.26.0
+                # Reintento con --upgrade para forzar la reinstalacion; numpy sigue fijado.
+                python3 -m pip install --upgrade --target "$CACHE_DIR" onnxruntime-gpu==1.26.0 numpy==2.4.6
                 ;;
         esac
         echo "✅ onnxruntime reinstalled"

@@ -4,14 +4,16 @@ version = "3.5.0"
 description = "Audio source separation pipeline: BS-Roformer → HTDemucs → Rubberband"
 requires-python = ">=3.10"
 dependencies = [
-    "torch==2.14.0",
-    "torchvision==0.29.0",
+    # Las ruedas +cpu son las de la imagen (menor tamaño). En ejecucion el volumen
+    # /opt/pytorch-backends/cuda las sustituye por el backend CUDA completo.
+    "torch==2.14.0+cpu",
+    "torchvision==0.29.0+cpu",
     "demucs==4.1.0",
-    "sphn>=0.1.12",
-    "librosa",
-    "soundfile",
-    "numpy",
-    "pyyaml",
+    "sphn==0.2.1",
+    "librosa==1.0.0",
+    "soundfile==0.14.0",
+    "numpy==2.4.6",
+    "PyYAML==6.0.3",
 ]
 
 [project.scripts]
