@@ -350,3 +350,77 @@ func TestHandleVRAMCalculator_UsesMeasuredPeaks(t *testing.T) {
 		})
 	}
 }
+
+func TestHandleVRAMCalculator_ViperxDurationAware(t *testing.T) {
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)
+
+	tests := []struct {
+		name     string
+		query    string
+		wantVRAM int
+		maxVRAM  int
+		minVRAM  int
+		fits     bool
+		reliable bool
+	}{
+		{
+			name:     "Viperx short audio is not rejected",
+			query:    "models=BS_Roformer_Viperx&segment_size=1276&batch_size=4&duration=3",
+			maxVRAM:  12000,
+			minVRAM:  8000,
+			fits:     true,
+			reliable: false,
+		},
+		{
+			name:     "Viperx long audio warns honestly",
+			query:    "models=BS_Roformer_Viperx&segment_size=1276&batch_size=4&duration=300",
+			minVRAM:  35000,
+			fits:     false,
+			reliable: false,
+		},
+		{
+			name:     "SW measured peak still used with long audio",
+			query:    "models=BS_Roformer_SW_6stem&chunk_size=485100&batch_size=1&duration=300",
+			wantVRAM: 2803,
+			fits:     true,
+			reliable: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/gpu/vram-calculator?"+tt.query, nil)
+			rr := httptest.NewRecorder()
+			s.mux.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+			}
+
+			var resp VRAMCalculatorResponse
+			if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("failed to decode response: %v", err)
+			}
+			if len(resp.Models) != 1 {
+				t.Fatalf("expected 1 model, got %d", len(resp.Models))
+			}
+			vram := resp.Models[0].VRAMMB
+			if tt.wantVRAM > 0 && vram != tt.wantVRAM {
+				t.Errorf("VRAM = %d, want %d", vram, tt.wantVRAM)
+			}
+			if tt.minVRAM > 0 && vram < tt.minVRAM {
+				t.Errorf("VRAM = %d, want at least %d", vram, tt.minVRAM)
+			}
+			if tt.maxVRAM > 0 && vram > tt.maxVRAM {
+				t.Errorf("VRAM = %d, want at most %d", vram, tt.maxVRAM)
+			}
+			if resp.Fits != tt.fits {
+				t.Errorf("fits = %v, want %v", resp.Fits, tt.fits)
+			}
+			if resp.Reliable != tt.reliable {
+				t.Errorf("reliable = %v, want %v", resp.Reliable, tt.reliable)
+			}
+		})
+	}
+}

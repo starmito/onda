@@ -785,12 +785,13 @@ type pipelineStatusJSON struct {
 	GPUType         string  `json:"gpu_type"`
 }
 
-// readPipelineStatusForSong reads output/<song>/pipeline_status.json and
-// returns the fields relevant for queue status. Missing or unreadable files
-// produce a zero value, which callers treat as "no live info yet".
+// readPipelineStatusForSong reads the single pipeline_status.json that the
+// pipeline writes (output/pipeline_status.json) and returns the fields relevant
+// for queue status. Missing or unreadable files produce a zero value, which
+// callers treat as "no live info yet".
 func readPipelineStatusForSong(outputDir, song string) pipelineStatusJSON {
 	var st pipelineStatusJSON
-	statusPath := filepath.Join(outputDir, song, "pipeline_status.json")
+	statusPath := filepath.Join(outputDir, "pipeline_status.json")
 	if data, err := os.ReadFile(statusPath); err == nil {
 		json.Unmarshal(data, &st)
 	}
@@ -890,7 +891,7 @@ func (s *Server) collectQueueJobs() []*JobState {
 			j.StepName = "Completado"
 			j.CurrentStep = j.TotalSteps
 		} else if j.Status == "error" {
-			j.FailureDetails = readFailureDiagnostics(filepath.Join(outputDir, j.Song))
+			j.FailureDetails = readFailureDiagnostics(outputDir, j.Song)
 		}
 		j.Device = st.Device
 		j.GPUType = st.GPUType
@@ -1061,9 +1062,28 @@ func stepModelName(step cli.PipelineStep) string {
 	return "BS_Roformer_Viperx"
 }
 
+// audioDurationSeconds returns the audio duration in seconds for the given
+// input path, or 0 if it cannot be determined. It is a best-effort helper for
+// VRAM estimation so short songs are not rejected with a peak calibrated for
+// long audio.
+func audioDurationSeconds(inputPath string) int {
+	if inputPath == "" {
+		return 0
+	}
+	d, err := detectDuration(inputPath)
+	if err != nil {
+		return 0
+	}
+	sec := int(math.Round(d))
+	if sec < 1 {
+		sec = 1
+	}
+	return sec
+}
+
 // vramConfigForStep builds a VRAMConfig for a multi-step pipeline step.
-func vramConfigForStep(step cli.PipelineStep) VRAMConfig {
-	if step.Type == "demucs" {
+func vramConfigForStep(step cli.PipelineStep, inputPath string) VRAMConfig {
+	if step.Type == "demucs" && isDemucsModel(stepModelName(step)) {
 		cfg := readModelConfigFromYaml(step.Model)
 		seg := int(cfg.Segment)
 		if seg <= 0 {
@@ -1076,12 +1096,13 @@ func vramConfigForStep(step cli.PipelineStep) VRAMConfig {
 		SegmentSize: cfg.SegmentSize,
 		ChunkSize:   cfg.ChunkSize,
 		BatchSize:   cfg.BatchSize,
+		Duration:    audioDurationSeconds(inputPath),
 	}
 }
 
 // vramConfigForModelAndRequest builds a VRAMConfig for the legacy single-step
 // path from the effective model name and the request overrides.
-func vramConfigForModelAndRequest(modelName, stepType string, req SeparateRequest) VRAMConfig {
+func vramConfigForModelAndRequest(modelName, stepType string, req SeparateRequest, inputPath string) VRAMConfig {
 	if stepType == "demucs" {
 		seg := int(req.DemucsSegment)
 		if seg <= 0 {
@@ -1098,6 +1119,7 @@ func vramConfigForModelAndRequest(modelName, stepType string, req SeparateReques
 		SegmentSize: cfg.SegmentSize,
 		ChunkSize:   cfg.ChunkSize,
 		BatchSize:   cfg.BatchSize,
+		Duration:    audioDurationSeconds(inputPath),
 	}
 }
 
@@ -1228,7 +1250,7 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	if modelName == "" {
 		modelName = "unknown"
 	}
-	vramCfg := vramConfigForModelAndRequest(modelName, stepType, job.Config)
+	vramCfg := vramConfigForModelAndRequest(modelName, stepType, job.Config, job.Config.Input)
 
 	stepName := "pipeline"
 	if len(job.Steps) == 1 {
@@ -1388,7 +1410,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 
 		// Resource headroom checks before launching this step.
 		modelName := stepModelName(step)
-		vramCfg := vramConfigForStep(step)
+		vramCfg := vramConfigForStep(step, job.Config.Input)
 		if !job.Config.ForceVRAM {
 			gpu := gpuInfoProvider()
 			if gpu.OK {
@@ -1509,7 +1531,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 				errMsg = err.Error()
 			}
 			tail := tailOutput(errMsg, 40, 8192)
-			statusPath := filepath.Join(outputDir, "pipeline_status.json")
+			statusPath := filepath.Join(mustSub("output"), "pipeline_status.json")
 			writePipelineStatusFailed(statusPath, step.ID, exitCode, signalName)
 			_ = cleanupOldFailedDirs(outputDir, maxFailedDiagnosticsDirs, step.ID)
 			s.jobsMu.Lock()
@@ -2108,6 +2130,42 @@ func vocalChunkSizeEnv(model string) string {
 	return ""
 }
 
+// keptStemNames returns the stems of a step that are not explicitly discarded,
+// in a stable order. This is used both for true Demucs models and for multi-stem
+// RoFormer/MDX/SCNet models that the frontend has typed as "demucs".
+func keptStemNames(stems map[string]cli.StemRoute) []string {
+	if len(stems) == 0 {
+		return nil
+	}
+	knownOrder := []string{"drums", "bass", "other", "vocals", "guitar", "piano", "instrumental"}
+	var keep []string
+	for _, stem := range knownOrder {
+		if route, ok := stems[stem]; ok && route.Action != cli.StemDiscard {
+			keep = append(keep, stem)
+		}
+	}
+	// Preserve any extra stems declared by the model manifest that are not in
+	// the canonical list (future-proofing), appended in deterministic order.
+	var extra []string
+	for stem, route := range stems {
+		found := false
+		for _, known := range knownOrder {
+			if stem == known {
+				found = true
+				break
+			}
+		}
+		if !found && route.Action != cli.StemDiscard {
+			extra = append(extra, stem)
+		}
+	}
+	if len(extra) > 0 {
+		sort.Strings(extra)
+		keep = append(keep, extra...)
+	}
+	return keep
+}
+
 // buildStepPipelineArgs builds pipeline.sh arguments for a single PipelineStep.
 // The returned env slice contains any extra environment variables that must be
 // set for the step (e.g. ONDA_CHUNK_SIZE).
@@ -2150,21 +2208,18 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 		if stemModel == "" {
 			stemModel = "htdemucs_ft"
 		}
-		args = append(args, "--stem-model", stemModel)
-		// Stem keep based on routing (preserve a stable stem order)
-		if step.Stems != nil {
-			var keep []string
-			for _, stem := range []string{"drums", "bass", "other", "vocals", "guitar", "piano"} {
-				if route, ok := step.Stems[stem]; ok && (route.Action == cli.StemSave || route.Action == cli.ActionRoute) {
-					keep = append(keep, stem)
-				}
-			}
+		// A step typed as "demucs" by the frontend really means "multi-stem model".
+		// Only true Demucs-family models go through the Demucs CLI; everything else
+		// (e.g. BS_Roformer_SW_6stem) is run as a vocal/RoFormer step and the real
+		// stem list from the preset/manifest is passed through --vocal-keep.
+		if isDemucsModel(stemModel) {
+			args = append(args, "--stem-model", stemModel)
+			// Stem keep based on routing (preserve a stable stem order)
+			keep := keptStemNames(step.Stems)
 			if len(keep) > 0 {
 				args = append(args, "--demucs-keep", strings.Join(keep, ","))
 			}
-		}
-		// Apply saved Demucs config when available.
-		if isDemucsModel(stemModel) {
+			// Apply saved Demucs config when available.
 			cfg := readModelConfigFromYaml(stemModel)
 			if cfg.Shifts > 1 {
 				args = append(args, "--shifts", fmt.Sprintf("%d", cfg.Shifts))
@@ -2177,6 +2232,30 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 				args = append(args, "--jobs", fmt.Sprintf("%d", cfg.Jobs))
 			}
 			Log("backend", "info", fmt.Sprintf("Effective step Demucs config for %s: shifts=%d segment=%d jobs=%d", stemModel, cfg.Shifts, int(segment), cfg.Jobs))
+		} else {
+			modelDir, resolveErr := resolveModelDirRequired(stemModel)
+			if resolveErr != nil {
+				return nil, nil, resolveErr
+			}
+			args = append(args, "--vocal-model", modelDir)
+			if isMdxModel(stemModel) {
+				args = append(args, "--vocal-type", "mdx")
+			} else if isOnnxModel(stemModel) {
+				args = append(args, "--vocal-type", "mdxnet")
+			} else if isScnetModel(stemModel) {
+				args = append(args, "--vocal-type", "scnet")
+			}
+			if envVar := vocalChunkSizeEnv(stemModel); envVar != "" {
+				env = append(env, envVar)
+			}
+			keep := keptStemNames(step.Stems)
+			if len(keep) == 0 || len(keep) == len(step.Stems) {
+				args = append(args, "--vocal-keep", "all")
+			} else {
+				args = append(args, "--vocal-keep", strings.Join(keep, ","))
+			}
+			vocalCfg := readModelConfigFromYaml(stemModel)
+			Log("backend", "info", fmt.Sprintf("Effective step multi-stem config for %s: dim_t=%d overlap=%.2f batch=%d chunk=%d", stemModel, vocalCfg.SegmentSize, vocalCfg.Overlap, vocalCfg.BatchSize, vocalCfg.ChunkSize))
 		}
 	}
 

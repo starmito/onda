@@ -13,7 +13,7 @@
 #   --steps JSON          Chained mode: JSON array of step objects
 #   --vocal-model PATH    Vocal model path (default: $MODELS_DIR/VR_Models/BS_Roformer_Viperx)
 #   --vocal-type TYPE     Vocal model type: mdx | mdxnet | polarformer | roformer | auto (default: auto)
-#   --vocal-keep WHAT     What to save: instrumental | vocals | both (default)
+#   --vocal-keep WHAT     What to save: instrumental | vocals | both (default) | all | stem1,stem2,...
 #   --viperx-model PATH   Same as --vocal-model (deprecated)
 #   --viperx-keep WHAT    Same as --vocal-keep (deprecated)
 #   --demucs-keep LIST    Stems to keep: drums,bass,other,vocals or all (default)
@@ -32,6 +32,8 @@
 #   pipeline.sh cancion.mp3                                    # full pipeline (vocal + demucs + rubberband)
 #   pipeline.sh --pitch 2 cancion.wav                          # only rubberband pitch shift
 #   pipeline.sh --vocal-keep instrumental cancion.mp3          # only instrumentals
+#   pipeline.sh --vocal-keep bass,drums,guitar cancion.mp3     # keep named stems from a multi-stem model
+#   pipeline.sh --vocal-keep all cancion.mp3                   # keep every stem the model produces
 #   pipeline.sh --demucs-keep drums,bass cancion.mp3           # only drums + bass
 #   pipeline.sh --steps '[...]' cancion.wav                    # chained steps
 
@@ -1990,31 +1992,106 @@ if $VOCAL; then
     run_vocal_step "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}"
     echo "   ✅ Vocal model done"
 
-    # Find instrumental (for demucs)
+    # Find instrumental (for demucs or for keep=all/list)
     INSTRUMENTAL=$(find "${TMP_VOCAL}" -maxdepth 1 -type f \( -iname "*instrumental*" -o -iname "*no_vocals*" \) | head -1)
 
-    # Copy based on --vocal-keep flag
-    VOCAL_VOCAL=$(find "${TMP_VOCAL}" -maxdepth 1 -type f -iname "*vocal*" ! -iname "*instrumental*" | head -1)
-    KEEP_VOCALS=false; KEEP_INST=false
-    case "${VOCAL_KEEP}" in
-        both)           KEEP_VOCALS=true; KEEP_INST=true ;;
-        vocals)         KEEP_VOCALS=true ;;
-        instrumental)   KEEP_INST=true ;;
-        *)              echo "   ⚠️  Invalid --vocal-keep value: ${VOCAL_KEEP} (use: instrumental|vocals|both)"; KEEP_VOCALS=true; KEEP_INST=true ;;
-    esac
+    # Copy based on --vocal-keep flag.
+    # Supports:
+    #   both, vocals, instrumental       (legacy 2-stem models)
+    #   all                              (keep every stem produced by the model)
+    #   comma-separated list             (keep only the named stems)
+    # The named-stem mode lets the API run N-stem RoFormer models (e.g. SW 6-stem)
+    # without hardcoding stem names per model.
+    _copy_vocal_keep_stems() {
+        local keep_spec="$1"
+        local src_dir="$2"
+        local dst_dir="$3"
+        local song="${4:-}"
 
-    if $KEEP_VOCALS && [ -n "${VOCAL_VOCAL}" ]; then
-        cp "${VOCAL_VOCAL}" "${OUTPUT}/vocals.wav"
-        echo "   ✅ vocals → ${OUTPUT}/vocals.wav"
-    elif [ -n "${VOCAL_VOCAL}" ]; then
-        echo "   🗑️  vocals discarded (--vocal-keep ${VOCAL_KEEP})"
-    fi
-    if $KEEP_INST && [ -n "${INSTRUMENTAL}" ]; then
-        cp "${INSTRUMENTAL}" "${OUTPUT}/instrumental.wav"
-        echo "   ✅ instrumental → ${OUTPUT}/instrumental.wav"
-    elif [ -n "${INSTRUMENTAL}" ]; then
-        echo "   🗑️  instrumental discarded (--vocal-keep ${VOCAL_KEEP})"
-    fi
+        # Legacy 2-stem aliases are handled by the caller; this helper only
+        # processes "all" and explicit comma-separated stem lists.
+        case "${keep_spec}" in
+            all)
+                local f
+                for f in "${src_dir}"/*.wav "${src_dir}"/*.flac; do
+                    [ -e "$f" ] || continue
+                    local base stem_name
+                    base=$(basename "$f")
+                    # RoFormer output is <song>_<stem>.wav; derive the stem name.
+                    if [ -n "$song" ]; then
+                        stem_name="${base#"${song}_"}"
+                    else
+                        stem_name="$base"
+                    fi
+                    stem_name="${stem_name%.*}"
+                    # Skip the raw mix / input copy if present.
+                    if [ "$stem_name" = "$song" ] || [ "$stem_name" = "$base" ]; then
+                        continue
+                    fi
+                    cp "$f" "${dst_dir}/${stem_name}.wav"
+                    echo "   ✅ ${stem_name} → ${dst_dir}/${stem_name}.wav"
+                done
+                ;;
+            *,*)
+                local IFS=','
+                local stem
+                for stem in ${keep_spec}; do
+                    stem=$(echo "$stem" | tr -d '[:space:]')
+                    [ -n "$stem" ] || continue
+                    local src
+                    src=$(find "${src_dir}" -maxdepth 1 -type f -iname "*${stem}*" | head -1)
+                    if [ -n "$src" ]; then
+                        cp "$src" "${dst_dir}/${stem}.wav"
+                        echo "   ✅ ${stem} → ${dst_dir}/${stem}.wav"
+                    else
+                        echo "   ⚠️  Stem '${stem}' not found in vocal output"
+                    fi
+                done
+                ;;
+            *)
+                # Single stem name without commas (e.g. "drums").
+                local stem src
+                stem=$(echo "$keep_spec" | tr -d '[:space:]')
+                src=$(find "${src_dir}" -maxdepth 1 -type f -iname "*${stem}*" | head -1)
+                if [ -n "$src" ]; then
+                    cp "$src" "${dst_dir}/${stem}.wav"
+                    echo "   ✅ ${stem} → ${dst_dir}/${stem}.wav"
+                else
+                    echo "   ⚠️  Stem '${stem}' not found in vocal output"
+                fi
+                ;;
+        esac
+    }
+
+    case "${VOCAL_KEEP}" in
+        both|vocals|instrumental)
+            # Legacy behaviour for 2-stem vocal models.
+            VOCAL_VOCAL=$(find "${TMP_VOCAL}" -maxdepth 1 -type f -iname "*vocal*" ! -iname "*instrumental*" | head -1)
+            KEEP_VOCALS=false; KEEP_INST=false
+            case "${VOCAL_KEEP}" in
+                both)           KEEP_VOCALS=true; KEEP_INST=true ;;
+                vocals)         KEEP_VOCALS=true ;;
+                instrumental)   KEEP_INST=true ;;
+            esac
+
+            if $KEEP_VOCALS && [ -n "${VOCAL_VOCAL}" ]; then
+                cp "${VOCAL_VOCAL}" "${OUTPUT}/vocals.wav"
+                echo "   ✅ vocals → ${OUTPUT}/vocals.wav"
+            elif [ -n "${VOCAL_VOCAL}" ]; then
+                echo "   🗑️  vocals discarded (--vocal-keep ${VOCAL_KEEP})"
+            fi
+            if $KEEP_INST && [ -n "${INSTRUMENTAL}" ]; then
+                cp "${INSTRUMENTAL}" "${OUTPUT}/instrumental.wav"
+                echo "   ✅ instrumental → ${OUTPUT}/instrumental.wav"
+            elif [ -n "${INSTRUMENTAL}" ]; then
+                echo "   🗑️  instrumental discarded (--vocal-keep ${VOCAL_KEEP})"
+            fi
+            ;;
+        *)
+            # New behaviour: keep every stem or a named subset.
+            _copy_vocal_keep_stems "${VOCAL_KEEP}" "${TMP_VOCAL}" "${OUTPUT}" "${SONG}"
+            ;;
+    esac
 
     # If demucs is off but rubberband is on, stems come from vocal dir
     if ! $DEMUCS && $RUBBERBAND; then

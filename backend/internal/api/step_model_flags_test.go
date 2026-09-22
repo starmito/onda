@@ -98,6 +98,105 @@ func TestRunSinglePipeline_SetsCurrentModelAndFlagsInState(t *testing.T) {
 	}
 }
 
+func TestBuildStepPipelineArgs_NonDemucsMultiStemUsesVocalKeep(t *testing.T) {
+	root := setTestRoot(t, "multi-stem-")
+
+	modelDir := filepath.Join(root, "models", "VR_Models", "SW6Test")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatalf("failed to create model dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "SW6Test.ckpt"), []byte("fake"), 0o644); err != nil {
+		t.Fatalf("failed to write ckpt: %v", err)
+	}
+	yaml := `inference:
+  dim_t: 1101
+  num_overlap: 4
+  batch_size: 1
+  chunk_size: 0
+`
+	if err := os.WriteFile(filepath.Join(modelDir, "SW6Test.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("failed to write yaml: %v", err)
+	}
+
+	step := cli.PipelineStep{
+		ID:      "demucs",
+		Type:    "demucs",
+		Model:   "SW6Test",
+		Enabled: true,
+		Stems: map[string]cli.StemRoute{
+			"bass":     {Action: cli.StemSave, Target: "result"},
+			"drums":    {Action: cli.StemSave, Target: "result"},
+			"other":    {Action: cli.StemSave, Target: "result"},
+			"vocals":   {Action: cli.StemSave, Target: "result"},
+			"guitar":   {Action: cli.StemSave, Target: "result"},
+			"piano":    {Action: cli.StemSave, Target: "result"},
+		},
+	}
+
+	args, env, err := buildStepPipelineArgs(step, "/app/input/song.wav", "/app/output/song", "cuda")
+	if err != nil {
+		t.Fatalf("buildStepPipelineArgs failed: %v", err)
+	}
+
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "--vocal-model") {
+		t.Errorf("expected --vocal-model for non-Demucs multi-stem model, got: %s", joined)
+	}
+	if !strings.Contains(joined, "--vocal-keep all") {
+		t.Errorf("expected --vocal-keep all when all stems are kept, got: %s", joined)
+	}
+	if strings.Contains(joined, "--stem-model") {
+		t.Errorf("did not expect --stem-model for non-Demucs multi-stem model, got: %s", joined)
+	}
+	_ = env
+}
+
+func TestBuildStepPipelineArgs_NonDemucsMultiStemKeepsSubset(t *testing.T) {
+	root := setTestRoot(t, "multi-stem-subset-")
+
+	modelDir := filepath.Join(root, "models", "VR_Models", "SW6Test")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatalf("failed to create model dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "SW6Test.ckpt"), []byte("fake"), 0o644); err != nil {
+		t.Fatalf("failed to write ckpt: %v", err)
+	}
+	yaml := `inference:
+  dim_t: 1101
+  num_overlap: 4
+  batch_size: 1
+  chunk_size: 0
+`
+	if err := os.WriteFile(filepath.Join(modelDir, "SW6Test.yaml"), []byte(yaml), 0o644); err != nil {
+		t.Fatalf("failed to write yaml: %v", err)
+	}
+
+	step := cli.PipelineStep{
+		ID:      "demucs",
+		Type:    "demucs",
+		Model:   "SW6Test",
+		Enabled: true,
+		Stems: map[string]cli.StemRoute{
+			"bass":     {Action: cli.StemSave, Target: "result"},
+			"drums":    {Action: cli.StemDiscard},
+			"other":    {Action: cli.StemSave, Target: "result"},
+			"vocals":   {Action: cli.StemDiscard},
+			"guitar":   {Action: cli.StemSave, Target: "result"},
+			"piano":    {Action: cli.StemDiscard},
+		},
+	}
+
+	args, _, err := buildStepPipelineArgs(step, "/app/input/song.wav", "/app/output/song", "cuda")
+	if err != nil {
+		t.Fatalf("buildStepPipelineArgs failed: %v", err)
+	}
+
+	joined := strings.Join(args, " ")
+	if !strings.Contains(joined, "--vocal-keep bass,other,guitar") {
+		t.Errorf("expected --vocal-keep bass,other,guitar, got: %s", joined)
+	}
+}
+
 func TestRunMultiStepPipeline_LogsEffectiveModelAndFlags(t *testing.T) {
 	root := setupQueueTestRoot(t)
 	clearLogBuffer(t)

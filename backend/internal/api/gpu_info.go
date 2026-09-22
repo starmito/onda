@@ -107,7 +107,9 @@ func findMeasuredVRAMPeak(modelName, stepType string, cfg VRAMConfig) int {
 		if m.BatchSize > 0 && cfg.BatchSize != m.BatchSize {
 			continue
 		}
-		if m.Duration > 0 && cfg.Duration != m.Duration {
+		// Duration only matters for whole-song (chunk_size=0) measurements.
+		// Chunked measurements are representative regardless of total song length.
+		if m.Duration > 0 && cfg.Duration != m.Duration && m.ChunkSize <= 0 {
 			continue
 		}
 		return m.PeakMB
@@ -316,16 +318,13 @@ func estimateVRAMMB(modelName string, segmentSize, chunkSize, batchSize, demucsS
 	}
 
 	// Roformer / ViperX / Vocal: measured peak with real long audio:
-	// pico ≈ 1100 + (106 + 6.72*segment_size) * batch_size.
-	// batch_size is multiplicative because chunks are processed in parallel.
-	// This formula ignores chunk_size, so callers should mark the estimate as
-	// unreliable when chunk_size dominates VRAM (e.g. SW 6-stem).
+	// pico ≈ 1100 + (106 + 6.72*segment_size) * effective_batch.
+	// batch_size is multiplicative because chunks are processed in parallel,
+	// but only when the audio is long enough to feed that many batches. When
+	// the duration (or an explicit chunk_size) is short we cap the batch count
+	// so short songs are not rejected with an impossible peak.
 	if isVocalOrRoformer(lower) {
-		b := batchSize
-		if b < 1 {
-			b = 1
-		}
-		return int(math.Round(1100.0 + (106.0+6.72*float64(segmentSize))*float64(b)))
+		return roformerEstimateVRAMMB(segmentSize, chunkSize, batchSize, duration)
 	}
 
 	// Demucs / htdemucs: measured peak depends on demucs segment setting.
@@ -337,6 +336,55 @@ func estimateVRAMMB(modelName string, segmentSize, chunkSize, batchSize, demucsS
 	}
 
 	return defaultVRAMMB
+}
+
+// roformerEstimateVRAMMB returns an analytical VRAM peak for RoFormer/Vocal
+// models. The base formula is calibrated for a full batch; when the audio
+// duration (or an explicit chunk_size in samples) is known, the number of
+// batches that can actually be in flight is capped so short clips do not
+// inherit the peak of a long song.
+func roformerEstimateVRAMMB(segmentSize, chunkSize, batchSize, duration int) int {
+	b := batchSize
+	if b < 1 {
+		b = 1
+	}
+	// Calibrated formula: fixed overhead + per-batch term.
+	baseFixed := 1100.0
+	basePerBatch := 106.0 + 6.72*float64(segmentSize)
+
+	// If we have duration or chunk_size information, limit the effective batch.
+	effectiveDurationSec := 0
+	if duration > 0 {
+		effectiveDurationSec = duration
+	}
+	if chunkSize > 0 {
+		// chunk_size is in samples at 44.1 kHz.
+		chunkSec := chunkSize / 44100
+		if chunkSec < 1 {
+			chunkSec = 1
+		}
+		if effectiveDurationSec == 0 || chunkSec < effectiveDurationSec {
+			effectiveDurationSec = chunkSec
+		}
+	}
+
+	if effectiveDurationSec > 0 && segmentSize > 0 {
+		// Approximate time covered by one model step. Typical values:
+		// hop_length = 512, overlap = 4, sample_rate = 44100.
+		segmentDurationSec := float64(segmentSize) * 512.0 / (4.0 * 44100.0)
+		if segmentDurationSec <= 0 {
+			segmentDurationSec = 1.0
+		}
+		maxBatches := int(math.Ceil(float64(effectiveDurationSec) / segmentDurationSec))
+		if maxBatches < 1 {
+			maxBatches = 1
+		}
+		if maxBatches < b {
+			b = maxBatches
+		}
+	}
+
+	return int(math.Round(baseFixed + basePerBatch*float64(b)))
 }
 
 // ramHeadroomMargin is the safety margin applied on top of the RAM estimate.
@@ -645,6 +693,9 @@ func vramEstimateReliable(modelType string, cfg VRAMConfig) (bool, string) {
 	case "vocal":
 		if cfg.ChunkSize > 0 {
 			return false, "La estimación no tiene en cuenta chunk_size, que puede cambiar mucho el pico real de VRAM."
+		}
+		if cfg.Duration > 0 {
+			return false, "La estimación tiene en cuenta la duración del audio; para canciones largas el pico real puede ser mayor."
 		}
 	case "mdx", "mdxnet":
 		if cfg.SegmentSize == 0 {
