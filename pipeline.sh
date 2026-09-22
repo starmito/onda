@@ -74,6 +74,12 @@ CONFIG_DIR="$ONDA_DATA_DIR/config"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
+# Path to the progress tracker helper (container first, repo-relative for tests).
+PROGRESS_TRACKER="${PROGRESS_TRACKER:-/app/tools/progress_tracker.py}"
+if [ ! -f "$PROGRESS_TRACKER" ]; then
+    PROGRESS_TRACKER="${SCRIPT_DIR}/tools/progress_tracker.py"
+fi
+
 # ── Progress reporting ──────────────────────────
 START_TIME=$(date +%s)
 LAST_ETA=""  # cap ETA so it never increases between steps
@@ -89,24 +95,64 @@ report_progress() {
     local status="$1"
     local step="$2"
     local progress="$3"
-    local now elapsed eta progress_float
+    local now elapsed finished=false
     now=$(date +%s)
     elapsed=$((now - START_TIME))
-    eta=0
-    if [ "$progress" -gt 0 ] && [ "$elapsed" -gt 0 ]; then
-        new_eta=$(awk "BEGIN {printf \"%d\", int(($elapsed * (100 - $progress)) / $progress)}")
-        # Don't let ETA increase — it should only decrease or stay stable
-        if [ -z "$LAST_ETA" ] || [ "$new_eta" -lt "$LAST_ETA" ]; then
-            eta=$new_eta
-            LAST_ETA=$new_eta
-        else
-            eta=$LAST_ETA
-        fi
-    fi
+    [ "$status" = "done" ] && finished=true
+    local progress_float overall_float
+    # Use the tracker helper for honest ETA and overall progress.
+    read -r eta overall_float <<< "$(python3 "$PROGRESS_TRACKER" update "$STATUS_FILE" "$elapsed" "$progress" "$finished" >/dev/null 2>&1 && python3 -c "import json; d=json.load(open('$STATUS_FILE')); print(d.get('eta',0), d.get('overall_progress',0))" 2>/dev/null || echo "0 0")"
+    [ -z "$eta" ] && eta=0
+    [ -z "$overall_float" ] && overall_float=0
     progress_float=$(awk "BEGIN {printf \"%.2f\", $progress/100}")
-    cat > "$STATUS_FILE" << JSONEOF
-{"status":"$status","step":"$step","progress":$progress_float,"song":"${SONG:-}","elapsed":$elapsed,"eta":$eta,"vocal_model":"${VOCAL_MODEL_DISPLAY:-}","stem_model":"${DEMUCS_MODEL_DISPLAY:-}","segment_size":${VOCAL_DIM_T:-0},"overlap":${VOCAL_NUM_OVERLAP:-0},"chunk_size":${ONDA_CHUNK_SIZE:-0},"batch_size":${VOCAL_BATCH_SIZE:-0},"device":"${DEVICE:-cpu}","gpu_type":"${GPU_TYPE:-unknown}","shifts":${SHIFTS:-1},"demucs_segment":${DEMUCS_SEGMENT:-0},"jobs":${JOBS:-0}}
-JSONEOF
+    overall_float=$(awk "BEGIN {printf \"%.2f\", $overall_float/100}")
+    # Preserve all legacy fields while updating progress/eta atomically.
+    python3 - "$STATUS_FILE" "$status" "$step" "$progress_float" "$overall_float" "$elapsed" "$eta" "${SONG:-}" <<'PYEOF'
+import json, os, sys
+path, status, step, progress, overall, elapsed, eta, song = sys.argv[1:9]
+try:
+    with open(path) as f:
+        d = json.load(f)
+except Exception:
+    d = {}
+d.update({
+    "status": status,
+    "step": step,
+    "progress": float(progress),
+    "overall_progress": float(overall),
+    "elapsed": int(elapsed),
+    "eta": int(eta),
+})
+# Ensure descriptive fields are present and update dynamic ones.
+defaults = {
+    "song": song,
+    "vocal_model": os.environ.get("VOCAL_MODEL_DISPLAY", ""),
+    "stem_model": os.environ.get("DEMUCS_MODEL_DISPLAY", ""),
+    "segment_size": int(os.environ.get("VOCAL_DIM_T", "0") or 0),
+    "overlap": int(os.environ.get("VOCAL_NUM_OVERLAP", "0") or 0),
+    "chunk_size": int(os.environ.get("ONDA_CHUNK_SIZE", "0") or 0),
+    "batch_size": int(os.environ.get("VOCAL_BATCH_SIZE", "0") or 0),
+    "device": os.environ.get("DEVICE", "cpu"),
+    "gpu_type": os.environ.get("GPU_TYPE", "unknown"),
+    "shifts": int(os.environ.get("SHIFTS", "1") or 1),
+    "demucs_segment": int(os.environ.get("DEMUCS_SEGMENT", "0") or 0),
+    "jobs": int(os.environ.get("JOBS", "0") or 0),
+}
+for key, val in defaults.items():
+    if key in ("vocal_model", "stem_model"):
+        if val:
+            d[key] = val
+        else:
+            d.setdefault(key, val)
+    else:
+        d.setdefault(key, val)
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(d, f)
+    f.flush()
+    os.fsync(f.fileno())
+os.replace(tmp, path)
+PYEOF
     _sync_per_song_status
 }
 # Report a step failure, persist its stderr log, and print the last lines.
@@ -191,7 +237,6 @@ trap 'report_step_failure "${CURRENT_STEP:-unknown}" $? "${CURRENT_STEP_LOG:-}"'
 # Runs in a subshell loop, updating elapsed and eta every second
 # while a long-running docker exec is in progress.
 update_elapsed_loop() {
-    local LOOP_LAST_ETA=""
     local parent_pid=$PPID
     # Exit cleanly when the parent step finishes and sends SIGTERM, or when
     # the parent dies and this background job is reparented to init (PPID 1).
@@ -204,29 +249,13 @@ update_elapsed_loop() {
         if [ -f "$STATUS_FILE" ]; then
             now=$(date +%s)
             e=$((now - START_TIME))
-            # Read current progress from status file
+            # Read current progress (0-1 in legacy mode) and rescale for the tracker.
             prog=$(python3 -c "import json; print(json.load(open('$STATUS_FILE')).get('progress',0))" 2>/dev/null || echo 0)
             [ -z "$prog" ] && prog=0
-            # Recalculate eta based on current progress
-            new_eta=0
-            if awk "BEGIN {exit !($prog > 0)}" && [ "$e" -gt 0 ]; then
-                new_eta=$(awk "BEGIN {printf \"%d\", int(($e * (1 - $prog)) / $prog)}")
-                # Don't let ETA increase — it should only decrease or stay stable
-                if [ -z "$LOOP_LAST_ETA" ] || [ "$new_eta" -lt "$LOOP_LAST_ETA" ]; then
-                    eta=$new_eta
-                    LOOP_LAST_ETA=$new_eta
-                else
-                    eta=$LOOP_LAST_ETA
-                fi
-            fi
-            # Update only elapsed and eta; preserve status, step, progress, song
-            python3 -c "
-import json
-d=json.load(open('$STATUS_FILE'))
-d['elapsed']=$e
-d['eta']=${eta:-0}
-json.dump(d, open('${STATUS_FILE}.tmp','w'))
-" && mv "${STATUS_FILE}.tmp" "$STATUS_FILE" && _sync_per_song_status
+            prog100=$(awk "BEGIN {printf \"%.4f\", $prog * 100}")
+            # Re-estimate ETA from recent progress samples; tracker keeps history.
+            python3 "$PROGRESS_TRACKER" update "$STATUS_FILE" "$e" "$prog100" false >/dev/null 2>&1 || true
+            _sync_per_song_status
         fi
     done
 }
@@ -303,12 +332,9 @@ _sync_per_song_status() {
 # Initialize multi-step progress tracking from the steps config file
 # Reads from STEPS_CONFIG_FILE, writes to STEPS_STATE_FILE and pipeline_status.json
 multi_step_init() {
-    python3 << 'PYEOF'
-import json, os, time
-
-config_file = os.environ.get('STEPS_CONFIG_FILE', '')
-state_file = os.environ.get('STEPS_STATE_FILE', '')
-status_file = os.environ.get('STATUS_FILE', '')
+    python3 - "$STEPS_CONFIG_FILE" "$STEPS_STATE_FILE" "$STATUS_FILE" <<'PYEOF'
+import json, os, sys, time
+config_file, state_file, status_file = sys.argv[1:4]
 song = os.environ.get('SONG', '')
 start_time = int(os.environ.get('START_TIME', '0'))
 
@@ -328,7 +354,13 @@ for s in steps:
 with open(state_file, 'w') as f:
     json.dump(state, f)
 
-# Write initial pipeline_status.json
+# Reset tracker state so overall progress starts from scratch.
+for stale in (status_file + '.tracker.json', status_file + '.tracker.json.tmp'):
+    try:
+        os.remove(stale)
+    except FileNotFoundError:
+        pass
+
 now = int(time.time())
 elapsed = now - start_time
 result = {
@@ -339,8 +371,12 @@ result = {
     'elapsed': elapsed,
     'eta': 0
 }
-with open(status_file, 'w') as f:
+tmp = status_file + '.tmp'
+with open(tmp, 'w') as f:
     json.dump(result, f)
+    f.flush()
+    os.fsync(f.fileno())
+os.replace(tmp, status_file)
 PYEOF
 }
 
@@ -349,55 +385,48 @@ multi_step_progress() {
     local step_status="$1"
     local step_idx="$2"
     local progress_val="$3"
+    local now elapsed total_steps
 
-    export STEP_STATUS="$step_status" STEP_IDX="$step_idx" PROGRESS_VAL="$progress_val"
+    now=$(date +%s)
+    elapsed=$((now - START_TIME))
 
-    python3 << 'PYEOF'
-import json, os, time
-
-state_file = os.environ.get('STEPS_STATE_FILE', '')
-status_file = os.environ.get('STATUS_FILE', '')
-song = os.environ.get('SONG', '')
-start_time = int(os.environ.get('START_TIME', '0'))
-last_eta_file = status_file + '.eta'
-
-step_status = os.environ.get('STEP_STATUS', 'running')
-step_idx = int(os.environ.get('STEP_IDX', '-1'))
-progress_val = int(os.environ.get('PROGRESS_VAL', '0'))
-
+    # Update the persistent step state file first.
+    python3 - "$STEPS_STATE_FILE" "$step_idx" "$step_status" "$progress_val" <<'PYEOF'
+import json, sys
+state_file, step_idx, step_status, progress_val = sys.argv[1:5]
+step_idx = int(step_idx)
+progress_val = int(progress_val)
 with open(state_file) as f:
     state = json.load(f)
-
 if 0 <= step_idx < len(state['steps']):
-    state['steps'][step_idx]['progress'] = progress_val
+    # Step progress is monotonic; a completed step stays at 100.
+    state['steps'][step_idx]['progress'] = max(
+        progress_val, state['steps'][step_idx].get('progress', 0)
+    )
     state['steps'][step_idx]['status'] = step_status
+with open(state_file, 'w') as f:
+    json.dump(state, f)
+PYEOF
 
-total = len(state['steps'])
-overall = sum(s['progress'] for s in state['steps']) // max(total, 1)
-state['overall_progress'] = overall
+    total_steps=$(python3 -c "import json; print(len(json.load(open('$STEPS_CONFIG_FILE'))))" 2>/dev/null || echo 1)
 
-now = int(time.time())
-elapsed = now - start_time
+    # Let the tracker compute honest ETA and weighted overall progress.
+    python3 "$PROGRESS_TRACKER" update-step "$STATUS_FILE" "$step_idx" "$step_status" "$progress_val" "$elapsed" "$total_steps" "$STEPS_STATE_FILE" >/dev/null 2>&1 || true
 
-eta = 0
-if overall > 0 and elapsed > 0:
-    new_eta = int((elapsed * (100 - overall)) / overall)
-    last_eta = 0
-    try:
-        with open(last_eta_file) as f:
-            last_eta = int(f.read().strip())
-    except Exception:
-        pass
-    if last_eta == 0 or new_eta < last_eta:
-        eta = new_eta
-        with open(last_eta_file, 'w') as f:
-            f.write(str(eta))
-    else:
-        eta = last_eta
+    # Refresh final status from step state.
+    python3 - "$STEPS_STATE_FILE" "$STATUS_FILE" "${SONG:-}" "$elapsed" <<'PYEOF'
+import json, os, sys
+state_file, status_file, song, elapsed = sys.argv[1:5]
+elapsed = int(elapsed)
+if not song:
+    song = os.environ.get('SONG', '')
+with open(state_file) as f:
+    state = json.load(f)
+with open(status_file) as f:
+    data = json.load(f)
 
 all_done = all(s['status'] in ('completed', 'done') for s in state['steps'])
 has_error = any(s['status'] == 'error' for s in state['steps'])
-
 if all_done:
     final_status = 'done'
 elif has_error:
@@ -405,17 +434,18 @@ elif has_error:
 else:
     final_status = 'running'
 
-result = {
+data.update({
     'status': final_status,
     'song': song,
     'steps': state['steps'],
-    'overall_progress': overall,
     'elapsed': elapsed,
-    'eta': eta
-}
-
-with open(status_file, 'w') as f:
-    json.dump(result, f)
+})
+tmp = status_file + '.tmp'
+with open(tmp, 'w') as f:
+    json.dump(data, f)
+    f.flush()
+    os.fsync(f.fileno())
+os.replace(tmp, status_file)
 PYEOF
     _sync_per_song_status
 }
@@ -424,42 +454,25 @@ PYEOF
 multi_step_elapsed_loop() {
     while true; do
         sleep 1
-        if [ -f "$STATUS_FILE" ]; then
-            python3 << 'PYEOF' 2>/dev/null || true
-import json, os, time, shutil
-
-status_file = os.environ.get('STATUS_FILE', '')
-last_eta_file = status_file + '.eta'
-
-with open(status_file) as f:
-    d = json.load(f)
-
-now = int(time.time())
-start_time = int(os.environ.get('START_TIME', '0'))
-elapsed = now - start_time
-d['elapsed'] = elapsed
-
-op = d.get('overall_progress', 0)
-if op > 0 and elapsed > 0:
-    new_eta = int((elapsed * (100 - op)) / op)
-    last_eta = 0
-    try:
-        with open(last_eta_file) as f:
-            last_eta = int(f.read().strip())
-    except Exception:
-        pass
-    if last_eta == 0 or new_eta < last_eta:
-        d['eta'] = new_eta
-        with open(last_eta_file, 'w') as f:
-            f.write(str(new_eta))
-    else:
-        d['eta'] = last_eta
-
-with open(status_file + '.tmp', 'w') as f:
-    json.dump(d, f)
-
-shutil.move(status_file + '.tmp', status_file)
-PYEOF
+        if [ -f "$STATUS_FILE" ] && [ -f "$STEPS_CONFIG_FILE" ]; then
+            local now elapsed step_idx step_status progress total_steps
+            now=$(date +%s)
+            elapsed=$((now - START_TIME))
+            # Refresh ETA for the current step without changing its progress.
+            read -r step_idx step_status progress <<< "$(python3 -c "
+import json
+d=json.load(open('$STATUS_FILE'))
+steps = d.get('steps', [])
+idx = d.get('step', -1)
+if 0 <= idx < len(steps):
+    print(idx, steps[idx].get('status','running'), steps[idx].get('progress',0))
+else:
+    print(-1, 'running', 0)
+" 2>/dev/null || echo "-1 running 0")"
+            [ -z "$step_idx" ] && step_idx=-1
+            [ "$step_idx" -lt 0 ] 2>/dev/null && continue
+            total_steps=$(python3 -c "import json; print(len(json.load(open('$STEPS_CONFIG_FILE'))))" 2>/dev/null || echo 1)
+            python3 "$PROGRESS_TRACKER" update-step "$STATUS_FILE" "$step_idx" "$step_status" "$progress" "$elapsed" "$total_steps" "$STEPS_STATE_FILE" >/dev/null 2>&1 || true
             _sync_per_song_status
         fi
     done
@@ -1425,6 +1438,9 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Make flags visible to report_progress without leaking unbound variables.
+export SHIFTS DEMUCS_SEGMENT JOBS
+
 # ── Helpers: GPU detection and naming ──
 # Ask torch whether CUDA is usable; nvidia-smi alone is not enough, because the
 # host may expose a GPU while the torch build in the container is CPU-only.
@@ -1516,6 +1532,7 @@ elif [ "$DETECTED_DEVICE" = "cuda" ] && [ -n "$GPU_NAME" ]; then
 else
     GPU_TYPE="N/A"
 fi
+export DEVICE GPU_TYPE
 
 SMI_BUT_NO_TORCH_CUDA=false
 if [ "$DETECTED_DEVICE" != "cuda" ] && _nvidia_smi_responds; then
@@ -1910,6 +1927,7 @@ fi
 VOCAL_MODEL_DISPLAY="${VOCAL_MODEL##*/}"    # strip path, keep filename
 VOCAL_MODEL_DISPLAY="${VOCAL_MODEL_DISPLAY%.*}"  # strip extension
 DEMUCS_MODEL_DISPLAY="$DEMUCS_MODEL"
+export VOCAL_MODEL_DISPLAY DEMUCS_MODEL_DISPLAY
 
 # ── Validate ─────────────────────────────────────
 if [ ! -f "$INPUT" ]; then
@@ -1945,6 +1963,7 @@ fi
 
 # Export chunk size for RoFormer inference (0 = whole song)
 export ONDA_CHUNK_SIZE="${VOCAL_CHUNK_SIZE:-0}"
+export VOCAL_DIM_T VOCAL_NUM_OVERLAP VOCAL_BATCH_SIZE
 
 # ── Smart defaults: Vocal model ya separa vocals, Demucs no necesita repetir ──
 if $VOCAL && $DEMUCS && [ "${DEMUCS_KEEP}" = "all" ]; then
