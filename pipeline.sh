@@ -78,6 +78,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 START_TIME=$(date +%s)
 LAST_ETA=""  # cap ETA so it never increases between steps
 STATUS_FILE="${PIPELINE_STATUS_FILE:-$OUTPUT_DIR/pipeline_status.json}"
+export STATUS_FILE
 rm -f "$STATUS_FILE"
 CURRENT_STEP=""
 
@@ -1487,7 +1488,9 @@ _gpu_name() {
 # ── Validate requested/available device ──
 DETECTED_DEVICE=$(_detect_gpu_backend)
 GPU_NAME=$(_gpu_name)
-if [ "$DETECTED_DEVICE" = "cuda" ] && [ -n "$GPU_NAME" ]; then
+if [ "$DEVICE" = "cpu" ]; then
+    GPU_TYPE="N/A"
+elif [ "$DETECTED_DEVICE" = "cuda" ] && [ -n "$GPU_NAME" ]; then
     GPU_TYPE="$GPU_NAME"
 else
     GPU_TYPE="N/A"
