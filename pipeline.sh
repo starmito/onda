@@ -879,6 +879,8 @@ run_vocal_step() {
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
             --batch-size "${mdx_batch_size}" \
+            --step-idx "${CURRENT_STEP_INDEX:-${_VOCAL_IDX:-0}}" \
+            --total-steps "$TOTAL_STEPS" \
             "${model_dir}" "${input_file}" "${output_dir}" "${mdx_overlap}"
     elif is_scnet_model_dir "$model_dir"; then
         if [ ! -f /app/inference_scnet.py ]; then
@@ -949,6 +951,8 @@ PYEOF
         run_with_elapsed python3 -u /app/inference_scnet.py \
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
+            --step-idx "${CURRENT_STEP_INDEX:-${_VOCAL_IDX:-0}}" \
+            --total-steps "$TOTAL_STEPS" \
             ${scnet_config_arg} \
             "${model_dir}" "${input_file}" "${output_dir}"
     elif is_polarformer_model_dir "$model_dir"; then
@@ -988,6 +992,8 @@ PYEOF
             --device "$DEVICE" \
             --chunk-size "${pf_chunk_size}" \
             --batch-size "${pf_batch_size}" \
+            --step-idx "${CURRENT_STEP_INDEX:-${_VOCAL_IDX:-0}}" \
+            --total-steps "$TOTAL_STEPS" \
             "${model_dir}" "${input_file}" "${output_dir}" "${pf_num_overlap}"
     elif is_onnx_model_dir "$model_dir"; then
         if [ ! -f /app/inference_onnx.py ]; then
@@ -1015,6 +1021,8 @@ PYEOF
         run_with_elapsed python3 -u /app/inference_onnx.py \
             --pipeline-status "$STATUS_FILE" \
             --device "$DEVICE" \
+            --step-idx "${CURRENT_STEP_INDEX:-${_VOCAL_IDX:-0}}" \
+            --total-steps "$TOTAL_STEPS" \
             "${model_dir}" "${input_file}" "${output_dir}" "${onnx_overlap}"
     else
         if [ ! -f /app/inference_universal.py ]; then
@@ -1952,6 +1960,7 @@ if $VOCAL; then
         exit "${vocal_rc}"
     }
     echo "   ✅ Vocal model done"
+    _report_step "completed" "vocal" 100
 
     # Find instrumental (for demucs or for keep=all/list)
     INSTRUMENTAL=$(find "${TMP_VOCAL}" -maxdepth 1 -type f \( -iname "*instrumental*" -o -iname "*no_vocals*" \) | head -1)
@@ -2099,6 +2108,7 @@ if $DEMUCS; then
     fi
 
     echo "   ✅ ${DEMUCS_MODEL} done"
+    _report_step "completed" "demucs" 100
 
     # Find stem directory
     DEMUCS_OUT=$(find "${TMP_DEM}" -type d -name "${DEMUCS_MODEL}" | head -1)

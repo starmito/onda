@@ -19,6 +19,11 @@ from pathlib import Path
 class ProgressTracker:
     """Track progress samples and compute honest ETA / overall progress.
 
+    Unit convention: every public progress value is expressed in the 0-100
+    (percentage) range.  ``progress``, ``overall_progress`` and
+    ``step_progress`` are always percentages.  Callers that still hold a
+    0-1 fraction must multiply by 100 before calling any update method.
+
     ETA is derived from the rate observed over the most recent samples, then
     smoothed with an exponential moving average.  If progress stalls the ETA is
     frozen at the last non-zero estimate instead of dropping to zero.
@@ -92,6 +97,8 @@ class ProgressTracker:
         ``eta`` (seconds), ``progress`` (clamped and non-decreasing for the
         current step) and ``overall_progress`` (weighted when total_steps > 1).
         """
+        if finished:
+            progress = 100.0
         progress = self._clamp(progress)
         # Step progress cannot go backwards within a step.  When the current
         # step has no recorded baseline yet (new step) we accept the reported
@@ -205,7 +212,10 @@ class ProgressTracker:
 
         # ``completed`` means this step is done but the pipeline may continue,
         # so ETA must not collapse to 0 until the whole job is ``done``.
+        # ``done`` always means 100 % for this step.
         finished = status == "done"
+        if finished:
+            progress = 100.0
         return self.update(elapsed, progress, finished=finished)
 
     def tick(self, elapsed: float) -> dict[str, float]:
@@ -319,6 +329,7 @@ def update_status(
     status_file = Path(status_file)
     tracker = load_tracker(status_file)
     data = load_or_init(status_file)
+    elapsed = max(float(elapsed), float(data.get("elapsed", 0.0)))
     result = tracker.update(elapsed, progress, finished=finished)
     data.update(result)
     if extra:
@@ -360,6 +371,8 @@ def update_step_status(
     status_file = Path(status_file)
     tracker = load_tracker(status_file, total_steps=total_steps)
     data = load_or_init(status_file)
+    # ``elapsed`` is a global stopwatch: it must never tick backwards.
+    elapsed = max(float(elapsed), float(data.get("elapsed", 0.0)))
     result = tracker.update_step(step_idx, status, progress, elapsed)
 
     # ``progress`` is the global value; keep ``step_progress`` for the UI.
@@ -404,6 +417,7 @@ def tick_status(status_file: str | Path, elapsed: float) -> dict:
     status_file = Path(status_file)
     tracker = load_tracker(status_file)
     data = load_or_init(status_file)
+    elapsed = max(float(elapsed), float(data.get("elapsed", 0.0)))
     result = tracker.tick(elapsed)
     data["eta"] = result["eta"]
     data["elapsed"] = elapsed

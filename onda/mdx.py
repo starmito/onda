@@ -13,6 +13,16 @@ import warnings
 from typing import Optional
 
 import yaml
+
+# Make tools/progress_tracker.py importable from the onda package location.
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.join(_PROJECT_ROOT, 'tools'))
+try:
+    import progress_tracker
+except Exception:  # pragma: no cover - tolerate missing tracker in isolated tests
+    progress_tracker = None
+
+_MODULE_START = time.time()
 import torch
 import numpy as np
 import librosa
@@ -127,7 +137,8 @@ def _lookup_config_name(ckpt_name: str) -> Optional[str]:
 def _write_progress(progress_file: Optional[str], chunk: int, total: int):
     if not progress_file:
         return
-    progress = chunk / total if total > 0 else 0.0
+    # Public progress values always use the 0-100 (percentage) convention.
+    progress = (chunk / total * 100.0) if total > 0 else 0.0
     try:
         with open(progress_file, "w") as pf:
             pf.write(
@@ -139,27 +150,36 @@ def _write_progress(progress_file: Optional[str], chunk: int, total: int):
         pass
 
 
-def _write_pipeline_status(status_file: Optional[str], step: str, progress: float,
+def _write_pipeline_status(status_file: Optional[str], step: str,
+                           step_idx: int, total_steps: int, progress: float,
                            chunk: int, total: int, device: str):
-    if not status_file:
+    """Report progress to pipeline_status.json through the tracker.
+
+    The tracker is the single writer of progress/eta/elapsed.  ``progress`` is
+    a 0-1 fraction internally and is converted to the 0-100 contract before
+    being passed to the tracker.
+    """
+    if not status_file or progress_tracker is None:
         return
     try:
-        if os.path.exists(status_file):
-            with open(status_file) as f:
-                data = json.load(f)
-        else:
-            data = {}
-        data.update({
-            "status": "running",
-            "step": step,
-            "progress": progress,
+        start_time = float(os.environ.get('PIPELINE_START_TIME', _MODULE_START))
+        elapsed = time.time() - start_time
+        progress_0_100 = progress * 100.0
+        extra = {
             "chunk": chunk,
             "total_chunks": total,
-            "device": device,
-        })
-        with open(status_file, "w") as f:
-            json.dump(data, f)
-            f.flush()
+            "device": str(device),
+        }
+        progress_tracker.update_step_status(
+            status_file,
+            step_idx,
+            "processing",
+            progress_0_100,
+            elapsed,
+            total_steps,
+            extra=extra,
+            step_name=step,
+        )
     except Exception:
         pass
 
@@ -176,7 +196,8 @@ def _prepare_mix(audio_path: str):
 
 def _demix(mix: np.ndarray, config, model_path: str, device: torch.device,
            overlap: int = 8, batch_size: int = 1, segment_size: Optional[int] = None,
-           progress_file: Optional[str] = None, pipeline_status: Optional[str] = None):
+           progress_file: Optional[str] = None, pipeline_status: Optional[str] = None,
+           step_idx: int = 0, total_steps: int = 1):
     """Run MDX-C inference with overlap-add chunking.
 
     Mirrors SeperateMDXC.demix() from separate.py.
@@ -215,7 +236,10 @@ def _demix(mix: np.ndarray, config, model_path: str, device: torch.device,
 
     total_batches = len(batches)
     _write_progress(progress_file, 0, total_batches)
-    _write_pipeline_status(pipeline_status, "mdx", 0.0, 0, total_batches, str(device))
+    _write_pipeline_status(
+        pipeline_status, "mdx", step_idx, total_steps, 0.0,
+        0, total_batches, str(device)
+    )
 
     with torch.no_grad():
         cnt = 0
@@ -226,7 +250,7 @@ def _demix(mix: np.ndarray, config, model_path: str, device: torch.device,
                 cnt += 1
             _write_progress(progress_file, bidx + 1, total_batches)
             _write_pipeline_status(
-                pipeline_status, "mdx",
+                pipeline_status, "mdx", step_idx, total_steps,
                 (bidx + 1) / total_batches if total_batches > 0 else 0.0,
                 bidx + 1, total_batches, str(device)
             )
@@ -300,11 +324,14 @@ def run_mdx(args):
     batch_size = getattr(args, "batch_size", 1)
     progress_file = getattr(args, "progress_file", None)
     pipeline_status = getattr(args, "pipeline_status", None)
+    step_idx = getattr(args, "step_idx", 0)
+    total_steps = getattr(args, "total_steps", 1)
 
     sources = _demix(
         audio, config, model_path, device,
         overlap=overlap, batch_size=batch_size,
-        progress_file=progress_file, pipeline_status=pipeline_status
+        progress_file=progress_file, pipeline_status=pipeline_status,
+        step_idx=step_idx, total_steps=total_steps,
     )
 
     os.makedirs(args.output, exist_ok=True)

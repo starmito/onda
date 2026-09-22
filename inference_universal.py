@@ -21,12 +21,18 @@ except Exception:
 
 SR = 44100
 
+# Global stopwatch anchor for elapsed seconds when the pipeline launcher does
+# not provide PIPELINE_START_TIME (e.g. standalone test runs).
+_MODULE_START = time.time()
+
 
 def _write_progress(progress_file, chunk, total):
     """Write per-chunk progress to a JSON file for real-time tracking.
-    Format: {"step": "vocal", "progress": 0.45, "chunk": 45, "total_chunks": 100}
+
+    Uses the same 0-100 unit convention as the tracker.
+    Format: {"step": "vocal", "progress": 45.0, "chunk": 45, "total_chunks": 100}
     """
-    progress = chunk / total if total > 0 else 0.0
+    progress = (chunk / total * 100.0) if total > 0 else 0.0
     try:
         with open(progress_file, 'w') as pf:
             pf.write('{"step":"vocal","progress":%.4f,"chunk":%d,"total_chunks":%d}' % (progress, chunk, total))
@@ -47,7 +53,7 @@ def _report_pipeline_status(status_file, step_name, step_idx, total_steps,
         return
     try:
         if start_time is None:
-            start_time = float(os.environ.get('PIPELINE_START_TIME', time.time()))
+            start_time = float(os.environ.get('PIPELINE_START_TIME', _MODULE_START))
         elapsed = time.time() - start_time
         progress_0_100 = progress * 100.0
         extra = {
