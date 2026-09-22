@@ -107,6 +107,7 @@ report_progress() {
     cat > "$STATUS_FILE" << JSONEOF
 {"status":"$status","step":"$step","progress":$progress_float,"song":"${SONG:-}","elapsed":$elapsed,"eta":$eta,"vocal_model":"${VOCAL_MODEL_DISPLAY:-}","stem_model":"${DEMUCS_MODEL_DISPLAY:-}","segment_size":${VOCAL_DIM_T:-0},"overlap":${VOCAL_NUM_OVERLAP:-0},"chunk_size":${ONDA_CHUNK_SIZE:-0},"batch_size":${VOCAL_BATCH_SIZE:-0},"device":"${DEVICE:-cpu}","gpu_type":"${GPU_TYPE:-unknown}","shifts":${SHIFTS:-1},"demucs_segment":${DEMUCS_SEGMENT:-0},"jobs":${JOBS:-0}}
 JSONEOF
+    _sync_per_song_status
 }
 # Report a step failure, persist its stderr log, and print the last lines.
 # Args: step_name exit_code [stderr_log_file] [fallback_message]
@@ -181,6 +182,7 @@ try:
 except Exception:
     pass
 " "${error_message}" 2>/dev/null || true
+    _sync_per_song_status
 }
 
 trap 'report_step_failure "${CURRENT_STEP:-unknown}" $? "${CURRENT_STEP_LOG:-}"' ERR
@@ -217,7 +219,7 @@ d=json.load(open('$STATUS_FILE'))
 d['elapsed']=$e
 d['eta']=${eta:-0}
 json.dump(d, open('${STATUS_FILE}.tmp','w'))
-" && mv "${STATUS_FILE}.tmp" "$STATUS_FILE"
+" && mv "${STATUS_FILE}.tmp" "$STATUS_FILE" && _sync_per_song_status
         fi
     done
 }
@@ -275,6 +277,16 @@ run_with_elapsed() {
     kill_wait "${elapsed_pid:-}"
     eval "${prev_exit_trap:-trap - EXIT}"
     return $cmd_rc
+}
+
+# Mirror the shared status file into the per-song output directory so the
+# backend can read output/<song>/pipeline_status.json instead of relying on
+# the legacy shared file that gets overwritten by later jobs.
+_sync_per_song_status() {
+    if [ -n "${OUTPUT:-}" ] && [ -f "$STATUS_FILE" ]; then
+        mkdir -p "$OUTPUT"
+        cp -f "$STATUS_FILE" "$OUTPUT/pipeline_status.json" 2>/dev/null || true
+    fi
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -398,6 +410,7 @@ result = {
 with open(status_file, 'w') as f:
     json.dump(result, f)
 PYEOF
+    _sync_per_song_status
 }
 
 # Update elapsed/eta for multi-step mode (non-blocking background updater)
@@ -440,6 +453,7 @@ with open(status_file + '.tmp', 'w') as f:
 
 shutil.move(status_file + '.tmp', status_file)
 PYEOF
+            _sync_per_song_status
         fi
     done
 }
