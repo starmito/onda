@@ -1,7 +1,10 @@
-"""Detect obsolete /input/ paths in build/orchestration files.
+"""Detect obsolete input/output paths in build/orchestration files.
 
-The API uses /app/input/; any bare /input/ reference in Makefile or build
-scripts is obsolete and should fail. /app/input/ is explicitly allowed.
+The application uses the configurable data root (``ONDA_DATA_DIR``), whose
+default value is ``/app/data``. Any hard-coded ``/input/``, ``/output/``,
+``/app/input/`` or ``/app/output/`` in build/orchestration files is therefore
+obsolete and should fail. Only paths under ``/app/data/`` (the default root)
+are allowed.
 """
 
 import re
@@ -12,8 +15,8 @@ import pytest
 ROOT = Path(__file__).resolve().parents[2]
 
 # Files that orchestrate builds or deployments. Runtime scripts that legitimately
-# translate host ./input/ to container /app/input/ (e.g. pipeline.sh) are NOT
-# included here; this check targets build/orchestration drift.
+# translate host ./input/ to container paths via ONDA_DATA_DIR (e.g. pipeline.sh)
+# are NOT included here; this check targets build/orchestration drift.
 BUILD_FILES = [
     ROOT / "Makefile",
     ROOT / "build.sh",
@@ -27,8 +30,11 @@ BUILD_FILES = [
 # Any .sh file under scripts/ is considered a build/orchestration helper.
 BUILD_FILES.extend((ROOT / "scripts").glob("*.sh"))
 
-# Match /input/ but not when preceded by /app (i.e. /app/input/ is OK).
-_OBSOLETE_INPUT_RE = re.compile(r"(?<!/app)/input/")
+# Match /input/ and /output/ except when they live under /app/data/ (the default
+# data root). This flags both the obsolete bare /input/ and the legacy
+# /app/input/ symlink paths.
+_OBSOLETE_INPUT_RE = re.compile(r"(?<!/app/data)/input/")
+_OBSOLETE_OUTPUT_RE = re.compile(r"(?<!/app/data)/output/")
 
 
 @pytest.mark.parametrize("path", BUILD_FILES, ids=lambda p: p.name)
@@ -37,9 +43,9 @@ def test_no_obsolete_input_paths(path: Path):
     text = path.read_text(encoding="utf-8")
     obsolete = []
     for lineno, line in enumerate(text.splitlines(), start=1):
-        if _OBSOLETE_INPUT_RE.search(line):
+        if _OBSOLETE_INPUT_RE.search(line) or _OBSOLETE_OUTPUT_RE.search(line):
             obsolete.append((lineno, line.strip()))
     assert not obsolete, (
-        f"{path.name} contiene referencias obsoletas a /input/ "
-        f"(debe ser /app/input/): {obsolete}"
+        f"{path.name} contiene referencias obsoletas a /input/ o /output/ "
+        f"(debe usar ONDA_DATA_DIR, por defecto /app/data): {obsolete}"
     )
