@@ -2261,7 +2261,7 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 				env = append(env, envVar)
 			}
 			keep := keptStemNames(step.Stems)
-			if len(keep) == 0 || len(keep) == len(step.Stems) {
+			if len(keep) == 0 {
 				args = append(args, "--vocal-keep", "all")
 			} else {
 				args = append(args, "--vocal-keep", strings.Join(keep, ","))

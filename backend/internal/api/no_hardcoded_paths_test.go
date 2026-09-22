@@ -139,6 +139,12 @@ var legacyFindProjectRootCalls = map[string][]int{}
 // the ONDA_DATA_DIR refactor. Kept empty after the migration.
 var legacyHardcodedDataPaths = map[string][]int{}
 
+// compatSymlinkLines allows the entrypoint to create idempotent /app/input and
+// /app/output symlinks that redirect legacy API/pipeline paths to ONDA_DATA_DIR.
+var compatSymlinkLines = map[string][]int{
+	"entrypoint.sh": {73, 74},
+}
+
 func checkGoFile(repoRoot, path string, violations *[]string) {
 	rel, _ := filepath.Rel(repoRoot, path)
 	base := filepath.Base(path)
@@ -280,6 +286,9 @@ func checkShellFile(repoRoot, path string, violations *[]string) {
 	for i, line := range lines {
 		clean := stripInlineComment(line, "#")
 		if reason := checkStringForDataPath(clean, true); reason != "" {
+			if intSliceContains(compatSymlinkLines[rel], i+1) {
+				continue
+			}
 			*violations = append(*violations, fmt.Sprintf("%s:%d: %s", rel, i+1, strings.TrimSpace(line)))
 		}
 	}

@@ -142,8 +142,8 @@ func TestBuildStepPipelineArgs_NonDemucsMultiStemUsesVocalKeep(t *testing.T) {
 	if !strings.Contains(joined, "--vocal-model") {
 		t.Errorf("expected --vocal-model for non-Demucs multi-stem model, got: %s", joined)
 	}
-	if !strings.Contains(joined, "--vocal-keep all") {
-		t.Errorf("expected --vocal-keep all when all stems are kept, got: %s", joined)
+	if !strings.Contains(joined, "--vocal-keep drums,bass,other,vocals,guitar,piano") {
+		t.Errorf("expected explicit --vocal-keep list when stems are selected, got: %s", joined)
 	}
 	if strings.Contains(joined, "--stem-model") {
 		t.Errorf("did not expect --stem-model for non-Demucs multi-stem model, got: %s", joined)
