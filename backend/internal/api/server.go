@@ -785,17 +785,26 @@ type pipelineStatusJSON struct {
 	GPUType         string  `json:"gpu_type"`
 }
 
-// readPipelineStatusForSong reads the single pipeline_status.json that the
-// pipeline writes (output/pipeline_status.json) and returns the fields relevant
-// for queue status. Missing or unreadable files produce a zero value, which
-// callers treat as "no live info yet".
+// readPipelineStatusForSong reads the per-song pipeline_status.json that the
+// pipeline writes (output/<song>/pipeline_status.json). If that file does not
+// exist, it falls back to the legacy shared output/pipeline_status.json only
+// when its "song" field matches the requested song, so stale shared state from
+// a later job does not corrupt finished jobs.
 func readPipelineStatusForSong(outputDir, song string) pipelineStatusJSON {
 	var st pipelineStatusJSON
-	statusPath := filepath.Join(outputDir, "pipeline_status.json")
-	if data, err := os.ReadFile(statusPath); err == nil {
+	perSongPath := filepath.Join(outputDir, song, "pipeline_status.json")
+	if data, err := os.ReadFile(perSongPath); err == nil {
 		json.Unmarshal(data, &st)
+		return st
 	}
-	return st
+	sharedPath := filepath.Join(outputDir, "pipeline_status.json")
+	if data, err := os.ReadFile(sharedPath); err == nil {
+		json.Unmarshal(data, &st)
+		if st.Song == song {
+			return st
+		}
+	}
+	return pipelineStatusJSON{}
 }
 
 // collectQueueJobs returns the current list of jobs ordered by status priority.
