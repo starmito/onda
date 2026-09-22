@@ -52,6 +52,32 @@ def _write_pipeline_status(status_file, step, progress, chunk, total, device='cu
         pass  # Non-critical; don't crash the pipeline over a status write failure
 
 
+def _ensure_output_length(result, expected_len, context=''):
+    """Force a tensor to have the requested time dimension.
+
+    Trims the tail if it is too long, or zero-pads it if it is too short.
+    Raises a clear ValueError if the mismatch is larger than one chunk,
+    which means the assembly itself is broken and must not be silently masked.
+    """
+    if result.shape[-1] == expected_len:
+        return result
+    diff = result.shape[-1] - expected_len
+    msg = (f"{context}: output length {result.shape[-1]} does not match "
+           f"input length {expected_len} (diff={diff})")
+    # Allow small drift up to a tolerance, but never more than a few samples.
+    if abs(diff) > 64:
+        raise ValueError(msg)
+    if diff > 0:
+        result = result[:, :, :expected_len]
+    else:
+        pad = torch.zeros(
+            (*result.shape[:-1], -diff),
+            dtype=result.dtype, device=result.device
+        )
+        result = torch.cat([result, pad], dim=-1)
+    return result
+
+
 def _process_mix(model, mix, C, step, batch_size, S, device,
                  progress_file=None, pipeline_status=None,
                  progress_base=0, progress_total=1):
@@ -295,8 +321,10 @@ def separate(model_dir, input_path, output_dir="output", progress_file=None, num
             mix = nn.functional.pad(mix, (pad_len, pad_len), mode='reflect')
         result = _process_mix(model, mix, C, step, batch_size, S, device,
                               progress_file, pipeline_status)
-    if pad_len > 0 and audio.shape[1] > 2 * pad_len:
-        result = result[:, :, pad_len:-pad_len]
+        if pad_len > 0 and audio.shape[1] > 2 * pad_len:
+            result = result[:, :, pad_len:-pad_len]
+
+    result = _ensure_output_length(result, audio.shape[1], context='vocal separator output')
     result = result.cpu().numpy()
 
 
