@@ -17,6 +17,7 @@
   import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getGpuInfo, getPresets, getDefaultPreset, clearQueue, cancelQueue, loadUISettings, type InputEntry, type ResultsGroup } from './lib/api';
   import type { QueueJob } from './lib/api';
   import { deriveQueueFileStatus, resolveOutputGroupName, songNameForQueueFile } from './lib/queueState';
+  import { formatEta } from './lib/time';
   import { IconOnda, IconStar, IconVoiceRemove, IconSeparate, IconInstruments, IconUser } from './lib/icons';
   import { getDefaultChecked, applyDefaultChecked, withToggledCheck, withToggledAll } from './lib/queueDefaults';
   import type { QueueFile } from './lib/queueDefaults';
@@ -658,12 +659,14 @@
   function syncQueueFileStatusFromDisk() {
     queueFiles = queueFiles.map(qf => {
       const derived = deriveQueueFileStatus(qf, resultGroups, queueJobs);
-      if (qf.status === derived.status) return qf;
+      const statusChanged = qf.status !== derived.status;
+      const progressChanged = qf.progress !== derived.progress;
+      if (!statusChanged && !progressChanged) return qf;
       const checked = qf.userTouched ? qf.checked : derived.checked;
       return {
         ...qf,
         status: derived.status,
-        progress: derived.status === 'done' ? 100 : 0,
+        progress: derived.progress,
         checked,
       };
     });
@@ -748,10 +751,13 @@
       if (processingJob) {
         pipelineSong = processingJob.song;
         pipelineStep = processingJob.step_name || 'processing';
-        pipelineEta = processingJob.eta || '';
+        pipelineEta = formatEta(processingJob.eta);
         inferenceDevice = processingJob.device || '';
         pipelineModel = processingJob.current_model || '';
         pipelineFlags = processingJob.current_flags || '';
+      } else {
+        // Avoid leaving a stale ETA when the job finishes or disappears.
+        pipelineEta = '';
       }
 
       // Calculate total progress across the active batch (or all jobs if no batch is tracked)

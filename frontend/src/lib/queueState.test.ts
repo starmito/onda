@@ -139,6 +139,7 @@ describe('deriveQueueFileStatus', () => {
     const update = deriveQueueFileStatus(qf, groups, []);
     expect(update.status).toBe('done');
     expect(update.checked).toBe(false);
+    expect(update.progress).toBe(100);
   });
 
   it('marks waiting when stems have been deleted', () => {
@@ -146,6 +147,7 @@ describe('deriveQueueFileStatus', () => {
     const update = deriveQueueFileStatus(qf, [], []);
     expect(update.status).toBe('waiting');
     expect(update.checked).toBe(true);
+    expect(update.progress).toBe(0);
   });
 
   it('prefers an active backend job over disk state', () => {
@@ -154,12 +156,35 @@ describe('deriveQueueFileStatus', () => {
     const jobs: QueueJob[] = [{ song: 'song', status: 'processing', progress: 42 }];
     const update = deriveQueueFileStatus(qf, groups, jobs);
     expect(update.status).toBe('processing');
+    expect(update.progress).toBe(42);
+  });
+
+  it('does not mark done/100 when the song has stems but also has an active job', () => {
+    const qf = makeQueueFile('song.wav', '/srv/input/song.wav', 'done');
+    const groups = [makeGroup('song', ['vocals.wav'])];
+    const jobs: QueueJob[] = [{ song: 'song', status: 'waiting', progress: 0 }];
+    const update = deriveQueueFileStatus(qf, groups, jobs);
+    expect(update.status).not.toBe('done');
+    expect(update.progress).not.toBe(100);
+    expect(update.status).toBe('waiting');
+    expect(update.progress).toBe(0);
+  });
+
+  it('treats blocked_no_gpu jobs as active so the row does not look done', () => {
+    const qf = makeQueueFile('song.wav', '/srv/input/song.wav');
+    const groups = [makeGroup('song', ['vocals.wav'])];
+    const jobs: QueueJob[] = [{ song: 'song', status: 'blocked_no_gpu', progress: 0 }];
+    const update = deriveQueueFileStatus(qf, groups, jobs);
+    expect(update.status).toBe('blocked_no_gpu');
+    expect(update.progress).toBe(0);
   });
 
   it('marks waiting when the group folder exists but is empty of stems', () => {
     const qf = makeQueueFile('song.wav', '/srv/input/song.wav', 'done');
     const groups = [makeGroup('song', [])];
-    expect(deriveQueueFileStatus(qf, groups, []).status).toBe('waiting');
+    const update = deriveQueueFileStatus(qf, groups, []);
+    expect(update.status).toBe('waiting');
+    expect(update.progress).toBe(0);
   });
 });
 

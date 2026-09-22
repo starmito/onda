@@ -29,17 +29,23 @@ export function isSongDoneOnDisk(song: string, groups: ResultsGroup[]): boolean 
   return groups.some((g) => g.files.length > 0 && groupBaseName(g.song) === song);
 }
 
+const ACTIVE_JOB_STATUSES: QueueJob['status'][] = ['processing', 'waiting', 'blocked_no_gpu'];
+
 export interface QueueFileStatusUpdate {
   status: QueueFile['status'];
   checked: boolean;
+  /** Progress to show in the row. Filled from active jobs or disk state. */
+  progress: number;
 }
 
 /**
  * Derives the queue row status from disk and backend jobs.
  *
- * Active backend jobs take precedence.  When there is no active job, the row
- * is "done" only if stems still exist on disk; otherwise it falls back to
- * "waiting" so the user can reprocess it.
+ * Active backend jobs take precedence: if a song has a job that is waiting,
+ * processing or blocked, the row reflects that job and its real progress.
+ * Only when there is no active job for that song can the disk state mark the
+ * row as "done" (100 %).  If there is no active job and no stems on disk, the
+ * row falls back to "waiting" so the user can reprocess it.
  */
 export function deriveQueueFileStatus(
   qf: QueueFile,
@@ -49,15 +55,19 @@ export function deriveQueueFileStatus(
   const song = songNameForQueueFile(qf);
   const job = jobs.find((j) => j.song === song || j.song.startsWith(song));
 
-  if (job && (job.status === 'processing' || job.status === 'waiting' || job.status === 'blocked_no_gpu')) {
-    return { status: job.status, checked: getDefaultChecked(job.status) };
+  if (job && ACTIVE_JOB_STATUSES.includes(job.status)) {
+    return {
+      status: job.status,
+      checked: getDefaultChecked(job.status),
+      progress: job.progress ?? 0,
+    };
   }
 
   if (isSongDoneOnDisk(song, groups)) {
-    return { status: 'done', checked: getDefaultChecked('done') };
+    return { status: 'done', checked: getDefaultChecked('done'), progress: 100 };
   }
 
-  return { status: 'waiting', checked: getDefaultChecked('waiting') };
+  return { status: 'waiting', checked: getDefaultChecked('waiting'), progress: 0 };
 }
 
 /** Extracts the song name from a queue file (input path or file name). */
