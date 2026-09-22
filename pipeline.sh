@@ -140,7 +140,11 @@ _report_step() {
         fi
     fi
 
-    python3 "$PROGRESS_TRACKER" update-step "$STATUS_FILE" "$step_idx" "$status" "$step_progress" "$elapsed" "$TOTAL_STEPS" "$tracker_step_name" >/dev/null 2>&1 || true
+    local tracker_output tracker_rc=0
+    tracker_output=$(python3 "$PROGRESS_TRACKER" update-step "$STATUS_FILE" "$step_idx" "$status" "$step_progress" "$elapsed" "$TOTAL_STEPS" "$tracker_step_name" 2>&1) || tracker_rc=$?
+    if [ "$tracker_rc" -ne 0 ]; then
+        echo "⚠️  Progress tracker failed (rc=$tracker_rc): $tracker_output" >&2
+    fi
     _sync_per_song_status
 }
 
