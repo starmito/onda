@@ -350,3 +350,138 @@ func TestHandleDeleteModel_CleansUploadedModelDirectory(t *testing.T) {
 		t.Errorf("model directory %q should have been removed", modelDir)
 	}
 }
+
+func TestHandleModelsUpload_UsesConfigStemsWithoutType(t *testing.T) {
+	s, root := setupModelUploadTest(t)
+
+	yaml := `training:
+  instruments:
+    - vocals
+    - drums
+    - bass
+    - other
+    - guitar
+    - piano
+  target_instrument: vocals
+`
+	files := []struct{ name string; data []byte }{
+		{"SixStem.ckpt", []byte("weights")},
+		{"SixStem.yaml", []byte(yaml)},
+	}
+	body, contentType := buildModelUploadBodyFiles(t, files)
+	req := httptest.NewRequest(http.MethodPost, "/api/models/upload", body)
+	req.Header.Set("Content-Type", contentType)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ModelUploadResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(resp.Stems) != 6 {
+		t.Errorf("stems = %v, want 6 stems", resp.Stems)
+	}
+	if resp.NumStems != 6 {
+		t.Errorf("num_stems = %d, want 6", resp.NumStems)
+	}
+	if resp.Inferred {
+		t.Error("inferred should be false when config provides stems")
+	}
+
+	modelDir := filepath.Join(root, "models", "VR_Models", "SixStem")
+	manifest, ok := loadModelManifest(modelDir)
+	if !ok {
+		t.Fatalf("failed to load generated manifest")
+	}
+	if len(manifest.Stems.Stems) != 6 {
+		t.Errorf("manifest stems = %v, want 6 stems", manifest.Stems.Stems)
+	}
+	if manifest.Inferred {
+		t.Error("manifest inferred should be false")
+	}
+}
+
+func TestHandleModelsUpload_ConfigOnlyUpdatesManifest(t *testing.T) {
+	s, root := setupModelUploadTest(t)
+
+	// Upload the weight alone first: the manifest is inferred.
+	files := []struct{ name string; data []byte }{
+		{"LaterConfig.ckpt", []byte("weights")},
+	}
+	body, contentType := buildModelUploadBodyFiles(t, files)
+	uploadReq := httptest.NewRequest(http.MethodPost, "/api/models/upload", body)
+	uploadReq.Header.Set("Content-Type", contentType)
+	s.mux.ServeHTTP(httptest.NewRecorder(), uploadReq)
+
+	modelDir := filepath.Join(root, "models", "VR_Models", "LaterConfig")
+	manifest1, ok := loadModelManifest(modelDir)
+	if !ok {
+		t.Fatalf("initial manifest missing")
+	}
+	if !manifest1.Inferred {
+		t.Error("initial manifest should be inferred")
+	}
+
+	// Upload the matching config later: the manifest must be updated.
+	yaml := `training:
+  instruments:
+    - drums
+    - bass
+    - other
+`
+	cfgFiles := []struct{ name string; data []byte }{
+		{"LaterConfig.yaml", []byte(yaml)},
+	}
+	body, contentType = buildModelUploadBodyFiles(t, cfgFiles)
+	req := httptest.NewRequest(http.MethodPost, "/api/models/upload", body)
+	req.Header.Set("Content-Type", contentType)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for config-only upload, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ModelUploadResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(resp.Stems) != 3 {
+		t.Errorf("stems = %v, want [drums bass other]", resp.Stems)
+	}
+	if resp.Inferred {
+		t.Error("inferred should be false after config update")
+	}
+
+	manifest2, ok := loadModelManifest(modelDir)
+	if !ok {
+		t.Fatalf("updated manifest missing")
+	}
+	if len(manifest2.Stems.Stems) != 3 {
+		t.Errorf("updated manifest stems = %v, want 3 stems", manifest2.Stems.Stems)
+	}
+	if manifest2.Inferred {
+		t.Error("updated manifest should not be inferred")
+	}
+}
+
+func TestHandleModelsUpload_ConfigOnlyNoMatchRejects(t *testing.T) {
+	s, _ := setupModelUploadTest(t)
+
+	files := []struct{ name string; data []byte }{
+		{"Orphan.yaml", []byte("model:\n  type: bs_roformer\n")},
+	}
+	body, contentType := buildModelUploadBodyFiles(t, files)
+	req := httptest.NewRequest(http.MethodPost, "/api/models/upload", body)
+	req.Header.Set("Content-Type", contentType)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
+	}
+}

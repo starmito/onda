@@ -380,14 +380,21 @@ func generateModelManifest(modelDir, filename, origin string) error {
 
 	var modelType string
 	var stems modelManifestStems
-	inferred := false
+	configFound := false
 
 	if cfg, ok := parseConfigForManifest(modelDir); ok {
-		modelType = cfg.Type
-		stems = modelManifestStems{
-			Stems:    cfg.Stems,
-			Target:   cfg.Target,
-			NumStems: cfg.NumStems,
+		configFound = true
+		if cfg.Type != "" {
+			modelType = cfg.Type
+		}
+		if len(cfg.Stems) > 0 {
+			stems = modelManifestStems{
+				Stems:    cfg.Stems,
+				Target:   cfg.Target,
+				NumStems: cfg.NumStems,
+			}
+		} else if cfg.NumStems > 0 {
+			stems.NumStems = cfg.NumStems
 		}
 		if stems.NumStems == 0 {
 			stems.NumStems = len(stems.Stems)
@@ -396,8 +403,12 @@ func generateModelManifest(modelDir, filename, origin string) error {
 
 	if modelType == "" {
 		modelType = inferManifestType(filename)
+	}
+	if len(stems.Stems) == 0 {
 		stems = inferManifestStems(modelType, filename)
-		inferred = true
+	}
+	if stems.NumStems == 0 {
+		stems.NumStems = len(stems.Stems)
 	}
 
 	manifest := modelManifest{
@@ -406,7 +417,7 @@ func generateModelManifest(modelDir, filename, origin string) error {
 		Stems:    stems,
 		Flags:    inferManifestFlags(modelType),
 		Origin:   origin,
-		Inferred: inferred,
+		Inferred: !configFound,
 	}
 	data, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
@@ -414,6 +425,48 @@ func generateModelManifest(modelDir, filename, origin string) error {
 	}
 	data = append(data, '\n')
 	return os.WriteFile(filepath.Join(modelDir, "model.manifest.json"), data, 0644)
+}
+
+// findModelDirByBaseName searches the models tree for an existing model
+// directory whose name matches base and that contains at least one weight file.
+// It returns the model directory, the name of the first weight file found and
+// true on success.
+func findModelDirByBaseName(base string) (string, string, bool) {
+	for _, subdir := range modelSubdirs {
+		dirPath := filepath.Join(modelsBasePath(), subdir)
+		found := false
+		modelDir := ""
+		weightFile := ""
+		_ = filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil || !info.IsDir() || found {
+				return nil
+			}
+			if filepath.Base(path) != base {
+				return nil
+			}
+			entries, err := os.ReadDir(path)
+			if err != nil {
+				return nil
+			}
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				ext := strings.ToLower(filepath.Ext(entry.Name()))
+				if modelUploadExts[ext] {
+					modelDir = path
+					weightFile = entry.Name()
+					found = true
+					return filepath.SkipAll
+				}
+			}
+			return nil
+		})
+		if found {
+			return modelDir, weightFile, true
+		}
+	}
+	return "", "", false
 }
 
 // computeDisplayName derives a human-friendly display name from the file's

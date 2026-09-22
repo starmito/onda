@@ -134,50 +134,87 @@ func (s *Server) handleModelsUpload(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	var modelDir, safeName, modelName, categoryDir string
+	var destPath string
+	var size int64
+
 	if len(weightParts) == 0 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		json.NewEncoder(w).Encode(map[string]string{"error": "no model weight file provided"})
-		return
-	}
-
-	// Process one weight file per request. The frontend uploads files one by one.
-	weight := weightParts[0]
-	safeName := weight.Filename
-	ext := strings.ToLower(filepath.Ext(safeName))
-	modelName := strings.TrimSuffix(safeName, ext)
-	categoryDir := detectCategoryFromFilename(safeName)
-	modelDir := filepath.Join(modelsBasePath(), categoryDir, modelName)
-
-	if err := os.MkdirAll(modelDir, 0755); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to create model directory"})
-		return
-	}
-
-	destPath := filepath.Join(modelDir, safeName)
-	size, err := saveUploadPart(weight, destPath)
-	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		json.NewEncoder(w).Encode(map[string]string{"error": "failed to save model file"})
-		return
-	}
-
-	// Save every sidecar config sent in the same request; the manifest parser
-	// will look at all YAML/JSON files in the model directory.
-	for _, cfg := range configParts {
-		cfgName := cfg.Filename
-		cfgDest := filepath.Join(modelDir, cfgName)
-		if _, err := saveUploadPart(cfg, cfgDest); err != nil {
-			Log("backend", "warn", fmt.Sprintf("failed to save config %s: %v", cfgName, err))
+		// Config-only upload: each sidecar config must match an existing model
+		// directory by base name. The manifest is regenerated from the config.
+		processed := false
+		for _, cfg := range configParts {
+			cfgName := cfg.Filename
+			ext := strings.ToLower(filepath.Ext(cfgName))
+			base := strings.TrimSuffix(cfgName, ext)
+			foundDir, weightFile, ok := findModelDirByBaseName(base)
+			if !ok {
+				continue
+			}
+			cfgDest := filepath.Join(foundDir, cfgName)
+			if _, err := saveUploadPart(cfg, cfgDest); err != nil {
+				Log("backend", "warn", fmt.Sprintf("failed to save config %s: %v", cfgName, err))
+				continue
+			}
+			if err := generateModelManifest(foundDir, weightFile, "upload"); err != nil {
+				Log("backend", "warn", fmt.Sprintf("failed to regenerate manifest for %s: %v", weightFile, err))
+				continue
+			}
+			processed = true
+			modelDir = foundDir
+			safeName = weightFile
 		}
-	}
+		if !processed {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": "no matching model found for the provided config"})
+			return
+		}
+		modelName = strings.TrimSuffix(safeName, filepath.Ext(safeName))
+		categoryDir = detectCategoryFromFilename(safeName)
+		destPath = filepath.Join(modelDir, safeName)
+		if info, err := os.Stat(destPath); err == nil {
+			size = info.Size()
+		}
+	} else {
+		// Process one weight file per request. The frontend uploads files one by one.
+		weight := weightParts[0]
+		safeName = weight.Filename
+		ext := strings.ToLower(filepath.Ext(safeName))
+		modelName = strings.TrimSuffix(safeName, ext)
+		categoryDir = detectCategoryFromFilename(safeName)
+		modelDir = filepath.Join(modelsBasePath(), categoryDir, modelName)
 
-	// Generate manifest so the model is immediately usable.
-	if err := generateModelManifest(modelDir, safeName, "upload"); err != nil {
-		Log("backend", "warn", fmt.Sprintf("failed to generate manifest for %s: %v", modelName, err))
+		if err := os.MkdirAll(modelDir, 0755); err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "failed to create model directory"})
+			return
+		}
+
+		destPath = filepath.Join(modelDir, safeName)
+		var err error
+		size, err = saveUploadPart(weight, destPath)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": "failed to save model file"})
+			return
+		}
+
+		// Save every sidecar config sent in the same request; the manifest parser
+		// will look at all YAML/JSON files in the model directory.
+		for _, cfg := range configParts {
+			cfgName := cfg.Filename
+			cfgDest := filepath.Join(modelDir, cfgName)
+			if _, err := saveUploadPart(cfg, cfgDest); err != nil {
+				Log("backend", "warn", fmt.Sprintf("failed to save config %s: %v", cfgName, err))
+			}
+		}
+
+		// Generate manifest so the model is immediately usable.
+		if err := generateModelManifest(modelDir, safeName, "upload"); err != nil {
+			Log("backend", "warn", fmt.Sprintf("failed to generate manifest for %s: %v", modelName, err))
+		}
 	}
 
 	manifest, ok := loadModelManifest(modelDir)
