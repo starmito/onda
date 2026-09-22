@@ -192,7 +192,14 @@ trap 'report_step_failure "${CURRENT_STEP:-unknown}" $? "${CURRENT_STEP_LOG:-}"'
 # while a long-running docker exec is in progress.
 update_elapsed_loop() {
     local LOOP_LAST_ETA=""
+    local parent_pid=$PPID
+    # Exit cleanly when the parent step finishes and sends SIGTERM, or when
+    # the parent dies and this background job is reparented to init (PPID 1).
+    trap 'exit 0' TERM
     while true; do
+        if [ "$PPID" -ne "$parent_pid" ]; then
+            exit 0
+        fi
         sleep 1
         if [ -f "$STATUS_FILE" ]; then
             now=$(date +%s)
@@ -269,7 +276,7 @@ run_with_elapsed() {
     if [ -n "$step_log" ]; then
         mkdir -p "$(dirname "$step_log")"
         : > "$step_log"
-        "$@" > >(tee -a "$step_log") 2>&1
+        "$@" 2>&1 | tee -a "$step_log"
     else
         "$@"
     fi
@@ -2006,7 +2013,12 @@ if $VOCAL; then
     # Delegate to the same step function used in chained mode so user/UVR/model
     # config precedence and effective-param logging is identical for all vocal
     # model types (MDX-C, SCNet, MDXNet ONNX, RoFormer).
-    run_vocal_step "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}"
+    run_vocal_step "${vocal_model_dir}" "${INPUT}" "${TMP_VOCAL}" || {
+        vocal_rc=$?
+        echo "❌ Vocal step failed with exit code ${vocal_rc}" >&2
+        report_step_failure "vocal" "${vocal_rc}" "${OUTPUT}/_step_${CURRENT_STEP:-unknown}.log"
+        exit "${vocal_rc}"
+    }
     echo "   ✅ Vocal model done"
 
     # Find instrumental (for demucs or for keep=all/list)
