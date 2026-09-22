@@ -15,45 +15,46 @@ func TestEstimateVRAMMB_Empirical(t *testing.T) {
 		chunkSize     int
 		batchSize     int
 		demucsSegment int
+		duration      int
 		want          int
 		tolerance     float64
 	}{
-		{"viperx 64 b1", "BS_Roformer_Viperx", 64, 0, 1, 0, 1662, 0.05},
-		{"viperx 128 b1", "BS_Roformer_Viperx", 128, 0, 1, 0, 2152, 0.05},
-		{"viperx 256 b1", "BS_Roformer_Viperx", 256, 0, 1, 0, 2898, 0.05},
-		{"viperx 512 b1", "BS_Roformer_Viperx", 512, 0, 1, 0, 4656, 0.05},
-		{"viperx 1024 b1", "BS_Roformer_Viperx", 1024, 0, 1, 0, 8116, 0.05},
-		{"viperx 256 b2", "BS_Roformer_Viperx", 256, 0, 2, 0, 4724, 0.05},
-		{"viperx 512 b2", "BS_Roformer_Viperx", 512, 0, 2, 0, 8178, 0.05},
-		{"viperx 1024 b2", "BS_Roformer_Viperx", 1024, 0, 2, 0, 15108, 0.05},
-		{"demucs seg0", "htdemucs_ft", 0, 0, 0, 0, 1572, 0.05},
-		{"demucs seg7", "htdemucs_ft", 0, 0, 0, 7, 1106, 0.05},
+		{"vocal 64 b1", "BS_Roformer_Viperx", 64, 0, 1, 0, 0, 2096, 0.05},
+		{"vocal 128 b1", "BS_Roformer_Viperx", 128, 0, 1, 0, 0, 2192, 0.05},
+		{"vocal 256 b1", "BS_Roformer_Viperx", 256, 0, 1, 0, 0, 2384, 0.05},
+		{"vocal 512 b1", "BS_Roformer_Viperx", 512, 0, 1, 0, 0, 2768, 0.05},
+		{"vocal 1024 b1", "BS_Roformer_Viperx", 1024, 0, 1, 0, 0, 3536, 0.05},
+		{"vocal 256 b2", "BS_Roformer_Viperx", 256, 0, 2, 0, 0, 3268, 0.05},
+		{"vocal 512 b2", "BS_Roformer_Viperx", 512, 0, 2, 0, 0, 4036, 0.05},
+		{"vocal 1024 b2", "BS_Roformer_Viperx", 1024, 0, 2, 0, 0, 5572, 0.05},
+		{"demucs seg0", "htdemucs_ft", 0, 0, 0, 0, 0, 1572, 0.05},
+		{"demucs seg7", "htdemucs_ft", 0, 0, 0, 7, 0, 1106, 0.05},
 
 		// MDX23C measured peaks (batch 1). segment_size is dim_t directly.
-		{"mdx dim_t256 b1", "MDX23C", 256, 0, 1, 0, 2080, 0.05},
-		{"mdx dim_t512 b1", "MDX23C", 512, 0, 1, 0, 2178, 0.05},
-		{"mdx dim_t768 b1", "MDX23C", 768, 0, 1, 0, 2444, 0.05},
-		{"mdx dim_t1024 b1", "MDX23C", 1024, 0, 1, 0, 3716, 0.05},
-		{"mdx dim_t256 b2", "MDX23C", 256, 0, 2, 0, 4160, 0.05},
-		{"mdx default segment0", "MDX23C", 0, 0, 1, 0, 2080, 0.05},
-		{"mdxnet dim_t256 b1", "MDXNet_Vocals", 256, 0, 1, 0, 2080, 0.05},
-		{"onnx dim_t256 b1", "UVR_MDXNET_3_9662", 256, 0, 1, 0, 2080, 0.05},
+		{"mdx dim_t256 b1", "MDX23C", 256, 0, 1, 0, 0, 2080, 0.05},
+		{"mdx dim_t512 b1", "MDX23C", 512, 0, 1, 0, 0, 2178, 0.05},
+		{"mdx dim_t768 b1", "MDX23C", 768, 0, 1, 0, 0, 2444, 0.05},
+		{"mdx dim_t1024 b1", "MDX23C", 1024, 0, 1, 0, 0, 3716, 0.05},
+		{"mdx dim_t256 b2", "MDX23C", 256, 0, 2, 0, 0, 4160, 0.05},
+		{"mdx default segment0", "MDX23C", 0, 0, 1, 0, 0, 2080, 0.05},
+		{"mdxnet dim_t256 b1", "MDXNet_Vocals", 256, 0, 1, 0, 0, 2080, 0.05},
+		{"onnx dim_t256 b1", "UVR_MDXNET_3_9662", 256, 0, 1, 0, 0, 2080, 0.05},
 
 		// SCNet measured peaks. Base is linear in chunk_size (batch 1),
 		// then multiplied by batch. Overlap is ignored.
-		{"scnet chunk242550 b1", "SCNet", 0, 242550, 1, 0, 600, 0.05},
-		{"scnet chunk485100 b1", "SCNet", 0, 485100, 1, 0, 948, 0.05},
-		{"scnet chunk970200 b1", "SCNet", 0, 970200, 1, 0, 1762, 0.05},
-		{"scnet chunk485100 b2", "SCNet", 0, 485100, 2, 0, 1896, 0.05},
-		{"scnet chunk485100 b4", "SCNet", 0, 485100, 4, 0, 3792, 0.05},
-		{"scnet chunk485100 b8", "SCNet", 0, 485100, 8, 0, 7584, 0.05},
+		{"scnet chunk242550 b1", "SCNet", 0, 242550, 1, 0, 0, 600, 0.05},
+		{"scnet chunk485100 b1", "SCNet", 0, 485100, 1, 0, 0, 948, 0.05},
+		{"scnet chunk970200 b1", "SCNet", 0, 970200, 1, 0, 0, 1762, 0.05},
+		{"scnet chunk485100 b2", "SCNet", 0, 485100, 2, 0, 0, 1896, 0.05},
+		{"scnet chunk485100 b4", "SCNet", 0, 485100, 4, 0, 0, 3792, 0.05},
+		{"scnet chunk485100 b8", "SCNet", 0, 485100, 8, 0, 0, 7584, 0.05},
 
-		{"unknown fallback", "not_a_known_model_v1", 0, 0, 0, 0, 2000, 0.05},
+		{"unknown fallback", "not_a_known_model_v1", 0, 0, 0, 0, 0, 2000, 0.05},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := estimateVRAMMB(tt.model, tt.segmentSize, tt.chunkSize, tt.batchSize, tt.demucsSegment)
+			got := estimateVRAMMB(tt.model, tt.segmentSize, tt.chunkSize, tt.batchSize, tt.demucsSegment, tt.duration)
 			tol := tt.tolerance
 			if tol <= 0 {
 				tol = 0.05
@@ -62,8 +63,8 @@ func TestEstimateVRAMMB_Empirical(t *testing.T) {
 			upper := float64(tt.want) * (1 + tol)
 			if float64(got) < lower || float64(got) > upper {
 				t.Errorf(
-					"estimateVRAMMB(%q, %d, %d, %d, %d) = %d; want within %.0f%% of %d (%.2f..%.2f)",
-					tt.model, tt.segmentSize, tt.chunkSize, tt.batchSize, tt.demucsSegment,
+					"estimateVRAMMB(%q, %d, %d, %d, %d, %d) = %d; want within %.0f%% of %d (%.2f..%.2f)",
+					tt.model, tt.segmentSize, tt.chunkSize, tt.batchSize, tt.demucsSegment, tt.duration,
 					got, tol*100, tt.want, lower, upper,
 				)
 			}
@@ -169,24 +170,24 @@ func TestCheckVramHeadroom_NeverRequiresMoreThanTotal(t *testing.T) {
 		wantWarning   string
 	}{
 		{
-			name:         "viperx ample free fits with margin",
+			name:         "vocal ample free fits with margin",
 			freeMB:       16000,
 			totalMB:      16311,
 			model:        "BS_Roformer_Viperx",
 			stepType:     "vocal",
 			wantOK:       true,
-			wantRequired: 1447,
+			wantRequired: 2400,
 			wantWarning:  "",
 		},
 		{
-			name:         "viperx free below requirement blocks",
+			name:         "vocal free below requirement blocks",
 			freeMB:       950,
 			totalMB:      16311,
 			model:        "BS_Roformer_Viperx",
 			stepType:     "vocal",
 			wantOK:       false,
-			wantRequired: 1447,
-			wantReason:   `insufficient VRAM: model "BS_Roformer_Viperx" (step "vocal") needs ~1447 MiB (with 20% margin), only 950 MiB free`,
+			wantRequired: 2400,
+			wantReason:   `insufficient VRAM: model "BS_Roformer_Viperx" (step "vocal") needs ~2400 MiB (with 20% margin), only 950 MiB free`,
 		},
 		{
 			name:         "demucs margin fits free above requirement",
@@ -215,7 +216,7 @@ func TestCheckVramHeadroom_NeverRequiresMoreThanTotal(t *testing.T) {
 			stepType:      "vocal",
 			fallbackModel: "BS_Roformer_Viperx",
 			wantOK:        true,
-			wantRequired:  1447,
+			wantRequired:  2400,
 			wantWarning:   "",
 		},
 	}
@@ -239,7 +240,7 @@ func TestCheckVramHeadroom_NeverRequiresMoreThanTotal(t *testing.T) {
 	}
 }
 
-func TestRamRequiredMB_MeasuredViperx(t *testing.T) {
+func TestRamRequiredMB_MeasuredVocal(t *testing.T) {
 	got := ramRequiredMB("BS_Roformer_Viperx", "vocal")
 	want := 2352 // round(2045 * 1.15)
 	if got != want {
@@ -248,10 +249,10 @@ func TestRamRequiredMB_MeasuredViperx(t *testing.T) {
 
 	ok, _, reason := checkRamHeadroom(4700, "BS_Roformer_Viperx", "vocal")
 	if !ok {
-		t.Errorf("checkRamHeadroom(4700, viperx, vocal) ok = false, want true")
+		t.Errorf("checkRamHeadroom(4700, BS_Roformer_Viperx, vocal) ok = false, want true")
 	}
 	if reason != "" {
-		t.Errorf("checkRamHeadroom(4700, viperx, vocal) reason = %q, want empty", reason)
+		t.Errorf("checkRamHeadroom(4700, BS_Roformer_Viperx, vocal) reason = %q, want empty", reason)
 	}
 }
 
@@ -284,5 +285,143 @@ func TestHandleVRAMCalculator_ClassifiesModelType(t *testing.T) {
 	}
 	if resp.Models[0].Type != "demucs" {
 		t.Errorf("expected type demucs, got %q", resp.Models[0].Type)
+	}
+}
+
+func TestHandleVRAMCalculator_UsesMeasuredPeaks(t *testing.T) {
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)
+
+	tests := []struct {
+		name     string
+		query    string
+		wantVRAM int
+		reliable bool
+	}{
+		{
+			name:     "BS_Roformer_SW_6stem measured peak",
+			query:    "models=BS_Roformer_SW_6stem&chunk_size=485100&batch_size=1&duration=30",
+			wantVRAM: 2803,
+			reliable: true,
+		},
+		{
+			name:     "SCNet_MUSDB18 whole song measured peak",
+			query:    "models=SCNet_MUSDB18&chunk_size=0&batch_size=1&duration=296",
+			wantVRAM: 6372,
+			reliable: true,
+		},
+		{
+			name:     "SCNet_MUSDB18 whole song scaled down",
+			query:    "models=SCNet_MUSDB18&chunk_size=0&batch_size=1&duration=148",
+			wantVRAM: 3186,
+			reliable: true,
+		},
+		{
+			name:     "Roformer chunk_size ignored in analytical estimate triggers warning",
+			query:    "models=BS_Roformer_SW_6stem&segment_size=1101&chunk_size=100000&batch_size=1",
+			wantVRAM: 3652, // round(1500 + (500 + 1.5*1101) * 1)
+			reliable: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/gpu/vram-calculator?"+tt.query, nil)
+			rr := httptest.NewRecorder()
+			s.mux.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+			}
+
+			var resp VRAMCalculatorResponse
+			if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("failed to decode response: %v", err)
+			}
+			if len(resp.Models) != 1 {
+				t.Fatalf("expected 1 model, got %d", len(resp.Models))
+			}
+			if resp.Models[0].VRAMMB != tt.wantVRAM {
+				t.Errorf("VRAM = %d, want %d", resp.Models[0].VRAMMB, tt.wantVRAM)
+			}
+			if resp.Reliable != tt.reliable {
+				t.Errorf("reliable = %v, want %v", resp.Reliable, tt.reliable)
+			}
+		})
+	}
+}
+
+func TestHandleVRAMCalculator_ViperxDurationAware(t *testing.T) {
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)
+
+	tests := []struct {
+		name     string
+		query    string
+		wantVRAM int
+		maxVRAM  int
+		minVRAM  int
+		fits     bool
+		reliable bool
+	}{
+		{
+			name:     "Viperx short audio is not rejected",
+			query:    "models=BS_Roformer_Viperx&segment_size=1276&batch_size=4&duration=3",
+			maxVRAM:  6000,
+			minVRAM:  3000,
+			fits:     true,
+			reliable: false,
+		},
+		{
+			name:     "Viperx long audio warns honestly",
+			query:    "models=BS_Roformer_Viperx&segment_size=1276&batch_size=4&duration=300",
+			maxVRAM:  15000,
+			minVRAM:  9000,
+			fits:     true,
+			reliable: false,
+		},
+		{
+			name:     "SW measured peak still used with long audio",
+			query:    "models=BS_Roformer_SW_6stem&chunk_size=485100&batch_size=1&duration=300",
+			wantVRAM: 2803,
+			fits:     true,
+			reliable: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/api/gpu/vram-calculator?"+tt.query, nil)
+			rr := httptest.NewRecorder()
+			s.mux.ServeHTTP(rr, req)
+
+			if rr.Code != http.StatusOK {
+				t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+			}
+
+			var resp VRAMCalculatorResponse
+			if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+				t.Fatalf("failed to decode response: %v", err)
+			}
+			if len(resp.Models) != 1 {
+				t.Fatalf("expected 1 model, got %d", len(resp.Models))
+			}
+			vram := resp.Models[0].VRAMMB
+			if tt.wantVRAM > 0 && vram != tt.wantVRAM {
+				t.Errorf("VRAM = %d, want %d", vram, tt.wantVRAM)
+			}
+			if tt.minVRAM > 0 && vram < tt.minVRAM {
+				t.Errorf("VRAM = %d, want at least %d", vram, tt.minVRAM)
+			}
+			if tt.maxVRAM > 0 && vram > tt.maxVRAM {
+				t.Errorf("VRAM = %d, want at most %d", vram, tt.maxVRAM)
+			}
+			if resp.Fits != tt.fits {
+				t.Errorf("fits = %v, want %v", resp.Fits, tt.fits)
+			}
+			if resp.Reliable != tt.reliable {
+				t.Errorf("reliable = %v, want %v", resp.Reliable, tt.reliable)
+			}
+		})
 	}
 }

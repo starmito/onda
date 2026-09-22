@@ -374,7 +374,7 @@ func detectModelTypeByName(repo, filename string) (string, bool) {
 	if strings.Contains(s, "htdemucs") || strings.Contains(s, "demucs") {
 		return "htdemucs", true
 	}
-	if strings.Contains(s, "roformer") || strings.Contains(s, "viperx") {
+	if strings.Contains(s, "roformer") {
 		return "bs_roformer", true
 	}
 	// ONNX vocal models without a better signal are treated as MDX-Net.

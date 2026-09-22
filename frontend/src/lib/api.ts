@@ -45,6 +45,9 @@ export interface HealthComponent {
   type?: 'cuda' | 'cpu';
   warning?: string;
   info?: string;
+  usable_by_torch?: boolean;
+  torch_info?: string;
+  code?: string;
 }
 
 export interface VersionMismatchItem {
@@ -109,6 +112,19 @@ export interface StatusResponse {
 
 export interface UploadResponse {
   path: string;
+}
+
+export interface ModelUploadResponse {
+  name: string;
+  display_name: string;
+  category: string;
+  type: string;
+  path: string;
+  size_mb: number;
+  stems?: string[];
+  num_stems?: number;
+  manifest_missing?: boolean;
+  inferred?: boolean;
 }
 
 export function downloadUrl(song: string, file: string): string {
@@ -254,9 +270,16 @@ export interface LocalModel {
   name: string;
   display_name?: string;
   category: string;
+  type: string;
   size_mb: number;
   vram_estimate_mb?: number;
   path: string;
+  stems?: string[];
+  num_stems?: number;
+  target?: string | null;
+  manifest_missing?: boolean;
+  inferred?: boolean;
+  origin?: string;
 }
 
 export interface LocalModelsResponse {
@@ -355,17 +378,28 @@ export async function cancelDownload(
   return (await res.json()) as DownloadStatusResponse;
 }
 
-export async function uploadModel(file: File): Promise<UploadResponse> {
+export async function uploadModel(files: File[]): Promise<ModelUploadResponse> {
   const formData = new FormData();
-  formData.append('file', file);
-  const res = await fetch(`${API_BASE}/api/upload?type=model`, {
+  for (const file of files) {
+    formData.append('files', file);
+  }
+  const res = await fetch(`${API_BASE}/api/models/upload`, {
     method: 'POST',
     body: formData,
   });
   if (!res.ok) {
-    throw new Error(`Model upload failed with status ${res.status}: ${res.statusText}`);
+    const body = await res.text();
+    throw new Error(`Model upload failed (${res.status}): ${body || res.statusText}`);
   }
-  return (await res.json()) as UploadResponse;
+  return (await res.json()) as ModelUploadResponse;
+}
+
+export async function getUploadedModels(): Promise<LocalModelsResponse> {
+  const res = await fetch(`${API_BASE}/api/models/uploads`);
+  if (!res.ok) {
+    throw new Error(`Uploaded models fetch failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as LocalModelsResponse;
 }
 
 // ---- GPU monitor ----
@@ -377,6 +411,9 @@ export interface GpuInfo {
   temperature_c: number;
   runtime: string;
   ok: boolean;
+  usable_by_torch: boolean;
+  torch_info?: string;
+  error?: string;
 }
 
 export async function getGpuInfo(): Promise<GpuInfo> {
@@ -384,11 +421,7 @@ export async function getGpuInfo(): Promise<GpuInfo> {
   if (!res.ok) {
     throw new Error(`Failed to fetch GPU info (status ${res.status}): ${res.statusText}`);
   }
-  const gpu = (await res.json()) as GpuInfo;
-  if (!gpu.ok) {
-    throw new Error(`GPU not available: ${(gpu as any).error || 'unknown error'}`);
-  }
-  return gpu;
+  return (await res.json()) as GpuInfo;
 }
 
 export async function startBackend(): Promise<BackendActionResponse> {
@@ -433,6 +466,8 @@ export interface QueueJob {
   step_name?: string;
   eta?: string;
   device?: string;
+  gpu_type?: string;
+  ran_on_cpu?: boolean;
   current_model?: string;
   current_flags?: string;
   error?: string;
@@ -569,37 +604,50 @@ export async function deletePitchUpload(name: string): Promise<void> {
 }
 
 // ---- ModelConfig ----
-export interface ModelConfigResponse {
-  segment_size: number;
-  overlap: number;
-  chunk_size: number;
-  batch_size: number;
-  device: string;
-  // Demucs PyTorch-specific
-  shifts?: number;
-  segment?: number;
-  jobs?: number;
-  // Raw YAML inference values (for MDX/SCNet display)
-  dim_t?: number;
-  num_overlap?: number;
+export interface ModelFlag {
+  name: string;
+  value: number | string;
+  default: number | string;
+  min?: number;
+  max?: number;
+  step?: number;
+  editable: boolean;
+  type?: 'int' | 'float' | 'choice';
+  choices?: string[];
 }
 
-export async function getModelConfig(modelName: string): Promise<ModelConfigResponse> {
+export interface ModelFlagsResponse {
+  model: string;
+  flags: ModelFlag[];
+}
+
+export async function getModelConfig(modelName: string): Promise<ModelFlagsResponse> {
   const res = await fetch(`${API_BASE}/api/models/${encodeURIComponent(modelName)}/config`);
   if (!res.ok) {
     throw new Error(`Failed to fetch model config (${res.status}): ${res.statusText}`);
   }
-  return (await res.json()) as ModelConfigResponse;
+  return (await res.json()) as ModelFlagsResponse;
 }
 
-export async function setModelConfig(cfg: ModelConfigResponse, modelName: string): Promise<{ ok: string; detail: string }> {
+export async function setModelConfig(
+  flags: Record<string, number | string>,
+  modelName: string,
+): Promise<{ ok: string; detail: string }> {
   const res = await fetch(`${API_BASE}/api/models/${encodeURIComponent(modelName)}/config`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(cfg),
+    body: JSON.stringify({ flags }),
   });
   if (!res.ok) {
-    throw new Error(`Failed to save model config (${res.status}): ${res.statusText}`);
+    let detail = `Failed to save model config (${res.status}): ${res.statusText}`;
+    try {
+      const data = (await res.json()) as { error?: string; detail?: string };
+      if (data.error) detail = data.error;
+      if (data.detail) detail += `: ${data.detail}`;
+    } catch {
+      // keep default detail
+    }
+    throw new Error(detail);
   }
   return (await res.json()) as { ok: string; detail: string };
 }
@@ -693,7 +741,7 @@ export interface StemRoute {
 export interface PipelineStep {
   id: string;
   model: string;
-  type: string;      // 'vocal' | 'viperx' | 'demucs'
+  type: string;      // 'vocal' | 'demucs'
   enabled: boolean;
   stems: Record<string, StemRoute>;
 }
@@ -1094,6 +1142,8 @@ export interface VRAMCalculatorResponse {
   available_vram_mb: number;
   free_after_mb: number;
   fits: boolean;
+  reliable?: boolean;
+  warning?: string;
 }
 
 export async function getVRAMCalculator(params: {

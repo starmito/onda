@@ -95,6 +95,8 @@ type JobState struct {
 	TotalSteps       int         `json:"total_steps"`
 	StepName         string      `json:"step_name"`
 	Device           string      `json:"device,omitempty"`
+	GPUType          string      `json:"gpu_type,omitempty"`
+	RanOnCPU         bool        `json:"ran_on_cpu,omitempty"`
 	CurrentModel     string      `json:"current_model,omitempty"`
 	CurrentFlags     string      `json:"current_flags,omitempty"`
 	BlockedReason    string      `json:"blocked_reason,omitempty"`
@@ -203,6 +205,8 @@ func NewServer(addr string) *http.Server {
 	if err := loadExportProfiles(); err != nil {
 		Log("backend", "warn", "Failed to load export profiles: "+err.Error())
 	}
+	// Migrate legacy UVR JSON configs to the new YAML schema once, idempotently.
+	migrateLegacyModelConfigs()
 	s.mux.HandleFunc("/api/health", s.handleHealth)
 	s.mux.HandleFunc("GET /api/queue/status", s.handleQueueStatus)
 	s.mux.HandleFunc("GET /api/processes/status", s.handleProcessStatus)
@@ -232,6 +236,8 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("GET /api/logs/services", s.handleGetServiceLogs)
 	s.mux.HandleFunc("/api/models", s.handleModels)
 	s.mux.HandleFunc("GET /api/models/list", s.handleModelsList)
+	s.mux.HandleFunc("GET /api/models/uploads", s.handleModelsUploads)
+	s.mux.HandleFunc("POST /api/models/upload", s.handleModelsUpload)
 	s.mux.HandleFunc("POST /api/models/resolve", s.handleModelsResolve)
 	s.mux.HandleFunc("POST /api/models/download", s.handleModelsDownload)
 	s.mux.HandleFunc("POST /api/models/download-hf", s.handleModelsDownloadHF)
@@ -418,7 +424,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	gpuAvailable, gpuInfo, _ := checkGPU()
+	gpuAvailable, gpuInfo, gpuErr := checkGPU()
 	gpuType := detectGPUType()
 
 	// ── Read frontend version ──
@@ -457,11 +463,17 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ── Build components ──
-	var gpuObj map[string]interface{}
-	if gpuAvailable {
-		gpuObj = map[string]interface{}{"ok": true, "type": gpuType, "detail": gpuInfo}
-	} else {
-		gpuObj = map[string]interface{}{"ok": false, "type": gpuType, "code": "E3", "detail": gpuInfo}
+	gpuObj := map[string]interface{}{
+		"ok":              gpuAvailable,
+		"usable_by_torch": gpuAvailable,
+		"type":            gpuType,
+		"detail":          gpuInfo,
+	}
+	if !gpuAvailable {
+		gpuObj["code"] = "E3"
+		if gpuErr != nil {
+			gpuObj["detail"] = gpuErr.Error()
+		}
 	}
 	if gpuType == "cpu" {
 		gpuObj["warning"] = "No GPU detected — running on CPU. Performance may be degraded."
@@ -762,6 +774,40 @@ func (s *Server) expireBlockedJobs() {
 	}
 }
 
+// pipelineStatusJSON mirrors the fields of a single song's
+// output/<song>/pipeline_status.json that the API exposes to clients.
+type pipelineStatusJSON struct {
+	Status          string  `json:"status"`
+	Step            string  `json:"step"`
+	Progress        float64 `json:"progress"`
+	OverallProgress float64 `json:"overall_progress"`
+	Song            string  `json:"song"`
+	Device          string  `json:"device"`
+	GPUType         string  `json:"gpu_type"`
+}
+
+// readPipelineStatusForSong reads the per-song pipeline_status.json that the
+// pipeline writes (output/<song>/pipeline_status.json). If that file does not
+// exist, it falls back to the legacy shared output/pipeline_status.json only
+// when its "song" field matches the requested song, so stale shared state from
+// a later job does not corrupt finished jobs.
+func readPipelineStatusForSong(outputDir, song string) pipelineStatusJSON {
+	var st pipelineStatusJSON
+	perSongPath := filepath.Join(outputDir, song, "pipeline_status.json")
+	if data, err := os.ReadFile(perSongPath); err == nil {
+		json.Unmarshal(data, &st)
+		return st
+	}
+	sharedPath := filepath.Join(outputDir, "pipeline_status.json")
+	if data, err := os.ReadFile(sharedPath); err == nil {
+		json.Unmarshal(data, &st)
+		if st.Song == "" || st.Song == song {
+			return st
+		}
+	}
+	return pipelineStatusJSON{}
+}
+
 // collectQueueJobs returns the current list of jobs ordered by status priority.
 // It mirrors the internal logic of handleQueueStatus so it can be reused by
 // the real-time process status endpoint.
@@ -812,52 +858,40 @@ func (s *Server) collectQueueJobs() []*JobState {
 	}
 	s.jobsMu.Unlock()
 
-	// Read pipeline status file for live step/progress info
-	type PipelineStatusJSON struct {
-		Status          string  `json:"status"`
-		Step            string  `json:"step"`
-		Progress        float64 `json:"progress"`
-		OverallProgress float64 `json:"overall_progress"`
-		Device          string  `json:"device"`
-	}
-	var pipelineStatus PipelineStatusJSON
-	statusPath := filepath.Join(outputDir, "pipeline_status.json")
-	if data, err := os.ReadFile(statusPath); err == nil {
-		json.Unmarshal(data, &pipelineStatus)
-	}
-
-	// Prefer the per-step progress field; fall back to the multi-step overall
-	// progress reported by chained pipelines.
-	liveProgress := pipelineStatus.Progress
-	if liveProgress == 0 && pipelineStatus.OverallProgress > 0 {
-		// multi-step mode reports overall_progress as a 0-100 integer, so
-		// normalize it to the 0-1 fraction used by the rest of the handler.
-		liveProgress = pipelineStatus.OverallProgress / 100.0
-	}
-	if liveProgress < 0 {
-		liveProgress = 0
-	}
-	if liveProgress > 1 {
-		liveProgress = 1
-	}
-
 	// Step name mapping and ordering
-	stepOrder := map[string]int{"vocal": 1, "viperx": 1, "demucs": 2, "rubberband": 3}
+	stepOrder := map[string]int{"vocal": 1, "demucs": 2, "rubberband": 3}
 
 	s.jobsMu.RLock()
 	defer s.jobsMu.RUnlock()
 
 	var jobList []*JobState
 	for _, j := range s.jobs {
+		// Read the per-song pipeline_status.json so the UI can see the effective
+		// device and GPU type for every job, not only the one in progress.
+		st := readPipelineStatusForSong(outputDir, j.Song)
+
 		// For the processing job, inject live step/progress from pipeline_status.json
-		if j.Status == "processing" && pipelineStatus.Status != "" {
-			j.StepName = capitalizeStep(pipelineStatus.Step)
-			j.CurrentStep = stepOrder[pipelineStatus.Step]
+		if j.Status == "processing" && st.Status != "" {
+			j.StepName = capitalizeStep(st.Step)
+			j.CurrentStep = stepOrder[st.Step]
 			if j.CurrentStep == 0 {
 				j.CurrentStep = 1
 			}
+			// Prefer the per-step progress field; fall back to the multi-step overall
+			// progress reported by chained pipelines.
+			liveProgress := st.Progress
+			if liveProgress == 0 && st.OverallProgress > 0 {
+				// multi-step mode reports overall_progress as a 0-100 integer, so
+				// normalize it to the 0-1 fraction used by the rest of the handler.
+				liveProgress = st.OverallProgress / 100.0
+			}
+			if liveProgress < 0 {
+				liveProgress = 0
+			}
+			if liveProgress > 1 {
+				liveProgress = 1
+			}
 			j.Progress = int(liveProgress * 100)
-			j.Device = pipelineStatus.Device
 			// Ensure total_steps is at least current_step
 			if j.TotalSteps < j.CurrentStep {
 				j.TotalSteps = j.CurrentStep
@@ -867,8 +901,11 @@ func (s *Server) collectQueueJobs() []*JobState {
 			j.StepName = "Completado"
 			j.CurrentStep = j.TotalSteps
 		} else if j.Status == "error" {
-			j.FailureDetails = readFailureDiagnostics(filepath.Join(outputDir, j.Song))
+			j.FailureDetails = readFailureDiagnostics(outputDir, j.Song)
 		}
+		j.Device = st.Device
+		j.GPUType = st.GPUType
+		j.RanOnCPU = strings.EqualFold(st.Device, "cpu")
 		jobList = append(jobList, j)
 	}
 	sort.Slice(jobList, func(i, j int) bool {
@@ -968,14 +1005,12 @@ func (s *Server) handleQueueCancel(w http.ResponseWriter, r *http.Request) {
 // capitalizeStep returns a display-friendly step name.
 func capitalizeStep(step string) string {
 	switch step {
-	case "vocal", "viperx":
+	case "vocal":
 		return "Vocal"
 	case "demucs":
 		return "Demucs"
 	case "rubberband":
-		return "Rubberband"
-	case "complete":
-		return "Complete"
+		return "Pitch"
 	default:
 		return step
 	}
@@ -1037,9 +1072,28 @@ func stepModelName(step cli.PipelineStep) string {
 	return "BS_Roformer_Viperx"
 }
 
+// audioDurationSeconds returns the audio duration in seconds for the given
+// input path, or 0 if it cannot be determined. It is a best-effort helper for
+// VRAM estimation so short songs are not rejected with a peak calibrated for
+// long audio.
+func audioDurationSeconds(inputPath string) int {
+	if inputPath == "" {
+		return 0
+	}
+	d, err := detectDuration(inputPath)
+	if err != nil {
+		return 0
+	}
+	sec := int(math.Round(d))
+	if sec < 1 {
+		sec = 1
+	}
+	return sec
+}
+
 // vramConfigForStep builds a VRAMConfig for a multi-step pipeline step.
-func vramConfigForStep(step cli.PipelineStep) VRAMConfig {
-	if step.Type == "demucs" {
+func vramConfigForStep(step cli.PipelineStep, inputPath string) VRAMConfig {
+	if step.Type == "demucs" && isDemucsModel(stepModelName(step)) {
 		cfg := readModelConfigFromYaml(step.Model)
 		seg := int(cfg.Segment)
 		if seg <= 0 {
@@ -1052,12 +1106,13 @@ func vramConfigForStep(step cli.PipelineStep) VRAMConfig {
 		SegmentSize: cfg.SegmentSize,
 		ChunkSize:   cfg.ChunkSize,
 		BatchSize:   cfg.BatchSize,
+		Duration:    audioDurationSeconds(inputPath),
 	}
 }
 
 // vramConfigForModelAndRequest builds a VRAMConfig for the legacy single-step
 // path from the effective model name and the request overrides.
-func vramConfigForModelAndRequest(modelName, stepType string, req SeparateRequest) VRAMConfig {
+func vramConfigForModelAndRequest(modelName, stepType string, req SeparateRequest, inputPath string) VRAMConfig {
 	if stepType == "demucs" {
 		seg := int(req.DemucsSegment)
 		if seg <= 0 {
@@ -1074,6 +1129,7 @@ func vramConfigForModelAndRequest(modelName, stepType string, req SeparateReques
 		SegmentSize: cfg.SegmentSize,
 		ChunkSize:   cfg.ChunkSize,
 		BatchSize:   cfg.BatchSize,
+		Duration:    audioDurationSeconds(inputPath),
 	}
 }
 
@@ -1083,7 +1139,7 @@ func stepTypeForSinglePipeline(job JobRequest) string {
 	if len(job.Steps) == 1 {
 		return job.Steps[0].Type
 	}
-	if job.Config.VocalModel != "" || job.Config.ViperxModel != "" {
+	if job.Config.VocalModel != "" {
 		return "vocal"
 	}
 	if job.Config.StemModel != "" || job.Config.DemucsModel != "" {
@@ -1096,14 +1152,13 @@ func stepTypeForSinglePipeline(job JobRequest) string {
 // pipeline arguments, omitting the output directory, the input file and the
 // --no-clean flag so the result is suitable for logs and UI status.
 //
-// When a model flag (--vocal-model, --viperx-model, --stem-model or
-// --demucs-model) appears more than once, only one occurrence is kept and the
+// When a model flag (--vocal-model, --stem-model or --demucs-model) appears
+// more than once, only one occurrence is kept and the
 // shortest value is preferred (typically the model name rather than its
 // resolved directory path).
 func compactFlags(args []string) string {
 	modelFlags := map[string]string{
 		"--vocal-model":  "",
-		"--viperx-model": "",
 		"--stem-model":   "",
 		"--demucs-model": "",
 	}
@@ -1186,9 +1241,6 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	stepType := stepTypeForSinglePipeline(job)
 	modelName := job.Config.VocalModel
 	if modelName == "" {
-		modelName = job.Config.ViperxModel
-	}
-	if modelName == "" {
 		modelName = job.Config.StemModel
 	}
 	if modelName == "" {
@@ -1208,7 +1260,7 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	if modelName == "" {
 		modelName = "unknown"
 	}
-	vramCfg := vramConfigForModelAndRequest(modelName, stepType, job.Config)
+	vramCfg := vramConfigForModelAndRequest(modelName, stepType, job.Config, job.Config.Input)
 
 	stepName := "pipeline"
 	if len(job.Steps) == 1 {
@@ -1368,7 +1420,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 
 		// Resource headroom checks before launching this step.
 		modelName := stepModelName(step)
-		vramCfg := vramConfigForStep(step)
+		vramCfg := vramConfigForStep(step, job.Config.Input)
 		if !job.Config.ForceVRAM {
 			gpu := gpuInfoProvider()
 			if gpu.OK {
@@ -1489,7 +1541,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 				errMsg = err.Error()
 			}
 			tail := tailOutput(errMsg, 40, 8192)
-			statusPath := filepath.Join(outputDir, "pipeline_status.json")
+			statusPath := filepath.Join(mustSub("output"), "pipeline_status.json")
 			writePipelineStatusFailed(statusPath, step.ID, exitCode, signalName)
 			_ = cleanupOldFailedDirs(outputDir, maxFailedDiagnosticsDirs, step.ID)
 			s.jobsMu.Lock()
@@ -1599,7 +1651,7 @@ func cleanupIntermediateStems(outputDir string, steps []cli.PipelineStep) {
 // stepTypeDisplay returns a human-readable name for a step type.
 func stepTypeDisplay(stepType string) string {
 	switch stepType {
-	case "vocal", "viperx":
+	case "vocal":
 		return "Vocal"
 	case "demucs":
 		return "Demucs"
@@ -1764,9 +1816,6 @@ func writePipelineStatusFailed(statusPath, step string, exitCode int, signalName
 // configuration so queued jobs can be compared later from the log.
 func formatJobConfig(req SeparateRequest) string {
 	vocalModel := req.VocalModel
-	if vocalModel == "" {
-		vocalModel = req.ViperxModel
-	}
 	stemModel := req.StemModel
 	if stemModel == "" {
 		stemModel = req.DemucsModel
@@ -1999,26 +2048,18 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 	}
 
 	// --- BACKWARD COMPAT: old format (no steps) ---
-	if req.Viperx {
-		if req.ViperxKeep != "" {
-			args = append(args, "--vocal-keep", req.ViperxKeep)
-		}
-	}
 	if req.Pitch != 0 {
 		args = append(args, "--pitch", fmt.Sprintf("%d", req.Pitch))
 	}
 
 	// Resolve model paths (pipeline.sh reads inference params from model's YAML)
 	vocalModel := req.VocalModel
-	if vocalModel == "" {
-		vocalModel = req.ViperxModel
-	}
 	if vocalModel != "" {
 		modelDir, resolveErr := resolveModelDirRequired(vocalModel)
 		if resolveErr != nil {
 			return "", nil, nil, nil, resolveErr
 		}
-		args = append(args, "--viperx-model", modelDir)
+		args = append(args, "--vocal-model", modelDir)
 		if isMdxModel(vocalModel) {
 			args = append(args, "--vocal-type", "mdx")
 		} else if isOnnxModel(vocalModel) {
@@ -2099,13 +2140,48 @@ func vocalChunkSizeEnv(model string) string {
 	return ""
 }
 
+// keptStemNames returns the stems of a step that are not explicitly discarded,
+// in a stable order. This is used both for true Demucs models and for multi-stem
+// RoFormer/MDX/SCNet models that the frontend has typed as "demucs".
+func keptStemNames(stems map[string]cli.StemRoute) []string {
+	if len(stems) == 0 {
+		return nil
+	}
+	knownOrder := []string{"drums", "bass", "other", "vocals", "guitar", "piano", "instrumental"}
+	var keep []string
+	for _, stem := range knownOrder {
+		if route, ok := stems[stem]; ok && route.Action != cli.StemDiscard {
+			keep = append(keep, stem)
+		}
+	}
+	// Preserve any extra stems declared by the model manifest that are not in
+	// the canonical list (future-proofing), appended in deterministic order.
+	var extra []string
+	for stem, route := range stems {
+		found := false
+		for _, known := range knownOrder {
+			if stem == known {
+				found = true
+				break
+			}
+		}
+		if !found && route.Action != cli.StemDiscard {
+			extra = append(extra, stem)
+		}
+	}
+	if len(extra) > 0 {
+		sort.Strings(extra)
+		keep = append(keep, extra...)
+	}
+	return keep
+}
+
 // buildStepPipelineArgs builds pipeline.sh arguments for a single PipelineStep.
 // The returned env slice contains any extra environment variables that must be
 // set for the step (e.g. ONDA_CHUNK_SIZE).
 func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device string) (args []string, env []string, err error) {
-
 	switch step.Type {
-	case "viperx", "vocal":
+	case "vocal":
 		modelName := step.Model
 		if modelName == "" {
 			modelName = "BS_Roformer_Viperx"
@@ -2142,21 +2218,18 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 		if stemModel == "" {
 			stemModel = "htdemucs_ft"
 		}
-		args = append(args, "--stem-model", stemModel)
-		// Stem keep based on routing (preserve a stable stem order)
-		if step.Stems != nil {
-			var keep []string
-			for _, stem := range []string{"drums", "bass", "other", "vocals", "guitar", "piano"} {
-				if route, ok := step.Stems[stem]; ok && (route.Action == cli.StemSave || route.Action == cli.ActionRoute) {
-					keep = append(keep, stem)
-				}
-			}
+		// A step typed as "demucs" by the frontend really means "multi-stem model".
+		// Only true Demucs-family models go through the Demucs CLI; everything else
+		// (e.g. BS_Roformer_SW_6stem) is run as a vocal/RoFormer step and the real
+		// stem list from the preset/manifest is passed through --vocal-keep.
+		if isDemucsModel(stemModel) {
+			args = append(args, "--stem-model", stemModel)
+			// Stem keep based on routing (preserve a stable stem order)
+			keep := keptStemNames(step.Stems)
 			if len(keep) > 0 {
 				args = append(args, "--demucs-keep", strings.Join(keep, ","))
 			}
-		}
-		// Apply saved Demucs config when available.
-		if isDemucsModel(stemModel) {
+			// Apply saved Demucs config when available.
 			cfg := readModelConfigFromYaml(stemModel)
 			if cfg.Shifts > 1 {
 				args = append(args, "--shifts", fmt.Sprintf("%d", cfg.Shifts))
@@ -2169,6 +2242,30 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 				args = append(args, "--jobs", fmt.Sprintf("%d", cfg.Jobs))
 			}
 			Log("backend", "info", fmt.Sprintf("Effective step Demucs config for %s: shifts=%d segment=%d jobs=%d", stemModel, cfg.Shifts, int(segment), cfg.Jobs))
+		} else {
+			modelDir, resolveErr := resolveModelDirRequired(stemModel)
+			if resolveErr != nil {
+				return nil, nil, resolveErr
+			}
+			args = append(args, "--vocal-model", modelDir)
+			if isMdxModel(stemModel) {
+				args = append(args, "--vocal-type", "mdx")
+			} else if isOnnxModel(stemModel) {
+				args = append(args, "--vocal-type", "mdxnet")
+			} else if isScnetModel(stemModel) {
+				args = append(args, "--vocal-type", "scnet")
+			}
+			if envVar := vocalChunkSizeEnv(stemModel); envVar != "" {
+				env = append(env, envVar)
+			}
+			keep := keptStemNames(step.Stems)
+			if len(keep) == 0 || len(keep) == len(step.Stems) {
+				args = append(args, "--vocal-keep", "all")
+			} else {
+				args = append(args, "--vocal-keep", strings.Join(keep, ","))
+			}
+			vocalCfg := readModelConfigFromYaml(stemModel)
+			Log("backend", "info", fmt.Sprintf("Effective step multi-stem config for %s: dim_t=%d overlap=%.2f batch=%d chunk=%d", stemModel, vocalCfg.SegmentSize, vocalCfg.Overlap, vocalCfg.BatchSize, vocalCfg.ChunkSize))
 		}
 	}
 
@@ -2177,7 +2274,7 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 		args = append(args, "--device", device)
 	}
 
-	if step.Type == "viperx" || step.Type == "vocal" {
+	if step.Type == "vocal" {
 		if step.Model != "" {
 			vocalCfg := readModelConfigFromYaml(step.Model)
 			Log("backend", "info", fmt.Sprintf("Effective step vocal config for %s: dim_t=%d overlap=%.2f batch=%d chunk=%d", step.Model, vocalCfg.SegmentSize, vocalCfg.Overlap, vocalCfg.BatchSize, vocalCfg.ChunkSize))
@@ -2250,13 +2347,10 @@ type SeparateRequest struct {
 	Input       string `json:"input"`
 	Output      string `json:"output,omitempty"`
 	VocalModel  string `json:"vocal_model,omitempty"`
-	ViperxModel string `json:"viperx_model,omitempty"` // alias for VocalModel
 	StemModel   string `json:"stem_model,omitempty"`
 	DemucsModel string `json:"demucs_model,omitempty"` // alias for StemModel
 	Pitch       int    `json:"pitch,omitempty"`
 
-	Viperx     bool     `json:"viperx"`
-	ViperxKeep string   `json:"viperx_keep,omitempty"`
 	Demucs     bool     `json:"demucs"`
 	DemucsKeep []string `json:"demucs_keep,omitempty"`
 
@@ -2343,7 +2437,7 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 	totalSteps := len(steps)
 	if totalSteps == 0 {
 		// Old format: count from flags
-		if req.Viperx {
+		if req.VocalModel != "" {
 			totalSteps++
 		}
 		if req.Demucs {
@@ -2353,7 +2447,7 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 			totalSteps++
 		}
 		if totalSteps == 0 {
-			totalSteps = 2 // default: viperx + demucs
+			totalSteps = 2 // default: vocal + demucs
 		}
 	}
 
@@ -2906,16 +3000,154 @@ func findYamlChildNode(parent *yaml.Node, key string) *yaml.Node {
 	return nil
 }
 
+// manifestIntFlag parses an integer flag from a model.manifest.json flags entry.
+func manifestIntFlag(flags map[string]struct{ Default json.RawMessage `json:"default"` }, key string) (int, bool) {
+	f, ok := flags[key]
+	if !ok {
+		return 0, false
+	}
+	var n json.Number
+	if err := json.Unmarshal(f.Default, &n); err == nil {
+		if v, err := n.Int64(); err == nil {
+			return int(v), true
+		}
+	}
+	var v int
+	if err := json.Unmarshal(f.Default, &v); err == nil {
+		return v, true
+	}
+	return 0, false
+}
+
+// manifestFloatFlag parses a float flag from a model.manifest.json flags entry.
+func manifestFloatFlag(flags map[string]struct{ Default json.RawMessage `json:"default"` }, key string) (float64, bool) {
+	f, ok := flags[key]
+	if !ok {
+		return 0, false
+	}
+	var n json.Number
+	if err := json.Unmarshal(f.Default, &n); err == nil {
+		if v, err := n.Float64(); err == nil {
+			return v, true
+		}
+	}
+	var v float64
+	if err := json.Unmarshal(f.Default, &v); err == nil {
+		return v, true
+	}
+	return 0, false
+}
+
+// manifestStringFlag parses a string flag from a model.manifest.json flags entry.
+func manifestStringFlag(flags map[string]struct{ Default json.RawMessage `json:"default"` }, key string) (string, bool) {
+	f, ok := flags[key]
+	if !ok {
+		return "", false
+	}
+	var v string
+	if err := json.Unmarshal(f.Default, &v); err == nil {
+		return v, true
+	}
+	return "", false
+}
+
+// readModelConfigFromManifest loads inference defaults from a generated
+// model.manifest.json when it exists. It is the preferred machine-readable
+// source because it already speaks the app's flag vocabulary.
+func readModelConfigFromManifest(name string) (ModelConfigResponse, bool) {
+	modelDir := resolveModelDir(name)
+	if modelDir == "" {
+		return ModelConfigResponse{}, false
+	}
+	// Built-in models (e.g. htdemucs_ft) are returned as the model name, not a path.
+	if !filepath.IsAbs(modelDir) {
+		return ModelConfigResponse{}, false
+	}
+
+	manifestPath := filepath.Join(modelDir, "model.manifest.json")
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		return ModelConfigResponse{}, false
+	}
+
+	var doc struct {
+		Flags map[string]struct {
+			Default json.RawMessage `json:"default"`
+		} `json:"flags"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		log.Printf("WARN: failed to parse manifest %s: %v", manifestPath, err)
+		return ModelConfigResponse{}, false
+	}
+	if len(doc.Flags) == 0 {
+		return ModelConfigResponse{}, false
+	}
+
+	cfg := ModelConfigResponse{
+		SegmentSize: 512, Overlap: 0.25, ChunkSize: 0, BatchSize: 1,
+		Device: "cuda", Shifts: 1, Segment: 0, Jobs: 0,
+		DimT: 512, NumOverlap: 4,
+	}
+
+	if v, ok := manifestIntFlag(doc.Flags, "segment_size"); ok && v > 0 {
+		cfg.SegmentSize = v
+		cfg.DimT = v
+	}
+	if v, ok := manifestIntFlag(doc.Flags, "num_overlap"); ok && v > 0 {
+		cfg.NumOverlap = v
+	}
+	if v, ok := manifestFloatFlag(doc.Flags, "overlap"); ok && v > 0 && v < 1 {
+		cfg.Overlap = v
+	}
+	if v, ok := manifestIntFlag(doc.Flags, "batch_size"); ok && v > 0 {
+		cfg.BatchSize = v
+	}
+	if v, ok := manifestIntFlag(doc.Flags, "chunk_size"); ok && v >= 0 {
+		cfg.ChunkSize = v
+	}
+	if v, ok := manifestStringFlag(doc.Flags, "device"); ok && v != "" {
+		cfg.Device = v
+	}
+	if v, ok := manifestIntFlag(doc.Flags, "shifts"); ok && v >= 0 {
+		cfg.Shifts = v
+	}
+	if v, ok := manifestFloatFlag(doc.Flags, "segment"); ok && v >= 0 {
+		cfg.Segment = clampDemucsSegment(v)
+	}
+	if v, ok := manifestIntFlag(doc.Flags, "jobs"); ok && v >= 0 {
+		cfg.Jobs = v
+	}
+
+	// Keep overlap and num_overlap consistent.
+	if cfg.Overlap <= 0 || cfg.Overlap >= 1 {
+		if cfg.NumOverlap > 0 {
+			cfg.Overlap = 1.0 / float64(cfg.NumOverlap)
+		} else {
+			cfg.Overlap = 0.25
+			cfg.NumOverlap = 4
+		}
+	}
+	if cfg.NumOverlap < 1 && cfg.Overlap > 0 && cfg.Overlap < 1 {
+		cfg.NumOverlap = int(math.Round(1.0 / cfg.Overlap))
+	}
+
+	log.Printf("INFO: model config for %s loaded from manifest: segment_size=%d overlap=%.2f batch=%d chunk=%d shifts=%d segment=%.0f jobs=%d",
+		name, cfg.SegmentSize, cfg.Overlap, cfg.BatchSize, cfg.ChunkSize, cfg.Shifts, cfg.Segment, cfg.Jobs)
+	return cfg, true
+}
+
 // readModelConfigFromYaml reads inference parameters for a model.
 // Priority:
 //  1. User-saved YAML (config/model_configs/<name>.yaml)
-//  2. UVR JSON shipped in config/model_configs/<name>.json
-//  3. Model-shipped YAML, but with training-only values (e.g. dim_t > 2048) replaced
+//  2. model.manifest.json generated by the manifest builder
+//  3. UVR JSON shipped in config/model_configs/<name>.json
+//  4. Model-shipped YAML, but with training-only values (e.g. dim_t > 2048) replaced
 //     by safe inference defaults.
 func readModelConfigFromYaml(name string) ModelConfigResponse {
 	defaults := ModelConfigResponse{
 		SegmentSize: 512, Overlap: 0.25, ChunkSize: 0, BatchSize: 1,
 		Device: "cuda", Shifts: 1, Segment: 0, Jobs: 0,
+		DimT: 512, NumOverlap: 4,
 	}
 
 	// 1. User override YAML.
@@ -2928,7 +3160,12 @@ func readModelConfigFromYaml(name string) ModelConfigResponse {
 		}
 	}
 
-	// 2. UVR JSON fallback (shipped inference defaults).
+	// 2. Generated manifest (single vocabulary with the app).
+	if cfg, ok := readModelConfigFromManifest(name); ok {
+		return cfg
+	}
+
+	// 3. UVR JSON fallback (shipped inference defaults).
 	uvrJSON := uvrModelConfigJSONPath(name)
 	if info, err := os.Stat(uvrJSON); err == nil && !info.IsDir() {
 		if cfg, ok := readUVRModelConfigJSON(uvrJSON); ok {
@@ -2938,7 +3175,7 @@ func readModelConfigFromYaml(name string) ModelConfigResponse {
 		}
 	}
 
-	// 3. Model-shipped YAML.
+	// 4. Model-shipped YAML.
 	yamlPath := findModelYaml(name)
 	if yamlPath == "" {
 		return defaults
@@ -2981,9 +3218,12 @@ func writeModelConfigToYaml(name string, cfg ModelConfigResponse) error {
 	cfg.Segment = clampDemucsSegment(cfg.Segment)
 
 	// UI "Segment Size" is dim_t directly; num_overlap is derived from overlap.
-	numOverlap := 4
-	if cfg.Overlap > 0 && cfg.Overlap < 1 {
-		numOverlap = int(math.Round(1.0 / cfg.Overlap))
+	numOverlap := cfg.NumOverlap
+	if numOverlap <= 0 {
+		numOverlap = 4
+		if cfg.Overlap > 0 && cfg.Overlap < 1 {
+			numOverlap = int(math.Round(1.0 / cfg.Overlap))
+		}
 	}
 	if numOverlap < 1 {
 		numOverlap = 1
@@ -3152,9 +3392,9 @@ func clampDemucsSegment(v float64) float64 {
 	return rounded
 }
 
-// handleModelsConfig saves or retrieves per-model inference configuration.
-// GET  /api/models/{name}/config  — reads inference params from the model's YAML
-// POST /api/models/{name}/config  — writes inference params to the model's YAML
+// handleModelsConfig saves or retrieves per-model inference flags.
+// GET  /api/models/{name}/config  — returns effective values + defaults + ranges.
+// POST /api/models/{name}/config  — validates and writes user overrides.
 func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
@@ -3166,72 +3406,70 @@ func (s *Server) handleModelsConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == http.MethodGet {
-		cfg := readModelConfigFromYaml(name)
-		json.NewEncoder(w).Encode(cfg)
-		return
-	}
-
-	if r.Method == http.MethodPost {
-		var cfg ModelConfigResponse
-		if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON"})
-			return
-		}
-
-		// Validate
-		if cfg.SegmentSize <= 0 {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "segment_size must be > 0"})
-			return
-		}
-		if cfg.Overlap < 0 || cfg.Overlap >= 1 {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "overlap must be >= 0 and < 1"})
-			return
-		}
-		if cfg.ChunkSize < 0 {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "chunk_size must be >= 0"})
-			return
-		}
-		if cfg.Device != "" && cfg.Device != "cpu" && cfg.Device != "cuda" {
-			w.WriteHeader(http.StatusBadRequest)
-			json.NewEncoder(w).Encode(map[string]string{"error": "device must be 'cpu' or 'cuda'"})
-			return
-		}
-
-		// Demucs segment is limited to whole seconds in [0, 7]; clamp defensively
-		// so the value can never exceed what the CLI accepts.
-		cfg.Segment = clampDemucsSegment(cfg.Segment)
-
-		if err := writeModelConfigToYaml(name, cfg); err != nil {
-			log.Printf("ERROR: failed to save model config for %s: %v", name, err)
+		resp, err := getModelFlagsResponse(name)
+		if err != nil {
+			log.Printf("ERROR: failed to read model flags for %s: %v", name, err)
 			w.WriteHeader(http.StatusInternalServerError)
 			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
+		json.NewEncoder(w).Encode(resp)
+		return
+	}
 
-		// Keep the UVR-style JSON override in sync so pipeline.sh can pick it up
-		// without having to read training-only YAML values.
-		if err := writeUVRModelConfigJSON(name, cfg); err != nil {
-			log.Printf("ERROR: failed to sync UVR JSON for %s: %v", name, err)
-			// Non-fatal: the YAML is the source of truth for the backend.
+	if r.Method == http.MethodPost {
+		updates, err := decodeFlagUpdates(r)
+		if err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
 		}
 
-		Log("backend", "success", fmt.Sprintf("Config saved for %s: dim_t=%d overlap=%.2f batch=%d chunk=%d shifts=%d segment=%.0f jobs=%d",
-			name, cfg.SegmentSize, cfg.Overlap, cfg.BatchSize, cfg.ChunkSize, cfg.Shifts, cfg.Segment, cfg.Jobs))
+		if err := saveModelFlags(name, updates); err != nil {
+			log.Printf("ERROR: failed to save model flags for %s: %v", name, err)
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
 
 		w.WriteHeader(http.StatusOK)
 		json.NewEncoder(w).Encode(map[string]string{
 			"ok":     "true",
-			"detail": fmt.Sprintf("config saved to YAML for model %s", name),
+			"detail": fmt.Sprintf("config saved for model %s", name),
 		})
 		return
 	}
 
 	w.WriteHeader(http.StatusMethodNotAllowed)
 	json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+}
+
+// decodeFlagUpdates accepts either {"flags": {"segment_size": 256}} or
+// {"flags": [{"name": "segment_size", "value": 256}]}.
+func decodeFlagUpdates(r *http.Request) ([]ModelFlagValue, error) {
+	var body struct {
+		Flags json.RawMessage `json:"flags"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		return nil, fmt.Errorf("invalid JSON")
+	}
+
+	// Try object form first.
+	var obj map[string]interface{}
+	if err := json.Unmarshal(body.Flags, &obj); err == nil {
+		var updates []ModelFlagValue
+		for k, v := range obj {
+			updates = append(updates, ModelFlagValue{Name: k, Value: v})
+		}
+		return updates, nil
+	}
+
+	// Fall back to array form.
+	var arr []ModelFlagValue
+	if err := json.Unmarshal(body.Flags, &arr); err != nil {
+		return nil, fmt.Errorf("flags must be an object or an array")
+	}
+	return arr, nil
 }
 
 // allowedFilenameChars matches characters that are safe to keep in a song

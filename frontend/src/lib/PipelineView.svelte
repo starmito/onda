@@ -249,6 +249,16 @@
     }
   }
 
+  function songNameForQueueFile(qf: QueueFile): string {
+    const raw = qf.path?.split('/').pop() || qf.file.name;
+    return raw.replace(/\.[^.]+$/, '');
+  }
+
+  function getJobForQueueFile(qf: QueueFile): QueueJob | undefined {
+    const song = songNameForQueueFile(qf);
+    return queueJobs.find(j => j.song === song || j.song.startsWith(song));
+  }
+
   // ---- Execute handler ----
   function handleExecute() {
     const validation = validateExecutePreset(presetName, savedPresets);
@@ -324,7 +334,12 @@
           <span
             class="queue-name"
             title={qf.file.name}
-          >{qf.file.name}</span>
+          >
+            {qf.file.name}
+            {#if getJobForQueueFile(qf)?.ran_on_cpu || getJobForQueueFile(qf)?.device === 'cpu'}
+              <span class="cpu-row-badge" title="Este trabajo se ejecutó en CPU">CPU</span>
+            {/if}
+          </span>
           <span class="queue-progress">
             {#if qf.status === 'processing' && qf.current_step != null && qf.total_steps != null}
               <span class="step-label">Paso {qf.current_step}/{qf.total_steps}{#if qf.step_name}: {qf.step_name}{/if}</span>
@@ -403,7 +418,9 @@
               {#if pipelineSong}<span class="progress-song">{pipelineSong}</span>{/if}
               {#if pipelineEta}<span class="progress-eta">⏱ {pipelineEta}</span>{/if}
               {#if inferenceDevice}
-                <span class="progress-device">{inferenceDevice === 'cuda' || inferenceDevice === 'gpu' ? 'GPU' : 'CPU'}</span>
+                <span class="progress-device" class:cpu={inferenceDevice !== 'cuda' && inferenceDevice !== 'gpu'}>
+                  {inferenceDevice === 'cuda' || inferenceDevice === 'gpu' ? 'GPU' : '⚠️ CPU'}
+                </span>
               {/if}
               {#if pipelineModel}
                 <span class="progress-model" title="Modelo en uso">model: {pipelineModel}</span>
@@ -622,6 +639,20 @@
   .badge-red { background: #3a1b1b; color: #e57373; }
   .badge-yellow { background: #3a3a1b; color: #ffd54f; }
   .badge-blue { background: #1b2a3a; color: #64b5f6; }
+  .cpu-row-badge {
+    display: inline-flex;
+    align-items: center;
+    margin-left: 0.4rem;
+    padding: 0.1rem 0.4rem;
+    background: rgba(255, 152, 0, 0.15);
+    border: 1px solid rgba(255, 152, 0, 0.35);
+    border-radius: 10px;
+    color: #ffb74d;
+    font-size: 0.6rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    vertical-align: middle;
+  }
   .btn-remove {
     background: none;
     border: none;
@@ -734,6 +765,11 @@
     background: rgba(128,128,128,0.1);
     padding: 2px 8px;
     border-radius: 4px;
+  }
+  .progress-device.cpu {
+    color: #ffb74d;
+    background: rgba(255, 152, 0, 0.12);
+    border: 1px solid rgba(255, 152, 0, 0.25);
   }
   .progress-model {
     color: var(--accent-light);

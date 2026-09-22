@@ -27,26 +27,49 @@ class TestCLIParsing:
                 main()
         assert exc.value.code != 0
 
-    def test_viperx_requires_model(self, capsys):
-        """onda viperx requires --model."""
+    def test_vocal_requires_model(self, capsys):
+        """onda vocal requires --model."""
         with pytest.raises(SystemExit):
-            with mock.patch.object(sys, "argv", ["onda", "viperx", "song.wav"]):
+            with mock.patch.object(sys, "argv", ["onda", "vocal", "song.wav"]):
                 main()
 
-    def test_viperx_parses_defaults(self, capsys):
-        """viperx defaults: cuda device, overlap 8, output_viperx output."""
+    def test_vocal_parses_defaults(self, capsys):
+        """vocal defaults: cuda device, overlap 8, output_vocal output."""
+        args = SimpleNamespace(
+            command="vocal",
+            input="song.wav",
+            model="model.ckpt",
+            config=None,
+            overlap=8,
+            dim_t=0,
+            batch_size=0,
+            chunk_size=0,
+            output="output_vocal",
+            device="cuda",
+        )
+        with mock.patch(
+            "onda.cli.argparse.ArgumentParser.parse_args", return_value=args
+        ), mock.patch("onda.vocal.run_vocal") as mock_run:
+            main()
+            mock_run.assert_called_once_with(args)
+
+    def test_viperx_alias_still_works(self, capsys):
+        """The deprecated viperx subcommand is still accepted as an alias."""
         args = SimpleNamespace(
             command="viperx",
             input="song.wav",
             model="model.ckpt",
             config=None,
             overlap=8,
-            output="output_viperx",
+            dim_t=0,
+            batch_size=0,
+            chunk_size=0,
+            output="output_vocal",
             device="cuda",
         )
         with mock.patch(
             "onda.cli.argparse.ArgumentParser.parse_args", return_value=args
-        ), mock.patch("onda.viperx.run_viperx") as mock_run:
+        ), mock.patch("onda.vocal.run_vocal") as mock_run:
             main()
             mock_run.assert_called_once_with(args)
 
@@ -80,20 +103,23 @@ class TestCLIParsing:
             main()
             mock_run.assert_called_once_with(args)
 
-    def test_viperx_dispatch(self):
-        """main() imports and calls run_viperx for the viperx subcommand."""
+    def test_vocal_dispatch(self):
+        """main() imports and calls run_vocal for the vocal subcommand."""
         args = SimpleNamespace(
-            command="viperx",
+            command="vocal",
             input="x.wav",
             model="m.ckpt",
             config=None,
             overlap=4,
+            dim_t=0,
+            batch_size=0,
+            chunk_size=0,
             output="out",
             device="cpu",
         )
         with mock.patch(
             "onda.cli.argparse.ArgumentParser.parse_args", return_value=args
-        ), mock.patch("onda.viperx.run_viperx") as mock_run:
+        ), mock.patch("onda.vocal.run_vocal") as mock_run:
             main()
             mock_run.assert_called_once_with(args)
 

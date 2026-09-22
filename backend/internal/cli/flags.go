@@ -24,9 +24,9 @@ type StemRoute struct {
 
 // PipelineStep defines a single step in a multi-step pipeline preset.
 type PipelineStep struct {
-	ID      string                `json:"id"`                // "viperx-1", "demucs-2", etc.
+	ID      string                `json:"id"`                // "vocal-1", "demucs-2", etc.
 	Model   string                `json:"model"`             // nombre del modelo o ruta
-	Type    string                `json:"type"`              // "vocal" | "viperx" | "demucs"
+	Type    string                `json:"type"`              // "vocal" | "demucs"
 	Enabled bool                  `json:"enabled"`
 	Stems   map[string]StemRoute  `json:"stems"`             // stem_name → routing
 }

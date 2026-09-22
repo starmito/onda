@@ -17,7 +17,7 @@ type GPUPresenceResponse struct {
 }
 
 // checkGPU verifica si hay GPU NVIDIA vía PyTorch.
-func checkGPU() (bool, string, error) {
+var checkGPU = func() (bool, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	script := "import torch; d=torch.cuda.get_device_properties(0) if torch.cuda.is_available() else None; print(f'{d.name}, {torch.cuda.memory_allocated(0)//1024//1024} MiB, {torch.cuda.get_device_properties(0).total_memory//1024//1024} MiB' if d else 'CUDA not available')"

@@ -16,12 +16,12 @@ SR = 44100
 
 def _write_progress(progress_file, chunk, total):
     """Write per-chunk progress to a JSON file for real-time tracking.
-    Format: {"step": "viperx", "progress": 0.45, "chunk": 45, "total_chunks": 100}
+    Format: {"step": "vocal", "progress": 0.45, "chunk": 45, "total_chunks": 100}
     """
     progress = chunk / total if total > 0 else 0.0
     try:
         with open(progress_file, 'w') as pf:
-            pf.write('{"step":"viperx","progress":%.4f,"chunk":%d,"total_chunks":%d}' % (progress, chunk, total))
+            pf.write('{"step":"vocal","progress":%.4f,"chunk":%d,"total_chunks":%d}' % (progress, chunk, total))
             pf.flush()
     except Exception:
         pass  # Non-critical; don't crash the pipeline over a progress write failure
@@ -104,6 +104,12 @@ def _process_mix(model, mix, C, step, batch_size, S, device,
                         stem_out = x[j, s:s+1] if x.dim() >= 3 else x[j]
                         if stem_out.dim() == 1:
                             stem_out = stem_out.unsqueeze(0)
+                        # Modelos multi-stem (p.ej. 6 stems) devuelven [B, S, C, T]:
+                        # el corte anterior deja una dimension de batch de mas que
+                        # rompe el overlap-add. Se colapsa a [C, T] mientras el eje
+                        # frontal sea de tamano 1 (para no comerse un canal real).
+                        while stem_out.dim() > 2 and stem_out.shape[0] == 1:
+                            stem_out = stem_out.squeeze(0)
                         out_len = stem_out.shape[-1]
                         common = min(out_len, C, result.shape[-1] - start)
                         end = start + common
@@ -116,7 +122,7 @@ def _process_mix(model, mix, C, step, batch_size, S, device,
                 if progress_file:
                     _write_progress(progress_file, progress_base + chunk_idx, progress_total)
                 if pipeline_status:
-                    _write_pipeline_status(pipeline_status, 'viperx',
+                    _write_pipeline_status(pipeline_status, 'vocal',
                                            (progress_base + chunk_idx) / progress_total if progress_total > 0 else 0.0,
                                            progress_base + chunk_idx, progress_total, str(device))
                 batch_data, batch_starts = [], []
@@ -308,8 +314,13 @@ def separate(model_dir, input_path, output_dir="output", progress_file=None, num
         print(f"  ✓ {out}")
 
     # Derive instrumental via subtraction if model extracts vocals
-    if target.lower() == 'vocals' or 'vocals' in [ins.lower() for ins in instruments]:
-        inst = audio - result[0]
+    # OJO: 'vocals' no siempre es el stem 0 (el SW de 6 stems empieza por bass),
+    # y target puede ser None en modelos multi-stem -> no llamar a .lower() a ciegas.
+    stems_lower = [str(ins).lower() for ins in instruments]
+    target_lower = str(target).lower() if target else ''
+    if target_lower == 'vocals' or 'vocals' in stems_lower:
+        v_idx = stems_lower.index('vocals') if 'vocals' in stems_lower else 0
+        inst = audio - result[v_idx]
         out = os.path.join(output_dir, f"{basename}_instrumental.wav")
         sf.write(out, inst.T, sr)
         print(f"  ✓ {out} (subtraction)")

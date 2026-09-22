@@ -44,9 +44,7 @@ func TestNormalizeContainerInput(t *testing.T) {
 func TestBuildPipelineArgs_NormalizesRelativeInput(t *testing.T) {
 	expectedInput := filepath.Join(mustSub("input"), "fiesta_pagana.flac")
 	req := &SeparateRequest{
-		Input:  "fiesta_pagana.flac",
-		Viperx: true,
-		Demucs: true,
+		Input: "fiesta_pagana.flac",
 	}
 	song, args, steps, _, _ := buildPipelineArgs(req)
 	if song != "fiesta_pagana" {
@@ -65,8 +63,7 @@ func TestBuildPipelineArgs_NormalizesRelativeInput(t *testing.T) {
 
 func TestBuildPipelineArgs_KeepsContainerInput(t *testing.T) {
 	req := &SeparateRequest{
-		Input:  "/app/input/fiesta_pagana.flac",
-		Viperx: true,
+		Input: "/app/input/fiesta_pagana.flac",
 	}
 	song, args, steps, _, _ := buildPipelineArgs(req)
 	if song != "fiesta_pagana" {
@@ -83,8 +80,7 @@ func TestBuildPipelineArgs_KeepsContainerInput(t *testing.T) {
 
 func TestBuildPipelineArgs_KeepsOtherAbsoluteInput(t *testing.T) {
 	req := &SeparateRequest{
-		Input:  "/home/user/music/fiesta_pagana.flac",
-		Viperx: true,
+		Input: "/home/user/music/fiesta_pagana.flac",
 	}
 	song, args, steps, _, _ := buildPipelineArgs(req)
 	if song != "fiesta_pagana" {
@@ -129,7 +125,6 @@ func TestBuildPipelineArgs_MultiStepNormalizesInput(t *testing.T) {
 func TestBuildPipelineArgs_UsesOutputOverride(t *testing.T) {
 	req := &SeparateRequest{
 		Input:  "/app/input/fiesta_pagana.flac",
-		Viperx: true,
 		Output: "fiesta_pagana (copia01)",
 	}
 	song, args, _, _, _ := buildPipelineArgs(req)
@@ -148,7 +143,6 @@ func TestBuildPipelineArgs_UsesOutputOverride(t *testing.T) {
 func TestBuildPipelineArgs_IgnoresTraversalOutputOverride(t *testing.T) {
 	req := &SeparateRequest{
 		Input:  "/app/input/fiesta_pagana.flac",
-		Viperx: true,
 		Output: "../outside",
 	}
 	song, args, _, _, _ := buildPipelineArgs(req)

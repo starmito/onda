@@ -14,11 +14,14 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 // modelsBasePath returns the root directory where models live. It defaults to
@@ -75,7 +78,7 @@ func detectCategory(subdir, relPath string) string {
 	if len(parts) >= 2 {
 		modelDir := strings.ToLower(parts[0])
 		switch {
-		case strings.Contains(modelDir, "roformer") || strings.Contains(modelDir, "viperx") || strings.Contains(modelDir, "vocal"):
+		case strings.Contains(modelDir, "roformer"):
 			return "Roformer"
 		case strings.Contains(modelDir, "melband"):
 			return "Roformer/MelBand"
@@ -84,6 +87,386 @@ func detectCategory(subdir, relPath string) string {
 		}
 	}
 	return baseCat
+}
+
+// modelManifestStems holds the stem metadata written by the Python manifest
+// generator.
+type modelManifestStems struct {
+	Stems    []string `json:"stems"`
+	Target   *string  `json:"target"`
+	NumStems int      `json:"num_stems"`
+}
+
+// modelManifest is the JSON written next to each model by
+// ``python3 -m onda.cli manifest --regenerate``.
+type modelManifest struct {
+	Name     string                  `json:"name"`
+	Type     string                  `json:"type"`
+	Stems    modelManifestStems      `json:"stems"`
+	Flags    map[string]modelFlagDef `json:"flags,omitempty"`
+	Origin   string                  `json:"origin,omitempty"`
+	Inferred bool                    `json:"inferred,omitempty"`
+}
+
+// loadModelManifest reads and parses the manifest for a model directory.
+// It returns the parsed manifest and true when the file exists and is valid.
+func loadModelManifest(modelDir string) (*modelManifest, bool) {
+	p := filepath.Join(modelDir, "model.manifest.json")
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return nil, false
+	}
+	var m modelManifest
+	if err := json.Unmarshal(data, &m); err != nil {
+		log.Printf("[models] failed to parse manifest %s: %v", p, err)
+		return nil, false
+	}
+	return &m, true
+}
+
+// categoryFromType derives the user-facing category from the real model type
+// stored in the manifest. This is the single source of truth for categories;
+// no part of the code invents categories from filenames or folder names.
+func categoryFromType(modelType string) string {
+	switch modelType {
+	case "bs_roformer", "mel_band_roformer":
+		return "Roformer"
+	case "mdx23c":
+		return "MDX"
+	case "mdx_net":
+		return "MDXNet"
+	case "scnet":
+		return "SCNet"
+	case "demucs", "htdemucs":
+		return "Demucs"
+	case "":
+		return ""
+	default:
+		return strings.ToUpper(modelType[:1]) + modelType[1:]
+	}
+}
+
+// strPtr returns a pointer to a string literal.
+func strPtr(s string) *string { return &s }
+
+// inferManifestType guesses the canonical model type for a newly-uploaded model
+// from its filename. It prefers the existing heuristic helpers and falls back
+// to keyword matching so every uploaded file gets a usable manifest.
+func inferManifestType(filename string) string {
+	name := strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
+	if mt, ok := detectModelTypeByName("", name); ok {
+		mt = normalizeModelType(mt)
+		// Canonicalise demucs variants to a single type understood by the UI.
+		if mt == "htdemucs" {
+			mt = "demucs"
+		}
+		return mt
+	}
+	if mt := classifyModelType(name); mt != "unknown" {
+		if mt == "vocal" {
+			return "bs_roformer"
+		}
+		if mt == "mdx" {
+			return "mdx23c"
+		}
+		if mt == "mdxnet" {
+			return "mdx_net"
+		}
+		return mt
+	}
+	lower := strings.ToLower(name)
+	switch {
+	case strings.Contains(lower, "melband") || strings.Contains(lower, "mel_band"):
+		return "mel_band_roformer"
+	case strings.Contains(lower, "roformer"):
+		return "bs_roformer"
+	case strings.Contains(lower, "mdx23c") || strings.Contains(lower, "mdx-c"):
+		return "mdx23c"
+	case strings.Contains(lower, "mdxnet") || strings.Contains(lower, "mdx_net") || strings.HasSuffix(lower, ".onnx"):
+		return "mdx_net"
+	case strings.Contains(lower, "scnet"):
+		return "scnet"
+	case strings.Contains(lower, "demucs") || strings.Contains(lower, "htdemucs"):
+		return "demucs"
+	}
+	return "bs_roformer"
+}
+
+// inferManifestStems returns a sensible stem list for a model type and name.
+// It never invents exotic stems: vocals/instrumental for vocal models and the
+// standard Demucs set for Demucs models.
+func inferManifestStems(modelType, filename string) modelManifestStems {
+	name := strings.ToLower(strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename)))
+	switch modelType {
+	case "demucs":
+		if strings.Contains(name, "6s") || strings.Contains(name, "six") || strings.Contains(name, "6_stem") {
+			return modelManifestStems{Stems: []string{"drums", "bass", "other", "vocals", "guitar", "piano"}, NumStems: 6}
+		}
+		return modelManifestStems{Stems: []string{"drums", "bass", "other", "vocals"}, NumStems: 4}
+	case "mdx_net":
+		if strings.Contains(name, "inst") {
+			return modelManifestStems{Stems: []string{"instrumental"}, NumStems: 1, Target: strPtr("instrumental")}
+		}
+		if strings.Contains(name, "vocal") {
+			return modelManifestStems{Stems: []string{"vocals"}, NumStems: 1, Target: strPtr("vocals")}
+		}
+		return modelManifestStems{Stems: []string{"vocals", "instrumental"}, NumStems: 2, Target: strPtr("vocals")}
+	case "mdx23c", "scnet", "bs_roformer", "mel_band_roformer":
+		return modelManifestStems{Stems: []string{"vocals", "instrumental"}, NumStems: 2, Target: strPtr("vocals")}
+	default:
+		return modelManifestStems{Stems: []string{"vocals", "instrumental"}, NumStems: 2, Target: strPtr("vocals")}
+	}
+}
+
+// inferManifestFlags returns the editable flag set for a canonical model type.
+func inferManifestFlags(modelType string) map[string]modelFlagDef {
+	flagNames, ok := flagsByType[modelType]
+	if !ok {
+		flagNames = []string{"segment_size", "num_overlap", "chunk_size", "batch_size", "device"}
+	}
+	flags := make(map[string]modelFlagDef, len(flagNames))
+	for _, fn := range flagNames {
+		if def, ok := knownFlags[fn]; ok {
+			flags[fn] = copyFlagDef(def)
+		}
+	}
+	return flags
+}
+
+// configManifestInfo holds type and stems extracted from a sidecar config file.
+type configManifestInfo struct {
+	Type      string
+	Stems     []string
+	Target    *string
+	NumStems  int
+	FromConfig bool
+}
+
+// parseConfigForManifest scans the model directory for a YAML or JSON sidecar
+// config and extracts the real model type and stem list when present.
+func parseConfigForManifest(modelDir string) (configManifestInfo, bool) {
+	entries, err := os.ReadDir(modelDir)
+	if err != nil {
+		return configManifestInfo{}, false
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		ext := strings.ToLower(filepath.Ext(name))
+		if ext != ".yaml" && ext != ".yml" && ext != ".json" {
+			continue
+		}
+		path := filepath.Join(modelDir, name)
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+
+		info, ok := parseConfigBytesForManifest(data, ext)
+		if ok {
+			return info, true
+		}
+	}
+	return configManifestInfo{}, false
+}
+
+// parseConfigBytesForManifest parses a single config buffer and extracts the
+// real type/stems when they are clearly declared.
+func parseConfigBytesForManifest(data []byte, ext string) (configManifestInfo, bool) {
+	if ext == ".json" {
+		var root map[string]interface{}
+		if err := json.Unmarshal(data, &root); err != nil {
+			return configManifestInfo{}, false
+		}
+		return extractManifestInfoFromMap(root)
+	}
+
+	var doc yaml.Node
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return configManifestInfo{}, false
+	}
+	if len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return configManifestInfo{}, false
+	}
+	root := doc.Content[0]
+
+	info := configManifestInfo{FromConfig: true}
+	found := false
+
+	if modelNode := findYamlChildNode(root, "model"); modelNode != nil && modelNode.Kind == yaml.MappingNode {
+		if n := findYamlChildNode(modelNode, "type"); n != nil && n.Kind == yaml.ScalarNode && n.Value != "" {
+			info.Type = normalizeModelType(n.Value)
+			found = true
+		}
+		if n := findYamlChildNode(modelNode, "num_stems"); n != nil && n.Kind == yaml.ScalarNode {
+			if v, err := strconv.Atoi(n.Value); err == nil {
+				info.NumStems = v
+			}
+		}
+	}
+
+	if trainingNode := findYamlChildNode(root, "training"); trainingNode != nil && trainingNode.Kind == yaml.MappingNode {
+		if instNode := findYamlChildNode(trainingNode, "instruments"); instNode != nil && instNode.Kind == yaml.SequenceNode {
+			stems := make([]string, 0, len(instNode.Content))
+			for _, child := range instNode.Content {
+				if child.Kind == yaml.ScalarNode && child.Value != "" {
+					stems = append(stems, strings.ToLower(child.Value))
+				}
+			}
+			if len(stems) > 0 {
+				info.Stems = stems
+				info.NumStems = len(stems)
+				found = true
+			}
+		}
+		if n := findYamlChildNode(trainingNode, "target_instrument"); n != nil && n.Kind == yaml.ScalarNode && n.Value != "" {
+			target := strings.ToLower(n.Value)
+			info.Target = &target
+		}
+	}
+
+	return info, found
+}
+
+// extractManifestInfoFromMap extracts type and stems from a JSON config map.
+func extractManifestInfoFromMap(root map[string]interface{}) (configManifestInfo, bool) {
+	info := configManifestInfo{FromConfig: true}
+	found := false
+
+	if model, ok := root["model"].(map[string]interface{}); ok {
+		if t, ok := model["type"].(string); ok && t != "" {
+			info.Type = normalizeModelType(t)
+			found = true
+		}
+		if n, ok := model["num_stems"].(float64); ok {
+			info.NumStems = int(n)
+		}
+	}
+
+	if training, ok := root["training"].(map[string]interface{}); ok {
+		if inst, ok := training["instruments"].([]interface{}); ok && len(inst) > 0 {
+			stems := make([]string, 0, len(inst))
+			for _, v := range inst {
+				if s, ok := v.(string); ok && s != "" {
+					stems = append(stems, strings.ToLower(s))
+				}
+			}
+			if len(stems) > 0 {
+				info.Stems = stems
+				info.NumStems = len(stems)
+				found = true
+			}
+		}
+		if t, ok := training["target_instrument"].(string); ok && t != "" {
+			target := strings.ToLower(t)
+			info.Target = &target
+		}
+	}
+
+	return info, found
+}
+
+// generateModelManifest writes a model.manifest.json next to an uploaded model.
+// It derives name, type, stems and flags from the filename so the model is
+// immediately usable by the pipeline, model editor and preset editor.
+// When origin is "upload" the manifest records that the model was uploaded
+// manually; if a sidecar config is present its declared type and stems are
+// used and the manifest is not marked as inferred.
+func generateModelManifest(modelDir, filename, origin string) error {
+	name := strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
+
+	var modelType string
+	var stems modelManifestStems
+	configFound := false
+
+	if cfg, ok := parseConfigForManifest(modelDir); ok {
+		configFound = true
+		if cfg.Type != "" {
+			modelType = cfg.Type
+		}
+		if len(cfg.Stems) > 0 {
+			stems = modelManifestStems{
+				Stems:    cfg.Stems,
+				Target:   cfg.Target,
+				NumStems: cfg.NumStems,
+			}
+		} else if cfg.NumStems > 0 {
+			stems.NumStems = cfg.NumStems
+		}
+		if stems.NumStems == 0 {
+			stems.NumStems = len(stems.Stems)
+		}
+	}
+
+	if modelType == "" {
+		modelType = inferManifestType(filename)
+	}
+	if len(stems.Stems) == 0 {
+		stems = inferManifestStems(modelType, filename)
+	}
+	if stems.NumStems == 0 {
+		stems.NumStems = len(stems.Stems)
+	}
+
+	manifest := modelManifest{
+		Name:     name,
+		Type:     modelType,
+		Stems:    stems,
+		Flags:    inferManifestFlags(modelType),
+		Origin:   origin,
+		Inferred: !configFound,
+	}
+	data, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return err
+	}
+	data = append(data, '\n')
+	return os.WriteFile(filepath.Join(modelDir, "model.manifest.json"), data, 0644)
+}
+
+// findModelDirByBaseName searches the models tree for an existing model
+// directory whose name matches base and that contains at least one weight file.
+// It returns the model directory, the name of the first weight file found and
+// true on success.
+func findModelDirByBaseName(base string) (string, string, bool) {
+	for _, subdir := range modelSubdirs {
+		dirPath := filepath.Join(modelsBasePath(), subdir)
+		found := false
+		modelDir := ""
+		weightFile := ""
+		_ = filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil || !info.IsDir() || found {
+				return nil
+			}
+			if filepath.Base(path) != base {
+				return nil
+			}
+			entries, err := os.ReadDir(path)
+			if err != nil {
+				return nil
+			}
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				ext := strings.ToLower(filepath.Ext(entry.Name()))
+				if modelUploadExts[ext] {
+					modelDir = path
+					weightFile = entry.Name()
+					found = true
+					return filepath.SkipAll
+				}
+			}
+			return nil
+		})
+		if found {
+			return modelDir, weightFile, true
+		}
+	}
+	return "", "", false
 }
 
 // computeDisplayName derives a human-friendly display name from the file's
@@ -117,12 +500,19 @@ func demucsONNXDisplayName(name string) string {
 
 // ModelEntry describes a single model file found on disk.
 type ModelEntry struct {
-	Name           string `json:"name"`
-	DisplayName    string `json:"display_name"`
-	Category       string `json:"category"`
-	Path           string `json:"path"`
-	SizeMB         int64  `json:"size_mb"`
-	VramEstimateMB int64  `json:"vram_estimate_mb"`
+	Name            string   `json:"name"`
+	DisplayName     string   `json:"display_name"`
+	Category        string   `json:"category"`
+	Type            string   `json:"type"`
+	Path            string   `json:"path"`
+	SizeMB          int64    `json:"size_mb"`
+	VramEstimateMB  int64    `json:"vram_estimate_mb"`
+	Stems           []string `json:"stems"`
+	NumStems        int      `json:"num_stems"`
+	Target          *string  `json:"target"`
+	ManifestMissing bool     `json:"manifest_missing"`
+	Inferred        bool     `json:"inferred"`
+	Origin          string   `json:"origin,omitempty"`
 }
 
 // estimateVRAM returns an estimated VRAM usage in MB for a model based on its
@@ -274,6 +664,36 @@ func modelUsage() (entries int64, bytes int64) {
 	return
 }
 
+// ModelsUploadsResponse is returned by GET /api/models/uploads.
+type ModelsUploadsResponse struct {
+	Models []ModelEntry `json:"models"`
+}
+
+// handleModelsUploads returns only models that were uploaded manually (origin == "upload").
+// GET /api/models/uploads
+func (s *Server) handleModelsUploads(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("method %s not allowed", r.Method),
+		})
+		return
+	}
+
+	all := listModels()
+	uploads := make([]ModelEntry, 0, len(all.Models))
+	for _, m := range all.Models {
+		if m.Origin == "upload" {
+			uploads = append(uploads, m)
+		}
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(ModelsUploadsResponse{Models: uploads})
+}
+
 // listModels walks the model directories and builds a ModelsListResponse.
 func listModels() ModelsListResponse {
 	var models []ModelEntry
@@ -302,18 +722,46 @@ func listModels() ModelsListResponse {
 			}
 			modelPath := filepath.ToSlash(filepath.Join(modelsBasePath(), rel))
 
-			name := strings.TrimSuffix(info.Name(), ext)
-			category := detectCategory(subdir, rel)
-			displayName := computeDisplayName(subdir, rel, name)
+		name := strings.TrimSuffix(info.Name(), ext)
+		category := detectCategory(subdir, rel)
+		displayName := computeDisplayName(subdir, rel, name)
+		modelType := ""
+		var stems []string
+		numStems := 0
+		var target *string
+		manifestMissing := true
+		inferred := false
+		origin := ""
 
-			models = append(models, ModelEntry{
-				Name:           name,
-				DisplayName:    displayName,
-				Category:       category,
-				Path:           modelPath,
-				SizeMB:         info.Size() / (1024 * 1024),
-				VramEstimateMB: estimateVRAM(name, category, info.Size()/(1024*1024)),
-			})
+		if manifest, ok := loadModelManifest(filepath.Dir(path)); ok {
+			manifestMissing = false
+			if manifest.Name != "" {
+				displayName = manifest.Name
+			}
+			modelType = manifest.Type
+			category = categoryFromType(modelType)
+			stems = manifest.Stems.Stems
+			numStems = manifest.Stems.NumStems
+			target = manifest.Stems.Target
+			inferred = manifest.Inferred
+			origin = manifest.Origin
+		}
+
+		models = append(models, ModelEntry{
+			Name:            name,
+			DisplayName:     displayName,
+			Category:        category,
+			Type:            modelType,
+			Path:            modelPath,
+			SizeMB:          info.Size() / (1024 * 1024),
+			VramEstimateMB:  estimateVRAM(name, category, info.Size()/(1024*1024)),
+			Stems:           stems,
+			NumStems:        numStems,
+			Target:          target,
+			ManifestMissing: manifestMissing,
+			Inferred:        inferred,
+			Origin:          origin,
+		})
 			categorySet[category] = true
 			return nil
 		})
@@ -331,22 +779,25 @@ func listModels() ModelsListResponse {
 	}
 	if !hasHtdemucsFT {
 		models = append(models, ModelEntry{
-			Name:           "htdemucs_ft",
-			DisplayName:    "HTDemucs FT",
-			Category:       "Demucs",
-			Path:           "",
-			SizeMB:         2800,
-			VramEstimateMB: 2800,
+			Name:            "htdemucs_ft",
+			DisplayName:     "HTDemucs FT",
+			Category:        "Demucs",
+			Type:            "demucs",
+			Path:            "",
+			SizeMB:          2800,
+			VramEstimateMB:  2800,
+			Stems:           []string{"drums", "bass", "other", "vocals"},
+			NumStems:        4,
+			ManifestMissing: true,
 		})
 		categorySet["Demucs"] = true
 	}
 
 	var categories []string
-	for _, cat := range []string{"VR_Arch", "MDXNet", "Roformer", "Roformer/MelBand", "SCnet", "Demucs", "Demucs ONNX"} {
-		if categorySet[cat] {
-			categories = append(categories, cat)
-		}
+	for cat := range categorySet {
+		categories = append(categories, cat)
 	}
+	sort.Strings(categories)
 	// If none found in subdirs, categories stays empty (not nil)
 	if categories == nil {
 		categories = []string{}
@@ -1222,7 +1673,7 @@ func downloadWithProgressAuth(ctx context.Context, url, destPath, key, authHeade
 
 // detectCategoryFromFilename determines the model category directory from the
 // filename using keyword matching. This mirrors how UVR organizes its models.
-// Mapping: roformer/viperx/melband → VR_Models, mdx/mdx23c → MDX_Net_Models,
+// Mapping: roformer/melband → VR_Models, mdx/mdx23c → MDX_Net_Models,
 // demucs/htdemucs → Demucs_Models, scnet → VR_Models.
 func detectCategoryFromFilename(filename string) string {
 	lower := strings.ToLower(filename)
@@ -1231,9 +1682,10 @@ func detectCategoryFromFilename(filename string) string {
 	if strings.Contains(lower, "scnet") {
 		return "VR_Models"
 	}
-	// Roformer-based models (including ViperX, MelBand, Bandit) go to VR_Models
+	// Roformer-based models (MelBand, Bandit, etc.) go to VR_Models.
+	// ViperX is not a category; a model named BS_Roformer_Viperx is already
+	// matched by the "roformer" check.
 	if strings.Contains(lower, "roformer") ||
-		strings.Contains(lower, "viperx") ||
 		strings.Contains(lower, "melband") ||
 		strings.Contains(lower, "mel_band") ||
 		strings.Contains(lower, "bandit") ||
@@ -1342,6 +1794,29 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		deletedFiles = true
+
+		// Clean up the model directory: manifest, sidecar configs and the dir itself.
+		modelDir := filepath.Dir(foundPath)
+		modelBase := strings.TrimSuffix(filepath.Base(foundPath), filepath.Ext(foundPath))
+		_ = os.Remove(filepath.Join(modelDir, "model.manifest.json"))
+		if entries, err := os.ReadDir(modelDir); err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				entryName := entry.Name()
+				entryExt := strings.ToLower(filepath.Ext(entryName))
+				entryBase := strings.TrimSuffix(entryName, entryExt)
+				isAux := entryExt == ".yaml" || entryExt == ".yml" || entryExt == ".json" || entryExt == ".txt"
+				if isAux && (entryBase == modelBase || entryBase == "model") {
+					_ = os.Remove(filepath.Join(modelDir, entryName))
+				}
+			}
+		}
+		// Remove the directory if it only contains auxiliary files or is empty.
+		if isDirEmptyOrOnlyAux(modelDir) {
+			_ = os.RemoveAll(modelDir)
+		}
 	}
 
 	if !deletedFiles {
@@ -1364,6 +1839,26 @@ func (s *Server) handleDeleteModel(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(resp)
+}
+
+// isDirEmptyOrOnlyAux reports whether dir contains no files or only auxiliary
+// non-model files (configs, manifests, text files).
+func isDirEmptyOrOnlyAux(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return true
+	}
+	for _, entry := range entries {
+		if entry.IsDir() {
+			return false
+		}
+		name := entry.Name()
+		ext := strings.ToLower(filepath.Ext(name))
+		if ext != ".yaml" && ext != ".yml" && ext != ".json" && ext != ".txt" && name != "model.manifest.json" {
+			return false
+		}
+	}
+	return true
 }
 
 // runDirectDownload downloads a model file from a direct URL using Go's net/http,

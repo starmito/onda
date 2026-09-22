@@ -4,6 +4,7 @@
     getHfCatalog,
     getDemucsCatalog,
     getLocalModels,
+    getUploadedModels,
     downloadModel,
     downloadModelDirect,
     getDownloadStatus,
@@ -15,6 +16,7 @@
     type DemucsCatalogEntry,
     type LocalModel,
     type DownloadProgress,
+    type ModelUploadResponse,
   } from './api';
 
   // Cleanup polling intervals on component destroy
@@ -77,6 +79,19 @@
   let uploadMessage = $state('');
   let uploadMessageType = $state<'success' | 'error'>('success');
   let uploadingModel = $state(false);
+  let uploadedModels = $state<LocalModel[]>([]);
+
+  // Load manually-uploaded models from the backend so the list survives reloads.
+  $effect(() => {
+    if (tab !== 'upload') return;
+    getUploadedModels()
+      .then((res) => {
+        uploadedModels = res.models || [];
+      })
+      .catch(() => {
+        uploadedModels = [];
+      });
+  });
 
   // ---- Installed models ----
   let localModels = $state<LocalModel[]>([]);
@@ -205,7 +220,7 @@
       name: m.name,
       category: m.category,
       size_mb: m.size_mb,
-      downloaded: false,
+      downloaded: m.downloaded,
       source: 'hf' as SourceType,
       hf_path: m.hf_path,
       filename: m.filename,
@@ -532,14 +547,25 @@
     input.value = '';
   }
 
+  function fileBaseName(name: string): string {
+    return name.replace(/\.[^.]+$/, '');
+  }
+
   async function uploadFiles(files: File[]) {
-    const valid = files.filter((f) => {
+    const weightExts = ['.ckpt', '.pth', '.onnx', '.safetensors', '.pt'];
+    const configExts = ['.yaml', '.yml', '.json'];
+
+    const weights = files.filter((f) => {
       const ext = '.' + f.name.split('.').pop()?.toLowerCase();
-      return ['.ckpt', '.pth', '.onnx', '.safetensors', '.pt'].includes(ext);
+      return weightExts.includes(ext);
+    });
+    const configs = files.filter((f) => {
+      const ext = '.' + f.name.split('.').pop()?.toLowerCase();
+      return configExts.includes(ext);
     });
 
-    if (valid.length === 0) {
-      uploadMessage = 'Solo archivos .ckpt, .pth, .onnx, .safetensors, .pt';
+    if (weights.length === 0) {
+      uploadMessage = 'Se requiere al menos un archivo de pesos (.ckpt, .pth, .onnx, .safetensors, .pt)';
       uploadMessageType = 'error';
       setTimeout(() => (uploadMessage = ''), 3000);
       return;
@@ -550,10 +576,18 @@
     let successCount = 0;
     let failCount = 0;
 
-    for (const file of valid) {
+    for (const weight of weights) {
+      const weightBase = fileBaseName(weight.name);
+      // Match sidecar configs by base name; if none match and there is a single
+      // weight, assume all configs belong to it.
+      let related = configs.filter((c) => fileBaseName(c.name) === weightBase);
+      if (related.length === 0 && weights.length === 1) {
+        related = configs;
+      }
       try {
-        await uploadModel(file);
+        const uploaded = await uploadModel([weight, ...related]);
         successCount++;
+        uploadedModels = [...uploadedModels, uploaded as LocalModel];
       } catch {
         failCount++;
       }
@@ -760,13 +794,13 @@
         <span class="dropzone-text">
           {uploadingModel ? 'Subiendo...' : 'Arrastra archivos de modelo aquí o haz clic'}
         </span>
-        <span class="dropzone-hint">.ckpt, .pth, .onnx, .safetensors, .pt</span>
+        <span class="dropzone-hint">.ckpt, .pth, .onnx, .safetensors, .pt + .yaml/.yml/.json</span>
       </div>
       <input
         id="model-upload-input"
         type="file"
         hidden
-        accept=".ckpt,.pth,.onnx,.safetensors,.pt"
+        accept=".ckpt,.pth,.onnx,.safetensors,.pt,.yaml,.yml,.json"
         multiple
         onchange={handleUploadSelect}
       />
@@ -774,6 +808,31 @@
       {#if uploadMessage}
         <div class="feedback" class:success={uploadMessageType === 'success'} class:error={uploadMessageType === 'error'}>
           {uploadMessage}
+        </div>
+      {/if}
+
+      {#if uploadedModels.length > 0}
+        <div class="uploaded-list">
+          <h3 class="uploaded-title">Modelos subidos manualmente</h3>
+          {#each uploadedModels as m (m.path)}
+            <div class="uploaded-row">
+              <div class="uploaded-info">
+                <span class="uploaded-name">{m.display_name || m.name}</span>
+                <span class="uploaded-meta">
+                  <span class="uploaded-cat">{m.category}</span>
+                  {#if m.type}<span class="uploaded-type">{m.type}</span>{/if}
+                  {#if m.stems && m.stems.length > 0}
+                    <span class="uploaded-stems" title={m.stems.join(', ')}>
+                      {m.num_stems ?? m.stems.length} stems
+                    </span>
+                  {/if}
+                  {#if m.inferred}
+                    <span class="uploaded-inferred" title="Tipo y stems estimados; revisa el manifiesto">suposición</span>
+                  {/if}
+                </span>
+              </div>
+            </div>
+          {/each}
         </div>
       {/if}
 
@@ -789,8 +848,16 @@
             <div class="installed-row">
               <div class="installed-info">
                 <span class="installed-name">{model.display_name || model.name}</span>
-                <span class="installed-cat">{model.category}</span>
-                <span class="installed-size">{formatSize(model.size_mb)}</span>
+                {#if model.display_name && model.display_name !== model.name}
+                  <span class="installed-filename">{model.name}</span>
+                {/if}
+                <span class="installed-meta">
+                  <span class="installed-cat">{model.category}</span>
+                  <span class="installed-size">{formatSize(model.size_mb)}</span>
+                  {#if model.manifest_missing}
+                    <span class="installed-missing" title="Falta el manifiesto del modelo">sin manifiesto</span>
+                  {/if}
+                </span>
               </div>
               <button class="btn-delete" onclick={() => handleDeleteModel(model)} title="Eliminar modelo">
                 🗑️
@@ -1238,6 +1305,27 @@
     color: var(--text-muted);
   }
 
+  .installed-filename {
+    font-size: 0.7rem;
+    color: var(--text-secondary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+
+  .installed-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+
+  .installed-missing {
+    font-size: 0.6rem;
+    color: #ffb74d;
+    border: 1px solid #ffb74d;
+    border-radius: 4px;
+    padding: 0.05rem 0.3rem;
+  }
+
   .btn-delete {
     background: none;
     border: none;
@@ -1314,5 +1402,79 @@
   .source-badge.demucs {
     background: #2a1b3a;
     color: #ba68c8;
+  }
+
+  /* Uploaded models list */
+  .uploaded-list {
+    margin-top: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+
+  .uploaded-title {
+    margin: 0;
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--accent-light);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .uploaded-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0.6rem;
+    background: var(--bg-primary);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    gap: 0.5rem;
+  }
+
+  .uploaded-info {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+    flex: 1;
+  }
+
+  .uploaded-name {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .uploaded-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+  }
+
+  .uploaded-cat {
+    font-size: 0.68rem;
+    color: var(--accent-light);
+  }
+
+  .uploaded-type {
+    font-size: 0.68rem;
+    color: var(--text-secondary);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  }
+
+  .uploaded-stems {
+    font-size: 0.65rem;
+    color: var(--text-muted);
+  }
+
+  .uploaded-inferred {
+    font-size: 0.65rem;
+    color: var(--warning, #f59e0b);
+    font-weight: 600;
   }
 </style>

@@ -27,7 +27,7 @@ func TestCheckVramHeadroom(t *testing.T) {
 		wantWarning bool
 	}{
 		{
-			name:        "viperx fits with margin",
+			name:        "vocal fits with margin",
 			freeMB:      20000,
 			totalMB:     24000,
 			model:       "BS_Roformer_Viperx",
@@ -38,7 +38,7 @@ func TestCheckVramHeadroom(t *testing.T) {
 			wantWarning: false,
 		},
 		{
-			name:        "viperx fits comfortably below total vram",
+			name:        "vocal fits comfortably below total vram",
 			freeMB:      15475,
 			totalMB:     16311,
 			model:       "BS_Roformer_Viperx",
@@ -49,7 +49,7 @@ func TestCheckVramHeadroom(t *testing.T) {
 			wantWarning: false,
 		},
 		{
-			name:        "viperx blocked low vram",
+			name:        "vocal blocked low vram",
 			freeMB:      500,
 			totalMB:     16311,
 			model:       "BS_Roformer_Viperx",
@@ -318,9 +318,9 @@ func TestCheckRamHeadroom(t *testing.T) {
 		wantOK     bool
 		wantReason bool
 	}{
-		{"viperx fits", 8000, "BS_Roformer_Viperx", "vocal", true, false},
-		{"viperx below measured", 2000, "BS_Roformer_Viperx", "vocal", false, true},
-		{"viperx real measurement 4700 MB", 4700, "BS_Roformer_Viperx", "vocal", true, false},
+		{"vocal fits", 8000, "BS_Roformer_Viperx", "vocal", true, false},
+		{"vocal below measured", 2000, "BS_Roformer_Viperx", "vocal", false, true},
+		{"vocal real measurement 4700 MB", 4700, "BS_Roformer_Viperx", "vocal", true, false},
 		{"demucs fits", 5000, "htdemucs_ft", "demucs", true, false},
 		{"demucs below estimate", 3000, "htdemucs_ft", "demucs", false, true},
 		{"unknown conservative", 5000, "unknown_model", "vocal", true, false},

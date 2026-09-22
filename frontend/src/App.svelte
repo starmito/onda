@@ -14,7 +14,7 @@
   import PresetsPanel from './lib/PresetsPanel.svelte';
   import type { ResultStem } from './lib/types';
   import { detectStemType } from './lib/types';
-  import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getPresets, getDefaultPreset, clearQueue, cancelQueue, loadUISettings, type InputEntry, type ResultsGroup } from './lib/api';
+  import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getGpuInfo, getPresets, getDefaultPreset, clearQueue, cancelQueue, loadUISettings, type InputEntry, type ResultsGroup } from './lib/api';
   import type { QueueJob } from './lib/api';
   import { deriveQueueFileStatus, resolveOutputGroupName, songNameForQueueFile } from './lib/queueState';
   import { IconOnda, IconStar, IconVoiceRemove, IconSeparate, IconInstruments, IconUser } from './lib/icons';
@@ -94,11 +94,15 @@
     syncResultsPolling();
   });
 
-  // ---- Health / Version from backend ----
+  // ---- Health / Version / GPU from backend ----
   let healthVersion = $state('');
   const appVersion = $state(import.meta.env.VITE_ONDA_VERSION || '');
   let gpuType = $state<'cuda' | 'cpu' | ''>('');
   let gpuWarning = $state('');
+  let gpuDetail = $state('');
+  let gpuUsableByTorch = $state(true);
+  let gpuDriverOk = $state(false);
+  let cpuWarningDismissed = $state(false);
 
   // Toast
   let toastMessage = $state('');
@@ -114,6 +118,14 @@
   let sidebarCollapsed = $state(false);
   let settingsSubTab = $state('models');
   let activeTabName = $derived(activeTab);
+
+  /** Visible global CPU warning derived from health + GPU info endpoints */
+  let showCpuWarning = $derived((gpuType === 'cpu' || !gpuUsableByTorch) && !cpuWarningDismissed);
+  let cpuWarningText = $derived(
+    gpuDriverOk && !gpuUsableByTorch
+      ? 'La máquina tiene GPU pero torch no la ve. La inferencia se ejecutará en CPU y será mucho más lenta.'
+      : gpuWarning || gpuDetail || 'No se detectó GPU usable. La inferencia puede tardar minutos en lugar de segundos.'
+  );
 
   /** Icon mapping for locked (built-in) presets */
   const BUILTIN_ICONS: Record<string, string> = {
@@ -351,16 +363,29 @@
       applyLocalStorageSettings();
     });
 
-    // ── Load version from health endpoint ──
+    // ── Load version / GPU health from backend ──
     getHealth()
       .then((h) => {
         if (h?.version) healthVersion = h.version;
         if (h?.gpu?.type) gpuType = h.gpu.type;
         if (h?.gpu?.warning) gpuWarning = h.gpu.warning;
+        if (h?.gpu?.detail) gpuDetail = h.gpu.detail;
+        if (h?.gpu && typeof h.gpu.usable_by_torch === 'boolean') {
+          gpuUsableByTorch = h.gpu.usable_by_torch;
+        }
         // Fallback: derive type from gpu.ok if type not present
         if (h?.gpu && !h.gpu.type) {
           gpuType = h.gpu.ok ? 'cuda' : 'cpu';
         }
+      })
+      .catch(() => {}); // silent fail
+
+    // ── Distinguish "GPU visible to nvidia-smi" vs "GPU usable by torch" ──
+    getGpuInfo()
+      .then((gpu) => {
+        gpuDriverOk = gpu.ok;
+        gpuUsableByTorch = gpu.usable_by_torch;
+        if (gpu.torch_info && !gpuDetail) gpuDetail = gpu.torch_info;
       })
       .catch(() => {}); // silent fail
 
@@ -609,6 +634,9 @@
   function formatJobFailureMessage(job: QueueJob): string {
     const d = job.failure_details;
     if (!d) return job.error || 'Error desconocido';
+    if (d.step === 'device') {
+      return `Error en dispositivo para "${job.song}": no hay GPU usable. ${d.error || ''}`.trim();
+    }
     let msg = `Error en "${job.song}" — paso ${d.step} (código ${d.exit_code})`;
     if (d.error) msg += `: ${d.error}`;
     return msg;
@@ -998,10 +1026,14 @@
         {/if}
       </header>
 
-      {#if gpuType === 'cpu'}
-        <div class="cpu-warning">
-          <span>⚠️ Ejecutando en CPU — la inferencia será más lenta</span>
-          <button class="cpu-warning-close" onclick={() => gpuType = ''}>✕</button>
+      {#if showCpuWarning}
+        <div class="cpu-warning" role="alert">
+          <div class="cpu-warning-icon">⚠️</div>
+          <div class="cpu-warning-body">
+            <strong>Ejecutando en CPU — la separación será mucho más lenta</strong>
+            <span>{cpuWarningText}</span>
+          </div>
+          <button class="cpu-warning-close" onclick={() => cpuWarningDismissed = true} aria-label="Cerrar aviso">✕</button>
         </div>
       {/if}
 
@@ -1220,27 +1252,46 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 1rem;
-    padding: 0.6rem 1.5rem;
-    background: rgba(255, 152, 0, 0.12);
-    border-bottom: 1px solid rgba(255, 152, 0, 0.2);
+    gap: 0.75rem;
+    padding: 0.75rem 1.25rem;
+    background: rgba(255, 152, 0, 0.14);
+    border-bottom: 2px solid rgba(255, 152, 0, 0.35);
     color: #ffb74d;
-    font-size: 0.85rem;
-    font-weight: 600;
     flex-shrink: 0;
+  }
+  .cpu-warning-icon {
+    font-size: 1.4rem;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .cpu-warning-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    text-align: center;
+  }
+  .cpu-warning-body strong {
+    font-size: 0.95rem;
+    font-weight: 700;
+  }
+  .cpu-warning-body span {
+    font-size: 0.8rem;
+    font-weight: 500;
+    color: #ffcc80;
   }
   .cpu-warning-close {
     background: rgba(255, 152, 0, 0.15);
-    border: 1px solid rgba(255, 152, 0, 0.25);
+    border: 1px solid rgba(255, 152, 0, 0.3);
     color: #ffb74d;
     font-size: 0.9rem;
-    padding: 0.15rem 0.5rem;
+    padding: 0.2rem 0.55rem;
     border-radius: 4px;
     cursor: pointer;
     line-height: 1;
+    flex-shrink: 0;
   }
   .cpu-warning-close:hover {
-    background: rgba(255, 152, 0, 0.25);
+    background: rgba(255, 152, 0, 0.3);
   }
 
   .btn-gear {
