@@ -28,7 +28,7 @@ def _write_progress(progress_file, chunk, total):
 
 
 def _write_pipeline_status(status_file, step, progress, chunk, total, device='cuda'):
-    """Write progress to pipeline_status.json for the web UI.
+    """Write progress to pipeline_status.json for the web UI atomically.
     Reads existing data to preserve fields (song, model names, etc.)
     set by pipeline.sh on startup, then updates progress fields."""
     try:
@@ -45,9 +45,12 @@ def _write_pipeline_status(status_file, step, progress, chunk, total, device='cu
             'total_chunks': total,
             'device': device,
         })
-        with open(status_file, 'w') as f:
+        tmp = status_file + '.tmp'
+        with open(tmp, 'w') as f:
             json.dump(data, f)
             f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, status_file)
     except Exception:
         pass  # Non-critical; don't crash the pipeline over a status write failure
 
