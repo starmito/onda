@@ -87,6 +87,8 @@ type JobState struct {
 	Song             string      `json:"song"`
 	Status           string      `json:"status"` // waiting, processing, done, error, blocked_no_gpu
 	Progress         int         `json:"progress"`
+	ETA              int         `json:"eta"`
+	Elapsed          int         `json:"elapsed"`
 	Error            string                `json:"error,omitempty"`
 	FailureDetails   *FailureDiagnostics   `json:"failure_details,omitempty"`
 	Files            []FileEntry           `json:"files,omitempty"`
@@ -781,6 +783,8 @@ type pipelineStatusJSON struct {
 	Step            string  `json:"step"`
 	Progress        float64 `json:"progress"`
 	OverallProgress float64 `json:"overall_progress"`
+	ETA             float64 `json:"eta"`
+	Elapsed         float64 `json:"elapsed"`
 	Song            string  `json:"song"`
 	Device          string  `json:"device"`
 	GPUType         string  `json:"gpu_type"`
@@ -870,7 +874,7 @@ func (s *Server) collectQueueJobs() []*JobState {
 		// device and GPU type for every job, not only the one in progress.
 		st := readPipelineStatusForSong(outputDir, j.Song)
 
-		// For the processing job, inject live step/progress from pipeline_status.json
+		// For the processing job, inject live step/progress/eta/elapsed from pipeline_status.json
 		if j.Status == "processing" && st.Status != "" {
 			j.StepName = capitalizeStep(st.Step)
 			j.CurrentStep = stepOrder[st.Step]
@@ -891,17 +895,26 @@ func (s *Server) collectQueueJobs() []*JobState {
 			if liveProgress > 1 {
 				liveProgress = 1
 			}
-			j.Progress = int(liveProgress * 100)
+			j.Progress = int(math.Round(liveProgress * 100))
+			j.ETA = int(st.ETA)
+			j.Elapsed = int(st.Elapsed)
 			// Ensure total_steps is at least current_step
 			if j.TotalSteps < j.CurrentStep {
 				j.TotalSteps = j.CurrentStep
 			}
 		} else if j.Status == "done" {
 			j.Progress = 100
+			j.ETA = 0
+			j.Elapsed = 0
 			j.StepName = "Completado"
 			j.CurrentStep = j.TotalSteps
 		} else if j.Status == "error" {
 			j.FailureDetails = readFailureDiagnostics(outputDir, j.Song)
+			j.ETA = 0
+			j.Elapsed = 0
+		} else {
+			j.ETA = 0
+			j.Elapsed = 0
 		}
 		j.Device = st.Device
 		j.GPUType = st.GPUType
