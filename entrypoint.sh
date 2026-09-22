@@ -58,6 +58,21 @@ mkdir -p "${ONDA_DATA_DIR}/input" \
          "${ONDA_DATA_DIR}/logs" \
          "${ONDA_DATA_DIR}/models"
 
+# Enlaces de compatibilidad: el backend y el pipeline usan rutas /app/input y
+# /app/output, que apuntan a la raiz de datos configurada de forma idempotente.
+_create_compat_link() {
+    local target="$1" link="$2"
+    if [ -L "$link" ] && [ "$(readlink "$link")" = "$target" ]; then
+        return 0
+    fi
+    if [ -e "$link" ] || [ -L "$link" ]; then
+        rm -rf "$link"
+    fi
+    ln -s "$target" "$link"
+}
+_create_compat_link "${ONDA_DATA_DIR}/input" "/app/input"
+_create_compat_link "${ONDA_DATA_DIR}/output" "/app/output"
+
 # Limpieza de subcarpetas temporales huérfanas de jobs abortados por reinicio duro.
 for job_dir in "${ONDA_DATA_DIR}/output"/*; do
     if [ -d "$job_dir" ]; then
