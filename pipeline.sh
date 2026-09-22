@@ -182,9 +182,6 @@ except Exception:
 
 trap 'report_step_failure "${CURRENT_STEP:-unknown}" $? "${CURRENT_STEP_LOG:-}"' ERR
 
-# Clear stale pipeline status from previous run and signal that a new pipeline has started
-report_progress "running" "starting" 0
-
 # ── Background elapsed/eta updater ─────────────
 # Runs in a subshell loop, updating elapsed and eta every second
 # while a long-running docker exec is in progress.
@@ -1404,15 +1401,147 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# ── Auto-detect device if not explicitly set ──
-if ! $DEVICE_SET_EXPLICITLY; then
-    DETECTED_DEVICE=$(detect_gpu.sh 2>/dev/null || echo "cpu")
-    echo "   ℹ️  Auto-detected device: ${DETECTED_DEVICE}"
-    DEVICE="${DETECTED_DEVICE}"
+# ── Helpers: GPU detection and naming ──
+# Ask torch whether CUDA is usable; nvidia-smi alone is not enough, because the
+# host may expose a GPU while the torch build in the container is CPU-only.
+_query_torch_cuda() {
+    python3 - <<'PYEOF'
+import json, subprocess
+try:
+    import torch
+    print(json.dumps({
+        "available": torch.cuda.is_available(),
+        "name": torch.cuda.get_device_name(0) if torch.cuda.is_available() else ""
+    }))
+except ImportError:
+    # Torch no está instalado (p. ej. runner de tests en el host): usamos
+    # nvidia-smi como fallback para no romper entornos de desarrollo.
+    try:
+        out = subprocess.check_output(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            text=True, stderr=subprocess.DEVNULL
+        )
+        name = out.strip().split("\n")[0].strip()
+        if name:
+            print(json.dumps({"available": True, "name": name}))
+        else:
+            print(json.dumps({"available": False, "name": ""}))
+    except Exception:
+        print(json.dumps({"available": False, "name": ""}))
+except Exception as e:
+    print(json.dumps({"available": False, "name": "", "error": str(e)}))
+PYEOF
+}
+
+_nvidia_smi_responds() {
+    command -v nvidia-smi &>/dev/null && nvidia-smi &>/dev/null
+}
+
+# Write a failed status before exiting from the device guard, so the UI has
+# something to read even when the pipeline never started.
+_write_guard_failure_status() {
+    local error_msg="$1"
+    local exit_code="${2:-1}"
+    python3 - "$error_msg" "$exit_code" "$STATUS_FILE" <<'PYEOF'
+import json, os, sys
+error_msg = sys.argv[1]
+exit_code = int(sys.argv[2])
+status_file = sys.argv[3]
+d = {
+    "status": "failed",
+    "step": "device",
+    "error": error_msg,
+    "exit_code": exit_code,
+    "device": "cpu",
+    "gpu_type": "N/A"
+}
+try:
+    os.makedirs(os.path.dirname(status_file), exist_ok=True)
+    with open(status_file, 'w') as f:
+        json.dump(d, f)
+except Exception:
+    pass
+PYEOF
+}
+
+_detect_gpu_backend() {
+    local torch_info available
+    torch_info=$(_query_torch_cuda 2>/dev/null || echo '{"available":false,"name":""}')
+    available=$(python3 -c "import json,sys; print('true' if json.loads(sys.argv[1]).get('available') else 'false')" "$torch_info" 2>/dev/null || echo false)
+    if [ "$available" = "true" ]; then
+        echo "cuda"
+    else
+        echo "cpu"
+    fi
+}
+
+_gpu_name() {
+    local torch_info name
+    torch_info=$(_query_torch_cuda 2>/dev/null || echo '{"available":false,"name":""}')
+    name=$(python3 -c "import json,sys; print(json.loads(sys.argv[1]).get('name',''))" "$torch_info" 2>/dev/null || echo "")
+    echo "$name"
+}
+
+# ── Validate requested/available device ──
+DETECTED_DEVICE=$(_detect_gpu_backend)
+GPU_NAME=$(_gpu_name)
+if [ "$DETECTED_DEVICE" = "cuda" ] && [ -n "$GPU_NAME" ]; then
+    GPU_TYPE="$GPU_NAME"
+else
+    GPU_TYPE="N/A"
 fi
 
-# Capture real GPU type for status reporting (not normalized away)
-GPU_TYPE=$(detect_gpu.sh 2>/dev/null || echo "unknown")
+SMI_BUT_NO_TORCH_CUDA=false
+if [ "$DETECTED_DEVICE" != "cuda" ] && _nvidia_smi_responds; then
+    SMI_BUT_NO_TORCH_CUDA=true
+fi
+
+if $DEVICE_SET_EXPLICITLY; then
+    if [ "$DEVICE" = "cuda" ] && [ "$DETECTED_DEVICE" != "cuda" ]; then
+        cause_msg="nvidia-smi no está disponible o no responde en este entorno."
+        if [ "$SMI_BUT_NO_TORCH_CUDA" = "true" ]; then
+            cause_msg="GPU presente según nvidia-smi, pero torch no ve CUDA (¿backend CUDA no montado o torch compilado solo para CPU?)."
+        fi
+        echo "❌ Error: se pidió --device cuda pero no hay GPU usable disponible." >&2
+        echo "   Causa: $cause_msg" >&2
+        echo "   Si realmente quieres ejecutar en CPU (LENTO: minutos en lugar de segundos), usa:" >&2
+        echo "       --device cpu" >&2
+        _write_guard_failure_status "se pidió --device cuda pero no hay GPU usable disponible. Causa: $cause_msg" 1
+        exit 1
+    fi
+    if [ "$DEVICE" = "cpu" ]; then
+        echo "⚠️  AVISO: el pipeline va a ejecutarse en CPU. Esto será LENTO (minutos en lugar de segundos)." >&2
+    fi
+    if [ "$DEVICE" = "cuda" ] && [ -n "$GPU_NAME" ]; then
+        echo "   ✅ Usando dispositivo: cuda ($GPU_NAME)"
+    fi
+else
+    # Auto-detect: never silently fall back to CPU.
+    if [ "$DETECTED_DEVICE" != "cuda" ]; then
+        echo "⚠️  Auto-detección: no se ha detectado GPU usable." >&2
+        if [ "$SMI_BUT_NO_TORCH_CUDA" = "true" ]; then
+            echo "   nvidia-smi ve una GPU, pero torch no está compilado con CUDA / no ve el backend CUDA." >&2
+        fi
+        echo "   El trabajo se ejecutaría en CPU, lo cual es LENTO (minutos en lugar de segundos)." >&2
+        echo "   Para continuar en CPU de forma explícita, usa:" >&2
+        echo "       --device cpu" >&2
+        echo "   O bien establece ONDA_ALLOW_CPU=1 como variable de entorno." >&2
+        if [ "${ONDA_ALLOW_CPU:-0}" != "1" ]; then
+            echo "❌ Error: no se permite ejecutar en CPU sin decisión explícita." >&2
+            _write_guard_failure_status "no se permite ejecutar en CPU sin decisión explícita" 1
+            exit 1
+        fi
+        echo "   ⚠️  Continuando en CPU por decisión explícita (ONDA_ALLOW_CPU=1). Esto será LENTO." >&2
+        DEVICE="cpu"
+    else
+        if [ -n "$GPU_NAME" ]; then
+            echo "   ✅ Auto-detectado dispositivo: cuda ($GPU_NAME)"
+        else
+            echo "   ✅ Auto-detectado dispositivo: cuda"
+        fi
+        DEVICE="cuda"
+    fi
+fi
 
 # Resolve input: --input-from-step overrides positional arg
 if [ -n "$INPUT_FROM_STEP" ]; then
@@ -1430,6 +1559,9 @@ fi
 
 SONG=$(basename "${INPUT%.*}")
 OUTPUT="${OUTPUT:-$OUTPUT_DIR/${SONG}}"
+
+# Signal that a new pipeline has started, now that the real device is known.
+report_progress "running" "starting" 0
 
 # Ensure temporary vocal/demucs dirs are always removed, even on error or cancellation.
 cleanup_legacy_temps() {
