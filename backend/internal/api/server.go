@@ -781,6 +781,7 @@ type pipelineStatusJSON struct {
 	Step            string  `json:"step"`
 	Progress        float64 `json:"progress"`
 	OverallProgress float64 `json:"overall_progress"`
+	Song            string  `json:"song"`
 	Device          string  `json:"device"`
 	GPUType         string  `json:"gpu_type"`
 }
@@ -800,7 +801,7 @@ func readPipelineStatusForSong(outputDir, song string) pipelineStatusJSON {
 	sharedPath := filepath.Join(outputDir, "pipeline_status.json")
 	if data, err := os.ReadFile(sharedPath); err == nil {
 		json.Unmarshal(data, &st)
-		if st.Song == song {
+		if st.Song == "" || st.Song == song {
 			return st
 		}
 	}

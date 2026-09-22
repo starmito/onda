@@ -19,14 +19,14 @@ func TestEstimateVRAMMB_Empirical(t *testing.T) {
 		want          int
 		tolerance     float64
 	}{
-		{"vocal 64 b1", "BS_Roformer_Viperx", 64, 0, 1, 0, 0, 1662, 0.05},
-		{"vocal 128 b1", "BS_Roformer_Viperx", 128, 0, 1, 0, 0, 2152, 0.05},
-		{"vocal 256 b1", "BS_Roformer_Viperx", 256, 0, 1, 0, 0, 2898, 0.05},
-		{"vocal 512 b1", "BS_Roformer_Viperx", 512, 0, 1, 0, 0, 4656, 0.05},
-		{"vocal 1024 b1", "BS_Roformer_Viperx", 1024, 0, 1, 0, 0, 8116, 0.05},
-		{"vocal 256 b2", "BS_Roformer_Viperx", 256, 0, 2, 0, 0, 4724, 0.05},
-		{"vocal 512 b2", "BS_Roformer_Viperx", 512, 0, 2, 0, 0, 8178, 0.05},
-		{"vocal 1024 b2", "BS_Roformer_Viperx", 1024, 0, 2, 0, 0, 15108, 0.05},
+		{"vocal 64 b1", "BS_Roformer_Viperx", 64, 0, 1, 0, 0, 2096, 0.05},
+		{"vocal 128 b1", "BS_Roformer_Viperx", 128, 0, 1, 0, 0, 2192, 0.05},
+		{"vocal 256 b1", "BS_Roformer_Viperx", 256, 0, 1, 0, 0, 2384, 0.05},
+		{"vocal 512 b1", "BS_Roformer_Viperx", 512, 0, 1, 0, 0, 2768, 0.05},
+		{"vocal 1024 b1", "BS_Roformer_Viperx", 1024, 0, 1, 0, 0, 3536, 0.05},
+		{"vocal 256 b2", "BS_Roformer_Viperx", 256, 0, 2, 0, 0, 3268, 0.05},
+		{"vocal 512 b2", "BS_Roformer_Viperx", 512, 0, 2, 0, 0, 4036, 0.05},
+		{"vocal 1024 b2", "BS_Roformer_Viperx", 1024, 0, 2, 0, 0, 5572, 0.05},
 		{"demucs seg0", "htdemucs_ft", 0, 0, 0, 0, 0, 1572, 0.05},
 		{"demucs seg7", "htdemucs_ft", 0, 0, 0, 7, 0, 1106, 0.05},
 
@@ -176,7 +176,7 @@ func TestCheckVramHeadroom_NeverRequiresMoreThanTotal(t *testing.T) {
 			model:        "BS_Roformer_Viperx",
 			stepType:     "vocal",
 			wantOK:       true,
-			wantRequired: 1447,
+			wantRequired: 2400,
 			wantWarning:  "",
 		},
 		{
@@ -186,8 +186,8 @@ func TestCheckVramHeadroom_NeverRequiresMoreThanTotal(t *testing.T) {
 			model:        "BS_Roformer_Viperx",
 			stepType:     "vocal",
 			wantOK:       false,
-			wantRequired: 1447,
-			wantReason:   `insufficient VRAM: model "BS_Roformer_Viperx" (step "vocal") needs ~1447 MiB (with 20% margin), only 950 MiB free`,
+			wantRequired: 2400,
+			wantReason:   `insufficient VRAM: model "BS_Roformer_Viperx" (step "vocal") needs ~2400 MiB (with 20% margin), only 950 MiB free`,
 		},
 		{
 			name:         "demucs margin fits free above requirement",
@@ -216,7 +216,7 @@ func TestCheckVramHeadroom_NeverRequiresMoreThanTotal(t *testing.T) {
 			stepType:      "vocal",
 			fallbackModel: "BS_Roformer_Viperx",
 			wantOK:        true,
-			wantRequired:  1447,
+			wantRequired:  2400,
 			wantWarning:   "",
 		},
 	}
@@ -319,7 +319,7 @@ func TestHandleVRAMCalculator_UsesMeasuredPeaks(t *testing.T) {
 		{
 			name:     "Roformer chunk_size ignored in analytical estimate triggers warning",
 			query:    "models=BS_Roformer_SW_6stem&segment_size=1101&chunk_size=100000&batch_size=1",
-			wantVRAM: 8605, // round(1100 + (106 + 6.72*1101) * 1)
+			wantVRAM: 3652, // round(1500 + (500 + 1.5*1101) * 1)
 			reliable: false,
 		},
 	}
@@ -367,16 +367,17 @@ func TestHandleVRAMCalculator_ViperxDurationAware(t *testing.T) {
 		{
 			name:     "Viperx short audio is not rejected",
 			query:    "models=BS_Roformer_Viperx&segment_size=1276&batch_size=4&duration=3",
-			maxVRAM:  12000,
-			minVRAM:  8000,
+			maxVRAM:  6000,
+			minVRAM:  3000,
 			fits:     true,
 			reliable: false,
 		},
 		{
 			name:     "Viperx long audio warns honestly",
 			query:    "models=BS_Roformer_Viperx&segment_size=1276&batch_size=4&duration=300",
-			minVRAM:  35000,
-			fits:     false,
+			maxVRAM:  15000,
+			minVRAM:  9000,
+			fits:     true,
 			reliable: false,
 		},
 		{

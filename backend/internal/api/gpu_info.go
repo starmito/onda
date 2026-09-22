@@ -348,9 +348,14 @@ func roformerEstimateVRAMMB(segmentSize, chunkSize, batchSize, duration int) int
 	if b < 1 {
 		b = 1
 	}
-	// Calibrated formula: fixed overhead + per-batch term.
-	baseFixed := 1100.0
-	basePerBatch := 106.0 + 6.72*float64(segmentSize)
+	// Recalibrated 2026-09-22: the old linear coefficient (6.72 * segment_size)
+	// produced impossible peaks (e.g. ~22 GiB for BS_Roformer_Viperx with its
+	// default dim_t=3105). Real RoFormer peaks are dominated by model weights
+	// and activations that grow much more gently with dim_t. The formula below
+	// stays conservative but grounded: fixed overhead + a moderate per-batch
+	// term scaled by segment_size.
+	baseFixed := 1500.0
+	basePerBatch := 500.0 + 1.5*float64(segmentSize)
 
 	// If we have duration or chunk_size information, limit the effective batch.
 	effectiveDurationSec := 0
@@ -358,8 +363,12 @@ func roformerEstimateVRAMMB(segmentSize, chunkSize, batchSize, duration int) int
 		effectiveDurationSec = duration
 	}
 	if chunkSize > 0 {
-		// chunk_size is in samples at 44.1 kHz.
-		chunkSec := chunkSize / 44100
+		// chunk_size is passed in seconds for RoFormer models and in samples for
+		// SCNet. Values <= 1000 are clearly seconds; treat larger values as samples.
+		chunkSec := chunkSize
+		if chunkSize > 1000 {
+			chunkSec = chunkSize / 44100
+		}
 		if chunkSec < 1 {
 			chunkSec = 1
 		}
