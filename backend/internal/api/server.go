@@ -1093,6 +1093,7 @@ func audioDurationSeconds(inputPath string) int {
 
 // vramConfigForStep builds a VRAMConfig for a multi-step pipeline step.
 func vramConfigForStep(step cli.PipelineStep, inputPath string) VRAMConfig {
+	step.Model = resolveModelAlias(step.Model)
 	if step.Type == "demucs" && isDemucsModel(stepModelName(step)) {
 		cfg := readModelConfigFromYaml(step.Model)
 		seg := int(cfg.Segment)
@@ -1113,6 +1114,7 @@ func vramConfigForStep(step cli.PipelineStep, inputPath string) VRAMConfig {
 // vramConfigForModelAndRequest builds a VRAMConfig for the legacy single-step
 // path from the effective model name and the request overrides.
 func vramConfigForModelAndRequest(modelName, stepType string, req SeparateRequest, inputPath string) VRAMConfig {
+	modelName = resolveModelAlias(modelName)
 	if stepType == "demucs" {
 		seg := int(req.DemucsSegment)
 		if seg <= 0 {
@@ -2053,7 +2055,7 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 	}
 
 	// Resolve model paths (pipeline.sh reads inference params from model's YAML)
-	vocalModel := req.VocalModel
+	vocalModel := resolveModelAlias(req.VocalModel)
 	if vocalModel != "" {
 		modelDir, resolveErr := resolveModelDirRequired(vocalModel)
 		if resolveErr != nil {
@@ -2071,9 +2073,9 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 			env = append(env, envVar)
 		}
 	}
-	stemModel := req.StemModel
+	stemModel := resolveModelAlias(req.StemModel)
 	if stemModel == "" {
-		stemModel = req.DemucsModel
+		stemModel = resolveModelAlias(req.DemucsModel)
 	}
 	if stemModel == "" && req.Demucs {
 		stemModel = "htdemucs_ft"
@@ -2182,7 +2184,7 @@ func keptStemNames(stems map[string]cli.StemRoute) []string {
 func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device string) (args []string, env []string, err error) {
 	switch step.Type {
 	case "vocal":
-		modelName := step.Model
+		modelName := resolveModelAlias(step.Model)
 		if modelName == "" {
 			modelName = "BS_Roformer_Viperx"
 		}
@@ -2214,7 +2216,7 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 			}
 		}
 	case "demucs":
-		stemModel := step.Model
+		stemModel := resolveModelAlias(step.Model)
 		if stemModel == "" {
 			stemModel = "htdemucs_ft"
 		}
@@ -2276,7 +2278,7 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 
 	if step.Type == "vocal" {
 		if step.Model != "" {
-			vocalCfg := readModelConfigFromYaml(step.Model)
+			vocalCfg := readModelConfigFromYaml(resolveModelAlias(step.Model))
 			Log("backend", "info", fmt.Sprintf("Effective step vocal config for %s: dim_t=%d overlap=%.2f batch=%d chunk=%d", step.Model, vocalCfg.SegmentSize, vocalCfg.Overlap, vocalCfg.BatchSize, vocalCfg.ChunkSize))
 		}
 	}
@@ -2584,6 +2586,30 @@ func availableModelDirs(tried []string) []string {
 	return avail
 }
 
+// resolveModelAlias maps a legacy or display model name to the real
+// installed_name used on disk. It searches the local model list by Name,
+// DisplayName and InstalledName so old presets saved with a repo slug or a
+// human-readable label still resolve after the model is installed under its
+// canonical directory name.
+func resolveModelAlias(name string) string {
+	if name == "" {
+		return name
+	}
+	lower := strings.ToLower(name)
+	for _, m := range listModels().Models {
+		if strings.ToLower(m.InstalledName) == lower {
+			return m.InstalledName
+		}
+		if strings.ToLower(m.Name) == lower {
+			return m.InstalledName
+		}
+		if strings.ToLower(m.DisplayName) == lower {
+			return m.InstalledName
+		}
+	}
+	return name
+}
+
 // resolveModelDir resolves a model name to a directory path usable by the
 // pipeline. For Demucs PyTorch models (htdemucs_ft, htdemucs, etc.) the name is
 // returned as-is (loaded by name, not path). For all other models (ViperX,
@@ -2594,6 +2620,7 @@ func resolveModelDir(name string) string {
 	if name == "" {
 		return ""
 	}
+	name = resolveModelAlias(name)
 	if name == "htdemucs_ft" || (strings.HasPrefix(name, "htdemucs") && !strings.Contains(name, ".onnx")) {
 		return name
 	}
@@ -2616,6 +2643,7 @@ func resolveModelDirRequired(name string) (string, error) {
 	if name == "" {
 		return "", fmt.Errorf("model name is empty")
 	}
+	name = resolveModelAlias(name)
 	if name == "htdemucs_ft" || (strings.HasPrefix(name, "htdemucs") && !strings.Contains(name, ".onnx")) {
 		return name, nil
 	}

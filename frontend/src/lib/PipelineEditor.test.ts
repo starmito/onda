@@ -19,19 +19,21 @@ describe('PipelineEditor stems from model manifest', () => {
   });
 
   const swSixStem = {
-    name: 'BS-Rofo-SW-Fixed',
-    display_name: 'BS_Roformer_SW_6stem',
+    name: 'BS_Roformer_SW_6stem',
+    installed_name: 'BS_Roformer_SW_6stem',
+    display_name: 'BS-Rofo-SW-Fixed',
     category: 'Roformer',
     type: 'bs_roformer',
     size_mb: 668,
     vram_estimate_mb: 668,
-    path: 'models/VR_Models/BS_Roformer_SW_6stem/BS-Rofo-SW-Fixed.ckpt',
+    path: 'models/VR_Models/BS_Roformer_SW_6stem/BS_Roformer_SW_6stem.ckpt',
     stems: ['bass', 'drums', 'other', 'vocals', 'guitar', 'piano'],
     num_stems: 6,
   };
 
   const viperx = {
     name: 'BS_Roformer_Viperx',
+    installed_name: 'BS_Roformer_Viperx',
     display_name: 'BS_Roformer_Viperx',
     category: 'Roformer',
     type: 'bs_roformer',
@@ -44,6 +46,7 @@ describe('PipelineEditor stems from model manifest', () => {
 
   const mdx23c = {
     name: 'mdx23c_d1581',
+    installed_name: 'MDX23C_D1581',
     display_name: 'MDX23C_D1581',
     category: 'MDX',
     type: 'mdx23c',
@@ -56,6 +59,7 @@ describe('PipelineEditor stems from model manifest', () => {
 
   const htdemucs = {
     name: 'htdemucs_ft',
+    installed_name: 'htdemucs_ft',
     display_name: 'HTDemucs FT',
     category: 'Demucs',
     type: 'demucs',
@@ -69,6 +73,7 @@ describe('PipelineEditor stems from model manifest', () => {
 
   const noManifest = {
     name: 'mystery_model',
+    installed_name: 'mystery_model',
     display_name: 'Mystery Model',
     category: 'VR_Arch',
     type: '',
@@ -246,7 +251,7 @@ describe('PipelineEditor stems from model manifest', () => {
     await waitForModels();
 
     await setStepType('demucs');
-    await selectModel('BS-Rofo-SW-Fixed');
+    await selectModel('BS_Roformer_SW_6stem');
 
     await vi.waitFor(() => expect(getStemRows().length).toBe(6), { timeout: 2000 });
 
@@ -298,7 +303,7 @@ describe('PipelineEditor stems from model manifest', () => {
     await waitForModels();
 
     await setStepType('demucs');
-    await selectModel('BS-Rofo-SW-Fixed');
+    await selectModel('BS_Roformer_SW_6stem');
 
     await vi.waitFor(() => expect(getStemRows().length).toBe(6), { timeout: 2000 });
 
@@ -318,7 +323,7 @@ describe('PipelineEditor stems from model manifest', () => {
     }, { timeout: 2000 });
 
     const saved = savedPresets['SW 6-stem mix'];
-    expect(saved.steps[0].model).toBe('BS-Rofo-SW-Fixed');
+    expect(saved.steps[0].model).toBe('BS_Roformer_SW_6stem');
     expect(Object.keys(saved.steps[0].stems)).toEqual([
       'bass', 'drums', 'other', 'vocals', 'guitar', 'piano',
     ]);
