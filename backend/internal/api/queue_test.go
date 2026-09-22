@@ -185,11 +185,12 @@ func TestHandleQueueStatus_PipelineProgress(t *testing.T) {
 	root := setupQueueTestRoot(t)
 	s := newQueueTestServer(t)
 
-	songDir := filepath.Join(root, "output", "processing-song")
+	outputRoot := filepath.Join(root, "output")
+	songDir := filepath.Join(outputRoot, "processing-song")
 	if err := os.MkdirAll(songDir, 0o755); err != nil {
 		t.Fatalf("failed to create song output dir: %v", err)
 	}
-	statusPath := filepath.Join(songDir, "pipeline_status.json")
+	statusPath := filepath.Join(outputRoot, "pipeline_status.json")
 	status := `{"status":"running","step":"demucs","progress":0.42,"device":"cuda","gpu_type":"NVIDIA GeForce RTX 5060 Ti"}`
 	if err := os.WriteFile(statusPath, []byte(status), 0o644); err != nil {
 		t.Fatalf("failed to write pipeline status: %v", err)
@@ -238,11 +239,12 @@ func TestHandleQueueStatus_OverallProgressFallback(t *testing.T) {
 	root := setupQueueTestRoot(t)
 	s := newQueueTestServer(t)
 
-	songDir := filepath.Join(root, "output", "processing-song")
+	outputRoot := filepath.Join(root, "output")
+	songDir := filepath.Join(outputRoot, "processing-song")
 	if err := os.MkdirAll(songDir, 0o755); err != nil {
 		t.Fatalf("failed to create song output dir: %v", err)
 	}
-	statusPath := filepath.Join(songDir, "pipeline_status.json")
+	statusPath := filepath.Join(outputRoot, "pipeline_status.json")
 	// multi-step mode reports overall_progress as a 0-100 integer.
 	status := `{"status":"running","step":"vocal","overall_progress":25,"device":"cpu","gpu_type":"N/A"}`
 	if err := os.WriteFile(statusPath, []byte(status), 0o644); err != nil {
@@ -281,11 +283,12 @@ func TestHandleQueueStatus_OverallProgressClamped(t *testing.T) {
 	root := setupQueueTestRoot(t)
 	s := newQueueTestServer(t)
 
-	songDir := filepath.Join(root, "output", "processing-song")
+	outputRoot := filepath.Join(root, "output")
+	songDir := filepath.Join(outputRoot, "processing-song")
 	if err := os.MkdirAll(songDir, 0o755); err != nil {
 		t.Fatalf("failed to create song output dir: %v", err)
 	}
-	statusPath := filepath.Join(songDir, "pipeline_status.json")
+	statusPath := filepath.Join(outputRoot, "pipeline_status.json")
 	// An out-of-range overall_progress must be clamped to 0-100.
 	status := `{"status":"running","step":"vocal","overall_progress":150,"device":"cpu","gpu_type":"N/A"}`
 	if err := os.WriteFile(statusPath, []byte(status), 0o644); err != nil {
@@ -691,12 +694,13 @@ func TestHandleQueueStatus_FinishedJobShowsDeviceAndRanOnCPU(t *testing.T) {
 	root := setupQueueTestRoot(t)
 	s := newQueueTestServer(t)
 
-	songDir := filepath.Join(root, "output", "cpu-song")
+	outputRoot := filepath.Join(root, "output")
+	songDir := filepath.Join(outputRoot, "cpu-song")
 	if err := os.MkdirAll(songDir, 0o755); err != nil {
 		t.Fatalf("failed to create song output dir: %v", err)
 	}
 	status := `{"status":"completed","step":"rubberband","device":"cpu","gpu_type":"N/A"}`
-	if err := os.WriteFile(filepath.Join(songDir, "pipeline_status.json"), []byte(status), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(outputRoot, "pipeline_status.json"), []byte(status), 0o644); err != nil {
 		t.Fatalf("failed to write pipeline status: %v", err)
 	}
 
@@ -733,12 +737,13 @@ func TestHandleQueueStatus_FinishedCudaJobDoesNotFlagCPU(t *testing.T) {
 	root := setupQueueTestRoot(t)
 	s := newQueueTestServer(t)
 
-	songDir := filepath.Join(root, "output", "cuda-song")
+	outputRoot := filepath.Join(root, "output")
+	songDir := filepath.Join(outputRoot, "cuda-song")
 	if err := os.MkdirAll(songDir, 0o755); err != nil {
 		t.Fatalf("failed to create song output dir: %v", err)
 	}
 	status := `{"status":"completed","step":"rubberband","device":"cuda","gpu_type":"NVIDIA GeForce RTX 5060 Ti"}`
-	if err := os.WriteFile(filepath.Join(songDir, "pipeline_status.json"), []byte(status), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(outputRoot, "pipeline_status.json"), []byte(status), 0o644); err != nil {
 		t.Fatalf("failed to write pipeline status: %v", err)
 	}
 
@@ -775,12 +780,13 @@ func TestHandleQueueStatus_FailedDeviceStepExposesReason(t *testing.T) {
 	root := setupQueueTestRoot(t)
 	s := newQueueTestServer(t)
 
-	songDir := filepath.Join(root, "output", "device-fail")
+	outputRoot := filepath.Join(root, "output")
+	songDir := filepath.Join(outputRoot, "device-fail")
 	if err := os.MkdirAll(songDir, 0o755); err != nil {
 		t.Fatalf("failed to create song output dir: %v", err)
 	}
 	status := `{"status":"failed","step":"device","error":"CUDA requested but no usable GPU found","exit_code":1,"device":"cpu","gpu_type":"N/A"}`
-	if err := os.WriteFile(filepath.Join(songDir, "pipeline_status.json"), []byte(status), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(outputRoot, "pipeline_status.json"), []byte(status), 0o644); err != nil {
 		t.Fatalf("failed to write pipeline status: %v", err)
 	}
 
