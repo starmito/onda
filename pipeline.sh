@@ -85,6 +85,7 @@ START_TIME=$(date +%s)
 LAST_ETA=""  # cap ETA so it never increases between steps
 STATUS_FILE="${PIPELINE_STATUS_FILE:-$OUTPUT_DIR/pipeline_status.json}"
 export STATUS_FILE
+mkdir -p "$(dirname "$STATUS_FILE")"
 rm -f "$STATUS_FILE"
 CURRENT_STEP=""
 
@@ -115,6 +116,7 @@ try:
         d = json.load(f)
 except Exception:
     d = {}
+os.makedirs(os.path.dirname(path) or '.', exist_ok=True)
 d.update({
     "status": status,
     "step": step,
@@ -223,6 +225,7 @@ d['step'] = '${step_name}'
 d['error'] = error_message
 d['exit_code'] = ${exit_code}
 try:
+    os.makedirs(os.path.dirname(status_file) or '.', exist_ok=True)
     with open(status_file, 'w') as f:
         json.dump(d, f)
 except Exception:
@@ -280,6 +283,23 @@ kill_wait() {
     done
     kill -9 "$pid" 2>/dev/null || true
     wait "$pid" 2>/dev/null || true
+}
+
+# Return 0 if a PID exists and is actually running.
+# ``kill -0`` returns success for zombie/defunct processes, so we also check
+# the process state with ps: a leading Z means dead-but-not-reaped.
+_process_is_alive() {
+    local pid="${1:-}"
+    [ -n "$pid" ] || return 1
+    if ! kill -0 "$pid" 2>/dev/null; then
+        return 1
+    fi
+    local proc_stat
+    proc_stat=$(ps -o stat= -p "$pid" 2>/dev/null || echo "")
+    case "$proc_stat" in
+        Z*|z*) return 1 ;;
+    esac
+    return 0
 }
 
 # Helper: run a command with elapsed/eta updates in background
@@ -1273,7 +1293,7 @@ run_demucs_step() {
     local silence_timeout=120
 
     local poll_interval=1
-    while kill -0 "$worker_pid" 2>/dev/null; do
+    while _process_is_alive "$worker_pid"; do
         local total_lines current_time elapsed_since_event
         total_lines=$(wc -l < "${events_file}" 2>/dev/null || echo 0)
         current_time=$(date +%s)
@@ -1382,6 +1402,9 @@ run_demucs_step() {
     if [ "${final_rc}" -ne 0 ]; then
         # Make the diagnostic log available to the ERR trap so it prints the
         # real stderr exactly once, instead of reporting again here.
+        if [ ! -s "${step_log}" ]; then
+            echo "Demucs worker died before completing the step (exit code ${final_rc})" >> "${step_log}"
+        fi
         DEMUCS_STEP_LOG="${step_log}"
     else
         rm -f "${step_log}"
@@ -1610,7 +1633,9 @@ report_progress "running" "starting" 0
 cleanup_legacy_temps() {
     if [ -n "${OUTPUT:-}" ]; then
         rm -rf "${OUTPUT}/_vocal" "${OUTPUT}/_demucs" 2>/dev/null || true
+        rm -f "${OUTPUT}"/*.eta 2>/dev/null || true
     fi
+    rm -f "${STATUS_FILE}.eta" 2>/dev/null || true
 }
 trap 'cleanup_legacy_temps' EXIT
 
@@ -1897,6 +1922,8 @@ for k, v in s.get('stems', {}).items():
     rm -rf "${ROUTED_DIR}" "${STEPS_STATE_FILE}" "${STEPS_CONFIG_FILE}" 2>/dev/null || true
     # Remove per-step diagnostic logs on success; keep them on failure.
     rm -f "${OUTPUT}"/_step_*.log 2>/dev/null || true
+    # Remove any ETA sidecar files that should never be exposed to the user.
+    rm -f "${STATUS_FILE}.eta" "${OUTPUT}"/*.eta 2>/dev/null || true
 
     echo ""
     echo "════════════════════════════════════════════════════"
@@ -2262,6 +2289,8 @@ report_progress "done" "complete" 100
 rm -rf "${OUTPUT}/_vocal" "${OUTPUT}/_demucs" 2>/dev/null || true
 # Remove per-step diagnostic logs on success; keep them on failure.
 rm -f "${OUTPUT}"/_step_*.log 2>/dev/null || true
+# Remove any ETA sidecar files that should never be exposed to the user.
+rm -f "${STATUS_FILE}.eta" "${OUTPUT}"/*.eta 2>/dev/null || true
 
 echo ""
 echo "═══════════════════════════════════════"
