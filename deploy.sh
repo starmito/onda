@@ -77,6 +77,42 @@ check_release_invariants() {
     export IMAGE_TAG
 }
 
+# Verify that the built image contains every path the pipeline invokes.
+# Fails the deploy if a script/binary is missing, so silent drift is impossible.
+check_image_pipeline_paths() {
+    local image="${1:-onda:${ONDA_IMAGE_TAG:-$ONDAP_VERSION}}"
+    docker run --rm --entrypoint '' "$image" bash -c '
+set -euo pipefail
+paths=(
+  /app/pipeline.sh
+  /app/tools/progress_tracker.py
+  /app/tools/demucs_worker.py
+  /app/inference_universal.py
+  /app/inference_mdx.py
+  /app/inference_scnet.py
+  /app/inference_onnx.py
+  /app/inference_polarformer.py
+  /app/keydetect.py
+  /app/onda/detect_gpu.sh
+  /usr/local/bin/detect_gpu.sh
+  /usr/local/bin/onda-backend
+)
+missing=()
+for p in "${paths[@]}"; do
+  if [ ! -e "$p" ]; then missing+=("$p"); fi
+done
+for b in python3 rubberband demucs; do
+  if ! command -v "$b" >/dev/null 2>&1; then missing+=("$b"); fi
+done
+if [ "${#missing[@]}" -gt 0 ]; then
+  echo "ERROR: built image is missing required pipeline paths/binaries:" >&2
+  for m in "${missing[@]}"; do echo "  - $m" >&2; done
+  exit 1
+fi
+echo "All required pipeline paths present"
+'
+}
+
 # Evitar que se ejecute el cuerpo del deploy cuando el script se sourcea
 # (por ejemplo, desde los tests) para poder reutilizar la funcion.
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
@@ -124,6 +160,12 @@ esac
 # Verificar que la imagen construida lleva el tag esperado.
 if ! docker image inspect "onda:$ONDA_IMAGE_TAG" >/dev/null 2>&1; then
     echo "ERROR: image onda:$ONDA_IMAGE_TAG was not built" >&2
+    exit 1
+fi
+
+# Verificar que la imagen contiene todo lo que pipeline.sh ejecuta.
+if ! check_image_pipeline_paths "onda:$ONDA_IMAGE_TAG"; then
+    echo "ERROR: built image onda:$ONDA_IMAGE_TAG is incomplete" >&2
     exit 1
 fi
 
