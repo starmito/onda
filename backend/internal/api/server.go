@@ -104,6 +104,10 @@ type JobState struct {
 	BlockedReason    string      `json:"blocked_reason,omitempty"`
 	BlockedReasonMsg string      `json:"blocked_reason_msg,omitempty"`
 	StartedAt        time.Time   `json:"started_at,omitempty"`
+	// Steps records the pipeline steps so the server can tell final result
+	// stems apart from intermediate ones when deciding whether a done job
+	// should be kept or dropped.
+	Steps []cli.PipelineStep `json:"steps,omitempty"`
 }
 
 // Server wraps the HTTP server with routes, middleware, and a sequential job queue.
@@ -822,8 +826,9 @@ func (s *Server) collectQueueJobs() []*JobState {
 	outputDir := mustSub("output")
 
 	// ── Disk is the source of truth for completed jobs ──
-	// Filter out files that no longer exist on disk and drop done jobs whose
-	// stems have all disappeared (e.g., deleted externally or via handleDeleteFile).
+	// Filter out files that no longer exist on disk and drop done jobs only when
+	// none of their *result* stems remain. Intermediate stems that the pipeline
+	// cleans up on purpose must not cause a finished job to disappear.
 	type fileCheck struct {
 		existing []FileEntry
 		remove   bool
@@ -834,8 +839,21 @@ func (s *Server) collectQueueJobs() []*JobState {
 		if job.Status != "done" {
 			continue
 		}
+
+		// Determine the result stems we care about. When the job was created from
+		// a preset with step metadata, use that; otherwise fall back to the files
+		// recorded in the job for backwards compatibility.
+		resultFiles := job.Files
+		hasConfiguredResults := false
+		if len(job.Steps) > 0 {
+			hasConfiguredResults = hasConfiguredResultStems(job.Steps)
+			if hasConfiguredResults {
+				resultFiles = listResultStems(song, job.Steps)
+			}
+		}
+
 		var existing []FileEntry
-		for _, f := range job.Files {
+		for _, f := range resultFiles {
 			diskPath := f.Path
 			if strings.HasPrefix(diskPath, "/api/files/") {
 				diskPath = filepath.Join(outputDir, strings.TrimPrefix(diskPath, "/api/files/"))
@@ -844,10 +862,10 @@ func (s *Server) collectQueueJobs() []*JobState {
 				existing = append(existing, f)
 			}
 		}
-		// Only drop a done job if we had recorded files for it and none of them
-		// are still on disk. Jobs without recorded files are kept so the queue
-		// status reflects all known jobs.
-		checks[song] = fileCheck{existing: existing, remove: len(job.Files) > 0 && len(existing) == 0}
+		// Only drop a done job if we know its result files and none of them are
+		// still on disk. Jobs without recorded files are kept so the queue status
+		// reflects all known jobs.
+		checks[song] = fileCheck{existing: existing, remove: (len(resultFiles) > 0 || hasConfiguredResults) && len(existing) == 0}
 	}
 	s.jobsMu.RUnlock()
 
@@ -1942,6 +1960,20 @@ func listStems(song string) []FileEntry {
 	return files
 }
 
+// hasConfiguredResultStems reports whether any step explicitly marks a stem as
+// a final result. It lets collectQueueJobs distinguish "no results on disk"
+// from "no results configured" when deciding whether to drop a done job.
+func hasConfiguredResultStems(steps []cli.PipelineStep) bool {
+	for _, step := range steps {
+		for _, route := range step.Stems {
+			if route.Action == cli.StemSave && route.Target == "result" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // listResultStems returns the stems that should be exposed as final results for
 // a song. When steps are provided, only stems explicitly marked with
 // action: save and target: result are included; routed/discarded intermediates
@@ -2481,7 +2513,7 @@ func (s *Server) handleSeparate(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	s.jobs[song] = &JobState{Song: song, Status: "waiting", Index: s.nextIndex, TotalSteps: totalSteps, StartedAt: time.Now()}
+	s.jobs[song] = &JobState{Song: song, Status: "waiting", Index: s.nextIndex, TotalSteps: totalSteps, StartedAt: time.Now(), Steps: steps}
 	s.nextIndex++
 	s.jobsMu.Unlock()
 

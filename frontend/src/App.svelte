@@ -17,6 +17,7 @@
   import { separateAudio, uploadAudio, getQueueStatus, getResults, getInputs, deleteInput, getHealth, getGpuInfo, getPresets, getDefaultPreset, clearQueue, cancelQueue, loadUISettings, type InputEntry, type ResultsGroup } from './lib/api';
   import type { QueueJob } from './lib/api';
   import { deriveQueueFileStatus, resolveOutputGroupName, songNameForQueueFile } from './lib/queueState';
+  import { decideCompletion, hasActiveJob } from './lib/queueCompletion';
   import { formatEta } from './lib/time';
   import { IconOnda, IconStar, IconVoiceRemove, IconSeparate, IconInstruments, IconUser } from './lib/icons';
   import { getDefaultChecked, applyDefaultChecked, withToggledCheck, withToggledAll } from './lib/queueDefaults';
@@ -57,6 +58,13 @@
   let activeSongNames = $state<Set<string>>(new Set()); // songs submitted in current batch
   let emptyQueueTicks = $state(0);
   const EMPTY_QUEUE_THRESHOLD = 3; // tolerate transient empty status ticks
+
+  // Completion confirmation state: require consecutive settled polls plus a
+  // grace period before declaring "Completado" so a single poll never decides.
+  let settledTicks = $state(0);
+  let settledGraceStart: number | null = $state(null);
+  const REQUIRED_SETTLED_TICKS = 2;
+  const SETTLED_GRACE_MS = 12000; // keep polling a bit after the first settled poll
 
   // ---- Live inputs refresh state ----
   let inputsRefreshTimer: ReturnType<typeof setInterval> | null = null;
@@ -706,6 +714,8 @@
     queueJobs = [];
     processedDoneSongs = new Set();
     activeSongNames = new Set();
+    settledTicks = 0;
+    settledGraceStart = null;
     // Preserve done/error rows, reset the rest so they can be re-processed cleanly
     queueFiles = queueFiles.map(qf =>
       qf.status === 'done' || qf.status === 'error'
@@ -813,9 +823,22 @@
         };
       });
 
-      const hasActive = jobs.some(j => j.status === 'waiting' || j.status === 'processing');
+      // Disk is the source of truth: refresh rows before deciding completion.
+      syncQueueFileStatusFromDisk();
+
+      const completion = decideCompletion({
+        jobs,
+        queueFiles,
+        settledTicks,
+        graceStartTime: settledGraceStart,
+        requiredSettledTicks: REQUIRED_SETTLED_TICKS,
+        gracePeriodMs: SETTLED_GRACE_MS,
+        now: Date.now(),
+      });
+      settledTicks = completion.settledTicks;
+      settledGraceStart = completion.graceStartTime;
+
       const hasPending = jobs.some(j => j.status === 'waiting' || j.status === 'processing' || j.status === 'blocked_no_gpu');
-      const allSettled = jobs.length > 0 && jobs.every(j => j.status === 'done' || j.status === 'error');
 
       if (jobs.length === 0) {
         // Backend queue may be transiently empty while jobs start; wait a few ticks
@@ -833,7 +856,7 @@
         emptyQueueTicks = 0;
       }
 
-      if (allSettled) {
+      if (completion.confirmed) {
         if (queuePollingTimer) {
           clearInterval(queuePollingTimer);
           queuePollingTimer = null;
@@ -844,27 +867,25 @@
         pipelineStep = hasError ? 'Error' : 'Completado';
         currentProgress = hasError ? 0 : 1;
         activeSongNames = new Set();
-      } else if (!separating && hasActive) {
+      } else if (!separating && completion.hasActive) {
         // Real work appeared from outside (another client / API)
         separating = true;
         pipelineStatus = 'running';
-      } else if (!hasActive && separating) {
+      } else if (!completion.hasActive && separating && !completion.settled) {
         // Safeguard: no real work in progress but flag is still set (e.g. after a
         // blocked job is cancelled externally). Reset it on the next tick.
         separating = false;
       }
 
-      // Keep polling alive while there is any non-terminal job (including blocked).
+      // Keep polling alive while there is any non-terminal job (including blocked)
+      // or while we are in the post-settlement grace period.
       // The polling loop itself is started by startQueuePolling / handleCancel.
-      if (!hasPending && queuePollingTimer) {
+      if (!hasPending && queuePollingTimer && !completion.settled) {
         clearInterval(queuePollingTimer);
         queuePollingTimer = null;
       }
 
-      // Disk is the source of truth: done rows without stems become pending again.
-      syncQueueFileStatusFromDisk();
-
-      return hasActive;
+      return completion.hasActive;
     } catch (e) {
       // Keep polling on transient network errors; return true so callers don't think we are done
       return true;

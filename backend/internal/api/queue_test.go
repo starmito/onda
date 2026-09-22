@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/starmito/onda/internal/cli"
 )
 
 // setupQueueTestRoot creates a temporary project root with input/output dirs
@@ -612,7 +614,7 @@ func TestHandleDeleteFile_RemovesJobWhenLastFile(t *testing.T) {
 	}
 }
 
-func TestHandleQueueStatus_DoneJobFiltersMissingFiles(t *testing.T) {
+func TestHandleQueueStatus_DoneJobFiltersMissingResultFiles(t *testing.T) {
 	root := setupQueueTestRoot(t)
 	s := newQueueTestServer(t)
 
@@ -628,6 +630,15 @@ func TestHandleQueueStatus_DoneJobFiltersMissingFiles(t *testing.T) {
 	s.jobs["song"] = &JobState{
 		Song:   "song",
 		Status: "done",
+		Steps: []cli.PipelineStep{
+			{
+				ID: "step-1", Type: "demucs",
+				Stems: map[string]cli.StemRoute{
+					"vocals": {Action: cli.StemSave, Target: "result"},
+					"drums":  {Action: cli.StemSave, Target: "result"},
+				},
+			},
+		},
 		Files: []FileEntry{
 			{Name: "vocals.wav", Path: "/api/files/song/vocals.wav"},
 			{Name: "drums.wav", Path: "/api/files/song/drums.wav"},
@@ -657,6 +668,60 @@ func TestHandleQueueStatus_DoneJobFiltersMissingFiles(t *testing.T) {
 	}
 }
 
+func TestHandleQueueStatus_DoneJobKeepsResultWhenIntermediateMissing(t *testing.T) {
+	root := setupQueueTestRoot(t)
+	s := newQueueTestServer(t)
+
+	songDir := filepath.Join(root, "output", "song")
+	if err := os.MkdirAll(songDir, 0o755); err != nil {
+		t.Fatalf("failed to create song dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(songDir, "vocals.wav"), []byte("stem"), 0o644); err != nil {
+		t.Fatalf("failed to create vocals.wav: %v", err)
+	}
+
+	s.jobsMu.Lock()
+	s.jobs["song"] = &JobState{
+		Song:   "song",
+		Status: "done",
+		Steps: []cli.PipelineStep{
+			{
+				ID: "step-1", Type: "vocal",
+				Stems: map[string]cli.StemRoute{
+					"vocals":       {Action: cli.StemSave, Target: "result"},
+					"instrumental": {Action: cli.StemDiscard},
+				},
+			},
+		},
+		Files: []FileEntry{
+			{Name: "vocals.wav", Path: "/api/files/song/vocals.wav"},
+			{Name: "instrumental.wav", Path: "/api/files/song/instrumental.wav"},
+		},
+	}
+	s.jobsMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/queue/status", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp struct {
+		Jobs []*JobState `json:"jobs"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(resp.Jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(resp.Jobs))
+	}
+	if len(resp.Jobs[0].Files) != 1 || resp.Jobs[0].Files[0].Name != "vocals.wav" {
+		t.Errorf("expected job to keep only the existing result vocals.wav, got %+v", resp.Jobs[0].Files)
+	}
+}
+
 func TestHandleQueueStatus_DoneJobRemovedWhenAllFilesMissing(t *testing.T) {
 	setupQueueTestRoot(t)
 	s := newQueueTestServer(t)
@@ -665,7 +730,15 @@ func TestHandleQueueStatus_DoneJobRemovedWhenAllFilesMissing(t *testing.T) {
 	s.jobs["song"] = &JobState{
 		Song:   "song",
 		Status: "done",
-		Files:  []FileEntry{{Name: "vocals.wav", Path: "/api/files/song/vocals.wav"}},
+		Steps: []cli.PipelineStep{
+			{
+				ID: "step-1", Type: "vocal",
+				Stems: map[string]cli.StemRoute{
+					"vocals": {Action: cli.StemSave, Target: "result"},
+				},
+			},
+		},
+		Files: []FileEntry{{Name: "vocals.wav", Path: "/api/files/song/vocals.wav"}},
 	}
 	s.jobsMu.Unlock()
 
