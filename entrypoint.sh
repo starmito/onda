@@ -48,7 +48,6 @@ if [ "$GPU" != "cpu" ]; then
 fi
 
 ONDA_DATA_DIR="${ONDA_DATA_DIR:-/app/data}"
-APP_ROOT="${ONDAP_APP_ROOT:-/app}"
 
 # Crear directorios de datos bajo la raiz configurada.
 mkdir -p "${ONDA_DATA_DIR}/input" \
@@ -58,22 +57,6 @@ mkdir -p "${ONDA_DATA_DIR}/input" \
          "${ONDA_DATA_DIR}/config" \
          "${ONDA_DATA_DIR}/logs" \
          "${ONDA_DATA_DIR}/models"
-
-# Enlaces de compatibilidad: la app (y algunos clientes de la API) siguen
-# usando las rutas antiguas /app/input y /app/output. Las redirigimos de
-# forma idempotente a la raiz de datos configurada.
-_create_compat_link() {
-    local target="$1" link="$2"
-    if [ -L "$link" ] && [ "$(readlink "$link")" = "$target" ]; then
-        return 0
-    fi
-    if [ -e "$link" ] || [ -L "$link" ]; then
-        rm -rf "$link"
-    fi
-    ln -s "$target" "$link"
-}
-_create_compat_link "${ONDA_DATA_DIR}/input" "${APP_ROOT}/input"
-_create_compat_link "${ONDA_DATA_DIR}/output" "${APP_ROOT}/output"
 
 # Limpieza de subcarpetas temporales huérfanas de jobs abortados por reinicio duro.
 for job_dir in "${ONDA_DATA_DIR}/output"/*; do
