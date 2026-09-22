@@ -1,4 +1,10 @@
-"""Tests for the onda package version metadata."""
+"""Tests for the Onda version single source of truth.
+
+The top-level VERSION file is the canonical source.  All consumers must agree:
+  - onda/_version.py  -> same as VERSION (with leading 'v')
+  - pyproject.toml    -> same as VERSION without the leading 'v' (PEP 440)
+  - frontend/package.json -> same as VERSION (with leading 'v')
+"""
 
 import os
 import re
@@ -10,6 +16,14 @@ import pytest
 def project_root():
     """Return the absolute project root."""
     return os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+
+
+def _read_version_file(project_root):
+    """Read and return the top-level VERSION value."""
+    top_version_path = os.path.join(project_root, "VERSION")
+    assert os.path.isfile(top_version_path), "top-level VERSION file missing"
+    with open(top_version_path, "r", encoding="utf-8") as f:
+        return f.read().strip()
 
 
 def test_version_file_exists(project_root):
@@ -38,13 +52,43 @@ def test_version_matches_version_file(project_root):
     assert py_version_match is not None
     py_version = py_version_match.group(1)
 
-    top_version_path = os.path.join(project_root, "VERSION")
-    assert os.path.isfile(top_version_path), "top-level VERSION file missing"
-    with open(top_version_path, "r", encoding="utf-8") as f:
-        top_version = f.read().strip()
+    top_version = _read_version_file(project_root)
 
     assert py_version == top_version, (
         f"onda/_version.py ({py_version}) != VERSION ({top_version})"
+    )
+
+
+def test_pyproject_version_matches_version_file(project_root):
+    """pyproject.toml version matches VERSION (without the leading 'v')."""
+    top_version = _read_version_file(project_root)
+    expected = top_version.lstrip("v")
+
+    pyproject_path = os.path.join(project_root, "pyproject.toml")
+    assert os.path.isfile(pyproject_path), "pyproject.toml missing"
+    with open(pyproject_path, "r", encoding="utf-8") as f:
+        pp_match = re.search(r'^version\s*=\s*["\']([^"\']+)["\']', f.read(), re.MULTILINE)
+    assert pp_match is not None, "version not found in pyproject.toml"
+    pp_version = pp_match.group(1)
+
+    assert pp_version == expected, (
+        f"pyproject.toml version ({pp_version}) != VERSION without 'v' ({expected})"
+    )
+
+
+def test_frontend_package_version_matches_version_file(project_root):
+    """frontend/package.json version matches VERSION."""
+    top_version = _read_version_file(project_root)
+
+    package_path = os.path.join(project_root, "frontend", "package.json")
+    assert os.path.isfile(package_path), "frontend/package.json missing"
+    with open(package_path, "r", encoding="utf-8") as f:
+        fe_match = re.search(r'"version"\s*:\s*"([^"]+)"', f.read())
+    assert fe_match is not None, "version not found in frontend/package.json"
+    fe_version = fe_match.group(1)
+
+    assert fe_version == top_version, (
+        f"frontend/package.json version ({fe_version}) != VERSION ({top_version})"
     )
 
 
