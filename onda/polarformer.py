@@ -32,17 +32,11 @@ import librosa
 import soundfile as sf
 import torch
 
-# onnxruntime-gpu is installed under /opt/pytorch-backends/cuda inside the
-# production image; on the host test runner it may be absent.  Allow import to
-# fail gracefully so pure-logic tests can still import the module.
-try:
-    import onnxruntime as ort
-except Exception:  # pragma: no cover - runtime dependency
-    ort = None
-
 # Make tools/progress_tracker.py importable from the onda package location.
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(_PROJECT_ROOT, 'tools'))
+
+from onda.onnx_utils import create_onnx_session, build_onnx_providers
 try:
     import progress_tracker
 except Exception:  # pragma: no cover - tolerate missing tracker in isolated tests
@@ -305,15 +299,9 @@ class PolarFormerONNX:
         self.num_overlap = int(inference.get("num_overlap", 2))
         self.batch_size = int(inference.get("batch_size", 4))
 
-        if ort is None:
-            raise RuntimeError("onnxruntime is not installed")
-
-        providers = (
-            ["CUDAExecutionProvider", "CPUExecutionProvider"]
-            if torch.cuda.is_available() and str(device) != "cpu"
-            else ["CPUExecutionProvider"]
-        )
-        self.session = ort.InferenceSession(model_path, providers=providers)
+        prefer_cuda = torch.cuda.is_available() and str(device) != "cpu"
+        providers = build_onnx_providers(prefer_cuda=prefer_cuda)
+        self.session = create_onnx_session(model_path, providers=providers)
         inputs = self.session.get_inputs()
         self.input_name = inputs[0].name
 
