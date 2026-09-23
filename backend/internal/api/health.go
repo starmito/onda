@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -31,6 +32,33 @@ var checkGPU = func() (bool, string, error) {
 	info := strings.TrimSpace(string(out))
 	available := info != "" && !strings.Contains(info, "CUDA not available")
 	return available, info, nil
+}
+
+// checkONNXRuntime consulta el entorno Python de onnxruntime (providers,
+// versión, disponibilidad de CUDA) usando el helper compartido del pipeline.
+var checkONNXRuntime = func() (map[string]interface{}, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	pythonPath := appDir()
+	script := fmt.Sprintf(`
+import json, sys
+sys.path.insert(0, %q)
+from onda.onnx_utils import get_onnx_runtime_info
+print(json.dumps(get_onnx_runtime_info()))
+`, pythonPath)
+
+	cmd := exec.CommandContext(ctx, "python3", "-c", script)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("onnxruntime check failed: %v\n%s", err, string(out))
+	}
+
+	var info map[string]interface{}
+	if err := json.Unmarshal(out, &info); err != nil {
+		return nil, fmt.Errorf("invalid onnxruntime info: %v", err)
+	}
+	return info, nil
 }
 
 // detectGPUType ejecuta detect_gpu.sh directamente.

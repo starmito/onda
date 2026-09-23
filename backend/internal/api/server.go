@@ -447,6 +447,18 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	gpuType := detectGPUType()
 	gpuDevice := gpuInfoProvider()
 
+	// ── ONNX Runtime info ──
+	onnxInfo, onnxErr := checkONNXRuntime()
+	if onnxInfo == nil {
+		onnxInfo = map[string]interface{}{
+			"available": false,
+			"error":     "could not query onnxruntime",
+		}
+		if onnxErr != nil {
+			onnxInfo["error"] = onnxErr.Error()
+		}
+	}
+
 	// ── Read frontend version ──
 	frontendVersion := ""
 	if data, err := os.ReadFile("/usr/share/nginx/html/VERSION"); err == nil {
@@ -558,6 +570,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"gpu":              gpuObj,
 		"disk":             checkDisk(),
 		"version_mismatch": mismatchObj,
+		"onnxruntime":      onnxInfo,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
