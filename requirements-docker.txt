@@ -44,9 +44,8 @@ spafe==0.3.3
 # Se deja comentado para que no quede una linea sin fijar. Si vuelve a hacer falta, fijarlo a la
 # version realmente instalada (no inventarla).
 # audiomentations
-# NOTA: asteroid/openunmix/torch_audiomentations se han retirado en v3.5.0 porque
+# NOTA: asteroid/torch_audiomentations se han retirado en v3.5.0 porque
 # arrastran torchaudio; demucs 4.1.0 no lo requiere.
 julius==0.2.8
 samplerate==0.2.4
-dora-search==0.1.13
 lameenc==1.8.4

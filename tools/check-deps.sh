@@ -11,6 +11,7 @@
 #   (a) que ninguna linea de los requirements quede sin '=='
 #   (b) que cada paquete declarado coincida con la version de requirements.lock (cuando aparezca alli)
 #   (c) informa de las diferencias en vez de fallar en silencio
+#   (d) que ciertos paquetes retirados (dora-search, openunmix) no vuelvan a aparecer
 #
 # Codigos de salida:
 #   0 = sin errores (puede haber avisos/informacion)
@@ -84,6 +85,40 @@ done < "$LOCK_FILE"
 
 printf '\n'
 ok "requirements.lock: $lock_count paquetes leidos"
+
+# ---------------------------------------------------------------- (d) paquetes retirados que no deben volver
+printf '\n%s-- Paquetes retirados (dora-search, openunmix) --%s\n' "$C_BLD" "$C_OFF"
+
+FORBIDDEN_FILES=(
+  "$REPO_ROOT/Dockerfile"
+  "$REPO_ROOT/requirements-common.txt"
+  "$REPO_ROOT/requirements-docker.txt"
+  "$REPO_ROOT/requirements.lock"
+)
+
+FORBIDDEN_PATTERNS=(
+  "dora-search"
+  "dora_search"
+  "openunmix"
+  "open-unmix"
+  "open_unmix"
+)
+
+for f in "${FORBIDDEN_FILES[@]}"; do
+  [[ -f "$f" ]] || continue
+  rel="${f#$REPO_ROOT/}"
+  lineno=0
+  while IFS= read -r raw || [[ -n "$raw" ]]; do
+    lineno=$((lineno + 1))
+    line_lower="${raw,,}"
+    for bad in "${FORBIDDEN_PATTERNS[@]}"; do
+      if [[ "$line_lower" == *"${bad,,}"* ]]; then
+        err "$rel:$lineno  paquete retirado '$bad' detectado: ${raw}"
+        break
+      fi
+    done
+  done < "$f"
+done
 
 # ---------------------------------------------------------------- requirements (a) y (b)
 declare -A DECLARED_IN=()

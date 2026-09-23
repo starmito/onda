@@ -36,7 +36,6 @@ click==8.5.0
 cloudpickle==3.1.2
 decorator==5.3.1
 demucs==4.1.0
-dora_search==0.1.13
 einops==0.8.2
 filelock==3.32.3
 frozenlist==1.8.0
@@ -64,7 +63,7 @@ multidict==6.9.0
 narwhals==2.26.0
 networkx==3.6.1
 numba==0.67.0
-numpy==2.4.6
+numpy==2.5.3
 omegaconf==2.3.1
 onnx2pytorch==0.6.0
 onnx==1.23.0

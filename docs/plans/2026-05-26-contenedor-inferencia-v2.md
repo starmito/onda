@@ -58,7 +58,6 @@ torch_audiomentations==0.12.0
 asteroid==0.7.0
 julius==0.2.7
 samplerate==0.2.4
-dora-search
 ```
 
 **Verificación:** `cat requirements-docker-v2.txt | grep == | wc -l` debe mostrar > 25 dependencias fijadas.
