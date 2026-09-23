@@ -94,11 +94,14 @@ CURRENT_STEP=""
 VOCAL_MODEL_DISPLAY=""   # friendly name like "BS_Roformer_Viperx"
 DEMUCS_MODEL_DISPLAY=""   # friendly name like "htdemucs_ft"
 
-# Resolve a step name to its index in legacy mode.  Indices are assigned
-# consecutively to the active steps so the weighted global progress is honest.
-_step_name_to_idx() {
-    local name="$1"
-    case "$name" in
+declare -a STEP_IDS=()    # stable step ids: vocal, demucs, rubberband
+declare -a STEP_NAMES=()  # readable names for the UI steps list
+
+# Resolve a step id to its legacy index.  Indices are assigned consecutively to
+# the active steps so the weighted global progress is honest.
+_step_id_to_idx() {
+    local id="$1"
+    case "$id" in
         vocal|starting)      echo "${_VOCAL_IDX:-0}" ;;
         demucs)              echo "${_DEMUCS_IDX:-0}" ;;
         rubberband|complete) echo "${_RUBBERBAND_IDX:-0}" ;;
@@ -106,14 +109,60 @@ _step_name_to_idx() {
     esac
 }
 
+# Readable step name for the UI.  Falls back to the step id if no metadata was
+# initialized (defensive, should not happen in normal pipeline runs).
+_step_display_name() {
+    local idx="$1"
+    local id="$2"
+    if [ -n "${STEP_NAMES[$idx]:-}" ]; then
+        echo "${STEP_NAMES[$idx]}"
+    else
+        case "$id" in
+            vocal)       echo "Voz" ;;
+            demucs)      echo "Demucs" ;;
+            rubberband)  echo "Rubberband" ;;
+            *)           echo "$id" ;;
+        esac
+    fi
+}
+
+# Initialize the tracker's full step list from the STEP_IDS / STEP_NAMES arrays.
+# This is the single moment where the pipeline declares all steps to the tracker
+# so the UI can show a bar per step from the very beginning.
+_init_tracker_steps() {
+    local steps_json
+    steps_json=$(python3 - "$STATUS_FILE" "$TOTAL_STEPS" <<'PYEOF'
+import json, os, sys
+status_file = sys.argv[1]
+total_steps = int(sys.argv[2])
+ids = os.environ.get('_STEP_IDS', '').split('\n')
+names = os.environ.get('_STEP_NAMES', '').split('\n')
+steps = []
+for i in range(total_steps):
+    sid = ids[i] if i < len(ids) and ids[i] else f"step-{i}"
+    name = names[i] if i < len(names) and names[i] else sid
+    steps.append({"id": sid, "name": name})
+print(json.dumps(steps))
+PYEOF
+)
+    local tracker_output tracker_rc=0
+    tracker_output=$(python3 "$PROGRESS_TRACKER" init-steps "$STATUS_FILE" "$steps_json" "$TOTAL_STEPS" 2>&1) || tracker_rc=$?
+    if [ "$tracker_rc" -ne 0 ]; then
+        echo "⚠️  Progress tracker init failed (rc=$tracker_rc): $tracker_output" >&2
+    fi
+    _sync_per_song_status
+}
+
 # Single entry point for progress reporting.  ``step_progress`` is the progress
 # of the current step in the 0-100 range; the tracker computes the global
 # ``progress`` / ``overall_progress``, the ETA and the elapsed seconds.
+# Args: status step_id step_progress [step_field]
 _report_step() {
     local status="$1"
-    local step_name="$2"
+    local step_id="$2"
     local step_progress="$3"
-    local now elapsed step_idx tracker_step_name
+    local step_field="${4:-}"
+    local now elapsed step_idx tracker_step_name tracker_step_id tracker_step_display
     now=$(date +%s)
     elapsed=$((now - START_TIME))
 
@@ -121,27 +170,33 @@ _report_step() {
         # Chained mode: the current step index is known from the main loop.
         step_idx="${CURRENT_STEP_INDEX:-0}"
         # Keep the original contract in --steps mode: ``step`` is an integer.
-        tracker_step_name="$step_idx"
+        tracker_step_name="${step_field:-$step_idx}"
     else
-        step_idx=$(_step_name_to_idx "$step_name")
+        step_idx=$(_step_id_to_idx "$step_id")
         # Legacy mode: ``step`` is the human-readable step name.
-        tracker_step_name="$step_name"
+        tracker_step_name="${step_field:-$step_id}"
     fi
 
-    # ``done`` always marks the last step as finished.
+    # ``done`` always marks the last step as finished; use the completion field
+    # value requested by the caller for the legacy ``step`` field, but keep the
+    # real step id/name in the published steps list.
     if [ "$status" = "done" ]; then
         step_idx=$((TOTAL_STEPS - 1))
         if [ -n "${STEPS_CONFIG_FILE:-}" ]; then
             # Chained mode keeps the integer step contract.
-            tracker_step_name="$step_idx"
+            tracker_step_name="${step_field:-$step_idx}"
         else
             # Legacy mode reports the human-readable completion marker.
-            tracker_step_name="complete"
+            tracker_step_name="${step_field:-complete}"
         fi
+        step_id="${STEP_IDS[$step_idx]:-complete}"
     fi
 
+    tracker_step_id="$step_id"
+    tracker_step_display="$(_step_display_name "$step_idx" "$step_id")"
+
     local tracker_output tracker_rc=0
-    tracker_output=$(python3 "$PROGRESS_TRACKER" update-step "$STATUS_FILE" "$step_idx" "$status" "$step_progress" "$elapsed" "$TOTAL_STEPS" "$tracker_step_name" 2>&1) || tracker_rc=$?
+    tracker_output=$(python3 "$PROGRESS_TRACKER" update-step "$STATUS_FILE" "$step_idx" "$status" "$step_progress" "$elapsed" "$TOTAL_STEPS" "$tracker_step_name" "$tracker_step_id" "$tracker_step_display" 2>&1) || tracker_rc=$?
     if [ "$tracker_rc" -ne 0 ]; then
         echo "⚠️  Progress tracker failed (rc=$tracker_rc): $tracker_output" >&2
     fi
@@ -370,28 +425,11 @@ with open(state_file, 'w') as f:
 PYEOF
 
     CURRENT_STEP_INDEX=$step_idx
-    local step_name
-    step_name=$(python3 -c "import json; steps=json.load(open('$STEPS_CONFIG_FILE')); print(steps[$step_idx].get('type',''))" 2>/dev/null || echo "")
+    local step_id
+    step_id=$(python3 -c "import json; steps=json.load(open('$STEPS_CONFIG_FILE')); print(steps[$step_idx].get('type',''))" 2>/dev/null || echo "")
 
-    _report_step "$step_status" "$step_name" "$progress_val"
-
-    # Keep the detailed steps array in the status file for the UI.
-    python3 - "$STEPS_STATE_FILE" "$STATUS_FILE" <<'PYEOF'
-import json, os, sys
-state_file, status_file = sys.argv[1:3]
-with open(state_file) as f:
-    state = json.load(f)
-with open(status_file) as f:
-    data = json.load(f)
-data['steps'] = state['steps']
-tmp = status_file + '.tmp'
-with open(tmp, 'w') as f:
-    json.dump(data, f)
-    f.flush()
-    os.fsync(f.fileno())
-os.replace(tmp, status_file)
-PYEOF
-    _sync_per_song_status
+    # The tracker is the single writer of the published ``steps`` list.
+    _report_step "$step_status" "$step_id" "$progress_val"
 }
 
 # Detect whether a vocal model directory contains a BS PolarFormer ONNX model.
@@ -833,6 +871,11 @@ run_vocal_step() {
     local input_file="$2"
     local output_dir="$3"
 
+    # Determine the stable step id and readable name for progress tracking.
+    local step_idx="${CURRENT_STEP_INDEX:-${_VOCAL_IDX:-0}}"
+    local step_id="${STEP_IDS[$step_idx]:-vocal}"
+    local step_name="${STEP_NAMES[$step_idx]:-Voz}"
+
     # Find model directory: if model_path is a file, use its parent dir
     local model_dir="$model_path"
     if [ -f "$model_path" ]; then
@@ -881,6 +924,8 @@ run_vocal_step() {
             --batch-size "${mdx_batch_size}" \
             --step-idx "${CURRENT_STEP_INDEX:-${_VOCAL_IDX:-0}}" \
             --total-steps "$TOTAL_STEPS" \
+            --step-id "$step_id" \
+            --step-name "$step_name" \
             "${model_dir}" "${input_file}" "${output_dir}" "${mdx_overlap}"
     elif is_scnet_model_dir "$model_dir"; then
         if [ ! -f /app/inference_scnet.py ]; then
@@ -953,6 +998,8 @@ PYEOF
             --device "$DEVICE" \
             --step-idx "${CURRENT_STEP_INDEX:-${_VOCAL_IDX:-0}}" \
             --total-steps "$TOTAL_STEPS" \
+            --step-id "$step_id" \
+            --step-name "$step_name" \
             ${scnet_config_arg} \
             "${model_dir}" "${input_file}" "${output_dir}"
     elif is_polarformer_model_dir "$model_dir"; then
@@ -994,6 +1041,8 @@ PYEOF
             --batch-size "${pf_batch_size}" \
             --step-idx "${CURRENT_STEP_INDEX:-${_VOCAL_IDX:-0}}" \
             --total-steps "$TOTAL_STEPS" \
+            --step-id "$step_id" \
+            --step-name "$step_name" \
             "${model_dir}" "${input_file}" "${output_dir}" "${pf_num_overlap}"
     elif is_onnx_model_dir "$model_dir"; then
         if [ ! -f /app/inference_onnx.py ]; then
@@ -1023,6 +1072,8 @@ PYEOF
             --device "$DEVICE" \
             --step-idx "${CURRENT_STEP_INDEX:-${_VOCAL_IDX:-0}}" \
             --total-steps "$TOTAL_STEPS" \
+            --step-id "$step_id" \
+            --step-name "$step_name" \
             "${model_dir}" "${input_file}" "${output_dir}" "${onnx_overlap}"
     else
         if [ ! -f /app/inference_universal.py ]; then
@@ -1060,6 +1111,8 @@ PYEOF
             --pipeline-status "$STATUS_FILE" \
             --step-idx "${CURRENT_STEP_INDEX:-${_VOCAL_IDX:-0}}" \
             --total-steps "$TOTAL_STEPS" \
+            --step-id "$step_id" \
+            --step-name "$step_name" \
             "${extra_args[@]}" \
             "${model_dir}" "${input_file}" "${output_dir}" "${roformer_overlap}"
     fi
@@ -1606,8 +1659,40 @@ with open('$STEPS_CONFIG_FILE') as f:
 print(len(steps))
 " 2>/dev/null || echo 0)
 
-    # Initialize multi-step progress tracking
+    # Build per-step metadata so the tracker can publish the full steps list.
+    eval "$(python3 - "$STEPS_CONFIG_FILE" <<'PYEOF'
+import json, shlex, sys
+config_file = sys.argv[1]
+with open(config_file) as f:
+    steps = json.load(f)
+ids = []
+names = []
+for s in steps:
+    sid = s.get('type', 'step')
+    model = s.get('model', '')
+    if sid in ('viperx', 'vocal'):
+        sid = 'vocal'
+        name = f"Voz ({model})" if model else 'Voz'
+    elif sid == 'demucs':
+        name = f"Demucs ({model})" if model else 'Demucs'
+    elif sid == 'rubberband':
+        name = 'Rubberband'
+    else:
+        name = model if model else sid
+    ids.append(shlex.quote(sid))
+    names.append(shlex.quote(name))
+print(f"STEP_IDS=({' '.join(ids)})")
+print(f"STEP_NAMES=({' '.join(names)})")
+PYEOF
+)"
+    export _STEP_IDS="$(printf '%s\n' "${STEP_IDS[@]}")"
+    export _STEP_NAMES="$(printf '%s\n' "${STEP_NAMES[@]}")"
+
+    # Initialize multi-step progress tracking (resets tracker state).
     multi_step_init
+
+    # Initialize the tracker with the full step list.
+    _init_tracker_steps
 
     # ── Iterate through steps ──
     CURRENT_INPUT="$INPUT"
@@ -1849,6 +1934,30 @@ VOCAL_MODEL_DISPLAY="${VOCAL_MODEL##*/}"    # strip path, keep filename
 VOCAL_MODEL_DISPLAY="${VOCAL_MODEL_DISPLAY%.*}"  # strip extension
 DEMUCS_MODEL_DISPLAY="$DEMUCS_MODEL"
 export VOCAL_MODEL_DISPLAY DEMUCS_MODEL_DISPLAY
+
+# ── Build step metadata for the UI steps list ────
+STEP_IDS=()
+STEP_NAMES=()
+if $VOCAL; then
+    STEP_IDS+=("vocal")
+    STEP_NAMES+=("Voz (${VOCAL_MODEL_DISPLAY})")
+fi
+if $DEMUCS; then
+    STEP_IDS+=("demucs")
+    STEP_NAMES+=("Demucs (${DEMUCS_MODEL_DISPLAY})")
+fi
+if $RUBBERBAND; then
+    STEP_IDS+=("rubberband")
+    STEP_NAMES+=("Rubberband (pitch ${PITCH})")
+fi
+# Defensive fallback: pipeline always reports at least one conceptual step.
+if [ "${#STEP_IDS[@]}" -eq 0 ]; then
+    STEP_IDS+=("vocal")
+    STEP_NAMES+=("Voz")
+fi
+export _STEP_IDS="$(printf '%s\n' "${STEP_IDS[@]}")"
+export _STEP_NAMES="$(printf '%s\n' "${STEP_NAMES[@]}")"
+_init_tracker_steps
 
 # ── Validate ─────────────────────────────────────
 if [ ! -f "$INPUT" ]; then
