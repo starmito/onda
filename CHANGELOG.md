@@ -4,7 +4,7 @@
 
 ### Added
 - **Medición de rendimiento con base y comparador**: `tools/bench-baseline.sh` mide una versión desplegada hablando con su API (clip de prueba fijo, flags efectivas de Ajustes → Modelos, duración total y por paso, VRAM pico/media vía `nvidia-smi`, dispositivo, stems y versiones) y guarda `.hermes/bench/<fecha>-<etiqueta>.json`; `tools/bench_compare.py` compara dos JSON, muestra deltas y emite un veredicto con umbrales explícitos.
-- **Camino ONNX a GPU**: helper compartido `onda/onnx_utils.py` que hace visibles las librerías CUDA 13/cuDNN, precarga DLLs y crea sesiones de ONNX Runtime con verificación de proveedores activos, para evitar un fallback silencioso a CPU; `GET /api/health` expone ahora versión, proveedores disponibles y estado de CUDA de onnxruntime.
+- **Camino ONNX a GPU**: helper compartido `onda/onnx_utils.py` que hace visibles las librerías CUDA 13/cuDNN, precarga DLLs y crea sesiones de ONNX Runtime con verificación de proveedores activos, para evitar un fallback silencioso a CPU; `GET /api/health` expone ahora versión, proveedores disponibles y el proveedor efectivo de una sesión real de onnxruntime. El campo `cuda` es `true`/`false` según el proveedor efectivo; `cuda: null` significa que el sondeo no pudo crear la sesión (por ejemplo, modelo de prueba incompatible), por lo que no se puede afirmar nada sobre la GPU.
 - **Chequeo de tipos del frontend**: nuevo script `npm run check` (usa `svelte-check`) registrado en `AGENTS.md` como paso obligatorio antes de commitear.
 - **Cobertura de tests**: contratos de API (`api_contracts_test.go`), guardián de raíz de datos única, DSP del DAW, propiedades de audio, flags CLI, capacidad real de VRAM y `sm_75`, helper ONNX, health y benchmarks.
 
@@ -16,6 +16,7 @@
 - **Documentación y referencias de versiones antiguas al día**: `README.md`, `ARCHITECTURE.md`, `.env.example`, `Makefile`, `docker-compose*.yml`, `docs/demucs-onnx-setup.md`, `docs/dependencies-notes.md` y saltos de línea literales de 11 planes históricos.
 
 ### Fixed
+- **Sondeo ONNX sin falsos negativos**: el modelo de prueba en `onda/onnx_utils.py` se construye con `ir_version=13` y opset 13 (ambos soportados por `onnxruntime-gpu 1.30.0`), y un fallo del sondeo reporta `cuda: null` con `verification: invalid_probe_model` en vez de acusar a la GPU con `cuda: false`.
 - **Chequeo de tipos del frontend a cero**: `svelte-check` destapó y se corrigieron bugs reales:
   - sincronía de la posición del DAW y manejo del borde de regiones con `wavesurfer.js` 8,
   - picos reales en el preview de tono,

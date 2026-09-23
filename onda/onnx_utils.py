@@ -165,6 +165,11 @@ def _build_minimal_onnx_model_bytes() -> bytes:
     The model has a single float32 input and output of shape [1] and one
     Identity node. It is cheap to create (no disk, no download) and is only
     used to ask onnxruntime which execution providers it can actually load.
+
+    The IR version is pinned to 13 because ``onnxruntime-gpu 1.30.0`` only
+    supports models up to IR version 13. ``onnx`` 1.23 defaults to IR 14, so
+    leaving it unpinned makes the probe fail with "Unsupported model IR version"
+    and falsely reports ``cuda: false`` even when the CUDA provider is present.
     """
     from onnx import helper, TensorProto
 
@@ -172,12 +177,25 @@ def _build_minimal_onnx_model_bytes() -> bytes:
     output_tensor = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1])
     node = helper.make_node("Identity", ["input"], ["output"])
     graph = helper.make_graph([node], "onda_onnx_probe", [input_tensor], [output_tensor])
-    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+    # IR 13 + opset 13 are both supported by onnxruntime-gpu 1.30.0.
+    model = helper.make_model(
+        graph,
+        opset_imports=[helper.make_opsetid("", 13)],
+        ir_version=13,
+    )
     return model.SerializeToString()
 
 
+def _is_cuda_provider_error(exc: Exception) -> bool:
+    """Return True when an exception looks like a CUDA/provider loading error."""
+    msg = str(exc).lower()
+    return any(k in msg for k in ("cuda", "cudnn", "cublas", "cudaexecutionprovider"))
+
+
 @functools.lru_cache(maxsize=None)
-def _probe_onnx_providers(cuda_requested: bool = True) -> Tuple[List[str], bool, Optional[str]]:
+def _probe_onnx_providers(
+    cuda_requested: bool = True,
+) -> Tuple[List[str], Optional[bool], Optional[str], str]:
     """Create a real ONNX Runtime session and report the effective providers.
 
     Args:
@@ -185,36 +203,49 @@ def _probe_onnx_providers(cuda_requested: bool = True) -> Tuple[List[str], bool,
             ``False``, falling back to CPU is not treated as an error.
 
     Returns:
-        A tuple of (effective_providers, cuda_is_active, error_message).
-        ``error_message`` is set when session creation fails or when CUDA was
-        requested but the session silently fell back to CPU.
+        A tuple of (effective_providers, cuda_is_active, error_message,
+        verification). ``cuda_is_active`` is ``None`` when the probe session
+        could not be created, so we cannot tell whether CUDA is available.
+        ``verification`` is one of ``ok``, ``cuda_provider_missing`` or
+        ``invalid_probe_model``.
     """
     import onnxruntime as ort
 
     try:
         model_bytes = _build_minimal_onnx_model_bytes()
     except Exception as exc:
-        return [CPU_PROVIDER], False, f"could not build probe model: {exc}"
+        return [], None, f"could not build probe model: {exc}", "invalid_probe_model"
 
     requested = [CUDA_PROVIDER, CPU_PROVIDER]
     try:
         session = ort.InferenceSession(model_bytes, providers=requested)
     except Exception as exc:
-        return [CPU_PROVIDER], False, str(exc)
+        # A broken probe must not blame the GPU. Distinguish CUDA/provider
+        # loading errors from an invalid model so callers can see the real
+        # reason, but still report cuda=None because the session never ran.
+        verification = (
+            "cuda_provider_missing"
+            if _is_cuda_provider_error(exc)
+            else "invalid_probe_model"
+        )
+        return [], None, str(exc), verification
 
     try:
         providers = session.get_providers()
     except Exception as exc:
-        return [CPU_PROVIDER], False, f"session created but could not read providers: {exc}"
+        return [], None, f"session created but could not read providers: {exc}", "invalid_probe_model"
 
     has_cuda = CUDA_PROVIDER in providers
     error: Optional[str] = None
-    if not has_cuda and cuda_requested:
+    if has_cuda:
+        return providers, True, None, "ok"
+
+    if cuda_requested:
         error = (
             "CUDAExecutionProvider was requested but ONNX Runtime fell back to "
             f"{providers}"
         )
-    return providers, has_cuda, error
+    return providers, False, error, "cuda_provider_missing"
 
 
 def _clear_onnx_runtime_info_cache() -> None:
@@ -231,16 +262,18 @@ def get_onnx_runtime_info() -> Dict[str, Any]:
     Used by the Go health endpoint to surface provider support without forcing
     operators to read Python logs. The ``cuda`` field reflects the *effective*
     provider used by a real session, not just the providers listed by
-    ``get_available_providers()``.
+    ``get_available_providers()``. ``cuda: null`` means the probe session could
+    not be created, so GPU availability is unknown.
     """
     info: Dict[str, Any] = {
         "available": False,
         "version": None,
         "providers": [],
-        "cuda": False,
+        "cuda": None,
         "cuda_supported": False,
         "cuda_requested": False,
         "error": None,
+        "verification": None,
     }
     try:
         import onnxruntime as ort
@@ -252,9 +285,12 @@ def get_onnx_runtime_info() -> Dict[str, Any]:
         cuda_requested = _torch_cuda_available()
         info["cuda_requested"] = cuda_requested
 
-        effective_providers, cuda_active, error = _probe_onnx_providers(cuda_requested=cuda_requested)
+        effective_providers, cuda_active, error, verification = _probe_onnx_providers(
+            cuda_requested=cuda_requested
+        )
         info["providers"] = effective_providers
         info["cuda"] = cuda_active
+        info["verification"] = verification
         if error:
             info["error"] = error
     except Exception as exc:

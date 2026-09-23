@@ -163,6 +163,7 @@ def test_get_onnx_runtime_info_structure(monkeypatch, onnx_probe_model):
     assert info["cuda_supported"] is False
     assert info["cuda_requested"] is False
     assert info["error"] is None
+    assert info["verification"] == "cuda_provider_missing"
 
 
 def test_get_onnx_runtime_info_detects_cuda_provider(monkeypatch, onnx_probe_model):
@@ -188,6 +189,7 @@ def test_get_onnx_runtime_info_detects_cuda_provider(monkeypatch, onnx_probe_mod
         assert info["cuda_requested"] is True
         assert info["providers"] == [ou.CUDA_PROVIDER, ou.CPU_PROVIDER]
         assert info["error"] is None
+        assert info["verification"] == "ok"
     finally:
         ort.get_available_providers = original_get_providers
         ort.InferenceSession = original_inference_session
@@ -216,13 +218,14 @@ def test_get_onnx_runtime_info_honest_cpu_fallback(monkeypatch, onnx_probe_model
         assert info["providers"] == [ou.CPU_PROVIDER]
         assert info["error"] is not None
         assert "fell back" in info["error"]
+        assert info["verification"] == "cuda_provider_missing"
     finally:
         ort.get_available_providers = original_get_providers
         ort.InferenceSession = original_inference_session
 
 
 def test_get_onnx_runtime_info_session_creation_failure(monkeypatch, onnx_probe_model):
-    """cuda=false with an error when session creation fails outright."""
+    """cuda=null with an error when session creation fails outright."""
     import onda.onnx_utils as ou
 
     monkeypatch.setattr("torch.cuda.is_available", lambda: True)
@@ -233,9 +236,39 @@ def test_get_onnx_runtime_info_session_creation_failure(monkeypatch, onnx_probe_
 
     try:
         info = ou.get_onnx_runtime_info()
-        assert info["cuda"] is False
-        assert info["providers"] == [ou.CPU_PROVIDER]
+        assert info["cuda"] is None
+        assert info["providers"] == []
         assert info["error"] is not None
         assert "libcublasLt" in info["error"]
+        assert info["verification"] == "cuda_provider_missing"
     finally:
         ort.InferenceSession = original_inference_session
+
+
+def test_get_onnx_runtime_info_invalid_probe_model(monkeypatch):
+    """A probe model failure reports cuda=null and invalid_probe_model, not false."""
+    import onda.onnx_utils as ou
+
+    monkeypatch.setattr("torch.cuda.is_available", lambda: True)
+    import onnxruntime as ort
+
+    original_get_providers = ort.get_available_providers
+    ort.get_available_providers = mock.Mock(return_value=[ou.CUDA_PROVIDER, ou.CPU_PROVIDER])
+
+    original_build_probe = ou._build_minimal_onnx_model_bytes
+    ou._build_minimal_onnx_model_bytes = mock.Mock(
+        side_effect=RuntimeError("Unsupported model IR version: 14, max supported IR version: 13")
+    )
+
+    try:
+        info = ou.get_onnx_runtime_info()
+        assert info["cuda"] is None
+        assert info["cuda_supported"] is True
+        assert info["cuda_requested"] is True
+        assert info["providers"] == []
+        assert info["error"] is not None
+        assert "IR version" in info["error"]
+        assert info["verification"] == "invalid_probe_model"
+    finally:
+        ort.get_available_providers = original_get_providers
+        ou._build_minimal_onnx_model_bytes = original_build_probe
