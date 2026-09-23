@@ -82,6 +82,16 @@ type JobRequest struct {
 	Env []string `json:"env,omitempty"`
 }
 
+// Step describes a single pipeline step as exposed to clients.
+type Step struct {
+	ID       string  `json:"id"`
+	Name     string  `json:"name"`
+	Status   string  `json:"status"`
+	Progress float64 `json:"progress"`
+	ETA      int     `json:"eta"`
+	Elapsed  int     `json:"elapsed"`
+}
+
 // JobState tracks the status of a separation job.
 type JobState struct {
 	Song             string      `json:"song"`
@@ -106,8 +116,11 @@ type JobState struct {
 	StartedAt        time.Time   `json:"started_at,omitempty"`
 	// Steps records the pipeline steps so the server can tell final result
 	// stems apart from intermediate ones when deciding whether a done job
-	// should be kept or dropped.
-	Steps []cli.PipelineStep `json:"steps,omitempty"`
+	// should be kept or dropped. Not exposed in the API response.
+	Steps []cli.PipelineStep `json:"-"`
+	// StepList is the runtime list of steps with progress reported by the
+	// pipeline_status.json tracker. Exposed as "steps" to clients.
+	StepList []Step `json:"steps,omitempty"`
 }
 
 // Server wraps the HTTP server with routes, middleware, and a sequential job queue.
@@ -792,6 +805,7 @@ type pipelineStatusJSON struct {
 	Song            string  `json:"song"`
 	Device          string  `json:"device"`
 	GPUType         string  `json:"gpu_type"`
+	Steps           []Step  `json:"steps"`
 }
 
 // readPipelineStatusForSong reads the per-song pipeline_status.json that the
@@ -814,6 +828,32 @@ func readPipelineStatusForSong(outputDir, song string) pipelineStatusJSON {
 		}
 	}
 	return pipelineStatusJSON{}
+}
+
+// normalizeSteps applies the honesty rules to the per-step progress values
+// read from pipeline_status.json:
+//   - progress is clamped to [0, 100]
+//   - eta and elapsed are non-negative
+//   - a step that is not "done" is never reported at 100%
+func normalizeSteps(steps []Step, jobStatus string) []Step {
+	if len(steps) == 0 {
+		return nil
+	}
+	out := make([]Step, len(steps))
+	for i, s := range steps {
+		s.Progress = math.Max(0, math.Min(100, s.Progress))
+		if s.ETA < 0 {
+			s.ETA = 0
+		}
+		if s.Elapsed < 0 {
+			s.Elapsed = 0
+		}
+		if s.Status != "done" && s.Progress >= 100 {
+			s.Progress = 99.99
+		}
+		out[i] = s
+	}
+	return out
 }
 
 // collectQueueJobs returns the current list of jobs ordered by status priority.
@@ -892,6 +932,9 @@ func (s *Server) collectQueueJobs() []*JobState {
 		// device and GPU type for every job, not only the one in progress.
 		st := readPipelineStatusForSong(outputDir, j.Song)
 
+		// Expose the runtime step list written by the pipeline tracker.
+		j.StepList = normalizeSteps(st.Steps, j.Status)
+
 		// For the processing job, inject live step/progress/eta/elapsed from pipeline_status.json
 		if j.Status == "processing" && st.Status != "" {
 			j.StepName = capitalizeStep(st.Step)
@@ -914,6 +957,9 @@ func (s *Server) collectQueueJobs() []*JobState {
 				liveProgress = 1
 			}
 			j.Progress = int(math.Round(liveProgress * 100))
+			if j.Progress >= 100 {
+				j.Progress = 99
+			}
 			j.ETA = int(st.ETA)
 			j.Elapsed = int(st.Elapsed)
 			// Ensure total_steps is at least current_step
