@@ -10,10 +10,7 @@ librosa==1.0.0
 einops==0.8.2
 PyYAML==6.0.3
 psutil==7.2.2
-pydub==0.25.1
-resampy==0.4.3
 omegaconf==2.3.1
 onnx==1.23.0
 beartype==0.22.9
-samplerate==0.2.4
 lameenc==1.8.4

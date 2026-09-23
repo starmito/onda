@@ -11,7 +11,9 @@
 #   (a) que ninguna linea de los requirements quede sin '=='
 #   (b) que cada paquete declarado coincida con la version de requirements.lock (cuando aparezca alli)
 #   (c) informa de las diferencias en vez de fallar en silencio
-#   (d) que ciertos paquetes retirados (dora-search, openunmix) no vuelvan a aparecer
+#   (d) que ciertos paquetes retirados no vuelvan a aparecer:
+#       dora-search, openunmix, onnx2pytorch, pydub, resampy, samplerate,
+#       segmentation-models-pytorch, spafe
 #
 # Codigos de salida:
 #   0 = sin errores (puede haber avisos/informacion)
@@ -87,7 +89,7 @@ printf '\n'
 ok "requirements.lock: $lock_count paquetes leidos"
 
 # ---------------------------------------------------------------- (d) paquetes retirados que no deben volver
-printf '\n%s-- Paquetes retirados (dora-search, openunmix) --%s\n' "$C_BLD" "$C_OFF"
+printf '\n%s-- Paquetes retirados --%s\n' "$C_BLD" "$C_OFF"
 
 FORBIDDEN_FILES=(
   "$REPO_ROOT/Dockerfile"
@@ -102,6 +104,19 @@ FORBIDDEN_PATTERNS=(
   "openunmix"
   "open-unmix"
   "open_unmix"
+  "onnx2pytorch"
+  "onnx-2-pytorch"
+  "onnx_2_pytorch"
+  "pydub"
+  "py-dub"
+  "py_dub"
+  "resampy"
+  "samplerate"
+  "sample-rate"
+  "sample_rate"
+  "segmentation-models-pytorch"
+  "segmentation_models_pytorch"
+  "spafe"
 )
 
 for f in "${FORBIDDEN_FILES[@]}"; do

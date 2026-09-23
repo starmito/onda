@@ -60,9 +60,9 @@ RUN SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True \
 # NOTA: diffq y torchcodec se omiten porque no se usan (diffq solo para modelos
 # cuantizados de demucs; torchcodec no es requerido por ningun paquete ni importado por Onda).
 RUN /opt/venv/bin/pip install --no-cache-dir \
-    pytorch_lightning ml_collections onnx2pytorch \
-    rotary_embedding_torch segmentation_models_pytorch \
-    transformers timm torchmetrics spafe julius
+    pytorch_lightning ml_collections \
+    rotary_embedding_torch \
+    transformers timm torchmetrics julius
 
 # ── Stage 4: Imagen final ────────────────────────────────
 FROM ubuntu:26.04 AS runtime

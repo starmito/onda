@@ -23,6 +23,7 @@ Reglas OBLIGATORIAS para cualquier agente que trabaje en este repositorio. Incum
   - `tools/check-licenses.sh` — bloquea licencias prohibidas (AGPL-*, GPL-2.0, GPL-3.0, SSPL-*, BUSL-*) en dependencias de producción del frontal, dependencias Python conocidas y código vendorizado (`lib_v5/`); también verifica que `go mod tidy -diff` esté vacío. Funciona sin red si los módulos de Go están en caché; si no, avisa y sigue.
   - Los tres guardianes se ejecutan automáticamente en la suite via `tests/unit/test_guards.py`.
 - Si un test necesita `aubio`/`sox` y no están instalados, usar el patrón `skipIfMissingBinary` ya existente (saltar limpiamente, no fallar).
+- Declarar una dependencia exige que alguien la importe en el código de Onda (repo + `lib_v5`) o que un paquete instalado la requiera (`pip show <pkg>` → `Required-by:`). Usar siempre ambas comprobaciones; no dejar dependencias muertas en los requirements.
 - Commits conventional (`feat:`, `fix:`, `test:`, `refactor:`, `docs:`, `chore:`) y push a la rama de trabajo actual (`origin/fix/v3.5.6` en este punto del ciclo de release).
 - La versión sale del fichero `VERSION` en la raíz del repo. `build.sh` y `deploy.sh` leen `VERSION` y validan que `onda/_version.py`, `pyproject.toml` y `frontend/package.json` coincidan. NUNCA hardcodear versiones a mano ni duplicar la lógica de versionado.
 - Si necesitas helpers temporales de depuración: crearlos dentro del repo y borrarlos antes del commit.

@@ -42,6 +42,44 @@ En v3.5.6 se sincronizaron:
 
 ---
 
+## Depuración de dependencias muertas (v3.5.6)
+
+En el ciclo v3.5.6 se hizo una pasada de limpieza de dependencias Python siguiendo el protocolo de medición del proyecto: doble comprobación (barrido de imports en `/app` + `lib_v5` y `pip show <pkg> -> Required-by`) para cada candidata a baja.
+
+### Resultado de la medición
+
+**Bajas aprobadas** (ningún código de Onda las importa y `Required-by: NADIE`):
+
+| Paquete | Versión anterior | Motivo |
+|---------|------------------|--------|
+| `onnx2pytorch` | `0.6.0` | Ningún código del repo lo importa; ningún paquete instalado lo requiere. |
+| `pydub` | `0.25.1` | Sin imports en Onda ni requerimiento por parte de otros paquetes. |
+| `resampy` | `0.4.3` | Sin imports en Onda ni requerimiento por parte de otros paquetes. |
+| `samplerate` | `0.2.4` | Sin imports en Onda ni requerimiento por parte de otros paquetes. |
+| `segmentation-models-pytorch` | `0.5.0` | Sin imports en Onda ni requerimiento por parte de otros paquetes. |
+| `spafe` | `0.3.3` | Solo sus propios tests internos de site-packages la importan; ni Onda ni ninguna librería instalada la requieren. |
+
+**Falsa alarma descartada**:
+
+- `omegaconf` parecía requerida únicamente por `dora_search` (ya retirada), pero el barrido de imports demostró que la importan `demucs` (`demucs/train.py`, `demucs/states.py`) y `pytorch_lightning`. Por eso **se mantiene**.
+
+**Dependencias verificadas que se quedan** (presentes en imports o en el grafo de dependencias):
+
+- `julius` → `demucs/audio.py`, `demucs/wav.py`, `demucs/demucs.py`.
+- `sphn` → `demucs/api.py`.
+- `lameenc` → `demucs/audio.py`.
+- `onnx`, `psutil`, `transformers` → tooling de `onnxruntime`.
+- `torchvision` → usado internamente por `torch`.
+- `torch`, `torchvision`, `numpy`, `onnxruntime-gpu` → pila CUDA del volumen (`entrypoint.sh`).
+
+### Cambios aplicados
+
+- Se eliminaron las 6 dependencias muertas de `requirements-common.txt`, `requirements-docker.txt` y `Dockerfile`.
+- Se eliminaron sus 6 líneas de `requirements.lock` (baja pura, sin retocar ninguna otra línea).
+- Se amplió `tools/check-deps.sh` con pruebas negativas para cada baja, igual que el patrón ya usado con `dora-search` y `openunmix`.
+
+---
+
 ## Referencias
 
 - `requirements-common.txt`
