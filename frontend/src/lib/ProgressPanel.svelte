@@ -78,7 +78,7 @@
 
   <div class="global-summary">
     <div class="progress-header">
-      <span class="progress-status">{status}</span>
+      <span class="progress-status">{progress >= 1 && status === 'running' ? 'Finalizando' : STATUS_LABELS[status] || status}</span>
       {#if step}<span class="progress-step">{step}</span>{/if}
     </div>
     <div class="progress-bar-wrap">

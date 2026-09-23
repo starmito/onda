@@ -88,7 +88,7 @@
   <div class="hero">
     <div class="hero-icon">{@html IconOnda}</div>
     <h1 class="hero-title">Onda</h1>
-    <span class="hero-version">v{version}</span>
+    <span class="hero-version">{version}</span>
   </div>
 
   <!-- Services section -->

@@ -449,7 +449,9 @@
               <label for="flag-{flag.name}">
                 {flag.name}: <strong>{formatFlagValue(flag)}</strong>
               </label>
-              {#if flag.type === 'choice'}
+              <!-- A flag with explicit choices is a choice control even when the
+                   backend omits the type field (e.g. the device flag). -->
+              {#if flag.type === 'choice' || (flag.choices && flag.choices.length > 0)}
                 <select
                   id="flag-{flag.name}"
                   value={flagValues[flag.name]}
