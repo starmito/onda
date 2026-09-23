@@ -106,7 +106,7 @@
         stems: s.files.map(f => ({
           name: f.name,
           path: f.path,
-          stemType: detectStemType(f.name),
+          stemType: detectStemType(f.name, song),
         })),
         player: null,
       }));
@@ -497,7 +497,7 @@
       const stems = result.files.map(f => ({
         name: f.name,
         path: f.path,
-        stemType: detectStemType(f.name),
+        stemType: detectStemType(f.name, song),
       }));
 
       playerState.resultsPitchSubgroups[song] = [...existing, { pitch: value, stems, player: null }];
@@ -856,7 +856,7 @@
           stems: s.files.map(f => ({
             name: f.name,
             path: f.path,
-            stemType: detectStemType(f.name),
+            stemType: detectStemType(f.name, song),
           })),
           player: null,
         }));

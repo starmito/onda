@@ -476,7 +476,7 @@
           stems: s.files.map((f: any) => ({
             name: f.name,
             path: f.path,
-            stemType: detectStemType(f.name),
+            stemType: detectStemType(f.name, u.name),
           })),
         }));
         playerState.uploadSubgroups = { ...playerState.uploadSubgroups, [u.name]: mapped };
@@ -494,7 +494,7 @@
       const mapped: Subgroup[] = subs.map(s => ({
         pitch: s.pitch,
         stems: s.files.map((f: any) => ({
-          name: f.name, path: f.path, stemType: detectStemType(f.name),
+          name: f.name, path: f.path, stemType: detectStemType(f.name, song),
         })),
       }));
       playerState.pitchSubgroups = { ...playerState.pitchSubgroups, [song]: mapped };

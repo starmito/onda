@@ -2,6 +2,7 @@
   import type { LocalModel } from './api';
   import { getLocalModels, getPresets, savePreset, deletePreset, setDefaultPreset } from './api';
   import type { PresetData } from './api';
+  import { stemDisplayName } from './types';
   import { IconClose } from './icons';
 
   // ── Props ──
@@ -363,17 +364,6 @@
     deleteConfirmVisible = true;
   }
 
-  // ── Stem display names ──
-  const STEM_LABELS: Record<string, string> = {
-    vocals: '🎤 Vocals',
-    instrumental: '🎵 Instrumental',
-    drums: '🥁 Drums',
-    bass: '🎸 Bass',
-    other: '🎹 Other',
-    guitar: '🎸 Guitar',
-    piano: '🎹 Piano',
-  };
-
   // ── Close handler ──
   function handleClose() {
     presetNameInput = '';
@@ -497,7 +487,7 @@
                 {:else}
                   {#each stemsForModel(step.model) as stemName}
                     <div class="routing-row">
-                      <span class="routing-stem-name">{STEM_LABELS[stemName] || stemName}</span>
+                      <span class="routing-stem-name">{stemDisplayName(stemName)}</span>
                       <label class="routing-radio" class:active={step.stems[stemName]?.action === 'route'}>
                         <input
                           type="radio"

@@ -35,8 +35,11 @@ type ModelFlagValue struct {
 
 // ModelFlagsResponse is returned by GET /api/models/{name}/config.
 type ModelFlagsResponse struct {
-	Model string           `json:"model"`
-	Flags []ModelFlagValue `json:"flags"`
+	Model    string           `json:"model"`
+	Flags    []ModelFlagValue `json:"flags"`
+	Stems    []string         `json:"stems,omitempty"`
+	NumStems int              `json:"num_stems,omitempty"`
+	Target   *string          `json:"target,omitempty"`
 }
 
 // modelFlagDef is the internal representation of a flag declaration.
@@ -357,6 +360,23 @@ func flagValuesToModelConfig(values map[string]interface{}) ModelConfigResponse 
 	return cfg
 }
 
+// modelStemsFromManifest returns the stem list declared by the model manifest,
+// falling back to sensible defaults for built-in or inferred models.
+func modelStemsFromManifest(name string) modelManifestStems {
+	if modelDir, _, found := searchModelOnDisk(name); found {
+		if m, ok := loadModelManifest(modelDir); ok {
+			return m.Stems
+		}
+	}
+	if strings.EqualFold(name, "htdemucs_ft") {
+		if m, ok := htdemucsFtManifest(); ok {
+			return m.Stems
+		}
+	}
+	mt := inferModelTypeFromName(name)
+	return inferManifestStems(mt, name)
+}
+
 // getModelFlagsResponse builds the effective flag list for a model.
 func getModelFlagsResponse(name string) (*ModelFlagsResponse, error) {
 	defs, ok := loadModelManifestFlags(name)
@@ -394,7 +414,14 @@ func getModelFlagsResponse(name string) (*ModelFlagsResponse, error) {
 		})
 	}
 
-	return &ModelFlagsResponse{Model: name, Flags: flags}, nil
+	stems := modelStemsFromManifest(name)
+	return &ModelFlagsResponse{
+		Model:    name,
+		Flags:    flags,
+		Stems:    stems.Stems,
+		NumStems: stems.NumStems,
+		Target:   stems.Target,
+	}, nil
 }
 
 // saveModelFlags validates and persists user changes to a model's flags.

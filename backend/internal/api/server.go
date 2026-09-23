@@ -550,6 +550,60 @@ type ResultsGroup struct {
 	Files []FileEntry `json:"files"`
 }
 
+// resultFilesForSong returns the audio files for a song.  When the backend has
+// recorded pipeline steps for that song, it uses the step stem configuration to
+// keep only stems explicitly saved as results; routed/discarded intermediates
+// (e.g. an instrumental sent to a Demucs step) are omitted even if they are
+// still on disk.  Otherwise it falls back to listing every audio file in the
+// output directory.
+func (s *Server) resultFilesForSong(song string) []FileEntry {
+	outputDir := mustSub("output")
+	stemDir := filepath.Join(outputDir, song)
+	stemEntries, err := os.ReadDir(stemDir)
+	if err != nil {
+		return nil
+	}
+
+	var steps []cli.PipelineStep
+	s.jobsMu.RLock()
+	if job, ok := s.jobs[song]; ok {
+		steps = job.Steps
+	}
+	s.jobsMu.RUnlock()
+
+	var files []FileEntry
+	hasFinalNames := len(steps) > 0 && hasConfiguredResultStems(steps)
+	for _, stemEntry := range stemEntries {
+		if stemEntry.IsDir() {
+			continue
+		}
+		name := stemEntry.Name()
+		ext := strings.ToLower(filepath.Ext(name))
+		if ext != ".wav" && ext != ".mp3" && ext != ".flac" && ext != ".ogg" && ext != ".m4a" {
+			continue
+		}
+		base := strings.TrimSuffix(name, filepath.Ext(name))
+		if hasFinalNames {
+			finalNames := make(map[string]struct{})
+			for _, step := range steps {
+				for stem, route := range step.Stems {
+					if route.Action == cli.StemSave && route.Target == "result" {
+						finalNames[stem] = struct{}{}
+					}
+				}
+			}
+			if _, ok := finalNames[base]; !ok {
+				continue
+			}
+		}
+		files = append(files, FileEntry{
+			Name: name,
+			Path: "/api/files/" + song + "/" + name,
+		})
+	}
+	return files
+}
+
 // handleResults lists all songs and their stems from the output directory.
 // GET /api/results
 func (s *Server) handleResults(w http.ResponseWriter, r *http.Request) {
@@ -577,26 +631,7 @@ func (s *Server) handleResults(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		song := entry.Name()
-		stemDir := filepath.Join(outputDir, song)
-		stemEntries, err := os.ReadDir(stemDir)
-		if err != nil {
-			continue
-		}
-		var files []FileEntry
-		for _, stemEntry := range stemEntries {
-			if stemEntry.IsDir() {
-				continue
-			}
-			name := stemEntry.Name()
-			ext := strings.ToLower(filepath.Ext(name))
-			if ext != ".wav" && ext != ".mp3" && ext != ".flac" && ext != ".ogg" && ext != ".m4a" {
-				continue
-			}
-			files = append(files, FileEntry{
-				Name: name,
-				Path: "/api/files/" + song + "/" + name,
-			})
-		}
+		files := s.resultFilesForSong(song)
 		if len(files) > 0 {
 			results = append(results, ResultsGroup{Song: song, Files: files})
 		}

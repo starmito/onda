@@ -691,7 +691,7 @@
             name: f.name,
             path: f.path,
             song: group.song,
-            stemType: detectStemType(f.name),
+            stemType: detectStemType(f.name, group.song),
           });
         }
       }
@@ -909,7 +909,7 @@
             name: f.name,
             path: f.path,
             song: g.song,
-            stemType: detectStemType(f.name),
+            stemType: detectStemType(f.name, g.song),
           });
         }
       }
@@ -940,7 +940,7 @@
           name: f.name,
           path: f.path,
           song: job.song,
-          stemType: detectStemType(f.name),
+          stemType: detectStemType(f.name, job.song),
         });
       }
     }

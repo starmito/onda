@@ -633,6 +633,9 @@ export interface ModelFlag {
 export interface ModelFlagsResponse {
   model: string;
   flags: ModelFlag[];
+  stems?: string[];
+  num_stems?: number;
+  target?: string;
 }
 
 export async function getModelConfig(modelName: string): Promise<ModelFlagsResponse> {
