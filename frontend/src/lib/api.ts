@@ -615,6 +615,9 @@ export interface ModelFlag {
   editable: boolean;
   type?: 'int' | 'float' | 'choice';
   choices?: string[];
+  description?: string;
+  affects?: ('quality' | 'vram' | 'speed')[];
+  better_side?: 'quality' | 'vram' | 'speed' | '';
 }
 
 export interface ModelFlagsResponse {
