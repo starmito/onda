@@ -248,7 +248,7 @@ func TestConfigDir_LegacyFallback_ModelConfig(t *testing.T) {
 		Overlap:     0.25,
 		BatchSize:   1,
 		Shifts:      4,
-		Segment:     10,
+		Segment:     7,
 		Jobs:        2,
 	}
 	writeModelConfigYamlAt(t, legacyDir, "htdemucs_ft", cfg)

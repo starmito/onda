@@ -36,7 +36,6 @@ func TestRunSinglePipeline_LogsEffectiveModelAndFlags(t *testing.T) {
 		Args: []string{fakePipeline, "--vocal-model", "BS_Roformer_Viperx", "--output", filepath.Join(root, "output", "song"), "/app/input/song.wav"},
 		Config: SeparateRequest{
 			VocalModel: "BS_Roformer_Viperx",
-			Device:     "cuda",
 		},
 	}
 
@@ -82,9 +81,6 @@ func TestRunSinglePipeline_SetsCurrentModelAndFlagsInState(t *testing.T) {
 		Args: []string{fakePipeline, "--stem-model", "htdemucs_ft", "--shifts", "2", "--demucs-segment", "7", "--jobs", "4", "--output", filepath.Join(root, "output", "song"), "/app/input/song.wav"},
 		Config: SeparateRequest{
 			StemModel: "htdemucs_ft",
-			Shifts:    2,
-			Jobs:      4,
-			Device:    "cuda",
 		},
 	}
 
@@ -220,8 +216,8 @@ func TestRunMultiStepPipeline_LogsEffectiveModelAndFlags(t *testing.T) {
 
 	job := JobRequest{
 		Song:   "song",
-		Args:   []string{fakePipeline},
-		Config: SeparateRequest{Input: "/app/input/song.wav", Device: "cpu"},
+		Args:   []string{fakePipeline, "--device", "cpu"},
+		Config: SeparateRequest{Input: "/app/input/song.wav"},
 		Steps:  steps,
 	}
 
@@ -246,7 +242,7 @@ func TestRunMultiStepPipeline_LogsEffectiveModelAndFlags(t *testing.T) {
 	if !containsLog("pipeline", "info", "model=htdemucs_ft") {
 		t.Error("expected demucs model in step start log")
 	}
-	if !containsLog("pipeline", "info", "device=cpu") && !containsLog("pipeline", "info", "--device cpu") {
+	if !containsLog("pipeline", "info", "--device cpu") {
 		t.Error("expected non-default device in step start log")
 	}
 }
@@ -343,7 +339,6 @@ func TestRunSinglePipeline_PresetResolvesRealModel(t *testing.T) {
 	req := SeparateRequest{
 		Preset: "Eliminador de Voz",
 		Input:  "/app/input/song.wav",
-		Device: "cpu",
 	}
 	song, args, steps, _, _ := buildPipelineArgs(&req)
 

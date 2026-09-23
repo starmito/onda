@@ -22,7 +22,7 @@ func TestWriteModelConfigToYaml_CreatesFallbackForHtdemucsFt(t *testing.T) {
 		Overlap:     0.25,
 		BatchSize:   1,
 		Shifts:      4,
-		Segment:     10,
+		Segment:     5,
 		Jobs:        2,
 	}
 	if err := writeModelConfigToYaml("htdemucs_ft", cfg); err != nil {
@@ -57,10 +57,9 @@ func TestWriteModelConfigToYaml_CreatesFallbackForHtdemucsFt(t *testing.T) {
 	if demNode == nil {
 		t.Fatal("missing demucs section in created YAML")
 	}
-	// Segment above the CLI limit (7) is clamped to 7.
 	for _, kv := range []struct{ key, want string }{
 		{"shifts", "4"},
-		{"segment", "7"},
+		{"segment", "5"},
 		{"jobs", "2"},
 	} {
 		n := findYamlChildNode(demNode, kv.key)
@@ -130,7 +129,7 @@ func TestBuildPipelineArgs_DemucsUsesSavedConfig(t *testing.T) {
 		Overlap:     0.25,
 		BatchSize:   1,
 		Shifts:      4,
-		Segment:     10,
+		Segment:     5,
 		Jobs:        2,
 	}
 	if err := writeModelConfigToYaml("htdemucs_ft", cfg); err != nil {
@@ -138,8 +137,8 @@ func TestBuildPipelineArgs_DemucsUsesSavedConfig(t *testing.T) {
 	}
 
 	req := &SeparateRequest{
-		Input:    "/app/input/song.wav",
-		Demucs:   true,
+		Input:     "/app/input/song.wav",
+		Demucs:    true,
 		StemModel: "htdemucs_ft",
 	}
 	_, args, _, _, _ := buildPipelineArgs(req)
@@ -150,8 +149,8 @@ func TestBuildPipelineArgs_DemucsUsesSavedConfig(t *testing.T) {
 	if got := argValue(args, "--shifts"); got != "4" {
 		t.Errorf("expected --shifts 4, got %q", got)
 	}
-	if got := argValue(args, "--demucs-segment"); got != "7" {
-		t.Errorf("expected --demucs-segment 7, got %q", got)
+	if got := argValue(args, "--demucs-segment"); got != "5" {
+		t.Errorf("expected --demucs-segment 5, got %q", got)
 	}
 	if got := argValue(args, "--jobs"); got != "2" {
 		t.Errorf("expected --jobs 2, got %q", got)
@@ -166,7 +165,7 @@ func TestBuildPipelineArgs_DemucsDefaultModelUsesSavedConfig(t *testing.T) {
 		Overlap:     0.25,
 		BatchSize:   1,
 		Shifts:      4,
-		Segment:     10,
+		Segment:     5,
 		Jobs:        2,
 	}
 	if err := writeModelConfigToYaml("htdemucs_ft", cfg); err != nil {
@@ -187,15 +186,15 @@ func TestBuildPipelineArgs_DemucsDefaultModelUsesSavedConfig(t *testing.T) {
 	if got := argValue(args, "--shifts"); got != "4" {
 		t.Errorf("expected --shifts 4, got %q", got)
 	}
-	if got := argValue(args, "--demucs-segment"); got != "7" {
-		t.Errorf("expected --demucs-segment 7, got %q", got)
+	if got := argValue(args, "--demucs-segment"); got != "5" {
+		t.Errorf("expected --demucs-segment 5, got %q", got)
 	}
 	if got := argValue(args, "--jobs"); got != "2" {
 		t.Errorf("expected --jobs 2, got %q", got)
 	}
 }
 
-func TestBuildPipelineArgs_DemucsRequestOverridesConfig(t *testing.T) {
+func TestBuildPipelineArgs_DemucsRequestOverridesIgnored(t *testing.T) {
 	setTestRoot(t, "model-config-")
 
 	cfg := ModelConfigResponse{
@@ -203,35 +202,36 @@ func TestBuildPipelineArgs_DemucsRequestOverridesConfig(t *testing.T) {
 		Overlap:     0.25,
 		BatchSize:   1,
 		Shifts:      4,
-		Segment:     10,
+		Segment:     5,
 		Jobs:        2,
 	}
 	if err := writeModelConfigToYaml("htdemucs_ft", cfg); err != nil {
 		t.Fatalf("writeModelConfigToYaml failed: %v", err)
 	}
 
-	req := &SeparateRequest{
-		Input:         "/app/input/song.wav",
-		Demucs:        true,
-		StemModel:     "htdemucs_ft",
-		Shifts:        2,
-		DemucsSegment: 8,
-		Jobs:          1,
+	// Simulate a request body that still carries the legacy override fields.
+	// SeparateRequest no longer has those fields, so the decoder ignores them
+	// and the pipeline must use the saved model config.
+	body := `{"input":"/app/input/song.wav","demucs":true,"stem_model":"htdemucs_ft","shifts":2,"demucs_segment":8,"jobs":1}`
+	var req SeparateRequest
+	if err := json.Unmarshal([]byte(body), &req); err != nil {
+		t.Fatalf("failed to decode request body: %v", err)
 	}
-	_, args, _, _, _ := buildPipelineArgs(req)
 
-	if got := argValue(args, "--shifts"); got != "2" {
-		t.Errorf("expected request --shifts 2, got %q", got)
+	_, args, _, _, _ := buildPipelineArgs(&req)
+
+	if got := argValue(args, "--shifts"); got != "4" {
+		t.Errorf("expected saved --shifts 4, got %q", got)
 	}
-	if got := argValue(args, "--demucs-segment"); got != "7" {
-		t.Errorf("expected request --demucs-segment 7, got %q", got)
+	if got := argValue(args, "--demucs-segment"); got != "5" {
+		t.Errorf("expected saved --demucs-segment 5, got %q", got)
 	}
-	if got := argValue(args, "--jobs"); got != "1" {
-		t.Errorf("expected request --jobs 1, got %q", got)
+	if got := argValue(args, "--jobs"); got != "2" {
+		t.Errorf("expected saved --jobs 2, got %q", got)
 	}
 }
 
-func TestBuildPipelineArgs_DemucsDecimalSegmentClamped(t *testing.T) {
+func TestBuildPipelineArgs_DemucsDecimalSegmentRounded(t *testing.T) {
 	setTestRoot(t, "model-config-")
 
 	cfg := ModelConfigResponse{
@@ -239,7 +239,7 @@ func TestBuildPipelineArgs_DemucsDecimalSegmentClamped(t *testing.T) {
 		Overlap:     0.25,
 		BatchSize:   1,
 		Shifts:      1,
-		Segment:     7.8,
+		Segment:     5.2,
 		Jobs:        0,
 	}
 	if err := writeModelConfigToYaml("htdemucs_ft", cfg); err != nil {
@@ -253,9 +253,9 @@ func TestBuildPipelineArgs_DemucsDecimalSegmentClamped(t *testing.T) {
 	}
 	_, args, _, _, _ := buildPipelineArgs(req)
 
-	// 7.8 exceeds the integer CLI limit of 7 and is clamped.
-	if got := argValue(args, "--demucs-segment"); got != "7" {
-		t.Errorf("expected --demucs-segment 7, got %q", got)
+	// Decimal segments are rounded to the nearest whole second.
+	if got := argValue(args, "--demucs-segment"); got != "5" {
+		t.Errorf("expected --demucs-segment 5, got %q", got)
 	}
 }
 
@@ -267,7 +267,7 @@ func TestBuildStepPipelineArgs_DemucsUsesSavedConfig(t *testing.T) {
 		Overlap:     0.25,
 		BatchSize:   1,
 		Shifts:      6,
-		Segment:     12,
+		Segment:     5,
 		Jobs:        3,
 	}
 	if err := writeModelConfigToYaml("htdemucs_ft", cfg); err != nil {
@@ -285,8 +285,8 @@ func TestBuildStepPipelineArgs_DemucsUsesSavedConfig(t *testing.T) {
 	if got := argValue(args, "--shifts"); got != "6" {
 		t.Errorf("expected --shifts 6, got %q", got)
 	}
-	if got := argValue(args, "--demucs-segment"); got != "7" {
-		t.Errorf("expected --demucs-segment 7, got %q", got)
+	if got := argValue(args, "--demucs-segment"); got != "5" {
+		t.Errorf("expected --demucs-segment 5, got %q", got)
 	}
 	if got := argValue(args, "--jobs"); got != "3" {
 		t.Errorf("expected --jobs 3, got %q", got)
@@ -369,6 +369,64 @@ func TestHandleModelsConfig_RejectsOutOfRange(t *testing.T) {
 	}
 }
 
+func TestHandleModelsConfig_HtdemucsFtShiftsTwentyPreserved(t *testing.T) {
+	setTestRoot(t, "model-config-")
+
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("GET /api/models/{name}/config", s.handleModelsConfig)
+	s.mux.HandleFunc("POST /api/models/{name}/config", s.handleModelsConfig)
+	srv := httptest.NewServer(s.mux)
+	t.Cleanup(srv.Close)
+
+	// Save the real-world htdemucs_ft configuration: shifts=20.
+	body := []byte(`{"flags":{"shifts":20}}`)
+	resp, err := http.Post(srv.URL+"/api/models/htdemucs_ft/config", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatalf("POST failed: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("POST status = %d, want 200", resp.StatusCode)
+	}
+
+	getResp, err := http.Get(srv.URL + "/api/models/htdemucs_ft/config")
+	if err != nil {
+		t.Fatalf("GET failed: %v", err)
+	}
+	defer getResp.Body.Close()
+	if getResp.StatusCode != http.StatusOK {
+		t.Fatalf("GET status = %d, want 200", getResp.StatusCode)
+	}
+	var got ModelFlagsResponse
+	if err := json.NewDecoder(getResp.Body).Decode(&got); err != nil {
+		t.Fatalf("failed to decode GET response: %v", err)
+	}
+
+	var shifts ModelFlagValue
+	for _, f := range got.Flags {
+		if f.Name == "shifts" {
+			shifts = f
+			break
+		}
+	}
+	if shifts.Name == "" {
+		t.Fatal("htdemucs_ft: shifts flag not found")
+	}
+	if toInt(shifts.Value) != 20 {
+		t.Errorf("shifts value = %v, want 20", shifts.Value)
+	}
+	if toInt(shifts.Max) != 20 {
+		t.Errorf("shifts max = %v, want 20", shifts.Max)
+	}
+
+	// And the pipeline must actually use shifts=20.
+	req := &SeparateRequest{Input: "/app/input/song.wav", Demucs: true}
+	_, args, _, _, _ := buildPipelineArgs(req)
+	if got := argValue(args, "--shifts"); got != "20" {
+		t.Errorf("pipeline --shifts = %q, want 20", got)
+	}
+}
+
 func flagValue(flags []ModelFlagValue, name string) interface{} {
 	for _, f := range flags {
 		if f.Name == name {
@@ -406,35 +464,41 @@ func TestClampDemucsSegment(t *testing.T) {
 	}
 }
 
-func TestBuildPipelineArgs_DemucsSegmentRequestClamped(t *testing.T) {
-	setTestRoot(t, "model-config-")
+func TestBuildPipelineArgs_DemucsInvalidSegmentRejected(t *testing.T) {
+	root := setTestRoot(t, "model-config-")
 
+	// Write a user config with an out-of-range segment directly (bypassing
+	// save-time validation) to ensure the pipeline builder reports the error
+	// instead of silently clamping it.
 	cfg := ModelConfigResponse{
 		SegmentSize: 256,
 		Overlap:     0.25,
 		BatchSize:   1,
 		Shifts:      1,
-		Segment:     0,
+		Segment:     8,
 		Jobs:        0,
 	}
-	if err := writeModelConfigToYaml("htdemucs_ft", cfg); err != nil {
-		t.Fatalf("writeModelConfigToYaml failed: %v", err)
+	mcDir := filepath.Join(root, "config", "model_configs")
+	if err := os.MkdirAll(mcDir, 0o755); err != nil {
+		t.Fatalf("failed to create model config dir: %v", err)
 	}
+	writeModelConfigYamlAt(t, mcDir, "htdemucs_ft", cfg)
 
 	req := &SeparateRequest{
-		Input:         "/app/input/song.wav",
-		Demucs:        true,
-		StemModel:     "htdemucs_ft",
-		DemucsSegment: 7.8,
+		Input:     "/app/input/song.wav",
+		Demucs:    true,
+		StemModel: "htdemucs_ft",
 	}
-	_, args, _, _, _ := buildPipelineArgs(req)
-
-	if got := argValue(args, "--demucs-segment"); got != "7" {
-		t.Errorf("expected --demucs-segment 7, got %q", got)
+	_, _, _, _, err := buildPipelineArgs(req)
+	if err == nil {
+		t.Fatal("expected error for invalid demucs segment, got nil")
+	}
+	if !strings.Contains(err.Error(), "segment") {
+		t.Errorf("error should mention segment, got %q", err.Error())
 	}
 }
 
-func TestBuildStepPipelineArgs_DemucsSegmentClamped(t *testing.T) {
+func TestBuildStepPipelineArgs_DemucsDecimalSegmentRounded(t *testing.T) {
 	setTestRoot(t, "model-config-")
 
 	cfg := ModelConfigResponse{
@@ -442,7 +506,7 @@ func TestBuildStepPipelineArgs_DemucsSegmentClamped(t *testing.T) {
 		Overlap:     0.25,
 		BatchSize:   1,
 		Shifts:      1,
-		Segment:     7.8,
+		Segment:     5.2,
 		Jobs:        0,
 	}
 	if err := writeModelConfigToYaml("htdemucs_ft", cfg); err != nil {
@@ -457,8 +521,8 @@ func TestBuildStepPipelineArgs_DemucsSegmentClamped(t *testing.T) {
 	}
 	args, _, _ := buildStepPipelineArgs(step, "/app/input/song.wav", "/app/output/song", "cuda")
 
-	if got := argValue(args, "--demucs-segment"); got != "7" {
-		t.Errorf("expected --demucs-segment 7, got %q", got)
+	if got := argValue(args, "--demucs-segment"); got != "5" {
+		t.Errorf("expected --demucs-segment 5, got %q", got)
 	}
 }
 
@@ -697,11 +761,11 @@ func TestHandleModelsConfig_ReturnsFlagMetadata(t *testing.T) {
 	if shifts.Name == "" {
 		t.Fatal("htdemucs_ft: shifts flag not found")
 	}
-	if toInt(shifts.Min) != 1 || toInt(shifts.Max) != 10 {
-		t.Errorf("htdemucs_ft shifts range = %v..%v, want 1..10", shifts.Min, shifts.Max)
+	if toInt(shifts.Min) != 1 || toInt(shifts.Max) != 20 {
+		t.Errorf("htdemucs_ft shifts range = %v..%v, want 1..20", shifts.Min, shifts.Max)
 	}
-	if shiftsDefault := toInt(shifts.Default); shiftsDefault < 1 || shiftsDefault > 10 {
-		t.Errorf("htdemucs_ft shifts default = %v, want inside 1..10", shifts.Default)
+	if shiftsDefault := toInt(shifts.Default); shiftsDefault < 1 || shiftsDefault > 20 {
+		t.Errorf("htdemucs_ft shifts default = %v, want inside 1..20", shifts.Default)
 	}
 }
 

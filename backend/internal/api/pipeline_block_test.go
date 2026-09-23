@@ -394,7 +394,7 @@ func TestRunMultiStepPipeline_LowRAMProceeds(t *testing.T) {
 	}
 	job := JobRequest{
 		Song:   "test",
-		Config: SeparateRequest{Input: "/app/input/test.wav", Device: "cpu"},
+		Config: SeparateRequest{Input: "/app/input/test.wav"},
 		Steps:  steps,
 	}
 
