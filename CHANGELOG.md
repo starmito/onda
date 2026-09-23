@@ -4,6 +4,8 @@
 
 ### Fixed
 - **Progreso global monótono**: ya no retrocede al cambiar de paso en trabajos encadenados; el tracker guarda el máximo publicado y `pipeline.sh` no marca el último paso como terminado en invocaciones intermedias del backend.
+- **Un único origen para las flags de modelo**: `shifts`, `segment`, `batch`, `jobs` y `device` se leen **solo** del modelo guardado en Ajustes → Modelos. La petición ya no puede sobreescribirlas (esos campos se han eliminado de `SeparateRequest`) y el rango de `shifts` sale del manifiesto real del modelo (htdemucs_ft: 20, antes se recortaba a 10 en silencio).
+- **Estado temporal huérfano**: `pipeline_status.json.tmp` (y el del tracker) se limpian al arrancar y al cerrar un trabajo, para que un cierre brusco no deje restos.
 - **ETA honesto**: se elimina el suelo de `1 s`; mientras no haya datos suficientes se publica `0` (la interfaz lo oculta) y un paso al `100 %` antes de cerrarse ya no muestra un segundo inventado.
 
 ## [v3.5.4] - 2026-09-23
