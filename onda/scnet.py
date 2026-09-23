@@ -403,7 +403,9 @@ def _write_progress(progress_file: Optional[str], chunk: int, total: int):
 
 def _write_pipeline_status(status_file: Optional[str], step: str,
                            step_idx: int, total_steps: int, progress: float,
-                           chunk: int, total: int, device: str):
+                           chunk: int, total: int, device: str,
+                           step_id: Optional[str] = None,
+                           step_display_name: Optional[str] = None):
     """Report progress to pipeline_status.json through the tracker.
 
     ``progress`` is a 0-1 fraction and is converted to the tracker's 0-100
@@ -429,6 +431,8 @@ def _write_pipeline_status(status_file: Optional[str], step: str,
             total_steps,
             extra=extra,
             step_name=step,
+            step_id=step_id,
+            step_display_name=step_display_name,
         )
     except Exception:
         pass
@@ -464,6 +468,8 @@ def _demix(
     pipeline_status: Optional[str] = None,
     step_idx: int = 0,
     total_steps: int = 1,
+    step_id: Optional[str] = None,
+    step_display_name: Optional[str] = None,
 ) -> Dict[str, np.ndarray]:
     """Run SCNet inference with overlap-add chunking."""
     mix_tensor = torch.tensor(mix, dtype=torch.float32)
@@ -504,8 +510,9 @@ def _demix(
 
     _write_progress(progress_file, 0, total)
     _write_pipeline_status(
-        pipeline_status, 'scnet', step_idx, total_steps, 0.0,
-        0, total, str(device)
+        pipeline_status, step_id or 'scnet', step_idx, total_steps, 0.0,
+        0, total, str(device),
+        step_id=step_id, step_display_name=step_display_name,
     )
 
     model.eval()
@@ -543,9 +550,10 @@ def _demix(
                     print(f'  {chunk_idx}/{total} chunks...')
                 _write_progress(progress_file, chunk_idx, total)
                 _write_pipeline_status(
-                    pipeline_status, 'scnet', step_idx, total_steps,
+                    pipeline_status, step_id or 'scnet', step_idx, total_steps,
                     chunk_idx / total if total > 0 else 0.0,
-                    chunk_idx, total, str(device)
+                    chunk_idx, total, str(device),
+                    step_id=step_id, step_display_name=step_display_name,
                 )
 
     estimated = result / (counter + 1e-8)
@@ -628,6 +636,8 @@ def run_scnet(args):
         pipeline_status=getattr(args, 'pipeline_status', None),
         step_idx=getattr(args, 'step_idx', 0),
         total_steps=getattr(args, 'total_steps', 1),
+        step_id=getattr(args, 'step_id', None),
+        step_display_name=getattr(args, 'step_name', None),
     )
 
     os.makedirs(args.output, exist_ok=True)
@@ -666,5 +676,13 @@ if __name__ == '__main__':
     parser.add_argument('--config', help='Explicit YAML config path')
     parser.add_argument('--progress-file', help='Per-chunk progress JSON file')
     parser.add_argument('--pipeline-status', help='pipeline_status.json file')
+    parser.add_argument('--step-idx', type=int, default=0,
+                        help='Step index for multi-step progress tracking')
+    parser.add_argument('--total-steps', type=int, default=1,
+                        help='Total number of steps for global progress')
+    parser.add_argument('--step-id', default=None,
+                        help='Stable step id for the UI steps list')
+    parser.add_argument('--step-name', default=None,
+                        help='Readable step name for the UI steps list')
     _args = parser.parse_args()
     run_scnet(_args)

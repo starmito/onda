@@ -262,6 +262,8 @@ def _write_pipeline_status(
     chunk: int,
     total: int,
     device: str,
+    step_id: Optional[str] = None,
+    step_display_name: Optional[str] = None,
 ):
     """Report progress to pipeline_status.json through the tracker.
 
@@ -288,6 +290,8 @@ def _write_pipeline_status(
             total_steps,
             extra=extra,
             step_name=step,
+            step_id=step_id,
+            step_display_name=step_display_name,
         )
     except Exception:
         pass
@@ -365,6 +369,8 @@ class OnnxMDX:
         pipeline_status: Optional[str] = None,
         step_idx: int = 0,
         total_steps: int = 1,
+        step_id: Optional[str] = None,
+        step_display_name: Optional[str] = None,
     ) -> np.ndarray:
         """Run MDXNet ONNX separation with overlap-add chunking.
 
@@ -394,8 +400,9 @@ class OnnxMDX:
 
         _write_progress(progress_file, 0, total_chunks)
         _write_pipeline_status(
-            pipeline_status, "mdxnet", step_idx, total_steps, 0.0,
-            0, total_chunks, str(self.device)
+            pipeline_status, step_id or "mdxnet", step_idx, total_steps, 0.0,
+            0, total_chunks, str(self.device),
+            step_id=step_id, step_display_name=step_display_name,
         )
 
         for chunk_idx, i in enumerate(range(0, mixture.shape[-1], step)):
@@ -425,13 +432,14 @@ class OnnxMDX:
             _write_progress(progress_file, chunk_idx + 1, total_chunks)
             _write_pipeline_status(
                 pipeline_status,
-                "mdxnet",
+                step_id or "mdxnet",
                 step_idx,
                 total_steps,
                 (chunk_idx + 1) / total_chunks if total_chunks > 0 else 0.0,
                 chunk_idx + 1,
                 total_chunks,
                 str(self.device),
+                step_id=step_id, step_display_name=step_display_name,
             )
             if (chunk_idx + 1) % 10 == 0:
                 print(f"  {chunk_idx + 1}/{total_chunks} chunks...")
@@ -571,6 +579,8 @@ def run_onnx_mdx(args):
     source = separator.demix(
         audio, progress_file=progress_file, pipeline_status=pipeline_status,
         step_idx=step_idx, total_steps=total_steps,
+        step_id=getattr(args, "step_id", None),
+        step_display_name=getattr(args, "step_name", None),
     )
 
     os.makedirs(args.output, exist_ok=True)
@@ -609,5 +619,13 @@ if __name__ == "__main__":
     parser.add_argument("--device", default="cuda", choices=["cuda", "cpu"], help="Device")
     parser.add_argument("--progress-file", help="Per-chunk progress JSON file")
     parser.add_argument("--pipeline-status", help="pipeline_status.json file")
+    parser.add_argument("--step-idx", type=int, default=0,
+                        help="Step index for multi-step progress tracking")
+    parser.add_argument("--total-steps", type=int, default=1,
+                        help="Total number of steps for global progress")
+    parser.add_argument("--step-id", default=None,
+                        help="Stable step id for the UI steps list")
+    parser.add_argument("--step-name", default=None,
+                        help="Readable step name for the UI steps list")
     _args = parser.parse_args()
     run_onnx_mdx(_args)
