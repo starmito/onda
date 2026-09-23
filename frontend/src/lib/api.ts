@@ -285,6 +285,7 @@ export interface LocalModel {
 
 export interface LocalModelsResponse {
   models: LocalModel[];
+  categories?: string[];
 }
 
 export async function getLocalModels(): Promise<LocalModelsResponse> {
