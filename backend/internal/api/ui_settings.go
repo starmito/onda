@@ -23,14 +23,14 @@ var (
 )
 
 func uiSettingsFile() string {
-	return filepath.Join(mustSub("config"), "ui_settings.json")
+	return filepath.Join(mustConfigDir(), "ui_settings.json")
 }
 
 func loadUISettings() error {
-	data, err := os.ReadFile(uiSettingsFile())
+	data, err := readConfigFile(uiSettingsFile())
 	if err != nil {
 		if os.IsNotExist(err) {
-			// File does not exist — use defaults
+			// File does not exist in primary or legacy — use defaults
 			uiSettingsMu.Lock()
 			uiSettings = UISettings{
 				Accent:   "#6c5ce7",

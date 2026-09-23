@@ -70,7 +70,7 @@ ONDA_DATA_DIR="${ONDA_DATA_DIR:-/app/data}"
 INPUT_DIR="$ONDA_DATA_DIR/input"
 OUTPUT_DIR="$ONDA_DATA_DIR/output"
 MODELS_DIR="$ONDA_DATA_DIR/models"
-CONFIG_DIR="$ONDA_DATA_DIR/config"
+CONFIG_DIR="${ONDA_CONFIG_DIR:-$ONDA_DATA_DIR/config}"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 

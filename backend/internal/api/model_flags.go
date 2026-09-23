@@ -282,7 +282,7 @@ func copyFlagDef(def modelFlagDef) modelFlagDef {
 // readUserFlagValues reads user-saved flag values from config/model_configs/<name>.yaml.
 func readUserFlagValues(name string) map[string]interface{} {
 	values := make(map[string]interface{})
-	path := modelConfigYamlPath(name)
+	path := resolveModelConfigYaml(name)
 	info, err := os.Stat(path)
 	if err != nil || info.IsDir() {
 		return values

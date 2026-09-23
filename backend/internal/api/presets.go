@@ -12,11 +12,11 @@ import (
 )
 
 func userPresetsFile() string {
-	return filepath.Join(mustSub("config"), "presets_user.json")
+	return filepath.Join(mustConfigDir(), "presets_user.json")
 }
 
 func defaultPresetFile() string {
-	return filepath.Join(mustSub("config"), "default_preset.json")
+	return filepath.Join(mustConfigDir(), "default_preset.json")
 }
 
 var (
@@ -147,7 +147,7 @@ func loadUserPresets() {
 // loadUserPresetsLocked reads user presets from disk into the already-reset
 // userPresets map. The caller must hold userPresetsMu (write lock).
 func loadUserPresetsLocked() {
-	data, err := os.ReadFile(userPresetsFile())
+	data, err := readConfigFile(userPresetsFile())
 	if err != nil {
 		return
 	}
@@ -363,7 +363,7 @@ func (s *Server) handleDeletePreset(w http.ResponseWriter, r *http.Request) {
 
 // loadDefaultPreset reads the default preset name from disk.
 func loadDefaultPreset() {
-	data, err := os.ReadFile(defaultPresetFile())
+	data, err := readConfigFile(defaultPresetFile())
 	if err != nil {
 		return
 	}

@@ -1473,6 +1473,9 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	cmd := exec.CommandContext(ctx, "bash", args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Env = append(os.Environ(), "PYTHONUNBUFFERED=1")
+	if cfgDir := configDir(); cfgDir != "" {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("ONDA_CONFIG_DIR=%s", cfgDir))
+	}
 	if len(job.Env) > 0 {
 		cmd.Env = append(cmd.Env, job.Env...)
 	}
@@ -1655,6 +1658,9 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		cmd := exec.CommandContext(ctx, "bash", pipelineArgs...)
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		cmd.Env = append(os.Environ(), "PYTHONUNBUFFERED=1")
+		if cfgDir := configDir(); cfgDir != "" {
+			cmd.Env = append(cmd.Env, fmt.Sprintf("ONDA_CONFIG_DIR=%s", cfgDir))
+		}
 		if len(stepEnv) > 0 {
 			cmd.Env = append(cmd.Env, stepEnv...)
 		}
@@ -2985,7 +2991,7 @@ func isOnnxModel(name string) bool {
 // modelConfigsDir returns the directory where per-model YAML configs are stored
 // for models that do not have an on-disk directory (e.g. built-in Demucs models).
 func modelConfigsDir() string {
-	return filepath.Join(mustSub("config"), "model_configs")
+	return filepath.Join(mustConfigDir(), "model_configs")
 }
 
 // modelConfigYamlPath returns the fallback YAML path for a model name.
@@ -2996,6 +3002,38 @@ func modelConfigYamlPath(name string) string {
 // uvrModelConfigJSONPath returns the UVR-style JSON config path for a model name.
 func uvrModelConfigJSONPath(name string) string {
 	return filepath.Join(modelConfigsDir(), name+".json")
+}
+
+// resolveModelConfigYaml returns the user-saved YAML path for a model, falling
+// back to the legacy <dataRoot>/config/model_configs directory if the primary
+// file does not exist.
+func resolveModelConfigYaml(name string) string {
+	primary := modelConfigYamlPath(name)
+	if info, err := os.Stat(primary); err == nil && !info.IsDir() {
+		return primary
+	}
+	if legacy := fallbackConfigPath(primary); legacy != "" {
+		if info, err := os.Stat(legacy); err == nil && !info.IsDir() {
+			return legacy
+		}
+	}
+	return primary
+}
+
+// resolveUVRModelConfigJSON returns the UVR-style JSON config path for a model,
+// falling back to the legacy <dataRoot>/config/model_configs directory if the
+// primary file does not exist.
+func resolveUVRModelConfigJSON(name string) string {
+	primary := uvrModelConfigJSONPath(name)
+	if info, err := os.Stat(primary); err == nil && !info.IsDir() {
+		return primary
+	}
+	if legacy := fallbackConfigPath(primary); legacy != "" {
+		if info, err := os.Stat(legacy); err == nil && !info.IsDir() {
+			return legacy
+		}
+	}
+	return primary
 }
 
 // parseModelYaml parses inference and demucs parameters from a YAML file.
@@ -3169,8 +3207,8 @@ func writeUVRModelConfigJSON(name string, cfg ModelConfigResponse) error {
 // User-saved configs under config/model_configs take precedence over any YAML
 // shipped with the model directory, so UI changes are always effective.
 func findModelYaml(modelName string) string {
-	// 1. User override (saved via UI/API).
-	cfgPath := modelConfigYamlPath(modelName)
+	// 1. User override (saved via UI/API), with legacy fallback.
+	cfgPath := resolveModelConfigYaml(modelName)
 	if info, err := os.Stat(cfgPath); err == nil && !info.IsDir() {
 		return cfgPath
 	}
@@ -3353,8 +3391,8 @@ func readModelConfigFromYaml(name string) ModelConfigResponse {
 		DimT: 512, NumOverlap: 4,
 	}
 
-	// 1. User override YAML.
-	userYaml := modelConfigYamlPath(name)
+	// 1. User override YAML (with legacy fallback).
+	userYaml := resolveModelConfigYaml(name)
 	if info, err := os.Stat(userYaml); err == nil && !info.IsDir() {
 		if cfg, ok := parseModelYaml(userYaml); ok {
 			log.Printf("INFO: model config for %s loaded from user YAML: dim_t=%d overlap=%.2f batch=%d chunk=%d shifts=%d segment=%.0f jobs=%d",
@@ -3368,8 +3406,8 @@ func readModelConfigFromYaml(name string) ModelConfigResponse {
 		return cfg
 	}
 
-	// 3. UVR JSON fallback (shipped inference defaults).
-	uvrJSON := uvrModelConfigJSONPath(name)
+	// 3. UVR JSON fallback (shipped inference defaults, with legacy fallback).
+	uvrJSON := resolveUVRModelConfigJSON(name)
 	if info, err := os.Stat(uvrJSON); err == nil && !info.IsDir() {
 		if cfg, ok := readUVRModelConfigJSON(uvrJSON); ok {
 			log.Printf("INFO: model config for %s loaded from UVR JSON: dim_t=%d overlap=%.2f batch=%d chunk=%d shifts=%d segment=%.0f jobs=%d",
@@ -3446,8 +3484,9 @@ func writeModelConfigToYaml(name string, cfg ModelConfigResponse) error {
 	}
 
 	var doc yaml.Node
-	if _, err := os.Stat(yamlPath); err == nil {
-		data, err := os.ReadFile(yamlPath)
+	sourceYaml := resolveModelConfigYaml(name)
+	if _, err := os.Stat(sourceYaml); err == nil {
+		data, err := os.ReadFile(sourceYaml)
 		if err != nil {
 			return fmt.Errorf("failed to read existing YAML: %w", err)
 		}

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { API_BASE, getStorageConfig, setStorageConfig, setExportDir, type StorageConfig } from './api';
+  import { API_BASE, getStorageConfig, setStorageConfig, setExportDir, setConfigDir, type StorageConfig } from './api';
   import { IconRefresh, IconTrash, IconFolder } from './icons';
 
   interface FolderUsage {
@@ -40,6 +40,10 @@
   let exportError = $state<string | null>(null);
   let exportSuccess = $state<string | null>(null);
   let savingExport = $state(false);
+  let configInput = $state('');
+  let configError = $state<string | null>(null);
+  let configSuccess = $state<string | null>(null);
+  let savingConfig = $state(false);
 
   const folderOrder = ['input', 'input_rubberband', 'daw-data', 'output', 'models', 'logs'];
   const folderLabels: Record<string, string> = {
@@ -86,10 +90,12 @@
     configLoading = true;
     rootError = null;
     exportError = null;
+    configError = null;
     try {
       config = await getStorageConfig();
       rootInput = config.current_root;
       exportInput = config.export_dir;
+      configInput = config.config_dir;
     } catch (e: any) {
       rootError = e.message || 'No se pudo cargar la configuración del directorio de trabajo';
     } finally {
@@ -144,6 +150,29 @@
     exportInput = path;
   }
 
+  async function saveConfig() {
+    if (!config) return;
+    savingConfig = true;
+    configError = null;
+    configSuccess = null;
+    try {
+      const updated = await setConfigDir(configInput);
+      config = updated;
+      configInput = updated.config_dir;
+      configSuccess = `Carpeta de configuración actualizada a ${updated.config_dir || 'la ubicación por defecto'}. Los ajustes, presets y perfiles se leerán y escribirán ahí.`;
+      await loadConfig();
+    } catch (e: any) {
+      configError = e.message || 'No se pudo guardar la carpeta de configuración';
+      // Do not mutate config or configInput on error so the UI stays unchanged.
+    } finally {
+      savingConfig = false;
+    }
+  }
+
+  function chooseConfigCandidate(path: string) {
+    configInput = path;
+  }
+
   function supportsNativeFolderPicker(): boolean {
     if (typeof window === 'undefined') return false;
     return !!(window as any).__TAURI__;
@@ -158,6 +187,18 @@
       if (path) exportInput = path;
     } catch (e: any) {
       exportError = e.message || 'No se pudo elegir la carpeta';
+    }
+  }
+
+  async function pickConfigFolder() {
+    const tauri = (window as any).__TAURI__;
+    if (!tauri?.core?.invoke) return;
+    configError = null;
+    try {
+      const path: string | undefined = await tauri.core.invoke('select_folder');
+      if (path) configInput = path;
+    } catch (e: any) {
+      configError = e.message || 'No se pudo elegir la carpeta';
     }
   }
 
@@ -407,6 +448,89 @@
       </div>
     {:else if configLoading}
       <p class="storage-empty">Cargando configuración de exportaciones…</p>
+    {/if}
+  </section>
+
+  <section class="storage-section">
+    <h3>Carpeta de configuración</h3>
+    <p class="storage-hint">Aquí se guardan los presets, los ajustes de la interfaz, los perfiles de exportación y las configuraciones de modelos. Debe estar dentro de la raíz de datos para que viaje con el volumen montado.</p>
+
+    {#if configError}
+      <p class="storage-error">{configError}</p>
+    {/if}
+    {#if configSuccess}
+      <p class="storage-success">{configSuccess}</p>
+    {/if}
+
+    {#if config}
+      <div class="root-summary">
+        <div class="root-row">
+          <span class="root-label">Carpeta actual</span>
+          <code class="root-path">{config.config_dir || '(ubicación por defecto)'}</code>
+        </div>
+        <div class="root-row">
+          <span class="root-label">Origen</span>
+          <span>{sourceLabels[config.config_source] ?? config.config_source}</span>
+        </div>
+        <div class="root-row">
+          <span class="root-label">Estado</span>
+          <span class="root-status">
+            {#if config.config_dir === ''}
+              <span class="status-info">ℹ️ Por defecto: se usa <code>{config.current_root}/config</code>.</span>
+            {:else if config.config_exists && config.config_writable}
+              <span class="status-ok">✅ Existe y se puede escribir</span>
+            {:else if config.config_exists}
+              <span class="status-warn">⚠️ Existe pero no se puede escribir</span>
+            {:else}
+              <span class="status-warn">⚠️ No existe o no es accesible</span>
+            {/if}
+          </span>
+        </div>
+      </div>
+
+      <div class="root-editor">
+        <label for="config-dir-path" class="root-label">Nueva carpeta de configuración</label>
+        <div class="root-input-row">
+          <input
+            id="config-dir-path"
+            type="text"
+            class="root-input"
+            bind:value={configInput}
+            disabled={savingConfig}
+            placeholder="/ruta/absoluta/dentro/de/la/raíz"
+          />
+          <button class="btn-primary" onclick={saveConfig} disabled={savingConfig || configInput === (config.config_dir || '')}>
+            Guardar
+          </button>
+        </div>
+
+        {#if supportsNativeFolderPicker()}
+          <button class="btn-secondary" onclick={pickConfigFolder} disabled={savingConfig}>
+            {@html IconFolder} Elegir carpeta…
+          </button>
+        {:else}
+          <p class="storage-hint">
+            En navegador no está disponible un explorador de carpetas del servidor.
+            Elige entre las rutas visibles o escribe la ruta a mano.
+          </p>
+        {/if}
+
+        <div class="candidate-picker">
+          <span class="root-label">Carpetas visibles</span>
+          <select onchange={(e) => chooseConfigCandidate(e.currentTarget.value)} disabled={savingConfig}>
+            <option value="">-- selecciona una carpeta visible --</option>
+            {#each config.candidates as candidate}
+              <option value={candidate}>{candidate}</option>
+            {/each}
+          </select>
+          <p class="storage-hint">
+            En la app empaquetada este selector se sustituirá por el explorador nativo.
+            Desde navegador solo están disponibles las rutas visibles para el backend.
+          </p>
+        </div>
+      </div>
+    {:else if configLoading}
+      <p class="storage-empty">Cargando configuración de la carpeta de configuración…</p>
     {/if}
   </section>
 

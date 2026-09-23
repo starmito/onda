@@ -36,12 +36,17 @@ type storageConfigResponse struct {
 	ExportSource   string                         `json:"export_source"`
 	ExportExists   bool                           `json:"export_exists"`
 	ExportWritable bool                           `json:"export_writable"`
+	ConfigDir      string                         `json:"config_dir"`
+	ConfigSource   string                         `json:"config_source"`
+	ConfigExists   bool                           `json:"config_exists"`
+	ConfigWritable bool                           `json:"config_writable"`
 }
 
 // storageSettings is the on-disk representation of .onda-settings.json.
 type storageSettings struct {
 	DataRoot  string `json:"data_root"`
 	ExportDir string `json:"export_dir"`
+	ConfigDir string `json:"config_dir"`
 }
 
 // persistedDataRoot reads the data_root value from the settings file. It is
@@ -64,6 +69,17 @@ func persistedExportDir() string {
 		return ""
 	}
 	return s.ExportDir
+}
+
+// persistedConfigDir reads the config_dir value from the settings file. It is
+// consulted by configDir() after the environment variable and before the
+// default <dataRoot>/config fallback.
+func persistedConfigDir() string {
+	s, err := loadStorageSettings()
+	if err != nil {
+		return ""
+	}
+	return s.ConfigDir
 }
 
 // dataRootWithSource returns the effective data root and where it comes from
@@ -190,6 +206,23 @@ func validateExportDir(dir string) error {
 	return validateAbsoluteWritableDir(dir, "export dir")
 }
 
+// validateConfigDir enforces that the user-chosen configuration directory is an
+// absolute, writable directory inside the current data root. Keeping config
+// under the data root guarantees it lives inside the mounted volume in
+// container deployments.
+func validateConfigDir(dir string) error {
+	if err := validateAbsoluteWritableDir(dir, "config dir"); err != nil {
+		return err
+	}
+	root := dataRoot()
+	cleanRoot := filepath.Clean(root)
+	cleanDir := filepath.Clean(dir)
+	if cleanDir != cleanRoot && !strings.HasPrefix(cleanDir, cleanRoot+string(filepath.Separator)) {
+		return fmt.Errorf("La carpeta de configuración debe estar dentro de la raíz de datos")
+	}
+	return nil
+}
+
 // isWritableDir checks write access by creating and removing a temporary file.
 func isWritableDir(path string) bool {
 	tmp := filepath.Join(path, ".onda-write-test-"+uniqueTempSuffix())
@@ -210,6 +243,7 @@ func uniqueTempSuffix() string {
 func buildStorageConfigResponse() storageConfigResponse {
 	root, source := dataRootWithSource()
 	exportDir, exportSource := exportDirWithSource()
+	configDir, configSource := configDirWithSource()
 
 	exists := false
 	writable := false
@@ -224,6 +258,15 @@ func buildStorageConfigResponse() storageConfigResponse {
 		if info, err := os.Stat(exportDir); err == nil && info.IsDir() {
 			exportExists = true
 			exportWritable = isWritableDir(exportDir)
+		}
+	}
+
+	configExists := false
+	configWritable := false
+	if configDir != "" {
+		if info, err := os.Stat(configDir); err == nil && info.IsDir() {
+			configExists = true
+			configWritable = isWritableDir(configDir)
 		}
 	}
 
@@ -255,6 +298,10 @@ func buildStorageConfigResponse() storageConfigResponse {
 		ExportSource:   exportSource,
 		ExportExists:   exportExists,
 		ExportWritable: exportWritable,
+		ConfigDir:      configDir,
+		ConfigSource:   configSource,
+		ConfigExists:   configExists,
+		ConfigWritable: configWritable,
 	}
 }
 
@@ -318,14 +365,15 @@ func (s *Server) handleStorageConfigPost(w http.ResponseWriter, r *http.Request)
 	var req struct {
 		Root      *string `json:"root,omitempty"`
 		ExportDir *string `json:"export_dir,omitempty"`
+		ConfigDir *string `json:"config_dir,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErrorJSON(w, http.StatusBadRequest, "invalid JSON")
 		return
 	}
 
-	if req.Root == nil && req.ExportDir == nil {
-		writeErrorJSON(w, http.StatusBadRequest, "root or export_dir is required")
+	if req.Root == nil && req.ExportDir == nil && req.ConfigDir == nil {
+		writeErrorJSON(w, http.StatusBadRequest, "root, export_dir or config_dir is required")
 		return
 	}
 
@@ -384,12 +432,36 @@ func (s *Server) handleStorageConfigPost(w http.ResponseWriter, r *http.Request)
 		}
 	}
 
+	if req.ConfigDir != nil {
+		dir := strings.TrimSpace(*req.ConfigDir)
+		if dir != "" {
+			if err := validateConfigDir(dir); err != nil {
+				writeErrorJSON(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			dir = filepath.Clean(dir)
+			if err := os.Setenv("ONDA_CONFIG_DIR", dir); err != nil {
+				writeErrorJSON(w, http.StatusInternalServerError, "failed to apply config dir: "+err.Error())
+				return
+			}
+			settings.ConfigDir = dir
+			updated = append(updated, "config dir")
+		} else {
+			if err := os.Unsetenv("ONDA_CONFIG_DIR"); err != nil {
+				writeErrorJSON(w, http.StatusInternalServerError, "failed to clear config dir env: "+err.Error())
+				return
+			}
+			settings.ConfigDir = ""
+			updated = append(updated, "config dir cleared")
+		}
+	}
+
 	if err := saveStorageSettings(settings); err != nil {
 		writeErrorJSON(w, http.StatusInternalServerError, "failed to persist settings: "+err.Error())
 		return
 	}
 
-	if req.Root != nil {
+	if req.Root != nil || req.ConfigDir != nil {
 		reloadDataRootConfig()
 	}
 
@@ -406,17 +478,19 @@ func (s *Server) handleStorageConfigPost(w http.ResponseWriter, r *http.Request)
 }
 
 // reloadDataRootConfig reloads all in-memory configuration that is normally
-// read once at startup from files under the current data root. It must be
-// called after the data root has been changed at runtime so the app uses the
-// new root's presets, default preset, UI settings and export profiles.
+// read once at startup from files under the current config directory. It must
+// be called after the data root or config directory has been changed at
+// runtime so the app uses the new location's presets, default preset, UI
+// settings and export profiles. Model configs are read on demand, so they pick
+// up the new config directory automatically on the next access.
 func reloadDataRootConfig() {
 	loadUserPresets()
 	loadDefaultPreset()
 	if err := loadUISettings(); err != nil {
-		Log("backend", "warn", "Failed to reload UI settings after data-root change: "+err.Error())
+		Log("backend", "warn", "Failed to reload UI settings after config change: "+err.Error())
 	}
 	if err := loadExportProfiles(); err != nil {
-		Log("backend", "warn", "Failed to reload export profiles after data-root change: "+err.Error())
+		Log("backend", "warn", "Failed to reload export profiles after config change: "+err.Error())
 	}
 }
 
