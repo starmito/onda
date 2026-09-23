@@ -550,6 +550,60 @@ type ResultsGroup struct {
 	Files []FileEntry `json:"files"`
 }
 
+// resultFilesForSong returns the audio files for a song.  When the backend has
+// recorded pipeline steps for that song, it uses the step stem configuration to
+// keep only stems explicitly saved as results; routed/discarded intermediates
+// (e.g. an instrumental sent to a Demucs step) are omitted even if they are
+// still on disk.  Otherwise it falls back to listing every audio file in the
+// output directory.
+func (s *Server) resultFilesForSong(song string) []FileEntry {
+	outputDir := mustSub("output")
+	stemDir := filepath.Join(outputDir, song)
+	stemEntries, err := os.ReadDir(stemDir)
+	if err != nil {
+		return nil
+	}
+
+	var steps []cli.PipelineStep
+	s.jobsMu.RLock()
+	if job, ok := s.jobs[song]; ok {
+		steps = job.Steps
+	}
+	s.jobsMu.RUnlock()
+
+	var files []FileEntry
+	hasFinalNames := len(steps) > 0 && hasConfiguredResultStems(steps)
+	for _, stemEntry := range stemEntries {
+		if stemEntry.IsDir() {
+			continue
+		}
+		name := stemEntry.Name()
+		ext := strings.ToLower(filepath.Ext(name))
+		if ext != ".wav" && ext != ".mp3" && ext != ".flac" && ext != ".ogg" && ext != ".m4a" {
+			continue
+		}
+		base := strings.TrimSuffix(name, filepath.Ext(name))
+		if hasFinalNames {
+			finalNames := make(map[string]struct{})
+			for _, step := range steps {
+				for stem, route := range step.Stems {
+					if route.Action == cli.StemSave && route.Target == "result" {
+						finalNames[stem] = struct{}{}
+					}
+				}
+			}
+			if _, ok := finalNames[base]; !ok {
+				continue
+			}
+		}
+		files = append(files, FileEntry{
+			Name: name,
+			Path: "/api/files/" + song + "/" + name,
+		})
+	}
+	return files
+}
+
 // handleResults lists all songs and their stems from the output directory.
 // GET /api/results
 func (s *Server) handleResults(w http.ResponseWriter, r *http.Request) {
@@ -577,26 +631,7 @@ func (s *Server) handleResults(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		song := entry.Name()
-		stemDir := filepath.Join(outputDir, song)
-		stemEntries, err := os.ReadDir(stemDir)
-		if err != nil {
-			continue
-		}
-		var files []FileEntry
-		for _, stemEntry := range stemEntries {
-			if stemEntry.IsDir() {
-				continue
-			}
-			name := stemEntry.Name()
-			ext := strings.ToLower(filepath.Ext(name))
-			if ext != ".wav" && ext != ".mp3" && ext != ".flac" && ext != ".ogg" && ext != ".m4a" {
-				continue
-			}
-			files = append(files, FileEntry{
-				Name: name,
-				Path: "/api/files/" + song + "/" + name,
-			})
-		}
+		files := s.resultFilesForSong(song)
 		if len(files) > 0 {
 			results = append(results, ResultsGroup{Song: song, Files: files})
 		}
@@ -856,6 +891,37 @@ func normalizeSteps(steps []Step, jobStatus string) []Step {
 	return out
 }
 
+// computeJobProgress returns the global progress percentage for a job.
+//
+// When the pipeline exposes a per-step list, the global progress is the simple
+// arithmetic mean of the normalized step progresses. Each step weighs the same,
+// so the global bar moves honestly as steps advance and cannot get stuck at 99
+// just because the active step has not finished yet.
+//
+// Without step data we fall back to the live single-step progress reported by
+// the pipeline (st.Progress / st.OverallProgress). While the job is not done,
+// the result is clamped below 100 so the UI never shows "100%" before the job
+// is actually complete.
+func computeJobProgress(steps []Step, liveProgress float64, jobStatus string) int {
+	var progress int
+	if len(steps) > 0 {
+		var sum float64
+		for _, s := range steps {
+			sum += s.Progress
+		}
+		progress = int(math.Round(sum / float64(len(steps))))
+	} else {
+		progress = int(math.Round(liveProgress * 100))
+	}
+	if progress < 0 {
+		progress = 0
+	}
+	if jobStatus != "done" && progress >= 100 {
+		progress = 99
+	}
+	return progress
+}
+
 // collectQueueJobs returns the current list of jobs ordered by status priority.
 // It mirrors the internal logic of handleQueueStatus so it can be reused by
 // the real-time process status endpoint.
@@ -956,10 +1022,7 @@ func (s *Server) collectQueueJobs() []*JobState {
 			if liveProgress > 1 {
 				liveProgress = 1
 			}
-			j.Progress = int(math.Round(liveProgress * 100))
-			if j.Progress >= 100 {
-				j.Progress = 99
-			}
+			j.Progress = computeJobProgress(j.StepList, liveProgress, j.Status)
 			j.ETA = int(st.ETA)
 			j.Elapsed = int(st.Elapsed)
 			// Ensure total_steps is at least current_step
@@ -1316,6 +1379,27 @@ func resolvePipelineScript() string {
 	return "/app/pipeline.sh"
 }
 
+// buildPipelineEnv returns the environment slice for a pipeline subprocess.
+// It starts with the current process environment, forces PYTHONUNBUFFERED, and
+// forwards the cache/config variables that the pipeline needs. The extra slice
+// is appended last so callers can override or add step-specific variables.
+func buildPipelineEnv(extra []string) []string {
+	env := append([]string(nil), os.Environ()...)
+	env = append(env, "PYTHONUNBUFFERED=1")
+	if cfgDir := configDir(); cfgDir != "" {
+		env = append(env, fmt.Sprintf("ONDA_CONFIG_DIR=%s", cfgDir))
+	}
+	for _, key := range []string{"HF_HOME", "TORCH_HOME", "NUMBA_CACHE_DIR", "XDG_CACHE_HOME"} {
+		if v := os.Getenv(key); v != "" {
+			env = append(env, fmt.Sprintf("%s=%s", key, v))
+		}
+	}
+	if len(extra) > 0 {
+		env = append(env, extra...)
+	}
+	return env
+}
+
 // runSinglePipeline executes a single pipeline.sh invocation.
 func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	// VRAM headroom check before launching.
@@ -1409,10 +1493,7 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 
 	cmd := exec.CommandContext(ctx, "bash", args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Env = append(os.Environ(), "PYTHONUNBUFFERED=1")
-	if len(job.Env) > 0 {
-		cmd.Env = append(cmd.Env, job.Env...)
-	}
+	cmd.Env = buildPipelineEnv(job.Env)
 
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -1591,16 +1672,12 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		pipelineArgs := append([]string{script}, stepArgs...)
 		cmd := exec.CommandContext(ctx, "bash", pipelineArgs...)
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		cmd.Env = append(os.Environ(), "PYTHONUNBUFFERED=1")
-		if len(stepEnv) > 0 {
-			cmd.Env = append(cmd.Env, stepEnv...)
-		}
-		cmd.Env = append(cmd.Env,
+		cmd.Env = buildPipelineEnv(append(stepEnv,
 			fmt.Sprintf("ONDA_STEP_IDS=%s", strings.Join(stepIDs, ",")),
 			fmt.Sprintf("ONDA_STEP_NAMES=%s", strings.Join(stepNames, ",")),
 			fmt.Sprintf("ONDA_CURRENT_STEP_INDEX=%d", i),
 			fmt.Sprintf("ONDA_TOTAL_STEPS=%d", len(steps)),
-		)
+		))
 
 		var out bytes.Buffer
 		cmd.Stdout = &out
@@ -2922,7 +2999,7 @@ func isOnnxModel(name string) bool {
 // modelConfigsDir returns the directory where per-model YAML configs are stored
 // for models that do not have an on-disk directory (e.g. built-in Demucs models).
 func modelConfigsDir() string {
-	return filepath.Join(mustSub("config"), "model_configs")
+	return filepath.Join(mustConfigDir(), "model_configs")
 }
 
 // modelConfigYamlPath returns the fallback YAML path for a model name.
@@ -2933,6 +3010,38 @@ func modelConfigYamlPath(name string) string {
 // uvrModelConfigJSONPath returns the UVR-style JSON config path for a model name.
 func uvrModelConfigJSONPath(name string) string {
 	return filepath.Join(modelConfigsDir(), name+".json")
+}
+
+// resolveModelConfigYaml returns the user-saved YAML path for a model, falling
+// back to the legacy <dataRoot>/config/model_configs directory if the primary
+// file does not exist.
+func resolveModelConfigYaml(name string) string {
+	primary := modelConfigYamlPath(name)
+	if info, err := os.Stat(primary); err == nil && !info.IsDir() {
+		return primary
+	}
+	if legacy := fallbackConfigPath(primary); legacy != "" {
+		if info, err := os.Stat(legacy); err == nil && !info.IsDir() {
+			return legacy
+		}
+	}
+	return primary
+}
+
+// resolveUVRModelConfigJSON returns the UVR-style JSON config path for a model,
+// falling back to the legacy <dataRoot>/config/model_configs directory if the
+// primary file does not exist.
+func resolveUVRModelConfigJSON(name string) string {
+	primary := uvrModelConfigJSONPath(name)
+	if info, err := os.Stat(primary); err == nil && !info.IsDir() {
+		return primary
+	}
+	if legacy := fallbackConfigPath(primary); legacy != "" {
+		if info, err := os.Stat(legacy); err == nil && !info.IsDir() {
+			return legacy
+		}
+	}
+	return primary
 }
 
 // parseModelYaml parses inference and demucs parameters from a YAML file.
@@ -3106,8 +3215,8 @@ func writeUVRModelConfigJSON(name string, cfg ModelConfigResponse) error {
 // User-saved configs under config/model_configs take precedence over any YAML
 // shipped with the model directory, so UI changes are always effective.
 func findModelYaml(modelName string) string {
-	// 1. User override (saved via UI/API).
-	cfgPath := modelConfigYamlPath(modelName)
+	// 1. User override (saved via UI/API), with legacy fallback.
+	cfgPath := resolveModelConfigYaml(modelName)
 	if info, err := os.Stat(cfgPath); err == nil && !info.IsDir() {
 		return cfgPath
 	}
@@ -3290,8 +3399,8 @@ func readModelConfigFromYaml(name string) ModelConfigResponse {
 		DimT: 512, NumOverlap: 4,
 	}
 
-	// 1. User override YAML.
-	userYaml := modelConfigYamlPath(name)
+	// 1. User override YAML (with legacy fallback).
+	userYaml := resolveModelConfigYaml(name)
 	if info, err := os.Stat(userYaml); err == nil && !info.IsDir() {
 		if cfg, ok := parseModelYaml(userYaml); ok {
 			log.Printf("INFO: model config for %s loaded from user YAML: dim_t=%d overlap=%.2f batch=%d chunk=%d shifts=%d segment=%.0f jobs=%d",
@@ -3305,8 +3414,8 @@ func readModelConfigFromYaml(name string) ModelConfigResponse {
 		return cfg
 	}
 
-	// 3. UVR JSON fallback (shipped inference defaults).
-	uvrJSON := uvrModelConfigJSONPath(name)
+	// 3. UVR JSON fallback (shipped inference defaults, with legacy fallback).
+	uvrJSON := resolveUVRModelConfigJSON(name)
 	if info, err := os.Stat(uvrJSON); err == nil && !info.IsDir() {
 		if cfg, ok := readUVRModelConfigJSON(uvrJSON); ok {
 			log.Printf("INFO: model config for %s loaded from UVR JSON: dim_t=%d overlap=%.2f batch=%d chunk=%d shifts=%d segment=%.0f jobs=%d",
@@ -3383,8 +3492,9 @@ func writeModelConfigToYaml(name string, cfg ModelConfigResponse) error {
 	}
 
 	var doc yaml.Node
-	if _, err := os.Stat(yamlPath); err == nil {
-		data, err := os.ReadFile(yamlPath)
+	sourceYaml := resolveModelConfigYaml(name)
+	if _, err := os.Stat(sourceYaml); err == nil {
+		data, err := os.ReadFile(sourceYaml)
 		if err != nil {
 			return fmt.Errorf("failed to read existing YAML: %w", err)
 		}

@@ -691,7 +691,7 @@
             name: f.name,
             path: f.path,
             song: group.song,
-            stemType: detectStemType(f.name),
+            stemType: detectStemType(f.name, group.song),
           });
         }
       }
@@ -770,23 +770,20 @@
         pipelineEta = '';
       }
 
-      // Calculate total progress across the active batch (or all jobs if no batch is tracked)
+      // Calculate total progress across the active batch using the backend's
+      // per-job progress. The backend already aggregates step progress honestly,
+      // so the frontend must not recalculate it from current_step/total_steps.
       const songsToCount = activeSongNames.size > 0 ? activeSongNames : new Set(jobs.map(j => j.song));
       if (jobs.length > 0 && songsToCount.size > 0) {
-        let totalSteps = 0;
-        let completedSteps = 0;
+        let totalProgress = 0;
+        let count = 0;
         for (const job of jobs) {
           if (!songsToCount.has(job.song)) continue;
-          const steps = job.total_steps || 1;
-          totalSteps += steps;
-          if (job.status === 'done') {
-            completedSteps += steps;
-          } else if (job.status === 'processing') {
-            completedSteps += (job.current_step || 1) - 1 + (job.progress || 0) / 100;
-          }
+          totalProgress += job.progress ?? 0;
+          count++;
         }
-        if (totalSteps > 0) {
-          currentProgress = completedSteps / totalSteps;
+        if (count > 0) {
+          currentProgress = totalProgress / (count * 100);
         }
       }
 
@@ -912,7 +909,7 @@
             name: f.name,
             path: f.path,
             song: g.song,
-            stemType: detectStemType(f.name),
+            stemType: detectStemType(f.name, g.song),
           });
         }
       }
@@ -943,7 +940,7 @@
           name: f.name,
           path: f.path,
           song: job.song,
-          stemType: detectStemType(f.name),
+          stemType: detectStemType(f.name, job.song),
         });
       }
     }

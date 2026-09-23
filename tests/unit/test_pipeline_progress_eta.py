@@ -38,40 +38,93 @@ def _import_tracker():
 class TestProgressTracker:
     """Unit tests for the honest ETA / progress calculations."""
 
+    def _tracker(self, **kwargs):
+        """Build a tracker with relaxed ETA guardrails for fast unit tests."""
+        defaults = {
+            "min_samples_for_eta": 2,
+            "min_seconds_for_eta": 1.0,
+            "min_progress_for_eta": 1.0,
+        }
+        defaults.update(kwargs)
+        return _import_tracker().ProgressTracker(**defaults)
+
+    def test_eta_starts_empty_until_enough_data(self):
+        """With default guardrails the ETA is 0 (calculating...) at the start."""
+        tracker = _import_tracker().ProgressTracker()
+        # First samples are too sparse: no ETA.
+        assert tracker.update(1, 1)["eta"] == 0
+        assert tracker.update(2, 2)["eta"] == 0
+        # Once the minimum thresholds are crossed an estimate appears, but it is
+        # sanity-capped so it never explodes.
+        result = tracker.update(5, 3)
+        assert result["eta"] > 0
+        assert result["eta"] <= 50  # elapsed*max_total_multiplier
+
     def test_eta_drops_when_rate_increases(self):
         """Faster recent progress lowers the ETA."""
-        tracker = _import_tracker().ProgressTracker()
+        tracker = self._tracker()
         # Slow start: 10% in 10s -> 90s left at current rate.
+        tracker.update(5, 5)
         r1 = tracker.update(10, 10)
+        assert r1["eta"] > 0
         # Then fast: another 40% in 5s -> recent window dominates.
         r2 = tracker.update(15, 50)
         assert r2["eta"] < r1["eta"], f"ETA should drop: {r1['eta']} -> {r2['eta']}"
 
     def test_eta_rises_when_rate_drops(self):
         """Slower recent progress raises the ETA."""
-        tracker = _import_tracker().ProgressTracker()
+        tracker = self._tracker()
         # Fast start: 50% in 5s -> rate 10%/s -> ETA ~5s.
+        tracker.update(1, 10)
         r1 = tracker.update(5, 50)
+        assert r1["eta"] > 0
         # Then slow: only 10% more in the next 10s -> rate ~1%/s -> ETA rises.
         r2 = tracker.update(15, 60)
         assert r2["eta"] > r1["eta"], f"ETA should rise: {r1['eta']} -> {r2['eta']}"
 
-    def test_eta_never_zero_before_finish(self):
-        """Until finished=True the tracker never publishes eta: 0."""
-        tracker = _import_tracker().ProgressTracker()
-        for elapsed, progress in [(0, 0), (1, 0), (5, 99.9)]:
-            result = tracker.update(elapsed, progress)
-            assert result["eta"] > 0, f"eta={result['eta']} at elapsed={elapsed}, progress={progress}"
+    def test_eta_zero_only_when_finished_or_insufficient_data(self):
+        """ETA is 0 only when finished or when we cannot estimate yet."""
+        tracker = self._tracker()
+        # Insufficient data.
+        assert tracker.update(1, 1)["eta"] == 0
+        # Enough data -> positive ETA.
+        r1 = tracker.update(5, 20)
+        assert r1["eta"] > 0
+        # Finished -> 0.
         result = tracker.update(10, 100, finished=True)
         assert result["eta"] == 0
 
     def test_eta_holds_on_stall(self):
         """A stalled phase keeps the last ETA instead of dropping to 0."""
-        tracker = _import_tracker().ProgressTracker()
-        r1 = tracker.update(10, 50)  # some ETA
+        tracker = self._tracker()
+        tracker.update(1, 10)
+        r1 = tracker.update(5, 50)  # some ETA
         r2 = tracker.update(60, 50)  # no progress for 50s
         assert r2["eta"] > 0
         assert r2["eta"] >= r1["eta"]
+
+    def test_eta_capped_by_elapsed_multiplier(self):
+        """The ETA never implies a total duration wildly larger than elapsed."""
+        tracker = self._tracker(max_total_multiplier=5.0, min_samples_for_eta=2)
+        tracker.update(1, 1)
+        result = tracker.update(2, 2)
+        # Without the cap the rate would be 1%/s -> 98s left, but elapsed=2 so
+        # the cap limits the ETA to 2*5 = 10s.
+        assert result["eta"] <= 10
+
+    def test_eta_spike_is_rejected(self):
+        """A sudden ETA jump is held back until it stabilises."""
+        tracker = self._tracker(
+            smooth_alpha=1.0, min_samples_for_eta=2, eta_spike_ratio=2.0
+        )
+        tracker.update(1, 10)
+        r1 = tracker.update(5, 50)  # ~5s left at 10%/s
+        assert r1["eta"] > 0
+        # Next sample implies a much larger ETA (progress stalled).
+        r2 = tracker.update(6, 51)  # 1% in 1s -> 49s left, > 2x previous
+        assert r2["eta"] <= r1["eta"] * 2.5, (
+            f"ETA spiked unexpectedly: {r1['eta']} -> {r2['eta']}"
+        )
 
     def test_step_progress_resets_for_new_step(self):
         """A new step index starts its progress from 0."""
@@ -232,7 +285,7 @@ print(json.dumps({"event": "done", "seconds": 1.0}), flush=True)
 
         step_progress_by_step: dict[int, list[float]] = {0: [], 1: []}
         overall_values: list[float] = []
-        eta_while_running: list[int] = []
+        eta_while_running: list[dict] = []
         elapsed_values: list[float] = []
         with subprocess.Popen(
             cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True
@@ -248,7 +301,13 @@ print(json.dumps({"event": "done", "seconds": 1.0}), flush=True)
                         step_progress_by_step[step].append(data.get("step_progress", 0))
                     overall_values.append(data.get("overall_progress", 0))
                     if data.get("status") == "running":
-                        eta_while_running.append(data.get("eta", 0))
+                        eta_while_running.append(
+                            {
+                                "eta": data.get("eta", 0),
+                                "step_progress": data.get("step_progress", 0),
+                                "elapsed": data.get("elapsed", 0),
+                            }
+                        )
                     elapsed_values.append(data.get("elapsed", 0))
                 time.sleep(0.03)
 
@@ -279,9 +338,16 @@ print(json.dumps({"event": "done", "seconds": 1.0}), flush=True)
                     f"step {step_idx} progress went backwards: {prev} -> {curr}"
                 )
 
-        # ETA must never be 0 while the pipeline is still running.
-        assert all(eta > 0 for eta in eta_while_running), (
-            f"eta dropped to 0 while running: {eta_while_running}"
+        # ETA is 0 only while a step is still too young to estimate; once the
+        # step has produced enough samples the UI shows a real value.
+        for sample in eta_while_running:
+            if sample["step_progress"] >= 5 and sample["elapsed"] >= 3:
+                assert sample["eta"] > 0, (
+                    f"eta stayed 0 after step had enough data: {sample}"
+                )
+        # No published ETA is absurdly large.
+        assert all(sample["eta"] <= 3600 for sample in eta_while_running), (
+            f"eta spiked above an hour while running: {eta_while_running}"
         )
 
         # Elapsed must advance during the run.
@@ -410,10 +476,14 @@ print(json.dumps({"event": "done", "seconds": 1.0}), flush=True)
             "global progress never crossed 50 % after step 0 finished"
         )
 
-        # ETA is never 0 while running and progress never claims 100 early.
+        # ETA is 0 only while a step is still too young to estimate; once the
+        # step has produced enough samples the UI shows a real value.  Progress
+        # never claims 100 % while work is still pending.
         for s in samples:
             if s["status"] == "running":
-                assert s["eta"] > 0, f"eta={s['eta']} while status=running"
+                if s["step_progress"] >= 5 and s["elapsed"] >= 3:
+                    assert s["eta"] > 0, f"eta={s['eta']} while status=running after enough data: {s}"
+                assert s["eta"] <= 3600, f"eta spiked above an hour: {s}"
                 assert s["progress"] < 100, (
                     f"progress={s['progress']} with work pending (status=running)"
                 )

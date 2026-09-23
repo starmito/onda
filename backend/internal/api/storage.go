@@ -64,6 +64,15 @@ func freeDiskSpace(root string) int64 {
 	return int64(stat.Bavail * uint64(stat.Bsize))
 }
 
+// cacheUsage counts regular files and bytes under the data-root cache directory
+// (<dataRoot>/.cache). This is separate from the models directory so the
+// HuggingFace Hub cache (where Demucs keeps its downloaded weights) is reported
+// without double-counting anything already covered by modelUsage().
+func cacheUsage() (files int64, bytes int64) {
+	cacheDir := filepath.Join(dataRoot(), ".cache")
+	return dirUsage(cacheDir)
+}
+
 // handleStorageUsage reports per-folder file count/bytes and free disk space.
 // GET /api/storage/usage
 func (s *Server) handleStorageUsage(w http.ResponseWriter, r *http.Request) {
@@ -85,6 +94,7 @@ func (s *Server) handleStorageUsage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	modelEntries, modelBytes := modelUsage()
+	cacheFiles, cacheBytes := cacheUsage()
 
 	resp := map[string]interface{}{
 		"folders":    folders,
@@ -92,6 +102,10 @@ func (s *Server) handleStorageUsage(w http.ResponseWriter, r *http.Request) {
 		"models": map[string]int64{
 			"entries": modelEntries,
 			"bytes":   modelBytes,
+		},
+		"cache": map[string]int64{
+			"files": cacheFiles,
+			"bytes": cacheBytes,
 		},
 	}
 

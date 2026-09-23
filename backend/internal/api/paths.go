@@ -43,6 +43,89 @@ func mustSub(name string) string {
 	return p
 }
 
+// configDir returns the directory where user configuration files are stored.
+// Precedence:
+//   1. ONDA_CONFIG_DIR environment variable.
+//   2. config_dir value persisted in the settings file.
+//   3. <dataRoot>/config as the default.
+func configDir() string {
+	if dir := os.Getenv("ONDA_CONFIG_DIR"); dir != "" {
+		return dir
+	}
+	if dir := persistedConfigDir(); dir != "" {
+		return dir
+	}
+	return mustSub("config")
+}
+
+// configDirWithSource returns the effective config directory and where it comes
+// from according to the precedence rules.
+func configDirWithSource() (string, string) {
+	if dir := os.Getenv("ONDA_CONFIG_DIR"); dir != "" {
+		return dir, "env"
+	}
+	if dir := persistedConfigDir(); dir != "" {
+		return dir, "settings"
+	}
+	return mustSub("config"), "default"
+}
+
+// mustConfigDir is like configDir but panics if the directory cannot be
+// resolved. It is intended for callers that already know the data root is set.
+func mustConfigDir() string {
+	dir := configDir()
+	if dir == "" {
+		panic("configDir resolved to empty path")
+	}
+	return dir
+}
+
+// legacyConfigDir returns the historical configuration directory under the
+// current data root. It is used as a read-only fallback when the user has
+// chosen a different config dir so no existing configuration is lost.
+func legacyConfigDir() string {
+	return mustSub("config")
+}
+
+// fallbackConfigPath maps a primary config file path to its legacy counterpart
+// under <dataRoot>/config. If the primary path is not inside the current
+// config directory, or if the legacy directory is the same as the current one,
+// it returns an empty string.
+func fallbackConfigPath(primary string) string {
+	cfg := configDir()
+	leg := legacyConfigDir()
+	if cfg == leg {
+		return ""
+	}
+	rel, err := filepath.Rel(cfg, primary)
+	if err != nil || strings.HasPrefix(rel, "..") {
+		return ""
+	}
+	return filepath.Join(leg, rel)
+}
+
+// readConfigFile reads a configuration file from the primary config directory,
+// falling back to the legacy <dataRoot>/config directory when the file does not
+// exist there. Other errors from the primary path are returned as-is.
+func readConfigFile(primary string) ([]byte, error) {
+	data, err := os.ReadFile(primary)
+	if err == nil {
+		return data, nil
+	}
+	if !os.IsNotExist(err) {
+		return nil, err
+	}
+	legacy := fallbackConfigPath(primary)
+	if legacy == "" {
+		return nil, err
+	}
+	data, lerr := os.ReadFile(legacy)
+	if lerr != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
 // isContainerMode reports whether the process is running inside a Docker
 // container by checking for the /.dockerenv marker file.
 func isContainerMode() bool {

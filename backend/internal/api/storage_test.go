@@ -276,6 +276,92 @@ func TestStorageClean_OrphanEdits_OnlySongsWithoutOriginal(t *testing.T) {
 	}
 }
 
+func TestStorageClean_Tmp_DoesNotTouchModelsOrCache(t *testing.T) {
+	root := setupStorageTestRoot(t)
+	writeTestFile(t, filepath.Join(root, "daw-data", "song1", "original", "original.wav"), []byte("orig"))
+	writeTestFile(t, filepath.Join(root, "daw-data", "song1", "tmp", "tmp.txt"), []byte("temp"))
+	writeTestFile(t, filepath.Join(root, "models", "Demucs_Models", "htdemucs_ft.pth"), []byte("model"))
+	writeTestFile(t, filepath.Join(root, ".cache", "huggingface", "hub", "x", "w.safetensors"), []byte("weights"))
+
+	srv := newStorageTestServer(t)
+	body := `{"action":"tmp"}`
+	resp, err := srv.Client().Post(srv.URL+"/api/storage/clean", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(b))
+	}
+
+	for _, p := range []string{
+		filepath.Join(root, "models", "Demucs_Models", "htdemucs_ft.pth"),
+		filepath.Join(root, ".cache", "huggingface", "hub", "x", "w.safetensors"),
+	} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("clean tmp should not delete: %s (%v)", p, err)
+		}
+	}
+}
+
+func TestStorageClean_AllEdits_DoesNotTouchModelsOrCache(t *testing.T) {
+	root := setupStorageTestRoot(t)
+	writeTestFile(t, filepath.Join(root, "daw-data", "song1", "original", "original.wav"), []byte("orig"))
+	writeTestFile(t, filepath.Join(root, "daw-data", "song1", "edits", "eq.wav"), []byte("edit"))
+	writeTestFile(t, filepath.Join(root, "models", "Demucs_Models", "htdemucs_ft.pth"), []byte("model"))
+	writeTestFile(t, filepath.Join(root, ".cache", "huggingface", "hub", "x", "w.safetensors"), []byte("weights"))
+
+	srv := newStorageTestServer(t)
+	body := `{"action":"all-edits"}`
+	resp, err := srv.Client().Post(srv.URL+"/api/storage/clean", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(b))
+	}
+
+	for _, p := range []string{
+		filepath.Join(root, "models", "Demucs_Models", "htdemucs_ft.pth"),
+		filepath.Join(root, ".cache", "huggingface", "hub", "x", "w.safetensors"),
+	} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("clean all-edits should not delete: %s (%v)", p, err)
+		}
+	}
+}
+
+func TestStorageClean_OrphanEdits_DoesNotTouchModelsOrCache(t *testing.T) {
+	root := setupStorageTestRoot(t)
+	writeTestFile(t, filepath.Join(root, "daw-data", "orphan", "edits", "reverb.wav"), []byte("reverb"))
+	writeTestFile(t, filepath.Join(root, "models", "Demucs_Models", "htdemucs_ft.pth"), []byte("model"))
+	writeTestFile(t, filepath.Join(root, ".cache", "huggingface", "hub", "x", "w.safetensors"), []byte("weights"))
+
+	srv := newStorageTestServer(t)
+	body := `{"action":"orphan-edits"}`
+	resp, err := srv.Client().Post(srv.URL+"/api/storage/clean", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(b))
+	}
+
+	for _, p := range []string{
+		filepath.Join(root, "models", "Demucs_Models", "htdemucs_ft.pth"),
+		filepath.Join(root, ".cache", "huggingface", "hub", "x", "w.safetensors"),
+	} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("clean orphan-edits should not delete: %s (%v)", p, err)
+		}
+	}
+}
+
 func TestStorageClean_UnknownAction(t *testing.T) {
 	setupStorageTestRoot(t)
 	srv := newStorageTestServer(t)
@@ -299,6 +385,122 @@ func TestStorageClean_UnknownAction(t *testing.T) {
 // configured ONDA_DATA_DIR instead of falling back to the project root. With the
 // old code models/ and logs/ under the configured data root would be reported as
 // 0 because the handler ignored ONDA_DATA_DIR.
+func TestStorageUsage_CachePresent(t *testing.T) {
+	root := setupStorageTestRoot(t)
+
+	writeTestFile(t, filepath.Join(root, ".cache", "huggingface", "hub", "models--foo", "bar.safetensors"), []byte("weights"))
+	writeTestFile(t, filepath.Join(root, ".cache", "huggingface", "hub", "models--foo", "baz.json"), []byte("meta"))
+	writeTestFile(t, filepath.Join(root, ".cache", "torch", "x.pt"), []byte("torch"))
+
+	srv := newStorageTestServer(t)
+	resp, err := srv.Client().Get(srv.URL + "/api/storage/usage")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(b))
+	}
+
+	var body struct {
+		Folders   map[string]folderUsage `json:"folders"`
+		FreeBytes int64                  `json:"free_bytes"`
+		Cache     struct {
+			Files int64 `json:"files"`
+			Bytes int64 `json:"bytes"`
+		} `json:"cache"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if body.Cache.Files != 3 {
+		t.Errorf("cache files: expected 3, got %d", body.Cache.Files)
+	}
+	wantBytes := int64(len("weights") + len("meta") + len("torch"))
+	if body.Cache.Bytes != wantBytes {
+		t.Errorf("cache bytes: expected %d, got %d", wantBytes, body.Cache.Bytes)
+	}
+}
+
+func TestStorageUsage_CacheMissing(t *testing.T) {
+	root := setupStorageTestRoot(t)
+	if err := os.RemoveAll(filepath.Join(root, ".cache")); err != nil {
+		t.Fatalf("failed to remove cache dir: %v", err)
+	}
+
+	srv := newStorageTestServer(t)
+	resp, err := srv.Client().Get(srv.URL + "/api/storage/usage")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var body struct {
+		Folders map[string]folderUsage `json:"folders"`
+		Cache   struct {
+			Files int64 `json:"files"`
+			Bytes int64 `json:"bytes"`
+		} `json:"cache"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if body.Cache.Files != 0 {
+		t.Errorf("cache files: expected 0, got %d", body.Cache.Files)
+	}
+	if body.Cache.Bytes != 0 {
+		t.Errorf("cache bytes: expected 0, got %d", body.Cache.Bytes)
+	}
+}
+
+func TestStorageUsage_CacheDoesNotDuplicateModels(t *testing.T) {
+	root := setupStorageTestRoot(t)
+
+	// A model marker/placeholder under data/models (counted by modelUsage).
+	writeTestFile(t, filepath.Join(root, "models", "Demucs_Models", "htdemucs_ft.pth"), []byte("modelplaceholder"))
+	// Real HuggingFace Hub weights under data/.cache (counted by cacheUsage).
+	writeTestFile(t, filepath.Join(root, ".cache", "huggingface", "hub", "models--adefossez--Demucs", "snapshots", "abc", "model.safetensors"), []byte("realweights"))
+
+	srv := newStorageTestServer(t)
+	resp, err := srv.Client().Get(srv.URL + "/api/storage/usage")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var body struct {
+		Folders map[string]folderUsage `json:"folders"`
+		Models  struct {
+			Entries int64 `json:"entries"`
+			Bytes   int64 `json:"bytes"`
+		} `json:"models"`
+		Cache struct {
+			Files int64 `json:"files"`
+			Bytes int64 `json:"bytes"`
+		} `json:"cache"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if body.Models.Entries != 1 {
+		t.Errorf("models entries: expected 1, got %d", body.Models.Entries)
+	}
+	if body.Models.Bytes != int64(len("modelplaceholder")) {
+		t.Errorf("models bytes: expected %d, got %d", len("modelplaceholder"), body.Models.Bytes)
+	}
+	if body.Cache.Files != 1 {
+		t.Errorf("cache files: expected 1, got %d", body.Cache.Files)
+	}
+	if body.Cache.Bytes != int64(len("realweights")) {
+		t.Errorf("cache bytes: expected %d, got %d", len("realweights"), body.Cache.Bytes)
+	}
+}
+
 func TestStorageUsage_DataRootFromEnv(t *testing.T) {
 	assertTestRoot(t)
 

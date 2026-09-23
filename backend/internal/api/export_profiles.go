@@ -10,10 +10,10 @@ import (
 )
 
 // exportProfilesFile returns the runtime path for the persisted audio export
-// profiles file. It is resolved under the configured data root so the file is
-// stored in [RAIZ]/config/ rather than being hardcoded to /config/.
+// profiles file. It is resolved under the configured config directory so the
+// file travels with the rest of the user configuration.
 func exportProfilesFile() string {
-	return filepath.Join(mustSub("config"), "audio_export_profiles.json")
+	return filepath.Join(mustConfigDir(), "audio_export_profiles.json")
 }
 
 // AudioExportProfiles holds persisted audio export configuration.
@@ -56,7 +56,7 @@ func loadExportProfiles() error {
 }
 
 func loadExportProfilesAt(path string, dest *AudioExportProfiles) error {
-	data, err := os.ReadFile(path)
+	data, err := readConfigFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			*dest = defaultExportProfiles()

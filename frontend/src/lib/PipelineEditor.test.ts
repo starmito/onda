@@ -175,7 +175,7 @@ describe('PipelineEditor stems from model manifest', () => {
     await tick();
   }
 
-  async function setStepType(value: 'vocal' | 'demucs') {
+  async function setStepCategory(value: string) {
     const typeSelect = target.querySelector('.config-group:nth-child(1) select') as HTMLSelectElement;
     typeSelect.value = value;
     typeSelect.dispatchEvent(new Event('change', { bubbles: true }));
@@ -250,19 +250,29 @@ describe('PipelineEditor stems from model manifest', () => {
     await addStep();
     await waitForModels();
 
-    await setStepType('demucs');
+    await setStepCategory('Roformer');
     await selectModel('BS_Roformer_SW_6stem');
 
     await vi.waitFor(() => expect(getStemRows().length).toBe(6), { timeout: 2000 });
 
     expect(getStemNames()).toEqual([
-      '🎸 Bass',
+      '🎻 Bass',
       '🥁 Drums',
-      '🎹 Other',
+      '🎛️ Other',
       '🎤 Vocals',
       '🎸 Guitar',
       '🎹 Piano',
     ]);
+  });
+
+  it('populates the TIPO dropdown from backend categories', async () => {
+    render();
+    await addStep();
+    await waitForModels();
+
+    const typeSelect = target.querySelector('.config-group:nth-child(1) select') as HTMLSelectElement;
+    const optionValues = Array.from(typeSelect.options).map((o) => o.value);
+    expect(optionValues).toEqual(['Roformer', 'MDX', 'Demucs', 'VR_Arch']);
   });
 
   it('renders 2 stems for a vocal model and 4 for htdemucs_ft', async () => {
@@ -271,15 +281,16 @@ describe('PipelineEditor stems from model manifest', () => {
     await waitForModels();
 
     // Vocal model
+    await setStepCategory('Roformer');
     await selectModel('BS_Roformer_Viperx');
     await vi.waitFor(() => expect(getStemRows().length).toBe(2), { timeout: 2000 });
     expect(getStemNames()).toEqual(['🎤 Vocals', '🎵 Instrumental']);
 
     // Demucs model
-    await setStepType('demucs');
+    await setStepCategory('Demucs');
     await selectModel('htdemucs_ft');
     await vi.waitFor(() => expect(getStemRows().length).toBe(4), { timeout: 2000 });
-    expect(getStemNames()).toEqual(['🥁 Drums', '🎸 Bass', '🎹 Other', '🎤 Vocals']);
+    expect(getStemNames()).toEqual(['🥁 Drums', '🎻 Bass', '🎛️ Other', '🎤 Vocals']);
   });
 
   it('shows a warning instead of inventing stems for a model without manifest', async () => {
@@ -287,7 +298,7 @@ describe('PipelineEditor stems from model manifest', () => {
     await addStep();
     await waitForModels();
 
-    await setStepType('vocal');
+    await setStepCategory('VR_Arch');
     await selectModel('mystery_model');
 
     await vi.waitFor(() => {
@@ -302,7 +313,7 @@ describe('PipelineEditor stems from model manifest', () => {
     await addStep();
     await waitForModels();
 
-    await setStepType('demucs');
+    await setStepCategory('Roformer');
     await selectModel('BS_Roformer_SW_6stem');
 
     await vi.waitFor(() => expect(getStemRows().length).toBe(6), { timeout: 2000 });
@@ -324,6 +335,7 @@ describe('PipelineEditor stems from model manifest', () => {
 
     const saved = savedPresets['SW 6-stem mix'];
     expect(saved.steps[0].model).toBe('BS_Roformer_SW_6stem');
+    expect(saved.steps[0].type).toBe('demucs');
     expect(Object.keys(saved.steps[0].stems)).toEqual([
       'bass', 'drums', 'other', 'vocals', 'guitar', 'piano',
     ]);
@@ -342,9 +354,9 @@ describe('PipelineEditor stems from model manifest', () => {
     }, { timeout: 2000 });
 
     expect(getStemNames()).toEqual([
-      '🎸 Bass',
+      '🎻 Bass',
       '🥁 Drums',
-      '🎹 Other',
+      '🎛️ Other',
       '🎤 Vocals',
       '🎸 Guitar',
       '🎹 Piano',
@@ -386,7 +398,7 @@ describe('PipelineEditor stems from model manifest', () => {
 
     await vi.waitFor(() => expect(getStemRows().length).toBe(4), { timeout: 2000 });
 
-    expect(getStemNames()).toEqual(['🥁 Drums', '🎸 Bass', '🎹 Other', '🎤 Vocals']);
+    expect(getStemNames()).toEqual(['🥁 Drums', '🎻 Bass', '🎛️ Other', '🎤 Vocals']);
     expect(getActionRadio(0, 0, 'save')?.checked).toBe(true);
     expect(getActionRadio(0, 1, 'save')?.checked).toBe(true);
     expect(getActionRadio(0, 2, 'discard')?.checked).toBe(true);

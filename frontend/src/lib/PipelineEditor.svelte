@@ -2,6 +2,7 @@
   import type { LocalModel } from './api';
   import { getLocalModels, getPresets, savePreset, deletePreset, setDefaultPreset } from './api';
   import type { PresetData } from './api';
+  import { stemDisplayName } from './types';
   import { IconClose } from './icons';
 
   // ── Props ──
@@ -40,6 +41,7 @@
 
   // ── State ──
   let allModels = $state<LocalModel[]>([]);
+  let categories = $state<string[]>([]);
   let modelsLoaded = $state(false);
 
   // ── Editor state ──
@@ -130,6 +132,7 @@
       if (res.models && res.models.length > 0) {
         allModels = res.models;
       }
+      categories = (res.categories ?? []).filter(Boolean);
     } catch {
       // Leave the catalogue empty; the UI will show the missing-stems warning.
     } finally {
@@ -142,6 +145,26 @@
       modelsLoadPromise = loadModels();
     }
     return modelsLoadPromise;
+  }
+
+  // ── Category / pipeline-type helpers ──
+  function categoryOfModel(modelName: string): string {
+    const m = modelByIdentifier(modelName);
+    return m?.category ?? '';
+  }
+
+  function pipelineTypeForModel(modelName: string): StepType {
+    const m = modelByIdentifier(modelName);
+    return m && isVocalModel(m) ? 'vocal' : 'demucs';
+  }
+
+  function defaultModelForCategory(category: string): string {
+    const catModels = allModels.filter((m) => m.category === category);
+    const preferred = catModels.find(
+      (m) => (m.installed_name || m.name) === 'BS_Roformer_Viperx' || (m.installed_name || m.name) === 'htdemucs_ft',
+    );
+    if (preferred) return preferred.installed_name || preferred.name;
+    return catModels[0]?.installed_name || catModels[0]?.name || '';
   }
 
   function defaultVocalModel(): string {
@@ -185,8 +208,8 @@
   });
 
   // ── Group models by category ──
-  function groupByCategory(models: ModelOption[]): Map<string, ModelOption[]> {
-    const map = new Map<string, ModelOption[]>();
+  function groupByCategory<T extends { category: string }>(models: T[]): Map<string, T[]> {
+    const map = new Map<string, T[]>();
     for (const m of models) {
       const cat = m.category;
       if (!map.has(cat)) map.set(cat, []);
@@ -224,14 +247,17 @@
   });
 
   // ── Step management ──
-  function addStep() {
-    const existingTypes = steps.map(s => s.type);
-    const newType: StepType = existingTypes.includes('vocal') ? 'demucs' : 'vocal';
-    const modelName = newType === 'vocal' ? defaultVocalModel() : defaultDemucsModel();
+  async function addStep() {
+    await ensureModelsLoaded();
+
+    // Pick a category not already used, falling back to the first available one.
+    const existingCategories = new Set(steps.map((s) => categoryOfModel(s.model)));
+    const category = categories.find((c) => !existingCategories.has(c)) ?? categories[0] ?? '';
+    const modelName = category ? defaultModelForCategory(category) : defaultVocalModel();
 
     steps = [...steps, {
       id: `step-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      type: newType,
+      type: pipelineTypeForModel(modelName),
       model: modelName,
       enabled: true,
       stems: reconcileStemConfigs(modelName, undefined),
@@ -245,7 +271,7 @@
   function updateStepModel(stepId: string, model: string) {
     steps = steps.map(s => {
       if (s.id !== stepId) return s;
-      return { ...s, model, stems: reconcileStemConfigs(model, s.stems) };
+      return { ...s, model, type: pipelineTypeForModel(model), stems: reconcileStemConfigs(model, s.stems) };
     });
   }
 
@@ -253,9 +279,9 @@
     steps = steps.map(s => s.id === stepId ? { ...s, enabled } : s);
   }
 
-  function updateStepType(stepId: string, type: StepType) {
-    const modelName = type === 'vocal' ? defaultVocalModel() : defaultDemucsModel();
-    steps = steps.map(s => s.id === stepId ? { ...s, type, model: modelName, stems: reconcileStemConfigs(modelName, undefined) } : s);
+  function updateStepCategory(stepId: string, category: string) {
+    const modelName = defaultModelForCategory(category);
+    steps = steps.map(s => s.id === stepId ? { ...s, type: pipelineTypeForModel(modelName), model: modelName, stems: reconcileStemConfigs(modelName, undefined) } : s);
   }
 
   function updateStemAction(stepId: string, stemName: string, action: StemAction) {
@@ -294,12 +320,13 @@
 
     selectedPreset = name;
     presetNameInput = preset.name;
-    steps = preset.steps.map(s => {
+    steps = preset.steps.map((s) => {
       let model = resolveModelIdentifier(s.model);
       if (!model) {
+        // Legacy fallback: old presets only stored 'vocal'/'demucs' as the type.
         model = s.type === 'vocal' ? defaultVocalModel() : defaultDemucsModel();
       }
-      return { ...s, model, stems: reconcileStemConfigs(model, s.stems) };
+      return { ...s, model, type: pipelineTypeForModel(model), stems: reconcileStemConfigs(model, s.stems) };
     });
   }
 
@@ -362,17 +389,6 @@
     if (!selectedPreset) return;
     deleteConfirmVisible = true;
   }
-
-  // ── Stem display names ──
-  const STEM_LABELS: Record<string, string> = {
-    vocals: '🎤 Vocals',
-    instrumental: '🎵 Instrumental',
-    drums: '🥁 Drums',
-    bass: '🎸 Bass',
-    other: '🎹 Other',
-    guitar: '🎸 Guitar',
-    piano: '🎹 Piano',
-  };
 
   // ── Close handler ──
   function handleClose() {
@@ -446,11 +462,12 @@
                   <label class="config-label">Tipo</label>
                   <select
                     class="select"
-                    value={step.type}
-                    onchange={(e) => updateStepType(step.id, (e.target as HTMLSelectElement).value as StepType)}
+                    value={categoryOfModel(step.model)}
+                    onchange={(e) => updateStepCategory(step.id, (e.target as HTMLSelectElement).value)}
                   >
-                    <option value="vocal">Vocal (Vocales)</option>
-                    <option value="demucs">Demucs (Stems)</option>
+                    {#each categories as category}
+                      <option value={category}>{category}</option>
+                    {/each}
                   </select>
                 </div>
 
@@ -461,23 +478,13 @@
                     value={step.model}
                     onchange={(e) => updateStepModel(step.id, (e.target as HTMLSelectElement).value)}
                   >
-                    {#if step.type === 'vocal'}
-                      {#each [...vocalGroups.entries()] as [cat, models]}
-                        <optgroup label={cat}>
-                          {#each models as m}
-                            <option value={m.installed_name}>{m.display_name || m.installed_name}</option>
-                          {/each}
-                        </optgroup>
-                      {/each}
-                    {:else}
-                      {#each [...demucsGroups.entries()] as [cat, models]}
-                        <optgroup label={cat}>
-                          {#each models as m}
-                            <option value={m.installed_name}>{m.display_name || m.installed_name}</option>
-                          {/each}
-                        </optgroup>
-                      {/each}
-                    {/if}
+                    {#each [...groupByCategory(allModels.filter((m) => m.category === categoryOfModel(step.model))).entries()] as [cat, models]}
+                      <optgroup label={cat}>
+                        {#each models as m}
+                          <option value={m.installed_name}>{m.display_name || m.installed_name}</option>
+                        {/each}
+                      </optgroup>
+                    {/each}
                   </select>
                 </div>
               </div>
@@ -497,7 +504,7 @@
                 {:else}
                   {#each stemsForModel(step.model) as stemName}
                     <div class="routing-row">
-                      <span class="routing-stem-name">{STEM_LABELS[stemName] || stemName}</span>
+                      <span class="routing-stem-name">{stemDisplayName(stemName)}</span>
                       <label class="routing-radio" class:active={step.stems[stemName]?.action === 'route'}>
                         <input
                           type="radio"

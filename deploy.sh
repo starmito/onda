@@ -138,7 +138,7 @@ check_release_invariants
 export ONDA_IMAGE_TAG="${IMAGE_TAG:-$ONDAP_VERSION}"
 
 # Directorios montados como bind volumes (deben pertenecer al usuario host)
-BIND_DIRS="data/input data/output data/input_rubberband data/daw-data data/config data/logs data/models"
+BIND_DIRS="data/input data/output data/input_rubberband data/daw-data data/config data/logs data/models data/.cache"
 
 repair_bind_dir_permissions "$BIND_DIRS"
 
