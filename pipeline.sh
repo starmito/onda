@@ -60,6 +60,19 @@ fi
 
 if [ "$GPU_BACKEND" != 'cpu' ] && [ -d "/opt/pytorch-backends/$GPU_BACKEND" ]; then
     export PYTHONPATH="$PYTHONPATH:/opt/pytorch-backends/$GPU_BACKEND"
+    # onnxruntime-gpu 1.27+ is built against CUDA 13. The PyTorch wheel installs
+    # the NVIDIA CUDA/cuDNN packages under /opt/pytorch-backends/$GPU_BACKEND/nvidia/.
+    if [ -d "/opt/pytorch-backends/$GPU_BACKEND/nvidia/cu13/lib" ]; then
+        export LD_LIBRARY_PATH="/opt/pytorch-backends/$GPU_BACKEND/nvidia/cu13/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    fi
+    if [ -d "/opt/pytorch-backends/$GPU_BACKEND/nvidia/cudnn/lib" ]; then
+        export LD_LIBRARY_PATH="/opt/pytorch-backends/$GPU_BACKEND/nvidia/cudnn/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    fi
+    # Legacy fallback for older wheel layouts.
+    if [ -d "/opt/pytorch-backends/$GPU_BACKEND/torch/lib" ]; then
+        export LD_LIBRARY_PATH="/opt/pytorch-backends/$GPU_BACKEND/torch/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    fi
+    export ONDA_GPU_CACHE_DIR="/opt/pytorch-backends/$GPU_BACKEND"
 fi
 
 # ── Data root ───────────────────────────────────

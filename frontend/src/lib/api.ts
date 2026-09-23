@@ -689,6 +689,7 @@ export interface HFModelEntry {
   hf_path: string;
   size_mb: number;
   category: string;
+  downloaded: boolean;
 }
 
 export interface HfCatalogResponse {

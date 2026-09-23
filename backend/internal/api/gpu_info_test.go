@@ -608,3 +608,27 @@ func mustVRAMCalc(t *testing.T, s *Server, req *http.Request) VRAMCalculatorResp
 	}
 	return resp
 }
+
+func TestHandleVRAMCalculator_NoGPUFailsClosed(t *testing.T) {
+	origGPU := gpuInfoProvider
+	defer func() { gpuInfoProvider = origGPU }()
+	gpuInfoProvider = func() GPUInfoResponse {
+		return GPUInfoResponse{OK: false, Error: "nvidia-smi failed: command not found"}
+	}
+
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/gpu/vram-calculator?models=BS_Roformer_Viperx", nil)
+	resp := mustVRAMCalc(t, s, req)
+
+	if resp.AvailableVRAMMB != 0 {
+		t.Errorf("available_vram_mb = %d, want 0 when GPU is unreadable", resp.AvailableVRAMMB)
+	}
+	if resp.Fits {
+		t.Errorf("fits = true, want false when GPU is unreadable")
+	}
+	if resp.Warning == "" {
+		t.Errorf("expected warning when GPU is unreadable")
+	}
+}

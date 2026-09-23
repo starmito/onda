@@ -1,3 +1,5 @@
+> ⚠️ Documento histórico (2026-05-26). Las versiones y cifras que cita son las de ese momento; ver `CHANGELOG.md` para el estado actual.
+
 # UI Completa — Paridad con v1.4.4 + Features Planeadas
 
 > **Para Hermes:** Usar subagent-driven-development. Backend primero, luego frontend.

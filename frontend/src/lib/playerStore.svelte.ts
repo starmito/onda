@@ -275,16 +275,6 @@ export function anyTrackSolo(tracks: TrackMixState[]): boolean {
   return tracks.some((t) => t.solo);
 }
 
-/** Compute effective volume for each track in a group. */
-export function computeTrackVolumes(tracks: TrackMixState[]): Record<string, number> {
-  const hasSolo = anyTrackSolo(tracks);
-  const volumes: Record<string, number> = {};
-  for (const track of tracks) {
-    volumes[track.id] = effectiveTrackVolume(track, hasSolo);
-  }
-  return volumes;
-}
-
 // Backwards-compatible helpers used by older subgroup code in ResultsPanel.
 export function effectiveGainFromState(
   state: StemMixState | undefined,

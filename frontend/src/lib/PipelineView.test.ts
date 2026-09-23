@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { mount, unmount } from 'svelte';
+import { mount, unmount, type ComponentProps } from 'svelte';
 import PipelineView from './PipelineView.svelte';
 import type { QueueFile } from './queueDefaults';
 import type { QueueJob } from './api';
@@ -13,7 +13,7 @@ describe('PipelineView', () => {
     document.body.appendChild(target);
   });
 
-  function render(props: Partial<Record<keyof PipelineView['$$prop_def'], unknown>> = {}) {
+  function render(props: Partial<ComponentProps<typeof PipelineView>> = {}) {
     const onQueueChange = vi.fn();
     const onViewResult = vi.fn();
 

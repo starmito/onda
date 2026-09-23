@@ -78,7 +78,7 @@ func (s *Server) handleProcessStatus(w http.ResponseWriter, r *http.Request) {
 
 	jobs := s.collectQueueJobs()
 
-	gpu := getGPUInfo()
+	gpu := gpuInfoProvider()
 	gpuObj := map[string]interface{}{
 		"total_mb": gpu.VRAMTotalMB,
 		"used_mb":  gpu.VRAMUsedMB,

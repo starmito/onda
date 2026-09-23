@@ -22,7 +22,7 @@ if [ "$GPU" != "cpu" ]; then
                 # distinta de la declarada en pyproject.toml. NO usamos --no-deps: las ruedas de
                 # torch para Linux traen las librerias CUDA (cublasLt, cudnn, triton...) como
                 # dependencias de pip; sin ellas torch no ve la GPU.
-                python3 -m pip install --target "$CACHE_DIR" torch==2.14.0 torchvision==0.29.0 onnxruntime-gpu==1.26.0 numpy==2.4.6
+                python3 -m pip install --target "$CACHE_DIR" torch==2.14.0 torchvision==0.29.0 onnxruntime-gpu==1.30.0 numpy==2.5.3
                 ;;
         esac
         echo "✅ $GPU backend installed"
@@ -35,16 +35,28 @@ if [ "$GPU" != "cpu" ]; then
         case $GPU in
             cuda)
                 # Reintento con --upgrade para forzar la reinstalacion; numpy sigue fijado.
-                python3 -m pip install --upgrade --target "$CACHE_DIR" onnxruntime-gpu==1.26.0 numpy==2.4.6
+                python3 -m pip install --upgrade --target "$CACHE_DIR" onnxruntime-gpu==1.30.0 numpy==2.5.3
                 ;;
         esac
         echo "✅ onnxruntime reinstalled"
     fi
 
-    # onnxruntime-gpu needs CUDA libraries that are bundled inside torch's lib dir.
+    # onnxruntime-gpu 1.27+ is built against CUDA 13. The PyTorch wheel installs
+    # the NVIDIA CUDA/cuDNN packages under $CACHE_DIR/nvidia/; torch/lib itself
+    # no longer contains the CUDA libraries. Prepend those lib dirs so the
+    # dynamic loader can resolve libcublasLt.so.13, libcudnn.so.9, etc.
+    if [ -d "$CACHE_DIR/nvidia/cu13/lib" ]; then
+        export LD_LIBRARY_PATH="$CACHE_DIR/nvidia/cu13/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    fi
+    if [ -d "$CACHE_DIR/nvidia/cudnn/lib" ]; then
+        export LD_LIBRARY_PATH="$CACHE_DIR/nvidia/cudnn/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    fi
+    # Keep the legacy torch/lib fallback for older wheel layouts.
     if [ -d "$CACHE_DIR/torch/lib" ]; then
         export LD_LIBRARY_PATH="$CACHE_DIR/torch/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     fi
+
+    export ONDA_GPU_CACHE_DIR="$CACHE_DIR"
 fi
 
 ONDA_DATA_DIR="${ONDA_DATA_DIR:-/app/data}"

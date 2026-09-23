@@ -10,11 +10,12 @@ import type { QueueJob } from './api';
 import type { QueueFile } from './queueDefaults';
 
 function makeJob(overrides: Partial<QueueJob> & { song: string; status: QueueJob['status'] }): QueueJob {
+  const { song, status, ...rest } = overrides;
   return {
-    song: overrides.song,
-    status: overrides.status,
+    song,
+    status,
     progress: 0,
-    ...overrides,
+    ...rest,
   };
 }
 

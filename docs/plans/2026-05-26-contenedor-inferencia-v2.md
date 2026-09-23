@@ -1,3 +1,5 @@
+> ⚠️ Documento histórico (2026-05-26). Las versiones y cifras que cita son las de ese momento; ver `CHANGELOG.md` para el estado actual.
+
 # Contenedor de Inferencia v2 — Plan de Implementación
 
 > **For Hermes:** Use subagent-driven-development skill to implement this plan task-by-task.
@@ -58,7 +60,6 @@ torch_audiomentations==0.12.0
 asteroid==0.7.0
 julius==0.2.7
 samplerate==0.2.4
-dora-search
 ```
 
 **Verificación:** `cat requirements-docker-v2.txt | grep == | wc -l` debe mostrar > 25 dependencias fijadas.

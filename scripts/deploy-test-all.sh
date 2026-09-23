@@ -4,7 +4,7 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_DIR"
 
-# Resolver versión desde tags de git (misma lógica que build.sh/deploy.sh).
+# Resolver versión desde VERSION (misma lógica que build.sh/deploy.sh).
 source ./build.sh --version
 export ONDAP_VERSION GUI_VERSION
 
@@ -13,8 +13,9 @@ docker compose -f docker-compose.yml -f docker-compose.cuda.yml down -v 2>/dev/n
 docker rm -f onda 2>/dev/null
 docker volume rm onda_pytorch-cache 2>/dev/null
 docker rmi onda:${ONDAP_VERSION:-latest} 2>/dev/null
-rm -rf output/* input/* 2>/dev/null
-mkdir -p output input
+# Limpieza de los directorios de entrada/salida dentro de la raíz de datos.
+find data -maxdepth 2 -type d \( -name input -o -name output \) -exec rm -rf {} + 2>/dev/null
+mkdir -p data/input data/output
 
 echo "=== 2. Pull ==="
 git pull

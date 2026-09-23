@@ -292,6 +292,72 @@ func raisedMaxFlagDef(def modelFlagDef, newMax int) modelFlagDef {
 	return def
 }
 
+// reconcileFlagRanges ensures the declared range of every flag can represent
+// its effective value. It is the single place where the declared range is
+// widened (never narrowed) to match real configuration: after applying the
+// user-saved value (or the declared default when there is none), if the value
+// falls outside [Min, Max] the bounds are expanded to include it.
+//
+// When a bound has to be expanded, the declared Default is also moved to the
+// effective value. This keeps the default inside the displayed range and
+// guarantees that the default the UI shows never contradicts the value the
+// model will actually use: if the saved configuration has overridden the
+// factory default, the reported default reflects that real value instead of
+// an unreachable factory default.
+func reconcileFlagRanges(defs map[string]modelFlagDef, values map[string]interface{}) map[string]modelFlagDef {
+	out := make(map[string]modelFlagDef, len(defs))
+	for name, def := range defs {
+		effective := def.Default
+		if v, ok := values[name]; ok {
+			effective = v
+		}
+		out[name] = expandFlagRangeToValue(def, effective)
+	}
+	return out
+}
+
+// expandFlagRangeToValue widens Min/Max so that value is representable and,
+// when the range had to be widened, updates Default to value so the default
+// stays inside the displayed range.
+func expandFlagRangeToValue(def modelFlagDef, value interface{}) modelFlagDef {
+	def = copyFlagDef(def)
+	v := toFloat64(value)
+	changed := false
+	if def.Min != nil {
+		min := toFloat64(def.Min)
+		if v < min {
+			def.Min = coerceToNumericKind(value, def.Min)
+			changed = true
+		}
+	}
+	if def.Max != nil {
+		max := toFloat64(def.Max)
+		if v > max {
+			def.Max = coerceToNumericKind(value, def.Max)
+			changed = true
+		}
+	}
+	if changed {
+		def.Default = value
+	}
+	return def
+}
+
+// coerceToNumericKind returns value as the same concrete numeric type as
+// target so JSON serialization stays consistent (int values stay ints).
+func coerceToNumericKind(value interface{}, target interface{}) interface{} {
+	if target == nil {
+		return value
+	}
+	switch target.(type) {
+	case float64, float32:
+		return toFloat64(value)
+	case json.Number:
+		return json.Number(strconv.FormatFloat(toFloat64(value), 'f', -1, 64))
+	}
+	return toInt(value)
+}
+
 // readUserFlagValues reads user-saved flag values from config/model_configs/<name>.yaml.
 func readUserFlagValues(name string) map[string]interface{} {
 	values := make(map[string]interface{})
@@ -397,6 +463,7 @@ func getModelFlagsResponse(name string) (*ModelFlagsResponse, error) {
 		defs = fallbackFlagsForModel(name)
 	}
 	user := readUserFlagValues(name)
+	defs = reconcileFlagRanges(defs, user)
 
 	ordered := make([]string, 0, len(defs))
 	for k := range defs {
@@ -455,14 +522,22 @@ func saveModelFlags(name string, updates []ModelFlagValue) error {
 	}
 
 	for _, u := range updates {
-		def, ok := defs[u.Name]
-		if !ok {
+		if _, ok := defs[u.Name]; !ok {
 			return fmt.Errorf("unknown flag %q for model %q", u.Name, name)
 		}
-		if err := validateFlagValue(u.Name, name, def, u.Value); err != nil {
+		values[u.Name] = u.Value
+	}
+
+	// Widen the declared ranges so the configuration about to be saved is
+	// always representable. Per-flag validation below still runs against the
+	// (now expanded) declarations, and validateModelConfig keeps the final
+	// Demucs-specific guardrails (e.g. segment 0..7).
+	defs = reconcileFlagRanges(defs, values)
+
+	for _, u := range updates {
+		if err := validateFlagValue(u.Name, name, defs[u.Name], u.Value); err != nil {
 			return err
 		}
-		values[u.Name] = u.Value
 	}
 
 	cfg := flagValuesToModelConfig(values)

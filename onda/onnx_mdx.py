@@ -29,22 +29,7 @@ except Exception:  # pragma: no cover - tolerate missing tracker in isolated tes
 
 _MODULE_START = time.time()
 
-# onnxruntime-gpu is installed under /opt/pytorch-backends/cuda alongside torch.
-# Torch ships the CUDA libraries (e.g. libcublasLt.so.12) in its lib/ directory,
-# but onnxruntime does not look there by default. Ensure the path is present
-# before onnxruntime is imported so CUDAExecutionProvider can be loaded.
-_torch_lib = "/opt/pytorch-backends/cuda/torch/lib"
-if os.path.isdir(_torch_lib):
-    _ld = os.environ.get("LD_LIBRARY_PATH", "")
-    if _torch_lib not in _ld:
-        os.environ["LD_LIBRARY_PATH"] = f"{_torch_lib}{':' + _ld if _ld else ''}"
-
-# onnxruntime may not be present in the host test runner; allow import to fail
-# gracefully so pure-logic tests (config resolution, CLI parsing, etc.) can run.
-try:
-    import onnxruntime as ort
-except Exception:  # pragma: no cover - runtime dependency
-    ort = None
+from onda.onnx_utils import create_onnx_session, build_onnx_providers
 
 
 def _load_config(config_path: str) -> Dict[str, Any]:
@@ -344,15 +329,9 @@ class OnnxMDX:
         self.adjust = 1.0
         self.initialize_model_settings()
 
-        if ort is None:
-            raise RuntimeError("onnxruntime is not installed")
-
-        providers = (
-            ["CUDAExecutionProvider", "CPUExecutionProvider"]
-            if torch.cuda.is_available() and str(device) != "cpu"
-            else ["CPUExecutionProvider"]
-        )
-        self.session = ort.InferenceSession(model_path, providers=providers)
+        prefer_cuda = torch.cuda.is_available() and str(device) != "cpu"
+        providers = build_onnx_providers(prefer_cuda=prefer_cuda)
+        self.session = create_onnx_session(model_path, providers=providers)
         self.input_name = self.session.get_inputs()[0].name
 
     def initialize_model_settings(self):

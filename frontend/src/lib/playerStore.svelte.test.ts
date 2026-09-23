@@ -6,7 +6,6 @@ import {
   toggleStemSolo,
   setStemVolume,
   effectiveTrackVolume,
-  computeTrackVolumes,
   defaultStemMixState,
   defaultTrackMixState,
 } from './playerStore.svelte';
@@ -103,21 +102,4 @@ describe('effectiveTrackVolume', () => {
   });
 });
 
-describe('computeTrackVolumes', () => {
-  it('silences muted and non-solo tracks when a solo is active', () => {
-    const tracks = [
-      { id: 'a', muted: false, solo: true, volume: 1 },
-      { id: 'b', muted: false, solo: false, volume: 1 },
-      { id: 'c', muted: true, solo: false, volume: 1 },
-    ];
-    expect(computeTrackVolumes(tracks)).toEqual({ a: 1, b: 0, c: 0 });
-  });
 
-  it('applies individual volumes when no track is soloed', () => {
-    const tracks = [
-      { id: 'a', muted: false, solo: false, volume: 1 },
-      { id: 'b', muted: false, solo: false, volume: 0.5 },
-    ];
-    expect(computeTrackVolumes(tracks)).toEqual({ a: 1, b: 0.5 });
-  });
-});

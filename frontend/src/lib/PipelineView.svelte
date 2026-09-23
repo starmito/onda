@@ -31,6 +31,29 @@
     onCancel = () => {},
     onRemoveFile = (id: string) => {},
     onViewResult = () => {},
+  }: {
+    presetName?: string;
+    displayName?: string;
+    queueFiles?: QueueFile[];
+    savedPresets?: {name: string, config: any}[];
+    queueJobs?: QueueJob[];
+    separating?: boolean;
+    pipelineStatus?: string;
+    currentProgress?: number;
+    pipelineStep?: string;
+    pipelineSong?: string;
+    pipelineEta?: string;
+    inferenceDevice?: string;
+    pipelineModel?: string;
+    pipelineFlags?: string;
+    hidePresetSelector?: boolean;
+    onPresetChange?: (name: string) => void;
+    onError?: (msg: string) => void;
+    onQueueChange?: (files: QueueFile[]) => void;
+    onStart?: (config: any) => void;
+    onCancel?: () => void;
+    onRemoveFile?: (id: string) => void;
+    onViewResult?: () => void;
   } = $props();
 
   // ---- Real-time process / VRAM status ----
@@ -291,6 +314,7 @@
       ondragover={handleDropZoneDragOver}
       ondrop={handleDropZoneDrop}
       onclick={handleDropZoneClick}
+      onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleDropZoneClick(); } }}
       role="button"
       tabindex="0"
     >
@@ -328,7 +352,7 @@
         <span class="col-action"></span>
       </div>
       <div class="queue-list">
-        {#snippet queueRow(qf)}
+        {#snippet queueRow(qf: QueueFile)}
           <input
             type="checkbox"
             checked={qf.checked}

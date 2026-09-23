@@ -1,6 +1,6 @@
 # 🎵 Onda — Separación de fuentes musicales con IA
 
-Interfaz web para separar voces e instrumentos de cualquier canción usando modelos deep learning (Demucs, ViperX) con aceleración GPU (NVIDIA CUDA) o CPU.
+Interfaz web para separar voces e instrumentos de cualquier canción usando modelos deep learning (Demucs, ViperX, MDX/SCNet/ONNX) con aceleración GPU (NVIDIA CUDA) o CPU.
 
 ![Version](https://img.shields.io/badge/version-desde%20tags%20git-blue)
 ![License](https://img.shields.io/badge/license-MIT-green)
@@ -78,8 +78,8 @@ Abre **http://localhost:3000** en tu navegador.
 │                                          │
 │  ┌──────────────┐   ┌─────────────────┐  │
 │  │ Go API       │──▶│ Python inference│  │
-│  │ + frontend   │   │ (Demucs/ViperX) │  │
-│  │   estático   │   │                 │  │
+│  │ + frontend   │   │ (Demucs/ViperX/ │  │
+│  │   estático   │   │  MDX/SCNet/ONNX)│  │
 │  └──────┬───────┘   └────────┬────────┘  │
 │         │                    │           │
 │  ┌──────┴────────────────────┴───────┐   │
@@ -87,19 +87,19 @@ Abre **http://localhost:3000** en tu navegador.
 │  └────────────────────────────────────┘   │
 │                                          │
 └──────────────────────────────────────────┘
-         │           │            │
-    ┌────┴───┐ ┌────┴───┐  ┌────┴────┐
-    │/app/input│ │/app/output│ │/app/config│
-    │  (bind) │ │ (bind) │  │  (bind)  │
-    └────────┘ └────────┘  └─────────┘
+         │
+    ┌────┴────┐
+    │/app/data│  input/ output/ daw-data/ config/
+    │ (bind)  │  models/ logs/ .cache/
+    └─────────┘
 ```
 
 El contenedor unificado incluye:
-- **Go backend**: sirve el frontend estático, expone la API REST, gestiona la cola de procesamiento y los presets
-- **Python inference**: Demucs, ViperX, pitch shift
-- **Svelte frontend**: interfaz de usuario compilada
+- **Go backend**: sirve el frontend estático, expone la API REST, gestiona la cola de procesamiento, presets, modelos y almacenamiento
+- **Python inference**: Demucs, ViperX, MDX/SCNet/ONNX, pitch shift
+- **Svelte 5 frontend**: interfaz de usuario compilada
 
-Los directorios `/app/input/`, `/app/output/` y `/app/config/` son bind mounts al host para persistencia.
+Toda la persistencia vive bajo la **raíz de datos única** (`ONDA_DATA_DIR`, por defecto `/app/data` en el contenedor): `input/`, `output/`, `daw-data/`, `input_rubberband/`, `config/`, `logs/`, `models/` y `.cache/`. Las rutas fijas `/app/input/`, `/app/output/` y `/app/config/` son **obsoletas**.
 
 ---
 
@@ -141,20 +141,75 @@ curl http://localhost:3000/api/health
 
 ---
 
-## 🔧 Endpoints de la API
+## 🔧 Endpoints de la API (selección)
 
 | Endpoint | Método | Descripción |
 |----------|--------|-------------|
 | `/api/health` | GET | Estado del sistema (GPU, disco, versiones) |
 | `/api/upload` | POST | Subir archivo de audio |
+| `/api/upload/pitch` | POST | Subir archivo para pitch shift |
 | `/api/separate` | POST | Lanzar pipeline de separación |
 | `/api/queue/status` | GET | Estado de la cola de procesamiento |
+| `/api/processes/status` | GET | Cola, proceso activo y métricas de GPU |
+| `/api/queue/cancel` | POST | Cancelar el trabajo actual |
 | `/api/results` | GET | Stems generados |
+| `/api/inputs` | GET | Archivos subidos disponibles |
 | `/api/pitch` | POST | Pitch shift sobre stems |
+| `/api/pitch/file` | POST | Pitch shift de archivo suelto |
+| `/api/audio/tempo` | GET/POST | Detección y cambio de tempo |
+| `/api/key` | POST | Detección de tonalidad |
+| `/api/stems/merge` | POST | Mezclar stems (mixdown) |
+| `/api/export/profiles` | GET/POST | Perfiles de exportación |
+| `/api/export/files/{file}` | GET | Descargar exportación |
+| `/api/storage/config` | GET/POST | Raíz de datos, carpeta de config y exportación |
+| `/api/storage/usage` | GET | Uso de disco por carpeta |
+| `/api/models` | GET/POST | Catálogo y gestión de modelos |
+| `/api/models/list` | GET | Modelos instalados con peso real |
+| `/api/models/download-hf` | POST | Descargar modelo desde HuggingFace |
 | `/api/logs` | GET | Logs de eventos |
 | `/api/logs/services` | GET | Logs de servicios (docker + pipeline) |
-| `/api/presets` | GET | Presets guardados |
+| `/api/presets` | GET/POST | Presets guardados |
+| `/api/presets/default` | GET/POST | Preset predeterminado |
 | `/api/settings/ui` | GET/POST | Configuración de interfaz de usuario |
+| `/api/gpu/info` | GET | Información de GPU y VRAM |
+| `/api/gpu/vram-calculator` | GET | Estimador de VRAM por modelo |
+
+Ver `backend/internal/api/server.go` para el listado completo.
+
+---
+
+## ⚙️ Variables de entorno
+
+| Variable | Descripción | Default en contenedor |
+|----------|-------------|----------------------|
+| `ONDA_DATA_DIR` | Raíz única de datos (`input/`, `output/`, `daw-data/`, `config/`, `logs/`, `models/`, `.cache/`) | `/app/data` |
+| `ONDA_SETTINGS_FILE` | Fichero persistente de ajustes (vive fuera de `ONDA_DATA_DIR` para sobrevivir a cambios de raíz) | `/app/data/config/.onda-settings.json` |
+| `ONDA_CONFIG_DIR` | Carpeta de configuración (debe estar dentro de `ONDA_DATA_DIR`) | `${ONDA_DATA_DIR}/config` |
+| `ONDA_EXPORT_DIR` | Carpeta destino de exportaciones del DAW | vacío (usa ubicación legada) |
+| `ONDA_APP_DIR` | Directorio de la aplicación | `/app` |
+| `ONDA_PORT` | Puerto expuesto por docker-compose | `3000` |
+| `ONDA_ALLOW_UNTAGGED=1` | Permite builds de desarrollo sin tag de release | `0` |
+| `HF_HOME` | Caché de HuggingFace Hub | `${ONDA_DATA_DIR}/.cache/huggingface` |
+| `TORCH_HOME` | Caché de PyTorch/torch hub | `${ONDA_DATA_DIR}/.cache/torch` |
+| `NUMBA_CACHE_DIR` | Caché de Numba | `${ONDA_DATA_DIR}/.cache/numba` |
+| `XDG_CACHE_HOME` | Caché XDG | `${ONDA_DATA_DIR}/.cache/xdg` |
+
+Orden de precedencia para raíz, config y exportación: **env > ajuste persistido > defecto**.
+
+---
+
+## 🧠 Flags de modelo
+
+Las flags `shifts`, `segment`, `batch`, `jobs` y `device` se gestionan **solo** en **Ajustes → Modelos**:
+- Los presets ya no las mandan.
+- La petición de separación no puede sobreescribirlas.
+- El rango declarado de cada slider siempre puede representar el valor guardado (p. ej. `shifts` de Demucs usa el rango real del manifiesto).
+
+---
+
+## 🎮 GPU y VRAM
+
+Onda detecta la GPU en runtime y lee la **VRAM real** del dispositivo vía `nvidia-smi`. Si no puede leer la VRAM disponible, el trabajo se bloquea con estado `blocked_no_gpu`. El usuario puede forzar el lanzamiento con `force_vram`, pero el bloqueo por defecto es seguro.
 
 ---
 
@@ -175,7 +230,7 @@ Desde **Ajustes → Interfaz**:
 
 | Versión | Hitos |
 |---------|-------|
-| **v3.2.x** | DAW ligero integrado (waveform, BPM, tempo, effects, piano roll MIDI, mixer), seguridad API (CORS, sanitización, path traversal), versionado por tags de git |
+| **v3.2.x** | DAW ligero integrado (waveform, BPM, tempo, effects, piano roll MIDI, mixer), seguridad API (CORS, sanitización, path traversal), versionado desde VERSION |
 | **v3.1.x** | Fixes ROCm (retirado en v3.5.0), auto-detección GPU dinámica (HelpPage), single-container unificado, PYTHONPATH fix, GPU type-aware, Removed ResultsPanel |
 | **v3.0.0** | Multi-platform: CUDA, ROCm (retirado en v3.5.0) y CPU en un solo contenedor |
 | **v2.9.x** | Pitch shift con rubberband, persistencia UI settings, routing de stems por preset |
@@ -232,19 +287,19 @@ Para builds de desarrollo sin tag, usa `ONDA_ALLOW_UNTAGGED=1`; la imagen se eti
 onda/
 ├── backend/            # Go backend (API REST + worker)
 │   └── internal/api/
-├── frontend/           # Svelte 5 frontend
+├── frontend/           # Svelte 5 + TypeScript 6 frontend
 │   └── src/
 │       └── lib/        # Componentes (Sidebar, PipelineView, SettingsPanel, etc.)
-├── onda/               # Python inference (Demucs, ViperX) + CLI
-├── scripts/            # Scripts auxiliares (test, deploy, validación)
+├── onda/               # Python inference (Demucs, ViperX, MDX/SCNet/ONNX) + CLI
 ├── tests/              # Tests Python, Go, API, e2e e integración
+├── tools/              # Guardianes, trackers y helpers del repo
 ├── Dockerfile          # Imagen unificada
 ├── docker-compose.yml  # Orquestación (CPU)
 ├── docker-compose.cuda.yml    # Override CUDA
 ├── pipeline.sh         # Script de pipeline de separación
-├── build.sh            # Build nativo/Docker con versiones desde tags
+├── build.sh            # Build nativo/Docker; VERSION es la fuente de verdad
 ├── deploy.sh           # Script de despliegue con auto-detección
-├── VERSION             # Versión centralizada (generada por build.sh)
+├── VERSION             # Versión centralizada
 └── CHANGELOG.md        # Historial de cambios
 ```
 

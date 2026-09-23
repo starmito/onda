@@ -1,3 +1,5 @@
+> ⚠️ Documento histórico (2026-05-26). Las versiones y cifras que cita son las de ese momento; ver `CHANGELOG.md` para el estado actual.
+
 # Demucs ONNX (StemSplitio) — Plan de Implementación
 
 > **For Hermes:** Use subagent-driven-development skill to implement this plan task-by-task.

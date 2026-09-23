@@ -443,8 +443,21 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	gpuAvailable, gpuInfo, gpuErr := checkGPU()
+	gpuAvailable, _, gpuErr := checkGPU()
 	gpuType := detectGPUType()
+	gpuDevice := gpuInfoProvider()
+
+	// ── ONNX Runtime info ──
+	onnxInfo, onnxErr := checkONNXRuntime()
+	if onnxInfo == nil {
+		onnxInfo = map[string]interface{}{
+			"available": false,
+			"error":     "could not query onnxruntime",
+		}
+		if onnxErr != nil {
+			onnxInfo["error"] = onnxErr.Error()
+		}
+	}
 
 	// ── Read frontend version ──
 	frontendVersion := ""
@@ -482,17 +495,37 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// ── Build components ──
+	// gpuDevice.OK means "the hardware is readable" (nvidia-smi works).
+	// gpuAvailable means "torch can run CUDA kernels".
 	gpuObj := map[string]interface{}{
-		"ok":              gpuAvailable,
+		"ok":              gpuDevice.OK,
 		"usable_by_torch": gpuAvailable,
 		"type":            gpuType,
-		"detail":          gpuInfo,
+	}
+	if gpuDevice.OK {
+		gpuObj["detail"] = fmt.Sprintf("%s, %d MiB used, %d MiB free, %d MiB total",
+			gpuDevice.Name, gpuDevice.VRAMUsedMB, gpuDevice.VRAMFreeMB, gpuDevice.VRAMTotalMB)
+		gpuObj["total_mb"] = gpuDevice.VRAMTotalMB
+		gpuObj["used_mb"] = gpuDevice.VRAMUsedMB
+		gpuObj["free_mb"] = gpuDevice.VRAMFreeMB
+		if gpuDevice.UtilizationGPUPct > 0 {
+			gpuObj["utilization_gpu_pct"] = gpuDevice.UtilizationGPUPct
+		}
+		if gpuDevice.TemperatureC > 0 {
+			gpuObj["temperature_c"] = gpuDevice.TemperatureC
+		}
+	} else {
+		gpuObj["code"] = "E3"
+		detail := "no se puede leer la VRAM del dispositivo; revisa el driver / nvidia-smi"
+		if gpuDevice.Error != "" {
+			detail = gpuDevice.Error
+		} else if gpuErr != nil {
+			detail = gpuErr.Error()
+		}
+		gpuObj["detail"] = detail
 	}
 	if !gpuAvailable {
-		gpuObj["code"] = "E3"
-		if gpuErr != nil {
-			gpuObj["detail"] = gpuErr.Error()
-		}
+		gpuObj["warning"] = "PyTorch no ve CUDA; el runtime no puede lanzar kernels en la GPU."
 	}
 	if gpuType == "cpu" {
 		gpuObj["warning"] = "No GPU detected — running on CPU. Performance may be degraded."
@@ -537,6 +570,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"gpu":              gpuObj,
 		"disk":             checkDisk(),
 		"version_mismatch": mismatchObj,
+		"onnxruntime":      onnxInfo,
 	}
 
 	w.Header().Set("Content-Type", "application/json")
@@ -1196,10 +1230,6 @@ func (s *Server) worker() {
 	}
 }
 
-// gpuInfoProvider is the function used by the pipeline workers to query GPU
-// memory. It is a variable so tests can substitute a mock implementation.
-var gpuInfoProvider = getGPUInfo
-
 // stepModelName returns the model name to use for VRAM estimation for a
 // pipeline step. It mirrors the default model selection in buildStepPipelineArgs.
 func stepModelName(step cli.PipelineStep) string {
@@ -1451,20 +1481,33 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	// Resource headroom checks before launching.
 	if !job.Config.ForceVRAM {
 		gpu := gpuInfoProvider()
-		if gpu.OK {
-			if ok, _, reason, warning := checkVramHeadroom(gpu.VRAMFreeMB, gpu.VRAMTotalMB, modelName, stepType, vramCfg, modelName); !ok {
-				s.jobsMu.Lock()
-				state.Status = "blocked_no_gpu"
-				state.Error = reason
-				state.BlockedReason = "insufficient_vram"
-				state.BlockedReasonMsg = reason
-				state.Progress = 0
-				s.jobsMu.Unlock()
-				Log("pipeline", "warn", fmt.Sprintf("Job blocked for %s: %s", job.Song, reason))
-				return
-			} else if warning != "" {
-				Log("pipeline", "warn", fmt.Sprintf("Job %s: %s", job.Song, warning))
+		if !gpu.OK {
+			reason := "no se puede leer la VRAM del dispositivo; revisa el driver / nvidia-smi"
+			if gpu.Error != "" {
+				reason = gpu.Error
 			}
+			s.jobsMu.Lock()
+			state.Status = "blocked_no_gpu"
+			state.Error = reason
+			state.BlockedReason = "gpu_unreadable"
+			state.BlockedReasonMsg = reason
+			state.Progress = 0
+			s.jobsMu.Unlock()
+			Log("pipeline", "warn", fmt.Sprintf("Job blocked for %s: %s", job.Song, reason))
+			return
+		}
+		if ok, _, reason, warning := checkVramHeadroom(gpu.VRAMFreeMB, gpu.VRAMTotalMB, modelName, stepType, vramCfg, modelName); !ok {
+			s.jobsMu.Lock()
+			state.Status = "blocked_no_gpu"
+			state.Error = reason
+			state.BlockedReason = "insufficient_vram"
+			state.BlockedReasonMsg = reason
+			state.Progress = 0
+			s.jobsMu.Unlock()
+			Log("pipeline", "warn", fmt.Sprintf("Job blocked for %s: %s", job.Song, reason))
+			return
+		} else if warning != "" {
+			Log("pipeline", "warn", fmt.Sprintf("Job %s: %s", job.Song, warning))
 		}
 	}
 	if !job.Config.ForceRAM {
@@ -1605,22 +1648,37 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		vramCfg := vramConfigForStep(step, job.Config.Input)
 		if !job.Config.ForceVRAM {
 			gpu := gpuInfoProvider()
-			if gpu.OK {
-				if ok, _, reason, warning := checkVramHeadroom(gpu.VRAMFreeMB, gpu.VRAMTotalMB, modelName, step.Type, vramCfg, step.Model); !ok {
-					s.jobsMu.Lock()
-					if state, ok := s.jobs[job.Song]; ok {
-						state.Status = "blocked_no_gpu"
-						state.Error = reason
-						state.BlockedReason = "insufficient_vram"
-						state.BlockedReasonMsg = reason
-						state.Progress = 0
-					}
-					s.jobsMu.Unlock()
-					Log("pipeline", "warn", fmt.Sprintf("Job blocked for %s at step %d: %s", job.Song, i+1, reason))
-					return
-				} else if warning != "" {
-					Log("pipeline", "warn", fmt.Sprintf("Job %s at step %d: %s", job.Song, i+1, warning))
+			if !gpu.OK {
+				reason := "no se puede leer la VRAM del dispositivo; revisa el driver / nvidia-smi"
+				if gpu.Error != "" {
+					reason = gpu.Error
 				}
+				s.jobsMu.Lock()
+				if state, ok := s.jobs[job.Song]; ok {
+					state.Status = "blocked_no_gpu"
+					state.Error = reason
+					state.BlockedReason = "gpu_unreadable"
+					state.BlockedReasonMsg = reason
+					state.Progress = 0
+				}
+				s.jobsMu.Unlock()
+				Log("pipeline", "warn", fmt.Sprintf("Job blocked for %s at step %d: %s", job.Song, i+1, reason))
+				return
+			}
+			if ok, _, reason, warning := checkVramHeadroom(gpu.VRAMFreeMB, gpu.VRAMTotalMB, modelName, step.Type, vramCfg, step.Model); !ok {
+				s.jobsMu.Lock()
+				if state, ok := s.jobs[job.Song]; ok {
+					state.Status = "blocked_no_gpu"
+					state.Error = reason
+					state.BlockedReason = "insufficient_vram"
+					state.BlockedReasonMsg = reason
+					state.Progress = 0
+				}
+				s.jobsMu.Unlock()
+				Log("pipeline", "warn", fmt.Sprintf("Job blocked for %s at step %d: %s", job.Song, i+1, reason))
+				return
+			} else if warning != "" {
+				Log("pipeline", "warn", fmt.Sprintf("Job %s at step %d: %s", job.Song, i+1, warning))
 			}
 		}
 		if !job.Config.ForceRAM {

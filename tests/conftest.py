@@ -142,13 +142,16 @@ def _mock_gpu_audio_deps():
 
     # onnxruntime mock (so onda.polarformer imports cleanly)
     ort = _inject("onnxruntime")
-    ort.InferenceSession = mock.Mock(
-        return_value=mock.MagicMock(
-            get_inputs=mock.Mock(return_value=[mock.MagicMock(name="stft_features")])
-        )
+    _session_mock = mock.MagicMock(
+        get_inputs=mock.Mock(return_value=[mock.MagicMock(name="stft_features")]),
+        get_providers=mock.Mock(return_value=["CPUExecutionProvider"]),
     )
+    ort.InferenceSession = mock.Mock(return_value=_session_mock)
+    ort.get_available_providers = mock.Mock(return_value=["CPUExecutionProvider"])
+    ort.__version__ = "1.30.0"
     ort.CUDAExecutionProvider = "CUDAExecutionProvider"
     ort.CPUExecutionProvider = "CPUExecutionProvider"
+    ort.preload_dlls = mock.Mock()
 
     # librosa / soundfile mocks
     librosa = _inject("librosa")

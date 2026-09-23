@@ -1,5 +1,33 @@
 # Changelog
 
+## [v3.5.6] - 2026-09-23
+
+### Added
+- **Medición de rendimiento con base y comparador**: `tools/bench-baseline.sh` mide una versión desplegada hablando con su API (clip de prueba fijo, flags efectivas de Ajustes → Modelos, duración total y por paso, VRAM pico/media vía `nvidia-smi`, dispositivo, stems y versiones) y guarda `.hermes/bench/<fecha>-<etiqueta>.json`; `tools/bench_compare.py` compara dos JSON, muestra deltas y emite un veredicto con umbrales explícitos.
+- **Camino ONNX a GPU**: helper compartido `onda/onnx_utils.py` que hace visibles las librerías CUDA 13/cuDNN, precarga DLLs y crea sesiones de ONNX Runtime con verificación de proveedores activos, para evitar un fallback silencioso a CPU; `GET /api/health` expone ahora versión, proveedores disponibles y estado de CUDA de onnxruntime.
+- **Chequeo de tipos del frontend**: nuevo script `npm run check` (usa `svelte-check`) registrado en `AGENTS.md` como paso obligatorio antes de commitear.
+- **Cobertura de tests**: contratos de API (`api_contracts_test.go`), guardián de raíz de datos única, DSP del DAW, propiedades de audio, flags CLI, capacidad real de VRAM y `sm_75`, helper ONNX, health y benchmarks.
+
+### Changed
+- **Dependencias al día**: `onnxruntime-gpu` 1.26.0 → 1.30.0, `numpy` 2.4.6 → 2.5.3 (sincronizados en `requirements-common.txt`, `requirements-docker.txt`, `pyproject.toml` y `entrypoint.sh`). `pytorch_lightning` y `rotary_embedding_torch` ya estaban en sus últimas versiones (2.6.6 y 0.9.1). Frontend: `vite` 8.0.16 → 8.3.0, `svelte` 5.56.3 → 5.57.1, `svelte-check` 4.6.0 → 4.7.6, `@sveltejs/vite-plugin-svelte` 7.3.0 → 7.3.1, `vitest` 4.1.9 → 5.0.1, `wavesurfer.js` 7.12.8 → 8.0.0. `typescript` 7.0.2 se deja en 6.0.3 porque `svelte-check` aún no acepta su peer range.
+- **VRAM real**: el guard de VRAM lee uso/máximo reales del dispositivo vía `nvidia-smi`; si no puede leer la GPU, Onda bloquea el trabajo con estado `blocked_no_gpu` en vez de lanzarlo a ciegas. El usuario puede forzar con `force_vram`, pero el bloqueo por defecto es seguro.
+- **Rango de flags coherente**: el manifiesto/rango declarado de cada modelo se amplía para que el valor guardado siempre quepa (nunca se recorta en silencio); por ejemplo, `shifts` de `htdemucs_ft` usa el rango real 0–20 del manifiesto.
+- **Carga ONNX unificada**: `onnx_mdx.py` y `polarformer.py` usan el helper compartido; `entrypoint.sh` y `pipeline.sh` añaden al `LD_LIBRARY_PATH` las librerías CUDA 13 y cuDNN.
+- **Documentación y referencias de versiones antiguas al día**: `README.md`, `ARCHITECTURE.md`, `.env.example`, `Makefile`, `docker-compose*.yml`, `docs/demucs-onnx-setup.md`, `docs/dependencies-notes.md` y saltos de línea literales de 11 planes históricos.
+
+### Fixed
+- **Chequeo de tipos del frontend a cero**: `svelte-check` destapó y se corrigieron bugs reales:
+  - sincronía de la posición del DAW y manejo del borde de regiones con `wavesurfer.js` 8,
+  - picos reales en el preview de tono,
+  - aviso de cola con el tipo correcto,
+  - tipos que mentían en `api.ts` y en el downloader,
+  - claves duplicadas en un test.
+- Tipado de props/handlers y eliminación de avisos de accesibilidad en componentes del frontend.
+
+### Removed
+- **`dora-search` y `openunmix`** de las dependencias Docker/`requirements.lock`, con guardián en `tools/check-deps.sh` que impide su vuelta.
+- **6 dependencias Python muertas** (`onnx2pytorch`, `pydub`, `resampy`, `samplerate`, `segmentation-models-pytorch`, `spafe`) tras comprobación doble: sin imports en Onda/`lib_v5` y `pip show <pkg> -> Required-by: NADIE`. Se añadieron pruebas negativas en `tools/check-deps.sh`.
+
 ## [v3.5.5] - 2026-09-23
 
 ### Fixed

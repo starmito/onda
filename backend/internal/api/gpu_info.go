@@ -201,11 +201,6 @@ func checkVramHeadroom(freeMB, totalMB int, modelName, stepType string, cfg VRAM
 	return false, required, reason, ""
 }
 
-// fallbackAvailableVRAMMB is used when GPU info cannot be obtained.
-// It is kept only as a last-resort fallback for the VRAM calculator; getGPUInfo
-// no longer reports this hardcoded value as real GPU memory.
-const fallbackAvailableVRAMMB = 16311
-
 // parseNvidiaSmiMemory parses the CSV output of nvidia-smi for
 // memory.total,memory.used,memory.free and returns the three values in MiB.
 // It tolerates surrounding whitespace and the "nounits" suffix.
@@ -552,6 +547,11 @@ func getHostMemoryInfo() (totalMB int, availableMB int, ok bool) {
 // host RAM. It is a variable so tests can substitute a mock implementation.
 var hostMemoryProvider = getHostMemoryInfo
 
+// gpuInfoProvider is the function used by the API and the pipeline workers to
+// query GPU memory. It is a variable so tests can substitute a mock
+// implementation.
+var gpuInfoProvider = getGPUInfo
+
 // getGPUInfo queries GPU details. It prefers nvidia-smi because the onda
 // container has torch without CUDA. If nvidia-smi is unavailable it returns an
 // explicit failure with no fabricated VRAM numbers.
@@ -872,23 +872,28 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get available VRAM from GPU info (internal call, not HTTP).
+	// If the GPU cannot be read we fail closed: the calculator reports zero
+	// available memory and the job must not be launched.
 	gpuInfo := gpuInfoProvider()
-	availableVRAM := fallbackAvailableVRAMMB
+	availableVRAM := 0
+	fits := false
 	if gpuInfo.OK {
 		availableVRAM = gpuInfo.VRAMFreeMB
+		fits = availableVRAM >= totalVRAM
+	} else {
+		warnings = append(warnings, "No se puede leer la VRAM del dispositivo; revisa el driver / nvidia-smi")
+		allReliable = false
 	}
-
-	freeAfter := availableVRAM - totalVRAM
 
 	resp := VRAMCalculatorResponse{
 		Models:          models,
 		TotalVRAMMB:     totalVRAM,
 		AvailableVRAMMB: availableVRAM,
-		FreeAfterMB:     freeAfter,
-		Fits:            freeAfter >= 0,
+		FreeAfterMB:     availableVRAM - totalVRAM,
+		Fits:            fits,
 		Reliable:        allReliable,
 	}
-	if !allReliable && len(warnings) > 0 {
+	if (!allReliable || !fits) && len(warnings) > 0 {
 		resp.Warning = strings.Join(warnings, " ")
 	}
 

@@ -21,6 +21,25 @@
     model = '',
     flags = '',
     steps = [] as QueueJobStep[],
+  }: {
+    presets?: {name: string, config: any}[];
+    selectedPreset?: string;
+    onSelectPreset?: (name: string) => void;
+    hasFiles?: boolean;
+    onExecute?: () => void;
+    onCancel?: () => void;
+    onForce?: () => void;
+    disabled?: boolean;
+    errorMessage?: string;
+    progress?: number;
+    status?: string;
+    step?: string;
+    song?: string;
+    eta?: string;
+    device?: string;
+    model?: string;
+    flags?: string;
+    steps?: QueueJobStep[];
   } = $props();
 </script>
 

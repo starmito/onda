@@ -37,12 +37,12 @@
     dawPageRef?.setActiveTrackFile?.(result);
   }
 
+  // ===== Full mixer state =====
+  let dawPageRef = $state<any>(null);
+
   const activeTrackName = $derived(
     dawPageRef?.tracks?.find((t: any) => t.fileName === activeFile)?.name ?? activeFile,
   );
-
-  // ===== Full mixer state =====
-  let dawPageRef = $state<any>(null);
   let selectedChannelId = $state<string>('');
   let fullDetailTab = $state<'effects' | 'eq' | 'routing'>('effects');
 
@@ -491,7 +491,6 @@
                     <input
                       type="range"
                       class="fader"
-                      orient="vertical"
                       min="0"
                       max="1"
                       step="0.01"

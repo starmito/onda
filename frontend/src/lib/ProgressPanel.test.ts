@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { mount, unmount } from 'svelte';
+import { mount, unmount, type ComponentProps } from 'svelte';
 import ProgressPanel from './ProgressPanel.svelte';
 import type { QueueJobStep } from './api';
 
@@ -12,7 +12,7 @@ describe('ProgressPanel', () => {
     document.body.appendChild(target);
   });
 
-  function render(props: Partial<Record<keyof ProgressPanel['$$prop_def'], unknown>> = {}) {
+  function render(props: Partial<ComponentProps<typeof ProgressPanel>> = {}) {
     const app = mount(ProgressPanel, {
       target,
       props: {

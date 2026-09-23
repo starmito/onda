@@ -5,12 +5,15 @@
 #
 # Uso:
 #   tools/check-deps.sh                  # verifica los requirements contra requirements.lock
-#   tools/check-deps.sh onda:v3.4.15     # ademas, compara el freeze de esa imagen con requirements.lock
+#   tools/check-deps.sh onda:v3.5.6      # ademas, compara el freeze de esa imagen con requirements.lock
 #
 # Comprueba:
 #   (a) que ninguna linea de los requirements quede sin '=='
 #   (b) que cada paquete declarado coincida con la version de requirements.lock (cuando aparezca alli)
 #   (c) informa de las diferencias en vez de fallar en silencio
+#   (d) que ciertos paquetes retirados no vuelvan a aparecer:
+#       dora-search, openunmix, onnx2pytorch, pydub, resampy, samplerate,
+#       segmentation-models-pytorch, spafe
 #
 # Codigos de salida:
 #   0 = sin errores (puede haber avisos/informacion)
@@ -84,6 +87,53 @@ done < "$LOCK_FILE"
 
 printf '\n'
 ok "requirements.lock: $lock_count paquetes leidos"
+
+# ---------------------------------------------------------------- (d) paquetes retirados que no deben volver
+printf '\n%s-- Paquetes retirados --%s\n' "$C_BLD" "$C_OFF"
+
+FORBIDDEN_FILES=(
+  "$REPO_ROOT/Dockerfile"
+  "$REPO_ROOT/requirements-common.txt"
+  "$REPO_ROOT/requirements-docker.txt"
+  "$REPO_ROOT/requirements.lock"
+)
+
+FORBIDDEN_PATTERNS=(
+  "dora-search"
+  "dora_search"
+  "openunmix"
+  "open-unmix"
+  "open_unmix"
+  "onnx2pytorch"
+  "onnx-2-pytorch"
+  "onnx_2_pytorch"
+  "pydub"
+  "py-dub"
+  "py_dub"
+  "resampy"
+  "samplerate"
+  "sample-rate"
+  "sample_rate"
+  "segmentation-models-pytorch"
+  "segmentation_models_pytorch"
+  "spafe"
+)
+
+for f in "${FORBIDDEN_FILES[@]}"; do
+  [[ -f "$f" ]] || continue
+  rel="${f#$REPO_ROOT/}"
+  lineno=0
+  while IFS= read -r raw || [[ -n "$raw" ]]; do
+    lineno=$((lineno + 1))
+    line_lower="${raw,,}"
+    for bad in "${FORBIDDEN_PATTERNS[@]}"; do
+      if [[ "$line_lower" == *"${bad,,}"* ]]; then
+        err "$rel:$lineno  paquete retirado '$bad' detectado: ${raw}"
+        break
+      fi
+    done
+  done < "$f"
+done
 
 # ---------------------------------------------------------------- requirements (a) y (b)
 declare -A DECLARED_IN=()

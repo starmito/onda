@@ -1,5 +1,5 @@
-# Onda v3.4.4 — Contenedor unificado (Python + Go + Nginx + Svelte)
-# GPU auto-detect en runtime. Perfiles/overrides para CUDA, ROCm, CPU.
+# Onda v3.5.6 — Contenedor unificado (Python + Go + Svelte)
+# GPU auto-detect en runtime. Perfiles/overrides para CUDA y CPU.
 #
 # Uso:
 #   docker compose up -d --build                      # CPU mode (default)

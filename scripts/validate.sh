@@ -67,9 +67,11 @@ echo ""
 
 # ── 4. Required directories ────────────────────────────────
 echo "📂 Directories"
-check "input/ directory exists" test -d input
-check "output/ directory exists" test -d output
-check "models/ directory exists" test -d models
+DATA_DIR="${ONDA_DATA_DIR:-$PROJECT_DIR/data}"
+check "data root exists" test -d "$DATA_DIR"
+check "input/ directory exists" test -d "$DATA_DIR/input"
+check "output/ directory exists" test -d "$DATA_DIR/output"
+check "models/ directory exists" test -d "$PROJECT_DIR/models" || check "data/models/ directory exists" test -d "$DATA_DIR/models"
 echo ""
 
 # ── 5. Dockerfile syntax ───────────────────────────────────

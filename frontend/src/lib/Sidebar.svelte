@@ -1,4 +1,4 @@
-<script>
+<script lang="ts">
 	import { IconMenu, IconUser, IconTone, IconBPM, IconDAW, IconMIDI, IconSpectrogram, IconExport, IconHelp, IconSettings } from './icons';
 
 	/**
@@ -13,9 +13,15 @@
 	let {
 		activeTab = '',
 		collapsed = false,
-		presets = [],
+		presets = [] as { id: string; name: string; icon?: string }[],
 		ontoggle = () => {},
-		ontabchange = (tabId) => {},
+		ontabchange = (tabId: string) => {},
+	}: {
+		activeTab?: string;
+		collapsed?: boolean;
+		presets?: { id: string; name: string; icon?: string }[];
+		ontoggle?: () => void;
+		ontabchange?: (tabId: string) => void;
 	} = $props();
 
 	const customItem = { id: 'personalizado', name: 'Personalizado', icon: IconUser };
@@ -34,7 +40,7 @@
 		{ id: 'settings', name: 'Ajustes',             icon: IconSettings },
 	];
 
-	function handleClick(tabId) {
+	function handleClick(tabId: string) {
 		ontabchange(tabId);
 	}
 

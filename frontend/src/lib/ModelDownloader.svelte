@@ -15,7 +15,6 @@
     type HFModelEntry,
     type DemucsCatalogEntry,
     type LocalModel,
-    type DownloadProgress,
     type ModelUploadResponse,
   } from './api';
 
@@ -331,7 +330,7 @@
         const existing = byDisplayName.get(dn);
         if (!existing) {
           byDisplayName.set(dn, m);
-        } else if (m.size_mb > 0 && existing.size_mb === 0) {
+        } else if ((m.size_mb ?? 0) > 0 && (existing.size_mb ?? 0) === 0) {
           // Replace config (0 MB) with weights (>0 MB)
           byDisplayName.set(dn, m);
         }
@@ -787,6 +786,7 @@
         ondragover={handleUploadDragOver}
         ondrop={handleUploadDrop}
         onclick={() => document.getElementById('model-upload-input')?.click()}
+        onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); document.getElementById('model-upload-input')?.click(); } }}
         role="button"
         tabindex="0"
       >
@@ -907,19 +907,6 @@
     text-align: center;
   }
 
-  .btn-back {
-    background: none;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--accent-light);
-    font-size: 0.85rem;
-    padding: 0.3rem 0.8rem;
-    cursor: pointer;
-    transition: border-color 0.15s;
-  }
-  .btn-back:hover {
-    border-color: var(--accent);
-  }
   .btn-close {
     background: transparent; border: 1px solid var(--border); color: var(--text-secondary);
     font-size: 18px; width: 32px; height: 32px; border-radius: 6px;
@@ -1082,11 +1069,6 @@
     font-size: 1rem;
   }
 
-  .spinner {
-    font-size: 1rem;
-    animation: spin 1s linear infinite;
-  }
-
   @keyframes spin {
     from { transform: rotate(0deg); }
     to { transform: rotate(360deg); }
@@ -1112,13 +1094,6 @@
     cursor: not-allowed;
   }
 
-  .download-progress-wrap {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    min-width: 120px;
-  }
-
   .progress-bar {
     flex: 1;
     height: 6px;
@@ -1141,12 +1116,6 @@
     color: var(--accent);
     min-width: 2.2em;
     text-align: right;
-  }
-
-  .speed-text {
-    font-size: 0.6rem;
-    color: var(--text-muted);
-    white-space: nowrap;
   }
 
   .download-error {
