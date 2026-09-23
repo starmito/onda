@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -65,6 +66,99 @@ func TestHandleHealth_GPUUsableByTorch(t *testing.T) {
 	}
 	if gpu["total_mb"] != 16311.0 {
 		t.Errorf("expected total_mb from device (16311), got %v", gpu["total_mb"])
+	}
+}
+
+func TestHandleHealth_ONNXRuntimeCUDA(t *testing.T) {
+	orig := checkONNXRuntime
+	checkONNXRuntime = func() (map[string]interface{}, error) {
+		return map[string]interface{}{
+			"available":      true,
+			"version":        "1.30.0",
+			"providers":      []interface{}{"CUDAExecutionProvider", "CPUExecutionProvider"},
+			"cuda":           true,
+			"cuda_requested": true,
+			"error":          nil,
+		}, nil
+	}
+	t.Cleanup(func() { checkONNXRuntime = orig })
+
+	origGPU := checkGPU
+	checkGPU = func() (bool, string, error) { return true, "CUDA available", nil }
+	t.Cleanup(func() { checkGPU = origGPU })
+
+	origGPUInfo := gpuInfoProvider
+	gpuInfoProvider = func() GPUInfoResponse { return GPUInfoResponse{OK: true} }
+	t.Cleanup(func() { gpuInfoProvider = origGPUInfo })
+
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("/api/health", s.handleHealth)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	onnx, ok := resp["onnxruntime"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected onnxruntime object, got %T", resp["onnxruntime"])
+	}
+	if onnx["available"] != true {
+		t.Errorf("expected onnxruntime.available true, got %v", onnx["available"])
+	}
+	if onnx["cuda"] != true {
+		t.Errorf("expected onnxruntime.cuda true, got %v", onnx["cuda"])
+	}
+	providers, ok := onnx["providers"].([]interface{})
+	if !ok || len(providers) == 0 || providers[0] != "CUDAExecutionProvider" {
+		t.Errorf("expected CUDA first in providers, got %v", onnx["providers"])
+	}
+}
+
+func TestHandleHealth_ONNXRuntimeProbeFails(t *testing.T) {
+	orig := checkONNXRuntime
+	checkONNXRuntime = func() (map[string]interface{}, error) {
+		return nil, fmt.Errorf("python import failed")
+	}
+	t.Cleanup(func() { checkONNXRuntime = orig })
+
+	origGPU := checkGPU
+	checkGPU = func() (bool, string, error) { return true, "CUDA available", nil }
+	t.Cleanup(func() { checkGPU = origGPU })
+
+	origGPUInfo := gpuInfoProvider
+	gpuInfoProvider = func() GPUInfoResponse { return GPUInfoResponse{OK: true} }
+	t.Cleanup(func() { gpuInfoProvider = origGPUInfo })
+
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("/api/health", s.handleHealth)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/health", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	onnx, ok := resp["onnxruntime"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected onnxruntime object, got %T", resp["onnxruntime"])
+	}
+	if onnx["available"] != false {
+		t.Errorf("expected onnxruntime.available false, got %v", onnx["available"])
+	}
+	if onnx["error"] == nil {
+		t.Errorf("expected onnxruntime.error to be set")
 	}
 }
 
