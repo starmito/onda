@@ -135,4 +135,87 @@ describe('PipelineView', () => {
 
     unmount(app);
   });
+
+  it('renders per-step progress bars when the active job exposes steps', () => {
+    const queueFiles: QueueFile[] = [
+      {
+        file: new File([], 'song.wav'),
+        id: 's1',
+        status: 'processing',
+        checked: false,
+        path: 'uploads/song.wav',
+      },
+    ];
+    const queueJobs: QueueJob[] = [
+      {
+        song: 'song',
+        status: 'processing',
+        progress: 50,
+        current_step: 2,
+        total_steps: 2,
+        step_name: 'Modelo B',
+        device: 'cuda',
+        steps: [
+          { id: 'step-a', name: 'Modelo A', status: 'done', progress: 100, eta: 0, elapsed: 30 },
+          { id: 'step-b', name: 'Modelo B', status: 'running', progress: 60, eta: 90, elapsed: 20 },
+        ],
+      },
+    ];
+
+    const { app } = render({
+      queueFiles,
+      queueJobs,
+      separating: true,
+      hidePresetSelector: true,
+      currentProgress: 0.8,
+    });
+
+    const rows = target.querySelectorAll('[data-testid="step-row"]');
+    expect(rows.length).toBe(2);
+
+    const pcts = Array.from(target.querySelectorAll('.step-pct')).map((el) => el.textContent);
+    expect(pcts).toContain('100%');
+    expect(pcts).toContain('60%');
+
+    const globalPct = target.querySelector('.progress-pct')?.textContent;
+    expect(globalPct).toBe('80%');
+
+    unmount(app);
+  });
+
+  it('keeps the legacy global bar when the active job has no steps', () => {
+    const queueFiles: QueueFile[] = [
+      {
+        file: new File([], 'song.wav'),
+        id: 's1',
+        status: 'processing',
+        checked: false,
+        path: 'uploads/song.wav',
+      },
+    ];
+    const queueJobs: QueueJob[] = [
+      {
+        song: 'song',
+        status: 'processing',
+        progress: 55,
+        current_step: 1,
+        total_steps: 1,
+        step_name: 'Separando',
+        device: 'cuda',
+      },
+    ];
+
+    const { app } = render({
+      queueFiles,
+      queueJobs,
+      separating: true,
+      hidePresetSelector: true,
+      currentProgress: 0.55,
+    });
+
+    expect(target.querySelector('[data-testid="steps-list"]')).toBeNull();
+    expect(target.querySelector('.progress-pct')?.textContent).toBe('55%');
+
+    unmount(app);
+  });
 });
