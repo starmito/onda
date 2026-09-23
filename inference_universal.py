@@ -42,8 +42,9 @@ def _write_progress(progress_file, chunk, total):
 
 
 def _report_pipeline_status(status_file, step_name, step_idx, total_steps,
-                            progress, chunk, total, device='cuda',
-                            start_time=None):
+                             progress, chunk, total, device='cuda',
+                             start_time=None, step_id=None,
+                             step_display_name=None):
     """Report progress to pipeline_status.json through the tracker.
 
     The tracker is the single writer of progress/eta/elapsed.  This function
@@ -70,6 +71,8 @@ def _report_pipeline_status(status_file, step_name, step_idx, total_steps,
             total_steps,
             extra=extra,
             step_name=step_name,
+            step_id=step_id,
+            step_display_name=step_display_name,
         )
     except Exception:
         pass  # Non-critical; don't crash the pipeline over a status write failure
@@ -104,7 +107,8 @@ def _ensure_output_length(result, expected_len, context=''):
 def _process_mix(model, mix, C, step, batch_size, S, device,
                  progress_file=None, pipeline_status=None,
                  progress_base=0, progress_total=1,
-                 step_idx=0, total_steps=1, start_time=None):
+                 step_idx=0, total_steps=1, start_time=None,
+                 step_id=None, step_display_name=None):
     """Run the model on a single contiguous mix tensor.
 
     Returns a tensor of shape (S, channels, mix_len) with the accumulated
@@ -173,10 +177,12 @@ def _process_mix(model, mix, C, step, batch_size, S, device,
                     _write_progress(progress_file, progress_base + chunk_idx, progress_total)
                 if pipeline_status:
                     _report_pipeline_status(
-                        pipeline_status, 'vocal', step_idx, total_steps,
+                        pipeline_status, step_id or 'vocal', step_idx, total_steps,
                         (progress_base + chunk_idx) / progress_total if progress_total > 0 else 0.0,
                         progress_base + chunk_idx, progress_total, str(device),
                         start_time=start_time,
+                        step_id=step_id,
+                        step_display_name=step_display_name,
                     )
                 batch_data, batch_starts = [], []
 
@@ -186,7 +192,8 @@ def _process_mix(model, mix, C, step, batch_size, S, device,
 
 def _chunked_process(model, audio, C, step, batch_size, S, device, chunk_seconds,
                      progress_file=None, pipeline_status=None,
-                     step_idx=0, total_steps=1, start_time=None):
+                     step_idx=0, total_steps=1, start_time=None,
+                     step_id=None, step_display_name=None):
     """Process a long audio by splitting it into time chunks with C-sample overlap.
 
     Each chunk is processed independently by the normal segment-based flow and
@@ -207,7 +214,8 @@ def _chunked_process(model, audio, C, step, batch_size, S, device, chunk_seconds
               torch.tensor(audio, dtype=torch.float32, device=device)
         result = _process_mix(model, mix, C, step, batch_size, S, device,
                               progress_file, pipeline_status,
-                              step_idx=step_idx, total_steps=total_steps, start_time=start_time)
+                              step_idx=step_idx, total_steps=total_steps, start_time=start_time,
+                              step_id=step_id, step_display_name=step_display_name)
         if pad_len > 0 and audio.shape[1] > 2 * pad_len:
             result = result[:, :, pad_len:-pad_len]
         return result
@@ -245,7 +253,8 @@ def _chunked_process(model, audio, C, step, batch_size, S, device, chunk_seconds
         result_chunk = _process_mix(model, mix_chunk, C, step, batch_size, S, device,
                                     progress_file, pipeline_status,
                                     progress_base=progress_base, progress_total=progress_total,
-                                    step_idx=step_idx, total_steps=total_steps, start_time=start_time)
+                                    step_idx=step_idx, total_steps=total_steps, start_time=start_time,
+                                    step_id=step_id, step_display_name=step_display_name)
         if pad_len > 0 and apply_pad:
             result_chunk = result_chunk[:, :, pad_len:-pad_len]
 
@@ -272,7 +281,7 @@ def _chunked_process(model, audio, C, step, batch_size, S, device, chunk_seconds
 
 
 def separate(model_dir, input_path, output_dir="output", progress_file=None, num_overlap=None, pipeline_status=None,
-             step_idx=0, total_steps=1, start_time=None):
+             step_idx=0, total_steps=1, start_time=None, step_id=None, step_display_name=None):
     ckpts = sorted([f for f in os.listdir(model_dir) if f.endswith('.ckpt')])
     yamls = sorted([f for f in os.listdir(model_dir) if f.endswith('.yaml')])
     if not ckpts or not yamls:
@@ -346,14 +355,16 @@ def separate(model_dir, input_path, output_dir="output", progress_file=None, num
     if chunk_seconds > 0:
         result = _chunked_process(model, audio, C, step, batch_size, S, device, chunk_seconds,
                                   progress_file, pipeline_status,
-                                  step_idx=step_idx, total_steps=total_steps, start_time=start_time)
+                                  step_idx=step_idx, total_steps=total_steps, start_time=start_time,
+                                  step_id=step_id, step_display_name=step_display_name)
     else:
         mix = torch.tensor(audio, dtype=torch.float32).to(device)
         if audio.shape[1] > 2 * pad_len:
             mix = nn.functional.pad(mix, (pad_len, pad_len), mode='reflect')
         result = _process_mix(model, mix, C, step, batch_size, S, device,
                               progress_file, pipeline_status,
-                              step_idx=step_idx, total_steps=total_steps, start_time=start_time)
+                              step_idx=step_idx, total_steps=total_steps, start_time=start_time,
+                              step_id=step_id, step_display_name=step_display_name)
         if pad_len > 0 and audio.shape[1] > 2 * pad_len:
             result = result[:, :, pad_len:-pad_len]
 
@@ -400,6 +411,8 @@ if __name__ == '__main__':
     cli_dim_t = None
     step_idx = 0
     total_steps = 1
+    step_id = None
+    step_display_name = None
 
     # Parse named flags
     filtered = []
@@ -423,6 +436,12 @@ if __name__ == '__main__':
         elif args[i] == '--total-steps' and i+1 < len(args):
             total_steps = int(args[i+1])
             i += 2
+        elif args[i] == '--step-id' and i+1 < len(args):
+            step_id = args[i+1]
+            i += 2
+        elif args[i] == '--step-name' and i+1 < len(args):
+            step_display_name = args[i+1]
+            i += 2
         else:
             filtered.append(args[i])
             i += 1
@@ -443,4 +462,5 @@ if __name__ == '__main__':
 
     sys.exit(0 if separate(model_dir, input_path, output_dir, progress_file,
                            num_overlap=num_overlap, pipeline_status=pipeline_status,
-                           step_idx=step_idx, total_steps=total_steps) else 1)
+                           step_idx=step_idx, total_steps=total_steps,
+                           step_id=step_id, step_display_name=step_display_name) else 1)
