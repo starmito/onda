@@ -1476,6 +1476,9 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	if cfgDir := configDir(); cfgDir != "" {
 		cmd.Env = append(cmd.Env, fmt.Sprintf("ONDA_CONFIG_DIR=%s", cfgDir))
 	}
+	if hfHome := os.Getenv("HF_HOME"); hfHome != "" {
+		cmd.Env = append(cmd.Env, fmt.Sprintf("HF_HOME=%s", hfHome))
+	}
 	if len(job.Env) > 0 {
 		cmd.Env = append(cmd.Env, job.Env...)
 	}
@@ -1660,6 +1663,9 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		cmd.Env = append(os.Environ(), "PYTHONUNBUFFERED=1")
 		if cfgDir := configDir(); cfgDir != "" {
 			cmd.Env = append(cmd.Env, fmt.Sprintf("ONDA_CONFIG_DIR=%s", cfgDir))
+		}
+		if hfHome := os.Getenv("HF_HOME"); hfHome != "" {
+			cmd.Env = append(cmd.Env, fmt.Sprintf("HF_HOME=%s", hfHome))
 		}
 		if len(stepEnv) > 0 {
 			cmd.Env = append(cmd.Env, stepEnv...)

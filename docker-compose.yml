@@ -12,9 +12,11 @@
 #   ONDA_DATA_DIR      — raíz de datos dentro del contenedor (default: /app/data)
 #   ONDA_SETTINGS_FILE — ruta del fichero de ajustes persistentes
 #                        (default: /app/data/config/.onda-settings.json)
+#   HF_HOME            — raíz de la caché de HuggingFace Hub
+#                        (default: /app/data/.cache/huggingface)
 #
 # La raíz de datos se monta desde ./data del host y contiene:
-#   input/ output/ daw-data/ input_rubberband/ config/ logs/ models/
+#   input/ output/ daw-data/ input_rubberband/ config/ logs/ models/ .cache/
 
 services:
   onda:
@@ -35,6 +37,7 @@ services:
       - GUI_VERSION=${GUI_VERSION:-unknown}
       - ONDA_DATA_DIR=/app/data
       - ONDA_SETTINGS_FILE=/app/data/config/.onda-settings.json
+      - HF_HOME=/app/data/.cache/huggingface
     volumes:
       # Bind-mount del script del pipeline: refleja los cambios del host en el
       # contenedor sin rebuild ni `docker cp`, evitando drift silencioso.

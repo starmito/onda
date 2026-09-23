@@ -71,13 +71,15 @@ for job_dir in "${ONDA_DATA_DIR}/output"/*; do
 done
 
 # Use persistent caches under /app so torch/hf/numba state survives restarts.
+# HF_HOME is injected by docker-compose.yml (default: /app/data/.cache/huggingface);
+# the entrypoint only provides a fallback for environments that do not set it.
 export TORCH_HOME=/app/.cache/torch
 export NUMBA_CACHE_DIR=/app/.cache/numba
 export XDG_CACHE_HOME=/app/.cache/xdg
-export HF_HOME=/app/.cache/hf
+export HF_HOME="${HF_HOME:-/app/.cache/hf}"
 
 # Crear directorios de caché persistentes como appuser
-mkdir -p /app/.cache/numba /app/.cache/torch /app/.cache/xdg /app/.cache/hf
+mkdir -p /app/.cache/numba /app/.cache/torch /app/.cache/xdg "${HF_HOME}"
 
 echo "🚀 Starting Onda ${ONDAP_VERSION:-unknown} ($GPU mode)..."
 exec /usr/local/bin/onda-backend serve --addr 0.0.0.0:3000
