@@ -63,16 +63,26 @@ type VRAMConfig struct {
 	Duration      int // audio duration in seconds (0 = unknown)
 }
 
+// measuredParamUnused marks a measuredVRAMPeak field whose value was not
+// captured during the measurement. A field with this value is ignored when
+// matching, so the measurement is only used when the caller settings for the
+// captured parameters match exactly.
+const measuredParamUnused = -1
+
 // measuredVRAMPeak stores an observed real peak for a model/step combination
 // under specific inference settings. When a match exists it overrides the
-// analytical estimator so the UI can show a number grounded in reality.
+// analytical estimator so the guard can reflect reality. Fields set to
+// measuredParamUnused were not captured and act as wildcards; this prevents a
+// stale measurement from hiding the effect of a flag the user just changed.
 type measuredVRAMPeak struct {
-	ModelName string
-	StepType  string
-	PeakMB    int
-	ChunkSize int // 0 = whole-song / not relevant
-	BatchSize int // 0 = not relevant
-	Duration  int // seconds, 0 = not relevant
+	ModelName     string
+	StepType      string
+	PeakMB        int
+	SegmentSize   int // dim_t for Roformer/MDX; measuredParamUnused if not captured
+	ChunkSize     int // 0 = whole-song / not relevant
+	BatchSize     int // 0 = not relevant
+	DemucsSegment int // seconds for Demucs; measuredParamUnused if not captured
+	Duration      int // seconds, 0 = not relevant
 }
 
 // measuredVRAMPeaks is the live table of observed VRAM peaks. Values are
@@ -82,13 +92,15 @@ type measuredVRAMPeak struct {
 var measuredVRAMPeaks = []measuredVRAMPeak{
 	// Measured 2026-09-19: htdemucs_ft with --shifts 20 --segment 7 -j 8
 	// stays around 1.5 GiB after the vocal model is released.
-	{ModelName: "htdemucs_ft", StepType: "demucs", PeakMB: 1500, ChunkSize: 0, BatchSize: 0, Duration: 0},
+	{ModelName: "htdemucs_ft", StepType: "demucs", PeakMB: 1500, DemucsSegment: 7},
 	// Measured 2026-09-21: BS_Roformer_SW_6stem, 30 s stereo 44.1 kHz,
 	// chunk_size=485100 samples, overlap=4 (step=121275), batch_size=1.
-	{ModelName: "BS_Roformer_SW_6stem", StepType: "vocal", PeakMB: 2803, ChunkSize: 485100, BatchSize: 1, Duration: 30},
+	// SegmentSize was not captured; the calculator uses the analytical estimate
+	// so the number still moves when the user changes segment_size.
+	{ModelName: "BS_Roformer_SW_6stem", StepType: "vocal", PeakMB: 2803, SegmentSize: measuredParamUnused, ChunkSize: 485100, BatchSize: 1, Duration: 30},
 	// Measured 2026-09-21: SCNet_MUSDB18 with chunk_size=0 (whole song),
 	// 296 s stereo 44.1 kHz, batch_size=1.
-	{ModelName: "SCNet_MUSDB18", StepType: "scnet", PeakMB: 6372, ChunkSize: 0, BatchSize: 1, Duration: 296},
+	{ModelName: "SCNet_MUSDB18", StepType: "scnet", PeakMB: 6372, SegmentSize: measuredParamUnused, ChunkSize: 0, BatchSize: 1, Duration: 296},
 }
 
 // findMeasuredVRAMPeak returns the measured peak in MiB for a model/step
@@ -101,10 +113,16 @@ func findMeasuredVRAMPeak(modelName, stepType string, cfg VRAMConfig) int {
 		if strings.ToLower(m.ModelName) != lowerModel || strings.ToLower(m.StepType) != lowerStep {
 			continue
 		}
+		if m.SegmentSize != measuredParamUnused && cfg.SegmentSize != m.SegmentSize {
+			continue
+		}
 		if m.ChunkSize > 0 && cfg.ChunkSize != m.ChunkSize {
 			continue
 		}
 		if m.BatchSize > 0 && cfg.BatchSize != m.BatchSize {
+			continue
+		}
+		if m.DemucsSegment != measuredParamUnused && cfg.DemucsSegment != m.DemucsSegment {
 			continue
 		}
 		// Duration only matters for whole-song (chunk_size=0) measurements.
@@ -327,15 +345,27 @@ func estimateVRAMMB(modelName string, segmentSize, chunkSize, batchSize, demucsS
 		return roformerEstimateVRAMMB(segmentSize, chunkSize, batchSize, duration)
 	}
 
-	// Demucs / htdemucs: measured peak depends on demucs segment setting.
+	// Demucs / htdemucs: measured peak depends on the Demucs segment setting.
+	// Interpolate between the two observed points so the calculator reacts to
+	// every slider position instead of only at the >=7 threshold.
 	if isDemucsModel(lower) {
-		if demucsSegment >= 7 {
-			return 1106
-		}
-		return 1572
+		return demucsEstimateVRAMMB(demucsSegment)
 	}
 
 	return defaultVRAMMB
+}
+
+// demucsSegmentPoints are measured Demucs segment values (seconds), ordered.
+var demucsSegmentPoints = []int{0, 7}
+
+// demucsVRAMPoints are the measured VRAM peaks (MiB) for demucsSegmentPoints.
+// The seg=7 value comes from the real htdemucs_ft measurement (1500 MiB).
+var demucsVRAMPoints = []int{1572, 1500}
+
+// demucsEstimateVRAMMB returns the empirical Demucs-family VRAM peak in MB.
+// Values outside the measured range are clamped to the nearest measurement.
+func demucsEstimateVRAMMB(demucsSegment int) int {
+	return interpolatePeak(demucsSegment, demucsSegmentPoints, demucsVRAMPoints)
 }
 
 // roformerEstimateVRAMMB returns an analytical VRAM peak for RoFormer/Vocal
@@ -710,6 +740,10 @@ func vramEstimateReliable(modelType string, cfg VRAMConfig) (bool, string) {
 		if cfg.SegmentSize == 0 {
 			return false, "Falta segment_size: se usa una estimación genérica que puede no coincidir con este modelo."
 		}
+	case "demucs":
+		if cfg.DemucsSegment < demucsSegmentPoints[0] || cfg.DemucsSegment > demucsSegmentPoints[len(demucsSegmentPoints)-1] {
+			return false, "El segmento de Demucs está fuera del rango medido; el valor se ajusta al límite más cercano."
+		}
 	}
 	return true, ""
 }
@@ -754,8 +788,13 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse demucs_segment query parameter (affects VRAM for Demucs models).
+	// The manifest flag is named "segment"; the frontend sends it as
+	// demucs_segment, but accept "segment" too for direct API callers.
 	demucsSegment := 0
 	demucsSegmentParam := r.URL.Query().Get("demucs_segment")
+	if demucsSegmentParam == "" {
+		demucsSegmentParam = r.URL.Query().Get("segment")
+	}
 	if demucsSegmentParam != "" {
 		if ds, err := strconv.Atoi(demucsSegmentParam); err == nil && ds >= 0 {
 			demucsSegment = ds
@@ -812,16 +851,15 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 		modelName = strings.TrimSpace(modelName)
 		modelType := classifyModelType(modelName)
 
-		var vramMB int
-		if peak := findMeasuredVRAMPeak(modelName, modelType, cfg); peak > 0 {
-			vramMB = peak
-		} else {
-			vramMB = estimateVRAMMB(modelName, segmentSize, chunkSize, batchSize, demucsSegment, duration)
-			if ok, w := vramEstimateReliable(modelType, cfg); !ok {
-				allReliable = false
-				if w != "" {
-					warnings = append(warnings, modelName+": "+w)
-				}
+		// The calculator always uses the analytical estimator so the displayed
+		// number moves when the user changes flags. Measured peaks are kept for
+		// the launch-time headroom guard, where the effective config is known
+		// precisely.
+		vramMB := estimateVRAMMB(modelName, segmentSize, chunkSize, batchSize, demucsSegment, duration)
+		if ok, w := vramEstimateReliable(modelType, cfg); !ok {
+			allReliable = false
+			if w != "" {
+				warnings = append(warnings, modelName+": "+w)
 			}
 		}
 
@@ -834,7 +872,7 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Get available VRAM from GPU info (internal call, not HTTP).
-	gpuInfo := getGPUInfo()
+	gpuInfo := gpuInfoProvider()
 	availableVRAM := fallbackAvailableVRAMMB
 	if gpuInfo.OK {
 		availableVRAM = gpuInfo.VRAMFreeMB
