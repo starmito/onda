@@ -42,6 +42,7 @@
     volume: number;
     muted: boolean;
     solo: boolean;
+    loadError: string | null;
   };
 
   interface Props {
@@ -284,8 +285,11 @@
     });
 
     ws.on('error', (err: any) => {
-      status = `Error: ${err?.message || err || 'desconocido'}`;
+      const msg = err?.message || err || 'desconocido';
+      console.error(`WaveSurfer error for track ${track.id}:`, msg);
+      track.loadError = `No se pudo cargar el audio: ${msg}`;
       track.isReady = false;
+      status = track.loadError;
     });
 
     ws.on('seeking', () => {
@@ -300,10 +304,25 @@
       syncSeek = false;
     });
 
-    ws.load(track.source);
     track.ws = ws;
     track.regionsPlugin = regionsPlugin;
     track.timelinePlugin = timelinePlugin;
+
+    // Single owner for audio loading: once the WaveSurfer instance exists,
+    // load the source that was already assigned when the track was added.
+    if (track.source) {
+      loadTrackAudio(track, track.source);
+    }
+  }
+
+  function loadTrackAudio(track: Track, source: string) {
+    if (!track.ws) return;
+    track.source = source;
+    track.isReady = false;
+    track.loadError = null;
+    status = 'Generando waveform...';
+    track.ws.empty();
+    track.ws.load(source);
   }
 
   function updateStatus() {
@@ -338,6 +357,7 @@
       volume: 1,
       muted: false,
       solo: false,
+      loadError: null,
     };
     tracks = [...tracks, track];
     activeTrackId = id;
@@ -381,11 +401,7 @@
     if (!track.ws) return;
     track.fileName = fileName;
     track.name = name;
-    track.source = source;
-    track.isReady = false;
-    status = 'Generando waveform...';
-    track.ws.empty();
-    track.ws.load(source);
+    loadTrackAudio(track, source);
     if (addRegionFlag) {
       const once = () => {
         addDefaultRegion(track);
@@ -922,6 +938,9 @@
               <div class="track-info">
                 <span class="track-name" title={track.name}>{track.name}</span>
                 <span class="track-size">{formatBytes(track.size)}</span>
+                {#if track.loadError}
+                  <span class="track-load-error" title={track.loadError}>Error de carga</span>
+                {/if}
               </div>
               <div class="track-controls">
                 <button
@@ -1451,6 +1470,12 @@
   .track-size {
     font-size: 0.75rem;
     color: var(--text-secondary);
+  }
+
+  .track-load-error {
+    font-size: 0.75rem;
+    color: #f44336;
+    font-weight: 600;
   }
 
   .track-controls {

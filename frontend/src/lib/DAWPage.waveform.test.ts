@@ -5,17 +5,23 @@ import WaveSurfer from 'wavesurfer.js';
 
 function createMockWaveSurfer() {
   const handlers: Record<string, (() => void)[]> = {};
+  let loadedUrl: string | null = null;
   return {
     on(event: string, handler: () => void) {
       if (!handlers[event]) handlers[event] = [];
       handlers[event].push(handler);
-      // Simulate async ready so the track becomes playable.
-      if (event === 'ready') {
-        setTimeout(handler, 0);
-      }
     },
     un(_event: string, _handler: () => void) {},
-    load() {},
+    load(url: string) {
+      loadedUrl = url;
+      // Only signal readiness when the component actually provided a real URL.
+      // This makes the test fail if the old code calls load('') or skips load().
+      if (url) {
+        setTimeout(() => {
+          handlers['ready']?.forEach((h) => h());
+        }, 0);
+      }
+    },
     empty() {},
     destroy() {},
     setVolume() {},
@@ -37,6 +43,9 @@ function createMockWaveSurfer() {
     getWrapper() {
       return null;
     },
+    getLoadedUrl() {
+      return loadedUrl;
+    },
     _emit(event: string) {
       handlers[event]?.forEach((h) => h());
     },
@@ -45,11 +54,15 @@ function createMockWaveSurfer() {
 
 describe('DAWPage waveform initialization', () => {
   let createSpy: ReturnType<typeof vi.spyOn>;
+  const mockedInstances: ReturnType<typeof createMockWaveSurfer>[] = [];
 
   beforeEach(() => {
-    createSpy = vi
-      .spyOn(WaveSurfer, 'create')
-      .mockImplementation((options: any) => createMockWaveSurfer() as unknown as WaveSurfer);
+    mockedInstances.length = 0;
+    createSpy = vi.spyOn(WaveSurfer, 'create').mockImplementation((options: any) => {
+      const instance = createMockWaveSurfer();
+      mockedInstances.push(instance);
+      return instance as unknown as WaveSurfer;
+    });
 
     globalThis.fetch = vi.fn((input: RequestInfo | URL) => {
       const url = typeof input === 'string' ? input : input.toString();
@@ -96,9 +109,10 @@ describe('DAWPage waveform initialization', () => {
   afterEach(() => {
     createSpy.mockRestore();
     vi.restoreAllMocks();
+    mockedInstances.length = 0;
   });
 
-  it('initializes WaveSurfer for an imported track and enables play', async () => {
+  it('loads the imported audio URL into WaveSurfer and enables play', async () => {
     const target = document.createElement('div');
     document.body.appendChild(target);
     mount(DAWPage, { target });
@@ -127,6 +141,11 @@ describe('DAWPage waveform initialization', () => {
     const options = createSpy.mock.calls[0][0];
     expect(options.container).toBeInstanceOf(HTMLDivElement);
     expect(options.container.classList.contains('track-waveform')).toBe(true);
+
+    // WaveSurfer must have been asked to load the real URL returned by the API.
+    expect(mockedInstances.length).toBeGreaterThan(0);
+    const loadedUrl = mockedInstances[0].getLoadedUrl();
+    expect(loadedUrl).toBe('daw-data/test/import_test.wav');
 
     // Wait for the mocked ready event so the play button enables.
     await new Promise((r) => setTimeout(r, 20));
