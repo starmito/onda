@@ -121,17 +121,43 @@ def test_extract_flags_extracts_inference_and_demucs() -> None:
     flags = extract_flags(cfg)
     assert flags["segment_size"]["default"] == 256
     assert flags["num_overlap"]["default"] == 4
-    assert flags["overlap"]["default"] == 0.25
     assert flags["batch_size"]["default"] == 1
     assert flags["chunk_size"]["default"] == 0
     assert flags["device"]["default"] == "cuda"
     assert flags["device"]["choices"] == ["cuda", "cpu"]
-    assert flags["shifts"]["default"] == 0
+    # Declared 0 falls back to the valid app default.
+    assert flags["shifts"]["default"] == 1
     assert flags["segment"]["default"] == 0.0
-    assert flags["jobs"]["default"] == 0
+    assert flags["jobs"]["default"] == 1
+    # The legacy float "overlap" flag is no longer emitted; num_overlap is canonical.
+    assert "overlap" not in flags
     # Raw architecture keys live in metadata, not in editable flags.
     assert "dim_t" not in flags
     assert "normalize" not in flags
+    # Every flag carries the new metadata fields.
+    for name, flag in flags.items():
+        assert "description" in flag, f"{name} missing description"
+        if name == "device":
+            continue
+        assert "affects" in flag, f"{name} missing affects"
+        assert "better_side" in flag, f"{name} missing better_side"
+
+
+def test_extract_flags_filters_by_model_type() -> None:
+    cfg = {
+        "inference": {"dim_t": 256, "num_overlap": 4, "batch_size": 1, "chunk_size": 0},
+        "demucs": {"shifts": 2, "segment": 7, "jobs": 4},
+    }
+    roformer_flags = extract_flags(cfg, model_type="bs_roformer")
+    assert set(roformer_flags.keys()) == {
+        "segment_size",
+        "num_overlap",
+        "chunk_size",
+        "batch_size",
+        "device",
+    }
+    demucs_flags = extract_flags(cfg, model_type="demucs")
+    assert set(demucs_flags.keys()) == {"shifts", "segment", "jobs", "device"}
 
 
 def test_generate_manifest_with_valid_config(tmp_path: Path) -> None:
@@ -161,6 +187,17 @@ def test_generate_manifest_with_valid_config(tmp_path: Path) -> None:
     assert manifest["flags"]["segment_size"]["default"] == 512
     assert manifest["flags"]["num_overlap"]["default"] == 2
     assert manifest["flags"]["batch_size"]["default"] == 1
+    # Roformers expose chunk_size; Demucs-specific flags are omitted.
+    assert "chunk_size" in manifest["flags"]
+    assert "shifts" not in manifest["flags"]
+    assert "segment" not in manifest["flags"]
+    # Every flag carries the new metadata.
+    for name, flag in manifest["flags"].items():
+        assert "description" in flag, f"{name} missing description"
+        if name == "device":
+            continue
+        assert "affects" in flag, f"{name} missing affects"
+        assert "better_side" in flag, f"{name} missing better_side"
     # dim_t was not declared in this synthetic YAML, so it is not invented in metadata.
     assert "dim_t" not in manifest["metadata"].get("inference", {})
     assert manifest["source_yaml"] == "MyModel.yaml"
@@ -200,6 +237,19 @@ def test_generate_manifest_without_yaml(tmp_path: Path) -> None:
     assert manifest["stems"]["declared_num_stems"] == 1
     assert manifest["source_yaml"] is None
     assert "No YAML config found" in manifest["warnings"]
+    # MDX-Net models do not expose chunk_size.
+    assert set(manifest["flags"].keys()) == {
+        "segment_size",
+        "num_overlap",
+        "batch_size",
+        "device",
+    }
+    for name, flag in manifest["flags"].items():
+        assert "description" in flag
+        if name == "device":
+            continue
+        assert "affects" in flag
+        assert "better_side" in flag
 
 
 def test_regenerate_manifests_walks_models_root(tmp_path: Path) -> None:
@@ -266,6 +316,14 @@ class TestRealModels:
                 "vocals",
                 ["vocals"],
             ),
+            (
+                "Demucs_Models",
+                "htdemucs_ft",
+                "demucs",
+                ["drums", "bass", "other", "vocals"],
+                None,
+                ["drums", "bass", "other", "vocals"],
+            ),
         ],
     )
     def test_real_model_manifest(
@@ -290,6 +348,20 @@ class TestRealModels:
         assert manifest["stems"]["declared_num_stems"] == len(expected_declared)
         assert manifest["source_yaml"] is not None
         assert "generated_at" in manifest
+
+        for name, flag in manifest["flags"].items():
+            assert "description" in flag, f"{name} missing description"
+            if name == "device":
+                continue
+            assert "affects" in flag, f"{name} missing affects"
+            assert "better_side" in flag, f"{name} missing better_side"
+
+        if expected_type == "demucs":
+            assert set(manifest["flags"].keys()) == {"shifts", "segment", "jobs", "device"}
+            shifts = manifest["flags"]["shifts"]
+            assert shifts["min"] == 1
+            assert shifts["max"] == 10
+            assert 1 <= shifts["default"] <= 10
 
     def test_python_tuple_fields_are_readable(self) -> None:
         """The SW 6-stem YAML used to fail on !!python/tuple tags."""

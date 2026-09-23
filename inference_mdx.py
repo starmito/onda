@@ -40,6 +40,10 @@ def _parse_args(argv=None):
                         help="Step index for multi-step progress tracking")
     parser.add_argument("--total-steps", type=int, default=1,
                         help="Total number of steps for global progress")
+    parser.add_argument("--step-id", default=None,
+                        help="Stable step id for the UI steps list")
+    parser.add_argument("--step-name", default=None,
+                        help="Readable step name for the UI steps list")
     return parser.parse_args(argv)
 
 

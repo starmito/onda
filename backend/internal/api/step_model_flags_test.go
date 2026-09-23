@@ -315,7 +315,7 @@ func TestCompactFlags_DeduplicatesModelFlags(t *testing.T) {
 	// Demucs: single model flag plus other effective flags.
 	demucsArgs := []string{
 		"--stem-model", "htdemucs_ft",
-		"--shifts", "20",
+		"--shifts", "10",
 		"--demucs-segment", "7",
 		"--jobs", "8",
 		"--output", "/data/output/song",
@@ -323,7 +323,7 @@ func TestCompactFlags_DeduplicatesModelFlags(t *testing.T) {
 	}
 	demucsFlags := compactFlags(demucsArgs)
 	t.Logf("demucs compacted flags: %s", demucsFlags)
-	want = "--stem-model htdemucs_ft --shifts 20 --demucs-segment 7 --jobs 8"
+	want = "--stem-model htdemucs_ft --shifts 10 --demucs-segment 7 --jobs 8"
 	if demucsFlags != want {
 		t.Errorf("demucs compactFlags = %q, want %q", demucsFlags, want)
 	}

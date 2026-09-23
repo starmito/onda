@@ -133,12 +133,14 @@ def detect_model_type(
             return "bs_roformer"
         if lower.endswith(".onnx"):
             return "mdx_net"
+        if "demucs" in lower or "htdemucs" in lower:
+            return "demucs"
 
     return "unknown"
 
 
 def extract_stems(
-    cfg: dict[str, Any], json_cfg: dict[str, Any] | None = None
+    cfg: dict[str, Any], json_cfg: dict[str, Any] | None = None, model_type: str = "unknown"
 ) -> dict[str, Any]:
     """Extract the stems Onda will actually produce.
 
@@ -181,6 +183,12 @@ def extract_stems(
     else:
         stems = declared_instruments[:]
 
+    # Demucs models downloaded as a bare checkpoint do not declare their
+    # instruments, but the app always produces the canonical 4-stem set.
+    if not stems and model_type == "demucs":
+        declared_instruments = ["drums", "bass", "other", "vocals"]
+        stems = declared_instruments[:]
+
     return {
         "stems": stems,
         "target": target,
@@ -198,6 +206,9 @@ def _flag(
     max: Any | None = None,
     step: Any | None = None,
     choices: list[Any] | None = None,
+    description: str = "",
+    affects: list[str] | None = None,
+    better_side: str = "",
 ) -> dict[str, Any]:
     entry: dict[str, Any] = {"default": default, "editable": editable}
     if min is not None:
@@ -208,6 +219,12 @@ def _flag(
         entry["step"] = step
     if choices is not None:
         entry["choices"] = choices
+    if description:
+        entry["description"] = description
+    if affects:
+        entry["affects"] = affects
+    if better_side:
+        entry["better_side"] = better_side
     return entry
 
 
@@ -227,7 +244,89 @@ def _float(value: Any, fallback: float) -> float:
         return fallback
 
 
-def extract_flags(cfg: dict[str, Any]) -> dict[str, Any]:
+# Metadata shared by every manifest.  ``affects`` and ``better_side`` use the
+# vocabulary expected by the frontend: quality, vram, speed.
+_FLAG_META: dict[str, dict[str, Any]] = {
+    "segment_size": {
+        "description": (
+            "Número de muestras de audio que el modelo procesa en cada ventana "
+            "de análisis. Valores mayores suelen mejorar la calidad hasta el "
+            "óptimo del modelo, pero consumen más VRAM."
+        ),
+        "affects": ["quality", "vram"],
+        "better_side": "quality",
+    },
+    "num_overlap": {
+        "description": (
+            "Número de ventanas solapadas entre segmentos consecutivos. "
+            "Más solapamiento reduce artefactos de costura y mejora la calidad, "
+            "a costa de más VRAM y tiempo de proceso."
+        ),
+        "affects": ["quality", "vram"],
+        "better_side": "quality",
+    },
+    "batch_size": {
+        "description": (
+            "Número de segmentos procesados a la vez. Valores mayores aceleran "
+            "la separación y usan más VRAM, sin cambiar la calidad del resultado."
+        ),
+        "affects": ["vram", "speed"],
+        "better_side": "vram",
+    },
+    "chunk_size": {
+        "description": (
+            "Duración máxima de cada trozo procesado, en segundos. "
+            "0 procesa la canción entera de una vez (máxima calidad, más VRAM)."
+        ),
+        "affects": ["quality", "vram"],
+        "better_side": "quality",
+    },
+    "device": {
+        "description": "Dispositivo de cálculo: CUDA (GPU) o CPU.",
+        "affects": [],
+        "better_side": "",
+    },
+    "shifts": {
+        "description": (
+            "Número de predicciones con pequeños desplazamientos temporales que "
+            "se promedian. Aumentar mejora la calidad a costa de mucho más tiempo."
+        ),
+        "affects": ["quality", "speed"],
+        "better_side": "quality",
+    },
+    "segment": {
+        "description": (
+            "Longitud de los segmentos analizados por Demucs, en segundos. "
+            "0 deja que el modelo elija automáticamente. Valores mayores suelen "
+            "dar mejor calidad hasta el óptimo del modelo."
+        ),
+        "affects": ["quality"],
+        "better_side": "quality",
+    },
+    "jobs": {
+        "description": (
+            "Número de trabajos paralelos durante la separación. Más trabajos "
+            "aceleran el proceso pero no afectan la calidad."
+        ),
+        "affects": ["speed"],
+        "better_side": "speed",
+    },
+}
+
+# Which flags are exposed for each canonical architecture.  This must stay in
+# sync with the backend so the UI only sees controls that really apply.
+_FLAGS_BY_TYPE: dict[str, set[str]] = {
+    "bs_roformer": {"segment_size", "num_overlap", "chunk_size", "batch_size", "device"},
+    "mel_band_roformer": {"segment_size", "num_overlap", "chunk_size", "batch_size", "device"},
+    "mdx23c": {"segment_size", "num_overlap", "batch_size", "device"},
+    "mdx_net": {"segment_size", "num_overlap", "batch_size", "device"},
+    "scnet": {"segment_size", "num_overlap", "chunk_size", "batch_size", "device"},
+    "demucs": {"shifts", "segment", "jobs", "device"},
+    "htdemucs": {"shifts", "segment", "jobs", "device"},
+}
+
+
+def extract_flags(cfg: dict[str, Any], model_type: str = "unknown") -> dict[str, Any]:
     """Extract editable inference flags using the app's vocabulary.
 
     The returned keys match the names used by the backend and pipeline
@@ -236,7 +335,9 @@ def extract_flags(cfg: dict[str, Any]) -> dict[str, Any]:
     as ``dim_t`` are kept as metadata, not as editable flags.
 
     Defaults come from the model config when available; otherwise the app-wide
-    fallback is used and documented explicitly.
+    fallback is used and documented explicitly.  Declared values that fall
+    outside the supported range are clamped to the nearest valid bound so the
+    manifest never advertises an unusable default.
     """
     inference = cfg.get("inference", {}) or {}
     demucs = cfg.get("demucs", {}) or {}
@@ -254,64 +355,78 @@ def extract_flags(cfg: dict[str, Any]) -> dict[str, Any]:
     # Effective defaults matching the backend pipeline.  Keys present in the
     # model config keep their declared value even when it is 0; missing keys
     # fall back to the app-wide default.
+    effective_segment_size = segment_size if segment_size > 0 else 512
     effective_num_overlap = num_overlap if num_overlap > 0 else 4
     effective_batch_size = batch_size if batch_size > 0 else 1
     effective_chunk_size = chunk_size
     effective_segment = segment
 
-    flags: dict[str, Any] = {
+    # Clamp declared defaults to the ranges the UI and pipeline actually support.
+    effective_segment_size = max(128, min(effective_segment_size, 2048))
+    effective_num_overlap = max(1, min(effective_num_overlap, 8))
+    effective_batch_size = max(1, min(effective_batch_size, 8))
+    effective_shifts = max(1, min(shifts, 10)) if shifts > 0 else 1
+    effective_jobs = max(1, min(jobs, 8)) if jobs > 0 else 1
+
+    all_flags: dict[str, Any] = {
         "segment_size": _flag(
-            segment_size if segment_size > 0 else 512,
-            min=1,
+            effective_segment_size,
+            min=128,
+            max=2048,
             step=1,
+            **_FLAG_META["segment_size"],
         ),
         "num_overlap": _flag(
             effective_num_overlap,
             min=1,
-            max=16,
+            max=8,
             step=1,
-        ),
-        "overlap": _flag(
-            1.0 / effective_num_overlap,
-            min=0.0,
-            max=1.0,
-            step=0.05,
+            **_FLAG_META["num_overlap"],
         ),
         "batch_size": _flag(
             effective_batch_size,
             min=1,
-            max=16,
+            max=8,
             step=1,
+            **_FLAG_META["batch_size"],
         ),
         "chunk_size": _flag(
             effective_chunk_size,
             min=0,
+            max=600,
             step=1,
+            **_FLAG_META["chunk_size"],
         ),
         "device": _flag(
             "cuda",
             choices=["cuda", "cpu"],
+            **_FLAG_META["device"],
         ),
         "shifts": _flag(
-            shifts,
-            min=0,
+            effective_shifts,
+            min=1,
             max=10,
             step=1,
+            **_FLAG_META["shifts"],
         ),
         "segment": _flag(
-            segment,
+            effective_segment,
             min=0,
             max=7,
             step=1,
+            **_FLAG_META["segment"],
         ),
         "jobs": _flag(
-            jobs,
-            min=0,
-            max=16,
+            effective_jobs,
+            min=1,
+            max=8,
             step=1,
+            **_FLAG_META["jobs"],
         ),
     }
-    return flags
+
+    selected = _FLAGS_BY_TYPE.get(model_type, set(all_flags.keys()))
+    return {name: all_flags[name] for name in sorted(selected)}
 
 
 def extract_metadata(
@@ -377,8 +492,8 @@ def generate_manifest(
             warnings.append(f"Failed to parse {json_path.name}: {exc}")
 
     model_type = detect_model_type(cfg, checkpoint)
-    stems_info = extract_stems(cfg, json_cfg)
-    flags = extract_flags(cfg)
+    stems_info = extract_stems(cfg, json_cfg, model_type=model_type)
+    flags = extract_flags(cfg, model_type=model_type)
     metadata = extract_metadata(cfg, json_cfg)
 
     manifest: dict[str, Any] = {

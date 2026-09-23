@@ -1,4 +1,7 @@
 <script lang="ts">
+  import ProgressPanel from './ProgressPanel.svelte';
+  import type { QueueJobStep } from './api';
+
   let {
     presets = [] as {name: string, config: any}[],
     selectedPreset = '',
@@ -17,6 +20,7 @@
     device = '',
     model = '',
     flags = '',
+    steps = [] as QueueJobStep[],
   } = $props();
 </script>
 
@@ -52,29 +56,17 @@
     <span class="stop-hint">Cancela el proceso en curso y limpia la cola de espera</span>
 
     <div class="progress-card">
-      <div class="progress-header">
-        <span class="progress-status">{status}</span>
-        {#if step}<span class="progress-step">{step}</span>{/if}
-      </div>
-      <div class="progress-bar-wrap">
-        <div class="progress-bar-fill" style="width: {progress * 100}%"></div>
-      </div>
-      <div class="progress-meta">
-        <span class="progress-pct">{Math.round(progress * 100)}%</span>
-        {#if song}<span class="progress-song">{song}</span>{/if}
-        {#if eta}<span class="progress-eta">⏱ {eta}</span>{/if}
-        {#if device}
-          <span class="progress-device" class:cpu={device !== 'cuda' && device !== 'gpu'}>
-            {device === 'cuda' || device === 'gpu' ? 'Ejecutando en GPU' : '⚠️ Ejecutando en CPU'}
-          </span>
-        {/if}
-        {#if model}
-          <span class="progress-model" title="Modelo en uso">model: {model}</span>
-        {/if}
-        {#if flags}
-          <span class="progress-flags" title={flags}>flags: {flags}</span>
-        {/if}
-      </div>
+      <ProgressPanel
+        {status}
+        {step}
+        {song}
+        {eta}
+        {device}
+        {model}
+        {flags}
+        {progress}
+        {steps}
+      />
     </div>
   {/if}
 </section>
@@ -105,17 +97,4 @@
   .stop-hint { display: block; font-size: 0.75rem; color: var(--text-muted); margin-bottom: 12px; text-align: center; }
 
   .progress-card { background: var(--bg-primary); border-radius: 8px; padding: 14px; }
-  .progress-header { display: flex; gap: 12px; align-items: center; margin-bottom: 8px; }
-  .progress-status { font-weight: bold; color: var(--accent-light); text-transform: uppercase; font-size: 13px; }
-  .progress-step { color: var(--text-secondary); font-size: 13px; }
-  .progress-bar-wrap { height: 8px; background: var(--bg-surface); border-radius: 4px; margin-bottom: 8px; overflow: hidden; }
-  .progress-bar-fill { height: 100%; background: linear-gradient(90deg, var(--accent), #4caf50); border-radius: 4px; transition: width 0.3s ease; }
-  .progress-meta { display: flex; gap: 16px; flex-wrap: wrap; align-items: center; font-size: 12px; }
-  .progress-pct { font-weight: bold; color: #4caf50; font-size: 16px; }
-  .progress-song { color: var(--text-secondary); }
-  .progress-eta { color: #ff9800; }
-  .progress-device { color: var(--text-secondary); font-size: 11px; background: rgba(128,128,128,0.1); padding: 2px 8px; border-radius: 4px; }
-  .progress-device.cpu { color: #ffb74d; background: rgba(255, 152, 0, 0.12); border: 1px solid rgba(255, 152, 0, 0.25); }
-  .progress-model { color: var(--accent-light); font-size: 11px; background: rgba(128,128,128,0.1); padding: 2px 8px; border-radius: 4px; }
-  .progress-flags { color: var(--text-secondary); font-size: 11px; background: rgba(128,128,128,0.1); padding: 2px 8px; border-radius: 4px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 </style>

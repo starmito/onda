@@ -50,6 +50,9 @@ class ProgressTracker:
         self.current_step_idx: int | None = None
         self.step_progress: dict[int, float] = {}
         self.step_status: dict[int, str] = {}
+        # Per-step metadata for the UI: id, name, status, progress, eta, elapsed.
+        # Persisted in tracker state and published in pipeline_status.json.
+        self.steps: list[dict] = []
 
     def _clamp(self, value: float, lo: float = 0.0, hi: float = 100.0) -> float:
         return max(lo, min(hi, value))
@@ -183,12 +186,70 @@ class ProgressTracker:
         if progress is not None:
             self.step_progress[step_idx] = self._clamp(progress)
 
+    def _public_step_status(self, status: str, progress: float) -> str:
+        """Map internal tracker status to the public step status vocabulary."""
+        if status == "failed":
+            return "failed"
+        if status in ("completed", "done") and progress >= 100.0:
+            return "done"
+        if status in ("processing", "running", "completed"):
+            return "running"
+        return "queued"
+
+    def init_steps(self, steps: list[dict]) -> None:
+        """Initialize the full list of steps with stable ids and readable names."""
+        self.steps = []
+        for s in steps:
+            self.steps.append({
+                "id": s.get("id", ""),
+                "name": s.get("name", ""),
+                "status": "queued",
+                "progress": 0,
+                "eta": 0,
+                "elapsed": 0,
+            })
+
+    def update_step_list(
+        self,
+        step_idx: int,
+        status: str,
+        progress: float,
+        eta: float,
+        elapsed: float,
+        step_id: str | None = None,
+        step_name: str | None = None,
+    ) -> None:
+        """Update the per-step entry that is published in pipeline_status.json."""
+        # Ensure the list is long enough; lazily grow it for callers that never
+        # call init_steps.
+        while len(self.steps) <= step_idx:
+            self.steps.append({
+                "id": step_id or "",
+                "name": step_name or "",
+                "status": "queued",
+                "progress": 0,
+                "eta": 0,
+                "elapsed": 0,
+            })
+
+        entry = self.steps[step_idx]
+        if step_id is not None:
+            entry["id"] = step_id
+        if step_name is not None:
+            entry["name"] = step_name
+        entry["status"] = self._public_step_status(status, progress)
+        entry["progress"] = round(self._clamp(progress), 4)
+        entry["eta"] = round(eta)
+        entry["elapsed"] = round(elapsed)
+
     def update_step(
         self,
         step_idx: int,
         status: str,
         progress: float,
         elapsed: float,
+        step_id: str | None = None,
+        step_name: str | None = None,
     ) -> dict[str, float]:
         """Update a single step in multi-step mode and return ETA/overall.
 
@@ -216,7 +277,12 @@ class ProgressTracker:
         finished = status == "done"
         if finished:
             progress = 100.0
-        return self.update(elapsed, progress, finished=finished)
+        result = self.update(elapsed, progress, finished=finished)
+        self.update_step_list(
+            step_idx, status, result["progress"], result["eta"], elapsed,
+            step_id=step_id, step_name=step_name,
+        )
+        return result
 
     def tick(self, elapsed: float) -> dict[str, float]:
         """Refresh ETA/elapsed without changing the reported progress.
@@ -246,6 +312,7 @@ class ProgressTracker:
             "current_step_idx": self.current_step_idx,
             "step_progress": self.step_progress,
             "step_status": self.step_status,
+            "steps": self.steps,
         }
 
     @classmethod
@@ -262,6 +329,7 @@ class ProgressTracker:
         tracker.current_step_idx = data.get("current_step_idx")
         tracker.step_progress = {int(k): v for k, v in data.get("step_progress", {}).items()}
         tracker.step_status = {int(k): v for k, v in data.get("step_status", {}).items()}
+        tracker.steps = data.get("steps", [])
         return tracker
 
 
@@ -347,6 +415,27 @@ def load_steps_state(steps_state_file: str | Path) -> list[dict]:
         return []
 
 
+def init_steps_status(
+    status_file: str | Path,
+    steps: list[dict],
+    total_steps: int,
+) -> dict:
+    """Initialize the full step list in tracker state and status file.
+
+    Each step must provide at least ``id`` and ``name``; the tracker fills the
+    runtime fields (status, progress, eta, elapsed) with queued/0 values.
+    """
+    status_file = Path(status_file)
+    tracker = load_tracker(status_file, total_steps=total_steps)
+    tracker.init_steps(steps)
+    data = load_or_init(status_file)
+    data["steps"] = tracker.steps
+    data["total_steps"] = total_steps
+    write_status_atomic(status_file, data)
+    save_tracker(status_file, tracker)
+    return data
+
+
 def update_step_status(
     status_file: str | Path,
     step_idx: int,
@@ -357,6 +446,8 @@ def update_step_status(
     extra: dict | None = None,
     steps_state_file: str | Path | None = None,
     step_name: str | None = None,
+    step_id: str | None = None,
+    step_display_name: str | None = None,
 ) -> dict:
     """Update a multi-step status file and persist tracker state.
 
@@ -367,13 +458,19 @@ def update_step_status(
                                             step index otherwise
       * ``step_idx``                      = numeric step index
       * ``eta`` / ``elapsed``             = honest global ETA and elapsed seconds
+      * ``steps``                         = list of all steps with per-step status
     """
     status_file = Path(status_file)
     tracker = load_tracker(status_file, total_steps=total_steps)
     data = load_or_init(status_file)
     # ``elapsed`` is a global stopwatch: it must never tick backwards.
     elapsed = max(float(elapsed), float(data.get("elapsed", 0.0)))
-    result = tracker.update_step(step_idx, status, progress, elapsed)
+    effective_step_id = step_id if step_id is not None else step_name
+    effective_step_name = step_display_name if step_display_name is not None else (step_id if step_id is not None else step_name)
+    result = tracker.update_step(
+        step_idx, status, progress, elapsed,
+        step_id=effective_step_id, step_name=effective_step_name,
+    )
 
     # ``progress`` is the global value; keep ``step_progress`` for the UI.
     data["progress"] = result["overall_progress"]
@@ -403,7 +500,12 @@ def update_step_status(
         data["status"] = "running"
     else:
         data["status"] = status
-    if steps_state_file:
+
+    # Publish the per-step list.  If the tracker already knows the full list,
+    # use it; otherwise fall back to the legacy steps_state_file once.
+    if tracker.steps:
+        data["steps"] = tracker.steps
+    elif steps_state_file:
         data["steps"] = load_steps_state(steps_state_file)
     if extra:
         data.update(extra)
@@ -439,7 +541,8 @@ def main():
 
     Usage:
         python3 tools/progress_tracker.py update <status_file> <elapsed> <progress> [finished]
-        python3 tools/progress_tracker.py update-step <status_file> <step_idx> <status> <progress> <elapsed> <total_steps> [step_name] [steps_state_file]
+        python3 tools/progress_tracker.py init-steps <status_file> <steps_json> <total_steps>
+        python3 tools/progress_tracker.py update-step <status_file> <step_idx> <status> <progress> <elapsed> <total_steps> [step_name] [step_id] [step_display_name] [steps_state_file]
         python3 tools/progress_tracker.py tick <status_file> <elapsed>
         python3 tools/progress_tracker.py reset-step <status_file>
         python3 tools/progress_tracker.py write <status_file> <json_data>
@@ -459,6 +562,16 @@ def main():
         )
         update_status(status_file, elapsed, progress, finished=finished)
 
+    elif cmd == "init-steps" and len(sys.argv) >= 5:
+        status_file = sys.argv[2]
+        steps_json = sys.argv[3]
+        total_steps = int(sys.argv[4])
+        try:
+            steps = json.loads(steps_json)
+        except Exception:
+            sys.exit(1)
+        init_steps_status(status_file, steps, total_steps)
+
     elif cmd == "update-step" and len(sys.argv) >= 8:
         status_file = sys.argv[2]
         step_idx = int(sys.argv[3])
@@ -467,7 +580,9 @@ def main():
         elapsed = float(sys.argv[6])
         total_steps = int(sys.argv[7])
         step_name = sys.argv[8] if len(sys.argv) > 8 else None
-        steps_state_file = sys.argv[9] if len(sys.argv) > 9 else None
+        step_id = sys.argv[9] if len(sys.argv) > 9 else None
+        step_display_name = sys.argv[10] if len(sys.argv) > 10 else None
+        steps_state_file = sys.argv[11] if len(sys.argv) > 11 else None
         update_step_status(
             status_file,
             step_idx,
@@ -476,6 +591,8 @@ def main():
             elapsed,
             total_steps,
             step_name=step_name,
+            step_id=step_id,
+            step_display_name=step_display_name,
             steps_state_file=steps_state_file,
         )
 

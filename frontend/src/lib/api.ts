@@ -458,6 +458,15 @@ export interface FailureDetails {
   failed_dir: string;
 }
 
+export interface QueueJobStep {
+  id: string;
+  name: string;
+  status: 'queued' | 'running' | 'done' | 'failed';
+  progress: number;
+  eta?: number;
+  elapsed?: number;
+}
+
 export interface QueueJob {
   song: string;
   status: 'waiting' | 'processing' | 'done' | 'error' | 'blocked_no_gpu';
@@ -474,6 +483,7 @@ export interface QueueJob {
   error?: string;
   failure_details?: FailureDetails;
   files?: { name: string; path: string }[];
+  steps?: QueueJobStep[];
 }
 
 export interface QueueStatusResponse {
@@ -615,6 +625,9 @@ export interface ModelFlag {
   editable: boolean;
   type?: 'int' | 'float' | 'choice';
   choices?: string[];
+  description?: string;
+  affects?: ('quality' | 'vram' | 'speed')[];
+  better_side?: 'quality' | 'vram' | 'speed' | '';
 }
 
 export interface ModelFlagsResponse {

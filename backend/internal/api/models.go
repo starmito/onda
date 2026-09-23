@@ -124,6 +124,27 @@ func loadModelManifest(modelDir string) (*modelManifest, bool) {
 	return &m, true
 }
 
+// htdemucsFtManifest returns the canonical manifest for the built-in
+// htdemucs_ft Demucs model.  When the model is installed on disk its manifest
+// is used; otherwise a hard-coded manifest keeps tests and fresh installs
+// consistent.
+func htdemucsFtManifest() (*modelManifest, bool) {
+	if modelDir, _, found := searchModelOnDisk("htdemucs_ft"); found {
+		if m, ok := loadModelManifest(modelDir); ok {
+			return m, true
+		}
+	}
+	return &modelManifest{
+		Name: "HTDemucs FT",
+		Type: "demucs",
+		Stems: modelManifestStems{
+			Stems:    []string{"drums", "bass", "other", "vocals"},
+			NumStems: 4,
+		},
+		Flags: builtInHtdemucsFtManifestFlags(),
+	}, true
+}
+
 // categoryFromType derives the user-facing category from the real model type
 // stored in the manifest. This is the single source of truth for categories;
 // no part of the code invents categories from filenames or folder names.
@@ -469,6 +490,155 @@ func findModelDirByBaseName(base string) (string, string, bool) {
 	return "", "", false
 }
 
+// normalizeModelBaseName strips common config/weight prefixes and suffixes
+// (e.g. config_, model_, cfg_) and lowercases the remainder so that
+// "config_BandSplit-Roformer_SW_by-jarredou" and
+// "model_BandSplit-Roformer_SW_by-jarredou" are treated as the same key.
+func normalizeModelBaseName(name string) string {
+	n := strings.ToLower(name)
+	for _, prefix := range []string{"config_", "model_", "cfg_"} {
+		n = strings.TrimPrefix(n, prefix)
+	}
+	for _, suffix := range []string{"_config", "_cfg"} {
+		n = strings.TrimSuffix(n, suffix)
+	}
+	return n
+}
+
+// findModelDirByConfigName searches the models tree for an existing model
+// directory that matches a sidecar config filename. It tries, in order:
+//   1. exact base-name match on the directory name;
+//   2. a directory that already contains a file with the same config name;
+//   3. normalized-name match on the directory name (stripping config_/model_ prefixes);
+//   4. normalized-name match on a weight file inside any directory.
+//
+// This lets a config-only upload (e.g. a second upload from Settings) update
+// the manifest even when the config file was originally named differently from
+// the model directory or weight file.
+func findModelDirByConfigName(configName string) (string, string, bool) {
+	ext := strings.ToLower(filepath.Ext(configName))
+	base := strings.TrimSuffix(configName, ext)
+
+	// 1. Exact match.
+	if dir, wf, ok := findModelDirByBaseName(base); ok {
+		return dir, wf, true
+	}
+
+	// 2. Directory that already contains a file with this config name.
+	for _, subdir := range modelSubdirs {
+		dirPath := filepath.Join(modelsBasePath(), subdir)
+		found := false
+		modelDir := ""
+		weightFile := ""
+		_ = filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil || !info.IsDir() || found {
+				return nil
+			}
+			entries, err := os.ReadDir(path)
+			if err != nil {
+				return nil
+			}
+			configPresent := false
+			firstWeight := ""
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				if entry.Name() == configName {
+					configPresent = true
+				}
+				if firstWeight == "" {
+					ext := strings.ToLower(filepath.Ext(entry.Name()))
+					if modelUploadExts[ext] {
+						firstWeight = entry.Name()
+					}
+				}
+			}
+			if configPresent && firstWeight != "" {
+				modelDir = path
+				weightFile = firstWeight
+				found = true
+				return filepath.SkipAll
+			}
+			return nil
+		})
+		if found {
+			return modelDir, weightFile, true
+		}
+	}
+
+	norm := normalizeModelBaseName(base)
+	if norm == "" || norm == strings.ToLower(base) {
+		return "", "", false
+	}
+
+	// 3. Normalized directory-name match.
+	for _, subdir := range modelSubdirs {
+		dirPath := filepath.Join(modelsBasePath(), subdir)
+		found := false
+		modelDir := ""
+		weightFile := ""
+		_ = filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil || !info.IsDir() || found {
+				return nil
+			}
+			if normalizeModelBaseName(filepath.Base(path)) != norm {
+				return nil
+			}
+			entries, err := os.ReadDir(path)
+			if err != nil {
+				return nil
+			}
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				ext := strings.ToLower(filepath.Ext(entry.Name()))
+				if modelUploadExts[ext] {
+					modelDir = path
+					weightFile = entry.Name()
+					found = true
+					return filepath.SkipAll
+				}
+			}
+			return nil
+		})
+		if found {
+			return modelDir, weightFile, true
+		}
+	}
+
+	// 4. Normalized weight-file match.
+	for _, subdir := range modelSubdirs {
+		dirPath := filepath.Join(modelsBasePath(), subdir)
+		found := false
+		modelDir := ""
+		weightFile := ""
+		_ = filepath.Walk(dirPath, func(path string, info os.FileInfo, err error) error {
+			if err != nil || info.IsDir() || found {
+				return nil
+			}
+			ext := strings.ToLower(filepath.Ext(info.Name()))
+			if !modelUploadExts[ext] {
+				return nil
+			}
+			wfBase := strings.TrimSuffix(info.Name(), ext)
+			if normalizeModelBaseName(wfBase) == norm {
+				modelDir = filepath.Dir(path)
+				weightFile = info.Name()
+				found = true
+				return filepath.SkipAll
+			}
+			return nil
+		})
+		if found {
+			return modelDir, weightFile, true
+		}
+	}
+
+	return "", "", false
+}
+
 // computeDisplayName derives a human-friendly display name from the file's
 // relative path and its parent directory structure.
 func computeDisplayName(subdir, rel, name string) string {
@@ -775,8 +945,8 @@ func listModels() ModelsListResponse {
 	}
 
 	// Ensure htdemucs_ft is always listed as a Demucs model.
-	// It's a PyTorch model loaded by the demucs CLI, not a file on disk,
-	// so it won't be picked up by the filesystem scan.
+	// It's a PyTorch model loaded by the demucs CLI, not always a file on disk,
+	// so it won't be picked up by the filesystem scan in test environments.
 	hasHtdemucsFT := false
 	for _, m := range models {
 		if m.Name == "htdemucs_ft" {
@@ -785,20 +955,23 @@ func listModels() ModelsListResponse {
 		}
 	}
 	if !hasHtdemucsFT {
-		models = append(models, ModelEntry{
-			Name:            "htdemucs_ft",
-			InstalledName:   "htdemucs_ft",
-			DisplayName:     "HTDemucs FT",
-			Category:        "Demucs",
-			Type:            "demucs",
-			Path:            "",
-			SizeMB:          2800,
-			VramEstimateMB:  2800,
-			Stems:           []string{"drums", "bass", "other", "vocals"},
-			NumStems:        4,
-			ManifestMissing: true,
-		})
-		categorySet["Demucs"] = true
+		if manifest, ok := htdemucsFtManifest(); ok {
+			models = append(models, ModelEntry{
+				Name:            "htdemucs_ft",
+				InstalledName:   "htdemucs_ft",
+				DisplayName:     manifest.Name,
+				Category:        categoryFromType(manifest.Type),
+				Type:            manifest.Type,
+				Path:            "",
+				SizeMB:          2800,
+				VramEstimateMB:  2800,
+				Stems:           manifest.Stems.Stems,
+				NumStems:        manifest.Stems.NumStems,
+				Target:          manifest.Stems.Target,
+				ManifestMissing: false,
+			})
+			categorySet[categoryFromType(manifest.Type)] = true
+		}
 	}
 
 	var categories []string

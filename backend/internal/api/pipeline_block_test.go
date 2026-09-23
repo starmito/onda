@@ -87,6 +87,7 @@ func TestCheckVramHeadroom(t *testing.T) {
 			totalMB:     8192,
 			model:       "htdemucs_ft",
 			stepType:    "demucs",
+			cfg:         VRAMConfig{DemucsSegment: 7},
 			wantOK:      true,
 			wantMin:     1400,
 			wantReason:  false,

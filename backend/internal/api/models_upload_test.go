@@ -485,3 +485,384 @@ func TestHandleModelsUpload_ConfigOnlyNoMatchRejects(t *testing.T) {
 		t.Fatalf("expected 400, got %d: %s", rr.Code, rr.Body.String())
 	}
 }
+
+// realSWRoformer6StemYAML is a stripped but structurally faithful excerpt of the
+// BandSplit-Roformer SW 6-stem config (config_BandSplit-Roformer_SW_by-jarredou.yaml).
+// It exercises the parser with !!python/tuple tags, target_instrument: null and the
+// real 6-stem instrument list.
+const realSWRoformer6StemYAML = `audio:
+  chunk_size: 588800
+  dim_f: 1024
+  dim_t: 801
+  hop_length: 441
+  n_fft: 2048
+  num_channels: 2
+  sample_rate: 44100
+  min_mean_abs: 0.000
+
+model:
+  dim: 256
+  depth: 12
+  stereo: true
+  num_stems: 6
+  time_transformer_depth: 1
+  freq_transformer_depth: 1
+  linear_transformer_depth: 0
+  freqs_per_bands: !!python/tuple
+    - 2
+    - 2
+    - 2
+    - 2
+    - 2
+    - 2
+    - 2
+    - 2
+    - 2
+    - 2
+    - 2
+    - 2
+    - 2
+    - 2
+    - 2
+    - 2
+    - 2
+    - 2
+    - 2
+    - 2
+    - 2
+    - 2
+    - 2
+    - 2
+    - 4
+    - 4
+    - 4
+    - 4
+    - 4
+    - 4
+    - 4
+    - 4
+    - 4
+    - 4
+    - 4
+    - 4
+    - 12
+    - 12
+    - 12
+    - 12
+    - 12
+    - 12
+    - 12
+    - 12
+    - 24
+    - 24
+    - 24
+    - 24
+    - 24
+    - 24
+    - 24
+    - 24
+    - 48
+    - 48
+    - 48
+    - 48
+    - 48
+    - 48
+    - 48
+    - 48
+    - 128
+    - 129
+  dim_head: 64
+  heads: 8
+  attn_dropout: 0.1
+  ff_dropout: 0.1
+  flash_attn: true
+  dim_freqs_in: 1025
+  stft_n_fft: 2048
+  stft_hop_length: 512
+  stft_win_length: 2048
+  stft_normalized: false
+  mask_estimator_depth: 2
+  multi_stft_resolution_loss_weight: 1.0
+  multi_stft_resolutions_window_sizes: !!python/tuple
+    - 4096
+    - 2048
+    - 1024
+    - 512
+    - 256
+  multi_stft_hop_size: 147
+  multi_stft_normalized: False
+  mlp_expansion_factor: 4
+  use_torch_checkpoint: False
+  skip_connection: False
+
+training:
+  batch_size: 2
+  gradient_accumulation_steps: 1
+  grad_clip: 0
+  instruments: ['bass', 'drums', 'other', 'vocals', 'guitar', 'piano']
+  patience: 3
+  reduce_factor: 0.95
+  target_instrument: null
+  num_epochs: 1000
+  num_steps: 1000
+  augmentation: false
+  augmentation_type: simple1
+  use_mp3_compress: false
+  augmentation_mix: true
+  augmentation_loudness: true
+  augmentation_loudness_type: 1
+  augmentation_loudness_min: 0.5
+  augmentation_loudness_max: 1.5
+  q: 0.95
+  coarse_loss_clip: true
+  ema_momentum: 0.999
+  optimizer: adam
+  lr: 1.0e-5
+  other_fix: false
+  use_amp: true
+
+augmentations:
+  enable: true
+  loudness: true
+  loudness_min: 0.5
+  loudness_max: 1.5
+  mixup: true
+  mixup_probs: !!python/tuple
+    - 0.2
+    - 0.02
+  mixup_loudness_min: 0.5
+  mixup_loudness_max: 1.5
+
+  all:
+    channel_shuffle: 0.5
+    random_inverse: 0.1
+    random_polarity: 0.5
+
+  vocals:
+    pitch_shift: 0.1
+  bass:
+    pitch_shift: 0.1
+  drums:
+    pitch_shift: 0.1
+  other:
+    pitch_shift: 0.1
+
+inference:
+  batch_size: 1
+  dim_t: 1101
+  num_overlap: 2
+  normalize: false
+`
+
+func TestHandleModelsUpload_RealSW6StemYAML(t *testing.T) {
+	s, root := setupModelUploadTest(t)
+
+	files := []struct{ name string; data []byte }{
+		{"BS_Roformer_SW_6stem.ckpt", []byte("weights")},
+		{"config_BandSplit-Roformer_SW_by-jarredou.yaml", []byte(realSWRoformer6StemYAML)},
+	}
+	body, contentType := buildModelUploadBodyFiles(t, files)
+	req := httptest.NewRequest(http.MethodPost, "/api/models/upload", body)
+	req.Header.Set("Content-Type", contentType)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ModelUploadResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Name != "BS_Roformer_SW_6stem" {
+		t.Errorf("name = %q, want BS_Roformer_SW_6stem", resp.Name)
+	}
+	if resp.DisplayName != "BS_Roformer_SW_6stem" {
+		t.Errorf("display_name = %q, want BS_Roformer_SW_6stem", resp.DisplayName)
+	}
+	if resp.Type != "bs_roformer" {
+		t.Errorf("type = %q, want bs_roformer", resp.Type)
+	}
+	if resp.Category != "Roformer" {
+		t.Errorf("category = %q, want Roformer", resp.Category)
+	}
+	wantStems := []string{"bass", "drums", "other", "vocals", "guitar", "piano"}
+	if len(resp.Stems) != len(wantStems) {
+		t.Errorf("stems = %v, want %v", resp.Stems, wantStems)
+	}
+	for i, want := range wantStems {
+		if resp.Stems[i] != want {
+			t.Errorf("stems[%d] = %q, want %q", i, resp.Stems[i], want)
+		}
+	}
+	if resp.NumStems != 6 {
+		t.Errorf("num_stems = %d, want 6", resp.NumStems)
+	}
+	if resp.Inferred {
+		t.Error("inferred should be false when config provides stems")
+	}
+
+	modelDir := filepath.Join(root, "models", "VR_Models", "BS_Roformer_SW_6stem")
+	manifest, ok := loadModelManifest(modelDir)
+	if !ok {
+		t.Fatalf("failed to load generated manifest")
+	}
+	if manifest.Type != "bs_roformer" {
+		t.Errorf("manifest type = %q, want bs_roformer", manifest.Type)
+	}
+	if len(manifest.Stems.Stems) != 6 {
+		t.Errorf("manifest stems = %v, want 6 stems", manifest.Stems.Stems)
+	}
+	if manifest.Inferred {
+		t.Error("manifest inferred should be false")
+	}
+	if manifest.Origin != "upload" {
+		t.Errorf("manifest origin = %q, want upload", manifest.Origin)
+	}
+}
+
+func TestHandleModelsUpload_ConfigOnlyUpdateRealSW6Stem(t *testing.T) {
+	s, root := setupModelUploadTest(t)
+
+	// First upload: weight alone -> inferred 2-stem manifest.
+	files1 := []struct{ name string; data []byte }{
+		{"BS_Roformer_SW_6stem.ckpt", []byte("weights")},
+	}
+	body, contentType := buildModelUploadBodyFiles(t, files1)
+	req1 := httptest.NewRequest(http.MethodPost, "/api/models/upload", body)
+	req1.Header.Set("Content-Type", contentType)
+	s.mux.ServeHTTP(httptest.NewRecorder(), req1)
+
+	modelDir := filepath.Join(root, "models", "VR_Models", "BS_Roformer_SW_6stem")
+	manifest1, ok := loadModelManifest(modelDir)
+	if !ok {
+		t.Fatalf("initial manifest missing")
+	}
+	if !manifest1.Inferred {
+		t.Error("initial manifest should be inferred")
+	}
+	if len(manifest1.Stems.Stems) != 2 {
+		t.Errorf("initial manifest stems = %v, want 2 stems", manifest1.Stems.Stems)
+	}
+
+	// Second upload: weight + config together so the sidecar is stored under
+	// the model directory. After this the manifest must no longer be inferred.
+	files2 := []struct{ name string; data []byte }{
+		{"BS_Roformer_SW_6stem.ckpt", []byte("weights")},
+		{"config_BandSplit-Roformer_SW_by-jarredou.yaml", []byte(realSWRoformer6StemYAML)},
+	}
+	body, contentType = buildModelUploadBodyFiles(t, files2)
+	req2 := httptest.NewRequest(http.MethodPost, "/api/models/upload", body)
+	req2.Header.Set("Content-Type", contentType)
+	s.mux.ServeHTTP(httptest.NewRecorder(), req2)
+
+	manifest2, ok := loadModelManifest(modelDir)
+	if !ok {
+		t.Fatalf("updated manifest missing")
+	}
+	if len(manifest2.Stems.Stems) != 6 {
+		t.Errorf("updated manifest stems = %v, want 6 stems", manifest2.Stems.Stems)
+	}
+	if manifest2.Inferred {
+		t.Error("updated manifest should not be inferred after reupload with config")
+	}
+
+	// Third upload: only the sidecar config again. Because the config file is
+	// already present in the model directory, the backend can still associate it
+	// and regenerate the manifest from it.
+	files3 := []struct{ name string; data []byte }{
+		{"config_BandSplit-Roformer_SW_by-jarredou.yaml", []byte(realSWRoformer6StemYAML)},
+	}
+	body, contentType = buildModelUploadBodyFiles(t, files3)
+	req3 := httptest.NewRequest(http.MethodPost, "/api/models/upload", body)
+	req3.Header.Set("Content-Type", contentType)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req3)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for config-only upload, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ModelUploadResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	wantStems := []string{"bass", "drums", "other", "vocals", "guitar", "piano"}
+	if len(resp.Stems) != len(wantStems) {
+		t.Errorf("resp.stems = %v, want %v", resp.Stems, wantStems)
+	}
+	if resp.Inferred {
+		t.Error("inferred should be false after config-only reupload")
+	}
+
+	manifest3, ok := loadModelManifest(modelDir)
+	if !ok {
+		t.Fatalf("final manifest missing")
+	}
+	if len(manifest3.Stems.Stems) != 6 {
+		t.Errorf("final manifest stems = %v, want 6 stems", manifest3.Stems.Stems)
+	}
+	if manifest3.Inferred {
+		t.Error("final manifest should not be inferred")
+	}
+}
+
+func TestHandleModelsUpload_ReuploadWithConfigUpdatesManifest(t *testing.T) {
+	s, root := setupModelUploadTest(t)
+
+	// First upload: weight alone -> inferred manifest.
+	files1 := []struct{ name string; data []byte }{
+		{"BS_Roformer_SW_6stem.ckpt", []byte("weights")},
+	}
+	body, contentType := buildModelUploadBodyFiles(t, files1)
+	req1 := httptest.NewRequest(http.MethodPost, "/api/models/upload", body)
+	req1.Header.Set("Content-Type", contentType)
+	s.mux.ServeHTTP(httptest.NewRecorder(), req1)
+
+	modelDir := filepath.Join(root, "models", "VR_Models", "BS_Roformer_SW_6stem")
+	manifest1, ok := loadModelManifest(modelDir)
+	if !ok {
+		t.Fatalf("initial manifest missing")
+	}
+	if !manifest1.Inferred {
+		t.Error("initial manifest should be inferred")
+	}
+
+	// Second upload: weight + config together -> manifest must be updated.
+	files2 := []struct{ name string; data []byte }{
+		{"BS_Roformer_SW_6stem.ckpt", []byte("weights")},
+		{"config_BandSplit-Roformer_SW_by-jarredou.yaml", []byte(realSWRoformer6StemYAML)},
+	}
+	body, contentType = buildModelUploadBodyFiles(t, files2)
+	req2 := httptest.NewRequest(http.MethodPost, "/api/models/upload", body)
+	req2.Header.Set("Content-Type", contentType)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req2)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200 for reupload, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ModelUploadResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Inferred {
+		t.Error("inferred should be false after reupload with config")
+	}
+	if len(resp.Stems) != 6 {
+		t.Errorf("resp.stems = %v, want 6 stems", resp.Stems)
+	}
+
+	manifest2, ok := loadModelManifest(modelDir)
+	if !ok {
+		t.Fatalf("updated manifest missing")
+	}
+	if len(manifest2.Stems.Stems) != 6 {
+		t.Errorf("updated manifest stems = %v, want 6 stems", manifest2.Stems.Stems)
+	}
+	if manifest2.Inferred {
+		t.Error("updated manifest should not be inferred")
+	}
+}

@@ -1,5 +1,19 @@
 # Changelog
 
+## [v3.5.3] - 2026-09-23
+
+### Added
+- **Barra de progreso por proceso**: el pipeline publica la lista de pasos con el progreso real de cada uno, el backend la expone y la interfaz la pinta, con el total como resumen.
+- **Flags de modelo explicadas**: cada flag lleva descripción y hacia qué lado está la calidad, la VRAM o la velocidad, con etiquetas en las esquinas del slider; manifiesto propio para demucs (adiós a la tabla fija) y rango real de `shifts`.
+- **Guardián del repo**: test que falla si `.hermes/` vuelve a quedar bajo control de versiones.
+
+### Fixed
+- **Vigilante del paso demucs**: comprueba la identidad real del worker (no solo que el PID exista) y tiene tiempo límite de paso además del de silencio; un trabajo no puede quedarse «en curso» para siempre.
+- **Subida de modelos**: al subir un modelo se lee su `.yaml` y se asocia bien (también al resubir solo el config).
+- **Calculadora de VRAM**: responde al troceado, modela SCNet por duración y no puede lanzar excepción.
+- **Una barra por paso de verdad**: un trabajo de varios pasos conserva todos sus pasos en la lista `steps`, con su estado (pendiente / en curso / terminado), su porcentaje y su tiempo, de modo que la interfaz puede pintar una barra por paso y los terminados no desaparecen al empezar el siguiente. El porcentaje global sigue sin llegar a 100 mientras el trabajo no está terminado.
+- **Estado por canción**: el fichero de estado del pipeline (y el del tracker) se escriben dentro de la carpeta del trabajo (`data/output/<canción>/`); antes podían quedar sueltos en la raíz de `data/output/`.
+
 ## [v3.5.2] - 2026-09-22
 
 ### Fixed

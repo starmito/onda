@@ -93,6 +93,47 @@ class TestProgressTracker:
         result = tracker.update_step(2, "completed", 100, 30)
         assert result["overall_progress"] == 100.0
 
+    def test_step_list_initializes_queued(self):
+        """init_steps creates the full step list with queued/0 values."""
+        tracker = _import_tracker().ProgressTracker(total_steps=2)
+        tracker.init_steps([
+            {"id": "vocal", "name": "Voz (BS Roformer)"},
+            {"id": "demucs", "name": "Demucs (htdemucs_ft)"},
+        ])
+        assert len(tracker.steps) == 2
+        assert tracker.steps[0]["id"] == "vocal"
+        assert tracker.steps[0]["status"] == "queued"
+        assert tracker.steps[0]["progress"] == 0
+
+    def test_step_list_updates_per_step(self):
+        """Each update touches only its own step entry."""
+        tracker = _import_tracker().ProgressTracker(total_steps=2)
+        tracker.init_steps([
+            {"id": "vocal", "name": "Voz"},
+            {"id": "demucs", "name": "Demucs"},
+        ])
+        tracker.update_step(0, "processing", 50, 5, step_id="vocal", step_name="Voz")
+        assert tracker.steps[0]["status"] == "running"
+        assert tracker.steps[0]["progress"] == 50.0
+        assert tracker.steps[1]["status"] == "queued"
+        assert tracker.steps[1]["progress"] == 0
+
+        tracker.update_step(0, "completed", 100, 10, step_id="vocal", step_name="Voz")
+        tracker.update_step(1, "processing", 25, 12, step_id="demucs", step_name="Demucs")
+        assert tracker.steps[0]["status"] == "done"
+        assert tracker.steps[0]["progress"] == 100.0
+        assert tracker.steps[1]["status"] == "running"
+        assert tracker.steps[1]["progress"] == 25.0
+
+    def test_step_done_only_at_100(self):
+        """A step is only marked done when its progress reaches 100."""
+        tracker = _import_tracker().ProgressTracker(total_steps=1)
+        tracker.init_steps([{"id": "vocal", "name": "Voz"}])
+        tracker.update_step(0, "processing", 99, 5, step_id="vocal", step_name="Voz")
+        assert tracker.steps[0]["status"] == "running"
+        tracker.update_step(0, "completed", 100, 10, step_id="vocal", step_name="Voz")
+        assert tracker.steps[0]["status"] == "done"
+
 
 class TestPipelineStepsProgress:
     """Integration tests for pipeline.sh --steps progress behaviour."""

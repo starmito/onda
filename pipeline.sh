@@ -84,21 +84,19 @@ fi
 START_TIME=$(date +%s)
 export START_TIME
 export PIPELINE_START_TIME=$START_TIME
-STATUS_FILE="${PIPELINE_STATUS_FILE:-$OUTPUT_DIR/pipeline_status.json}"
-export STATUS_FILE
-mkdir -p "$(dirname "$STATUS_FILE")"
-rm -f "$STATUS_FILE"
-rm -f "$STATUS_FILE.tracker.json"
 CURRENT_STEP=""
 
 VOCAL_MODEL_DISPLAY=""   # friendly name like "BS_Roformer_Viperx"
 DEMUCS_MODEL_DISPLAY=""   # friendly name like "htdemucs_ft"
 
-# Resolve a step name to its index in legacy mode.  Indices are assigned
-# consecutively to the active steps so the weighted global progress is honest.
-_step_name_to_idx() {
-    local name="$1"
-    case "$name" in
+declare -a STEP_IDS=()    # stable step ids: vocal, demucs, rubberband
+declare -a STEP_NAMES=()  # readable names for the UI steps list
+
+# Resolve a step id to its legacy index.  Indices are assigned consecutively to
+# the active steps so the weighted global progress is honest.
+_step_id_to_idx() {
+    local id="$1"
+    case "$id" in
         vocal|starting)      echo "${_VOCAL_IDX:-0}" ;;
         demucs)              echo "${_DEMUCS_IDX:-0}" ;;
         rubberband|complete) echo "${_RUBBERBAND_IDX:-0}" ;;
@@ -106,42 +104,99 @@ _step_name_to_idx() {
     esac
 }
 
+# Readable step name for the UI.  Falls back to the step id if no metadata was
+# initialized (defensive, should not happen in normal pipeline runs).
+_step_display_name() {
+    local idx="$1"
+    local id="$2"
+    if [ -n "${STEP_NAMES[$idx]:-}" ]; then
+        echo "${STEP_NAMES[$idx]}"
+    else
+        case "$id" in
+            vocal)       echo "Voz" ;;
+            demucs)      echo "Demucs" ;;
+            rubberband)  echo "Rubberband" ;;
+            *)           echo "$id" ;;
+        esac
+    fi
+}
+
+# Initialize the tracker's full step list from the STEP_IDS / STEP_NAMES arrays.
+# This is the single moment where the pipeline declares all steps to the tracker
+# so the UI can show a bar per step from the very beginning.
+_init_tracker_steps() {
+    local steps_json
+    steps_json=$(python3 - "$STATUS_FILE" "$TOTAL_STEPS" <<'PYEOF'
+import json, os, sys
+status_file = sys.argv[1]
+total_steps = int(sys.argv[2])
+ids = os.environ.get('_STEP_IDS', '').split('\n')
+names = os.environ.get('_STEP_NAMES', '').split('\n')
+steps = []
+for i in range(total_steps):
+    sid = ids[i] if i < len(ids) and ids[i] else f"step-{i}"
+    name = names[i] if i < len(names) and names[i] else sid
+    steps.append({"id": sid, "name": name})
+print(json.dumps(steps))
+PYEOF
+)
+    local tracker_output tracker_rc=0
+    tracker_output=$(python3 "$PROGRESS_TRACKER" init-steps "$STATUS_FILE" "$steps_json" "$TOTAL_STEPS" 2>&1) || tracker_rc=$?
+    if [ "$tracker_rc" -ne 0 ]; then
+        echo "⚠️  Progress tracker init failed (rc=$tracker_rc): $tracker_output" >&2
+    fi
+    _sync_per_song_status
+}
+
 # Single entry point for progress reporting.  ``step_progress`` is the progress
 # of the current step in the 0-100 range; the tracker computes the global
 # ``progress`` / ``overall_progress``, the ETA and the elapsed seconds.
+# Args: status step_id step_progress [step_field]
 _report_step() {
     local status="$1"
-    local step_name="$2"
+    local step_id="$2"
     local step_progress="$3"
-    local now elapsed step_idx tracker_step_name
+    local step_field="${4:-}"
+    local now elapsed step_idx tracker_step_name tracker_step_id tracker_step_display
     now=$(date +%s)
     elapsed=$((now - START_TIME))
 
-    if [ -n "${STEPS_CONFIG_FILE:-}" ]; then
+    if [ -n "${ONDA_CURRENT_STEP_INDEX:-}" ]; then
+        # Backend-driven multi-step chaining: each invocation runs one step but
+        # reports its real position in the full chain.
+        step_idx=$ONDA_CURRENT_STEP_INDEX
+        tracker_step_name="${step_field:-$step_id}"
+    elif [ -n "${STEPS_CONFIG_FILE:-}" ]; then
         # Chained mode: the current step index is known from the main loop.
         step_idx="${CURRENT_STEP_INDEX:-0}"
         # Keep the original contract in --steps mode: ``step`` is an integer.
-        tracker_step_name="$step_idx"
+        tracker_step_name="${step_field:-$step_idx}"
     else
-        step_idx=$(_step_name_to_idx "$step_name")
+        step_idx=$(_step_id_to_idx "$step_id")
         # Legacy mode: ``step`` is the human-readable step name.
-        tracker_step_name="$step_name"
+        tracker_step_name="${step_field:-$step_id}"
     fi
 
-    # ``done`` always marks the last step as finished.
+    # ``done`` always marks the last step as finished; use the completion field
+    # value requested by the caller for the legacy ``step`` field, but keep the
+    # real step id/name in the published steps list.
     if [ "$status" = "done" ]; then
         step_idx=$((TOTAL_STEPS - 1))
         if [ -n "${STEPS_CONFIG_FILE:-}" ]; then
             # Chained mode keeps the integer step contract.
-            tracker_step_name="$step_idx"
+            tracker_step_name="${step_field:-$step_idx}"
         else
             # Legacy mode reports the human-readable completion marker.
-            tracker_step_name="complete"
+            tracker_step_name="${step_field:-complete}"
         fi
+        step_id="${STEP_IDS[$step_idx]:-complete}"
     fi
 
+    tracker_step_id="$step_id"
+    tracker_step_display="$(_step_display_name "$step_idx" "$step_id")"
+
     local tracker_output tracker_rc=0
-    tracker_output=$(python3 "$PROGRESS_TRACKER" update-step "$STATUS_FILE" "$step_idx" "$status" "$step_progress" "$elapsed" "$TOTAL_STEPS" "$tracker_step_name" 2>&1) || tracker_rc=$?
+    tracker_output=$(python3 "$PROGRESS_TRACKER" update-step "$STATUS_FILE" "$step_idx" "$status" "$step_progress" "$elapsed" "$TOTAL_STEPS" "$tracker_step_name" "$tracker_step_id" "$tracker_step_display" 2>&1) || tracker_rc=$?
     if [ "$tracker_rc" -ne 0 ]; then
         echo "⚠️  Progress tracker failed (rc=$tracker_rc): $tracker_output" >&2
     fi
@@ -253,11 +308,16 @@ kill_wait() {
     wait "$pid" 2>/dev/null || true
 }
 
-# Return 0 if a PID exists and is actually running.
-# ``kill -0`` returns success for zombie/defunct processes, so we also check
-# the process state with ps: a leading Z means dead-but-not-reaped.
+# Return 0 if a PID exists, is actually running, and still looks like our worker.
+# ``kill -0`` returns success for zombie/defunct processes and for any process
+# that happens to reuse the same PID, so we also verify identity:
+#   - the process state with ps: a leading Z means dead-but-not-reaped
+#   - the command line contains the worker marker (e.g. demucs_worker.py)
+#   - the process still holds the expected output file descriptor
 _process_is_alive() {
     local pid="${1:-}"
+    local worker_marker="${2:-demucs_worker.py}"
+    local events_file="${3:-}"
     [ -n "$pid" ] || return 1
     if ! kill -0 "$pid" 2>/dev/null; then
         return 1
@@ -267,6 +327,37 @@ _process_is_alive() {
     case "$proc_stat" in
         Z*|z*) return 1 ;;
     esac
+
+    # Identity check #1: the command line must still look like our worker.
+    # A recycled PID will belong to a different program and fail this test.
+    local cmdline
+    cmdline=$(tr '\0' ' ' < /proc/"$pid"/cmdline 2>/dev/null || echo "")
+    case "$cmdline" in
+        *"$worker_marker"*) : ;;
+        *) return 1 ;;
+    esac
+
+    # Identity check #2: the worker must still hold the events file descriptor.
+    # This is stronger than cmdline: even another demucs_worker.py process would
+    # not have our exact events file open for writing.
+    if [ -n "$events_file" ] && [ -e "$events_file" ]; then
+        local expected_fd
+        expected_fd=$(readlink -f "$events_file" 2>/dev/null || echo "$events_file")
+        local found=false
+        local fd real_path
+        for fd in /proc/"$pid"/fd/[0-9]*; do
+            [ -e "$fd" ] || continue
+            real_path=$(readlink -f "$fd" 2>/dev/null || true)
+            if [ "$real_path" = "$expected_fd" ]; then
+                found=true
+                break
+            fi
+        done
+        if ! $found; then
+            return 1
+        fi
+    fi
+
     return 0
 }
 
@@ -370,28 +461,11 @@ with open(state_file, 'w') as f:
 PYEOF
 
     CURRENT_STEP_INDEX=$step_idx
-    local step_name
-    step_name=$(python3 -c "import json; steps=json.load(open('$STEPS_CONFIG_FILE')); print(steps[$step_idx].get('type',''))" 2>/dev/null || echo "")
+    local step_id
+    step_id=$(python3 -c "import json; steps=json.load(open('$STEPS_CONFIG_FILE')); print(steps[$step_idx].get('type',''))" 2>/dev/null || echo "")
 
-    _report_step "$step_status" "$step_name" "$progress_val"
-
-    # Keep the detailed steps array in the status file for the UI.
-    python3 - "$STEPS_STATE_FILE" "$STATUS_FILE" <<'PYEOF'
-import json, os, sys
-state_file, status_file = sys.argv[1:3]
-with open(state_file) as f:
-    state = json.load(f)
-with open(status_file) as f:
-    data = json.load(f)
-data['steps'] = state['steps']
-tmp = status_file + '.tmp'
-with open(tmp, 'w') as f:
-    json.dump(data, f)
-    f.flush()
-    os.fsync(f.fileno())
-os.replace(tmp, status_file)
-PYEOF
-    _sync_per_song_status
+    # The tracker is the single writer of the published ``steps`` list.
+    _report_step "$step_status" "$step_id" "$progress_val"
 }
 
 # Detect whether a vocal model directory contains a BS PolarFormer ONNX model.
@@ -833,6 +907,11 @@ run_vocal_step() {
     local input_file="$2"
     local output_dir="$3"
 
+    # Determine the stable step id and readable name for progress tracking.
+    local step_idx="${CURRENT_STEP_INDEX:-${_VOCAL_IDX:-0}}"
+    local step_id="${STEP_IDS[$step_idx]:-vocal}"
+    local step_name="${STEP_NAMES[$step_idx]:-Voz}"
+
     # Find model directory: if model_path is a file, use its parent dir
     local model_dir="$model_path"
     if [ -f "$model_path" ]; then
@@ -881,6 +960,8 @@ run_vocal_step() {
             --batch-size "${mdx_batch_size}" \
             --step-idx "${CURRENT_STEP_INDEX:-${_VOCAL_IDX:-0}}" \
             --total-steps "$TOTAL_STEPS" \
+            --step-id "$step_id" \
+            --step-name "$step_name" \
             "${model_dir}" "${input_file}" "${output_dir}" "${mdx_overlap}"
     elif is_scnet_model_dir "$model_dir"; then
         if [ ! -f /app/inference_scnet.py ]; then
@@ -953,6 +1034,8 @@ PYEOF
             --device "$DEVICE" \
             --step-idx "${CURRENT_STEP_INDEX:-${_VOCAL_IDX:-0}}" \
             --total-steps "$TOTAL_STEPS" \
+            --step-id "$step_id" \
+            --step-name "$step_name" \
             ${scnet_config_arg} \
             "${model_dir}" "${input_file}" "${output_dir}"
     elif is_polarformer_model_dir "$model_dir"; then
@@ -994,6 +1077,8 @@ PYEOF
             --batch-size "${pf_batch_size}" \
             --step-idx "${CURRENT_STEP_INDEX:-${_VOCAL_IDX:-0}}" \
             --total-steps "$TOTAL_STEPS" \
+            --step-id "$step_id" \
+            --step-name "$step_name" \
             "${model_dir}" "${input_file}" "${output_dir}" "${pf_num_overlap}"
     elif is_onnx_model_dir "$model_dir"; then
         if [ ! -f /app/inference_onnx.py ]; then
@@ -1023,6 +1108,8 @@ PYEOF
             --device "$DEVICE" \
             --step-idx "${CURRENT_STEP_INDEX:-${_VOCAL_IDX:-0}}" \
             --total-steps "$TOTAL_STEPS" \
+            --step-id "$step_id" \
+            --step-name "$step_name" \
             "${model_dir}" "${input_file}" "${output_dir}" "${onnx_overlap}"
     else
         if [ ! -f /app/inference_universal.py ]; then
@@ -1060,6 +1147,8 @@ PYEOF
             --pipeline-status "$STATUS_FILE" \
             --step-idx "${CURRENT_STEP_INDEX:-${_VOCAL_IDX:-0}}" \
             --total-steps "$TOTAL_STEPS" \
+            --step-id "$step_id" \
+            --step-name "$step_name" \
             "${extra_args[@]}" \
             "${model_dir}" "${input_file}" "${output_dir}" "${roformer_overlap}"
     fi
@@ -1193,13 +1282,20 @@ run_demucs_step() {
     local last_progress=0
     local done_seen=false
     local silence_timeout=120
+    local step_timeout="${DEMUCS_STEP_TIMEOUT_SECONDS:-7200}"
+    local step_start_time
+    step_start_time=$(date +%s)
+    local worker_marker
+    worker_marker=$(basename "${DEMUCS_WORKER}")
+    local loop_aborted_reason=""
 
     local poll_interval=1
-    while _process_is_alive "$worker_pid"; do
-        local total_lines current_time elapsed_since_event
+    while _process_is_alive "$worker_pid" "$worker_marker" "${events_file}"; do
+        local total_lines current_time elapsed_since_event step_elapsed
         total_lines=$(wc -l < "${events_file}" 2>/dev/null || echo 0)
         current_time=$(date +%s)
         elapsed_since_event=$((current_time - last_event_time))
+        step_elapsed=$((current_time - step_start_time))
 
         if [ "${total_lines}" -gt "${lines_read}" ]; then
             local line
@@ -1234,8 +1330,20 @@ run_demucs_step() {
         # Silence detection: 120s without any new event means the worker is stuck.
         if [ "${elapsed_since_event}" -ge "${silence_timeout}" ]; then
             echo "⚠️  Demucs worker silent for ${silence_timeout}s, aborting..." >&2
+            loop_aborted_reason="silence"
             kill -INT "$worker_pid" 2>/dev/null || true
             # Give the worker a moment to shut down cleanly.
+            sleep 1
+            break
+        fi
+
+        # Absolute step timeout: never let a single step hang forever.  This is
+        # the last-resort guard; the normal completion path should always fire
+        # first for healthy workers.
+        if [ "${step_elapsed}" -ge "${step_timeout}" ]; then
+            echo "⚠️  Demucs worker exceeded maximum step time (${step_timeout}s), aborting..." >&2
+            loop_aborted_reason="timeout"
+            kill -INT "$worker_pid" 2>/dev/null || true
             sleep 1
             break
         fi
@@ -1264,6 +1372,14 @@ run_demucs_step() {
     set +e
     wait "$worker_pid"
     local worker_rc=$?
+    # Bash wait returns 127 when the PID is not a child of this shell.  That
+    # happens when the kernel has recycled the PID to a different process, or
+    # when the original worker vanished before wait could reap it.  In either
+    # case the worker is gone, so we continue and let the output validation
+    # decide whether the step actually succeeded.
+    if [ "$worker_rc" -eq 127 ]; then
+        worker_rc=0
+    fi
     if $old_set_e; then
         set -e
     fi
@@ -1271,20 +1387,35 @@ run_demucs_step() {
     # Restore the outer EXIT trap before returning.
     eval "${prev_exit_trap:-trap - EXIT}"
 
-    # Final validation: success requires exit code 0, a 'done' event, and the
-    # expected stems present on disk.
+    # Final validation: success requires a 'done' event and the expected stems
+    # present on disk.  The exit code is informative but not enough: if the
+    # loop stopped watching a recycled PID we may not have reaped the original
+    # worker, yet the outputs can prove it finished honestly.
     local final_rc=${worker_rc}
-    if [ "${final_rc}" -eq 0 ]; then
-        if ! $done_seen; then
-            final_rc=99
-            echo "⚠️  Demucs worker exited 0 but no 'done' event was seen" >&2
-        else
-            local stem_count
-            stem_count=$(find "${output_dir}" -maxdepth 3 -type f -iname "*.wav" 2>/dev/null | wc -l)
-            if [ "${stem_count}" -lt "${expected_stems}" ]; then
-                final_rc=40
-                echo "⚠️  Demucs worker exited 0 but only ${stem_count}/${expected_stems} stems found" >&2
-            fi
+    if [ "${final_rc}" -ne 0 ]; then
+        : # Worker itself reported failure; keep its exit code.
+    elif ! $done_seen; then
+        final_rc=99
+        echo "⚠️  Demucs worker finished but no 'done' event was seen" >&2
+    else
+        local stem_count
+        stem_count=$(find "${output_dir}" -maxdepth 3 -type f -iname "*.wav" 2>/dev/null | wc -l)
+        if [ "${stem_count}" -lt "${expected_stems}" ]; then
+            final_rc=40
+            echo "⚠️  Demucs worker finished but only ${stem_count}/${expected_stems} stems found" >&2
+        fi
+    fi
+
+    # Honest close: if the loop aborted because the worker stopped being
+    # identifiable (recycled PID) or hit the hard timeout, but the expected
+    # outputs are complete, treat the step as successful.  The real work is
+    # done; the watcher had simply lost track of the worker.
+    if [ "${final_rc}" -ne 0 ] && [ -n "${loop_aborted_reason}" ]; then
+        local stem_count
+        stem_count=$(find "${output_dir}" -maxdepth 3 -type f -iname "*.wav" 2>/dev/null | wc -l)
+        if $done_seen && [ "${stem_count}" -ge "${expected_stems}" ]; then
+            echo "ℹ️  Demucs watcher lost the worker (${loop_aborted_reason}), but outputs are complete; treating as success" >&2
+            final_rc=0
         fi
     fi
 
@@ -1515,6 +1646,26 @@ fi
 SONG=$(basename "${INPUT%.*}")
 OUTPUT="${OUTPUT:-$OUTPUT_DIR/${SONG}}"
 
+# The job state lives inside the job output directory, never in the output root.
+STATUS_FILE="${PIPELINE_STATUS_FILE:-$OUTPUT/pipeline_status.json}"
+export STATUS_FILE
+mkdir -p "$(dirname "$STATUS_FILE")"
+
+# Preserve existing multi-step state when the backend continues a job across
+# separate pipeline.sh invocations. If the status file already contains a steps
+# list, this is a later step of a chained pipeline; deleting it would erase the
+# history of completed steps.
+_PRESERVE_STATUS=0
+if [ -s "$STATUS_FILE" ]; then
+    _STEPS_LEN=$(python3 -c "import json,sys; d=json.load(open('$STATUS_FILE')); print(len(d.get('steps',[])))" 2>/dev/null || echo 0)
+    if [ "$_STEPS_LEN" -gt 0 ]; then
+        _PRESERVE_STATUS=1
+    fi
+fi
+if [ "$_PRESERVE_STATUS" -eq 0 ]; then
+    rm -f "$STATUS_FILE" "$STATUS_FILE.tracker.json" "$STATUS_FILE.tracker.json.tmp"
+fi
+
 # Ensure temporary vocal/demucs dirs are always removed, even on error or cancellation.
 cleanup_legacy_temps() {
     if [ -n "${OUTPUT:-}" ]; then
@@ -1606,8 +1757,40 @@ with open('$STEPS_CONFIG_FILE') as f:
 print(len(steps))
 " 2>/dev/null || echo 0)
 
-    # Initialize multi-step progress tracking
+    # Build per-step metadata so the tracker can publish the full steps list.
+    eval "$(python3 - "$STEPS_CONFIG_FILE" <<'PYEOF'
+import json, shlex, sys
+config_file = sys.argv[1]
+with open(config_file) as f:
+    steps = json.load(f)
+ids = []
+names = []
+for s in steps:
+    sid = s.get('type', 'step')
+    model = s.get('model', '')
+    if sid in ('viperx', 'vocal'):
+        sid = 'vocal'
+        name = f"Voz ({model})" if model else 'Voz'
+    elif sid == 'demucs':
+        name = f"Demucs ({model})" if model else 'Demucs'
+    elif sid == 'rubberband':
+        name = 'Rubberband'
+    else:
+        name = model if model else sid
+    ids.append(shlex.quote(sid))
+    names.append(shlex.quote(name))
+print(f"STEP_IDS=({' '.join(ids)})")
+print(f"STEP_NAMES=({' '.join(names)})")
+PYEOF
+)"
+    export _STEP_IDS="$(printf '%s\n' "${STEP_IDS[@]}")"
+    export _STEP_NAMES="$(printf '%s\n' "${STEP_NAMES[@]}")"
+
+    # Initialize multi-step progress tracking (resets tracker state).
     multi_step_init
+
+    # Initialize the tracker with the full step list.
+    _init_tracker_steps
 
     # ── Iterate through steps ──
     CURRENT_INPUT="$INPUT"
@@ -1850,6 +2033,58 @@ VOCAL_MODEL_DISPLAY="${VOCAL_MODEL_DISPLAY%.*}"  # strip extension
 DEMUCS_MODEL_DISPLAY="$DEMUCS_MODEL"
 export VOCAL_MODEL_DISPLAY DEMUCS_MODEL_DISPLAY
 
+# ── Build step metadata for the UI steps list ────
+STEP_IDS=()
+STEP_NAMES=()
+if $VOCAL; then
+    STEP_IDS+=("vocal")
+    STEP_NAMES+=("Voz (${VOCAL_MODEL_DISPLAY})")
+fi
+if $DEMUCS; then
+    STEP_IDS+=("demucs")
+    STEP_NAMES+=("Demucs (${DEMUCS_MODEL_DISPLAY})")
+fi
+if $RUBBERBAND; then
+    STEP_IDS+=("rubberband")
+    STEP_NAMES+=("Rubberband (pitch ${PITCH})")
+fi
+
+# Backend-driven multi-step chaining can declare the full step list even when
+# this invocation only executes one step. When present, trust the environment
+# variables over the local flag-based detection so indices and totals are
+# consistent across invocations.
+if [ -z "${STEPS_JSON:-}" ] && [ -n "${ONDA_STEP_IDS:-}" ]; then
+    IFS=',' read -r -a STEP_IDS <<< "$ONDA_STEP_IDS"
+    if [ -n "${ONDA_STEP_NAMES:-}" ]; then
+        IFS=',' read -r -a STEP_NAMES <<< "$ONDA_STEP_NAMES"
+    else
+        STEP_NAMES=()
+    fi
+    while [ "${#STEP_NAMES[@]}" -lt "${#STEP_IDS[@]}" ]; do
+        STEP_NAMES+=("${STEP_IDS[${#STEP_NAMES[@]}]}")
+    done
+    _VOCAL_IDX=""; _DEMUCS_IDX=""; _RUBBERBAND_IDX=""; TOTAL_STEPS=0
+    for _i in "${!STEP_IDS[@]}"; do
+        case "${STEP_IDS[$_i]}" in
+            vocal|starting) _VOCAL_IDX=$_i ;;
+            demucs)         _DEMUCS_IDX=$_i ;;
+            rubberband|complete) _RUBBERBAND_IDX=$_i ;;
+        esac
+        TOTAL_STEPS=$((TOTAL_STEPS + 1))
+    done
+    [ "$TOTAL_STEPS" -eq 0 ] && TOTAL_STEPS=1
+    export TOTAL_STEPS
+fi
+
+# Defensive fallback: pipeline always reports at least one conceptual step.
+if [ "${#STEP_IDS[@]}" -eq 0 ]; then
+    STEP_IDS+=("vocal")
+    STEP_NAMES+=("Voz")
+fi
+
+export _STEP_IDS="$(printf '%s\n' "${STEP_IDS[@]}")"
+export _STEP_NAMES="$(printf '%s\n' "${STEP_NAMES[@]}")"
+
 # ── Validate ─────────────────────────────────────
 if [ ! -f "$INPUT" ]; then
     echo "❌ File not found: $INPUT"
@@ -1911,6 +2146,13 @@ fi
 # Clean previous output to prevent accumulation of old stems
 if ! $NO_CLEAN; then
     rm -f "${OUTPUT}"/*.wav 2>/dev/null || true
+fi
+
+# Initialize the published steps list now that the output directory is clean and
+# the status file is guaranteed to survive until the step starts. If we are
+# continuing a multi-step job, the tracker already knows the full list.
+if [ "$_PRESERVE_STATUS" -eq 0 ]; then
+    _init_tracker_steps
 fi
 
 # ── Track what's available for downstream steps ──

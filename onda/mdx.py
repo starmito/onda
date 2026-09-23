@@ -152,7 +152,9 @@ def _write_progress(progress_file: Optional[str], chunk: int, total: int):
 
 def _write_pipeline_status(status_file: Optional[str], step: str,
                            step_idx: int, total_steps: int, progress: float,
-                           chunk: int, total: int, device: str):
+                           chunk: int, total: int, device: str,
+                           step_id: Optional[str] = None,
+                           step_display_name: Optional[str] = None):
     """Report progress to pipeline_status.json through the tracker.
 
     The tracker is the single writer of progress/eta/elapsed.  ``progress`` is
@@ -179,6 +181,8 @@ def _write_pipeline_status(status_file: Optional[str], step: str,
             total_steps,
             extra=extra,
             step_name=step,
+            step_id=step_id,
+            step_display_name=step_display_name,
         )
     except Exception:
         pass
@@ -197,7 +201,8 @@ def _prepare_mix(audio_path: str):
 def _demix(mix: np.ndarray, config, model_path: str, device: torch.device,
            overlap: int = 8, batch_size: int = 1, segment_size: Optional[int] = None,
            progress_file: Optional[str] = None, pipeline_status: Optional[str] = None,
-           step_idx: int = 0, total_steps: int = 1):
+           step_idx: int = 0, total_steps: int = 1,
+           step_id: Optional[str] = None, step_display_name: Optional[str] = None):
     """Run MDX-C inference with overlap-add chunking.
 
     Mirrors SeperateMDXC.demix() from separate.py.
@@ -237,8 +242,9 @@ def _demix(mix: np.ndarray, config, model_path: str, device: torch.device,
     total_batches = len(batches)
     _write_progress(progress_file, 0, total_batches)
     _write_pipeline_status(
-        pipeline_status, "mdx", step_idx, total_steps, 0.0,
-        0, total_batches, str(device)
+        pipeline_status, step_id or "mdx", step_idx, total_steps, 0.0,
+        0, total_batches, str(device),
+        step_id=step_id, step_display_name=step_display_name,
     )
 
     with torch.no_grad():
@@ -250,9 +256,10 @@ def _demix(mix: np.ndarray, config, model_path: str, device: torch.device,
                 cnt += 1
             _write_progress(progress_file, bidx + 1, total_batches)
             _write_pipeline_status(
-                pipeline_status, "mdx", step_idx, total_steps,
+                pipeline_status, step_id or "mdx", step_idx, total_steps,
                 (bidx + 1) / total_batches if total_batches > 0 else 0.0,
-                bidx + 1, total_batches, str(device)
+                bidx + 1, total_batches, str(device),
+                step_id=step_id, step_display_name=step_display_name,
             )
             if (bidx + 1) % 10 == 0:
                 print(f"  {bidx + 1}/{total_batches} batches...")
@@ -326,12 +333,15 @@ def run_mdx(args):
     pipeline_status = getattr(args, "pipeline_status", None)
     step_idx = getattr(args, "step_idx", 0)
     total_steps = getattr(args, "total_steps", 1)
+    step_id = getattr(args, "step_id", None)
+    step_display_name = getattr(args, "step_name", None)
 
     sources = _demix(
         audio, config, model_path, device,
         overlap=overlap, batch_size=batch_size,
         progress_file=progress_file, pipeline_status=pipeline_status,
         step_idx=step_idx, total_steps=total_steps,
+        step_id=step_id, step_display_name=step_display_name,
     )
 
     os.makedirs(args.output, exist_ok=True)
@@ -390,5 +400,13 @@ if __name__ == "__main__":
                         help="Device (default: cuda)")
     parser.add_argument("--progress-file", help="Per-chunk progress JSON file")
     parser.add_argument("--pipeline-status", help="pipeline_status.json file")
+    parser.add_argument("--step-idx", type=int, default=0,
+                        help="Step index for multi-step progress tracking")
+    parser.add_argument("--total-steps", type=int, default=1,
+                        help="Total number of steps for global progress")
+    parser.add_argument("--step-id", default=None,
+                        help="Stable step id for the UI steps list")
+    parser.add_argument("--step-name", default=None,
+                        help="Readable step name for the UI steps list")
     _args = parser.parse_args()
     run_mdx(_args)

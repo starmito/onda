@@ -1,5 +1,6 @@
 <script lang="ts">
   import PresetsPanel from './PresetsPanel.svelte';
+  import ProgressPanel from './ProgressPanel.svelte';
   import { validateExecutePreset } from './executeValidation';
   import { uploadAudio, deleteInput, clearQueue, separateAudio, cancelQueue, getProcessesStatus } from './api';
   import type { ProcessStatus, QueueJob } from './api';
@@ -36,6 +37,10 @@
   let processStatus = $state<ProcessStatus | null>(null);
   let blockedMsg = $state<string | null>(null);
   let vramDismissed = $state(false);
+
+  // ---- Per-step progress derived from the active backend job ----
+  let processingJob = $derived(queueJobs.find((j: QueueJob) => j.status === 'processing'));
+  let processingSteps = $derived(processingJob?.steps);
 
   // ---- Local toast (supports info/warning without touching App.svelte) ----
   let toastMessage = $state('');
@@ -406,34 +411,18 @@
           <span class="stop-hint">Cancela el proceso en curso y limpia la cola de espera</span>
 
           <div class="progress-card">
-            <div class="progress-header">
-              <span class="progress-status">{pipelineStatus}</span>
-              {#if pipelineStep}<span class="progress-step">{pipelineStep}</span>{/if}
-            </div>
-            <div class="progress-bar-wrap">
-              <div class="progress-bar-fill" style="width: {currentProgress * 100}%"></div>
-            </div>
-            <div class="progress-meta">
-              <span class="progress-pct">{Math.round(currentProgress * 100)}%</span>
-              {#if pipelineSong}<span class="progress-song">{pipelineSong}</span>{/if}
-              {#if pipelineEta}<span class="progress-eta">⏱ {pipelineEta}</span>{/if}
-              {#if inferenceDevice}
-                <span class="progress-device" class:cpu={inferenceDevice !== 'cuda' && inferenceDevice !== 'gpu'}>
-                  {inferenceDevice === 'cuda' || inferenceDevice === 'gpu' ? 'GPU' : '⚠️ CPU'}
-                </span>
-              {/if}
-              {#if pipelineModel}
-                <span class="progress-model" title="Modelo en uso">model: {pipelineModel}</span>
-              {/if}
-              {#if pipelineFlags}
-                <span class="progress-flags" title={pipelineFlags}>flags: {pipelineFlags}</span>
-              {/if}
-              {#if processStatus?.gpu}
-                <span class="progress-gpu" class:vram-low={processStatus.gpu.free_mb < 2000}>
-                  GPU: {processStatus.gpu.free_mb}/{processStatus.gpu.total_mb} MB libres
-                </span>
-              {/if}
-            </div>
+            <ProgressPanel
+              status={pipelineStatus}
+              step={pipelineStep}
+              song={pipelineSong}
+              eta={pipelineEta}
+              device={inferenceDevice}
+              model={pipelineModel}
+              flags={pipelineFlags}
+              progress={currentProgress}
+              steps={processingSteps}
+              gpuInfo={processStatus?.gpu}
+            />
           </div>
         {/if}
       </section>
@@ -457,8 +446,40 @@
         device={inferenceDevice}
         model={pipelineModel}
         flags={pipelineFlags}
+        steps={processingSteps}
       />
     {/if}
+  {/if}
+
+  <!-- Progress panel for jobs started outside this client (e.g. API) when
+       there are no local queue files to host it. -->
+  {#if queueFiles.length === 0 && (separating || pipelineStatus === 'running' || processingJob)}
+    <section class="direct-execute-section">
+      <button
+        class="btn-stop"
+        onclick={onCancel}
+        title="Cancela el proceso en curso y limpia la cola de espera"
+        aria-label="Cancela el proceso en curso y limpia la cola de espera"
+      >
+        ⏹ Detener
+      </button>
+      <span class="stop-hint">Cancela el proceso en curso y limpia la cola de espera</span>
+
+      <div class="progress-card">
+        <ProgressPanel
+          status={pipelineStatus}
+          step={pipelineStep}
+          song={pipelineSong}
+          eta={pipelineEta}
+          device={inferenceDevice}
+          model={pipelineModel}
+          flags={pipelineFlags}
+          progress={currentProgress}
+          steps={processingSteps}
+          gpuInfo={processStatus?.gpu}
+        />
+      </div>
+    </section>
   {/if}
 </section>
 

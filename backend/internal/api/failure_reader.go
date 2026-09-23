@@ -26,10 +26,10 @@ type FailureDiagnostics struct {
 }
 
 // readFailureDiagnostics reads the failure reason for a single song from the
-// shared output/pipeline_status.json and the song's _failed_* directory. It
-// returns nil when the pipeline status is not failed.
+// per-song output/<song>/pipeline_status.json and the song's _failed_* directory.
+// It returns nil when the pipeline status is not failed.
 func readFailureDiagnostics(outputRoot, song string) *FailureDiagnostics {
-	statusPath := filepath.Join(outputRoot, "pipeline_status.json")
+	statusPath := filepath.Join(outputRoot, song, "pipeline_status.json")
 	data, err := os.ReadFile(statusPath)
 	if err != nil {
 		return nil

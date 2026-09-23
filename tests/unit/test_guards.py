@@ -49,3 +49,13 @@ def test_check_licenses(repo_root):
         f"check-licenses.sh fallo (exit {result.returncode}):\n"
         f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
     )
+
+
+def test_check_gitignore(repo_root):
+    """tools/check-gitignore.sh debe pasar (.hermes/ no trackeada)."""
+    result = _run_guard(repo_root, 'check-gitignore.sh')
+    assert result.returncode == 0, (
+        f"check-gitignore.sh fallo (exit {result.returncode}):\n"
+        f"STDOUT:\n{result.stdout}\nSTDERR:\n{result.stderr}"
+    )
+

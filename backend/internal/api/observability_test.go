@@ -183,9 +183,13 @@ func TestRunSinglePipeline_SignalWritesFailedStatus(t *testing.T) {
 		Args: []string{fakePipeline, "--vocal-model", "/app/data/models/VR_Models/BS_Roformer_Viperx", "/app/input/song.wav", "--output", filepath.Join(root, "output", "song")},
 	}
 
+	if err := os.MkdirAll(filepath.Join(root, "output", "song"), 0o755); err != nil {
+		t.Fatalf("failed to create song dir: %v", err)
+	}
+
 	s.runSinglePipeline(job, s.jobs["song"])
 
-	statusPath := filepath.Join(root, "output", "pipeline_status.json")
+	statusPath := filepath.Join(root, "output", "song", "pipeline_status.json")
 	data, err := os.ReadFile(statusPath)
 	if err != nil {
 		t.Fatalf("failed to read pipeline_status.json: %v", err)
