@@ -923,6 +923,18 @@ func listModels() ModelsListResponse {
 			origin = manifest.Origin
 		}
 
+		// For official Demucs PyTorch models the real weights live in the
+		// HuggingFace Hub cache as .safetensors files, while the file picked up
+		// by the scanner is typically a placeholder. Resolve the true on-disk
+		// size when possible; otherwise keep the scanned file size.
+		weightSize := info.Size()
+		if modelType == "demucs" {
+			if realSize, ok := demucsModelWeightBytes(installedName); ok {
+				weightSize = realSize
+			}
+		}
+		sizeMB := weightSize / (1024 * 1024)
+
 		models = append(models, ModelEntry{
 			Name:            name,
 			InstalledName:   installedName,
@@ -930,8 +942,8 @@ func listModels() ModelsListResponse {
 			Category:        category,
 			Type:            modelType,
 			Path:            modelPath,
-			SizeMB:          info.Size() / (1024 * 1024),
-			VramEstimateMB:  estimateVRAM(installedName, category, info.Size()/(1024*1024)),
+			SizeMB:          sizeMB,
+			VramEstimateMB:  estimateVRAM(installedName, category, sizeMB),
 			Stems:           stems,
 			NumStems:        numStems,
 			Target:          target,
