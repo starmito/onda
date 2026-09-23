@@ -590,6 +590,121 @@ func TestBuildStepPipelineArgs_VocalNoChunkSizeOmitsEnv(t *testing.T) {
 	}
 }
 
+func TestHandleModelsConfig_ReturnsFlagMetadata(t *testing.T) {
+	root := setTestRoot(t, "model-config-meta-")
+
+	// 1. A model with its own manifest.
+	modelDir := filepath.Join(root, "models", "VR_Models", "TestRoformer")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatalf("failed to create model dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "TestRoformer.ckpt"), []byte("fake"), 0o644); err != nil {
+		t.Fatalf("failed to write ckpt: %v", err)
+	}
+	manifest := modelManifest{
+		Name: "TestRoformer",
+		Type: "bs_roformer",
+		Stems: modelManifestStems{
+			Stems:    []string{"vocals", "instrumental"},
+			Target:   strPtr("vocals"),
+			NumStems: 2,
+		},
+		Flags: map[string]modelFlagDef{
+			"segment_size": copyFlagDef(knownFlags["segment_size"]),
+			"num_overlap":  copyFlagDef(knownFlags["num_overlap"]),
+			"batch_size":   copyFlagDef(knownFlags["batch_size"]),
+			"chunk_size":   copyFlagDef(knownFlags["chunk_size"]),
+			"device":       copyFlagDef(knownFlags["device"]),
+		},
+	}
+	manifestData, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		t.Fatalf("failed to marshal manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "model.manifest.json"), manifestData, 0o644); err != nil {
+		t.Fatalf("failed to write manifest: %v", err)
+	}
+
+	// 2. The built-in htdemucs_ft model (no on-disk directory in this root).
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("GET /api/models/{name}/config", s.handleModelsConfig)
+	srv := httptest.NewServer(s.mux)
+	t.Cleanup(srv.Close)
+
+	cases := []struct {
+		model string
+	}{
+		{"TestRoformer"},
+		{"htdemucs_ft"},
+	}
+	for _, tc := range cases {
+		resp, err := http.Get(srv.URL + "/api/models/" + tc.model + "/config")
+		if err != nil {
+			t.Fatalf("GET %s failed: %v", tc.model, err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET %s status = %d, want 200", tc.model, resp.StatusCode)
+		}
+		var got ModelFlagsResponse
+		if err := json.NewDecoder(resp.Body).Decode(&got); err != nil {
+			t.Fatalf("failed to decode %s config: %v", tc.model, err)
+		}
+		resp.Body.Close()
+
+		if got.Model != tc.model {
+			t.Errorf("%s: model = %q, want %q", tc.model, got.Model, tc.model)
+		}
+		if len(got.Flags) == 0 {
+			t.Fatalf("%s: expected flags, got none", tc.model)
+		}
+		for _, f := range got.Flags {
+			if f.Name == "device" {
+				// Device has no quality/VRAM/speed tags.
+				if f.Description == "" {
+					t.Errorf("%s/%s: device should still have a description", tc.model, f.Name)
+				}
+				continue
+			}
+			if f.Description == "" {
+				t.Errorf("%s/%s: missing description", tc.model, f.Name)
+			}
+			if len(f.Affects) == 0 {
+				t.Errorf("%s/%s: missing affects", tc.model, f.Name)
+			}
+			if f.BetterSide == "" {
+				t.Errorf("%s/%s: missing better_side", tc.model, f.Name)
+			}
+		}
+	}
+
+	// Demucs-specific range check for htdemucs_ft.
+	resp, err := http.Get(srv.URL + "/api/models/htdemucs_ft/config")
+	if err != nil {
+		t.Fatalf("GET htdemucs_ft failed: %v", err)
+	}
+	defer resp.Body.Close()
+	var demucs ModelFlagsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&demucs); err != nil {
+		t.Fatalf("failed to decode demucs config: %v", err)
+	}
+	var shifts ModelFlagValue
+	for _, f := range demucs.Flags {
+		if f.Name == "shifts" {
+			shifts = f
+			break
+		}
+	}
+	if shifts.Name == "" {
+		t.Fatal("htdemucs_ft: shifts flag not found")
+	}
+	if toInt(shifts.Min) != 1 || toInt(shifts.Max) != 10 {
+		t.Errorf("htdemucs_ft shifts range = %v..%v, want 1..10", shifts.Min, shifts.Max)
+	}
+	if shiftsDefault := toInt(shifts.Default); shiftsDefault < 1 || shiftsDefault > 10 {
+		t.Errorf("htdemucs_ft shifts default = %v, want inside 1..10", shifts.Default)
+	}
+}
+
 func TestIsOnnxModel(t *testing.T) {
 	root := setTestRoot(t, "model-config-")
 

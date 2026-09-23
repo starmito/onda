@@ -124,6 +124,27 @@ func loadModelManifest(modelDir string) (*modelManifest, bool) {
 	return &m, true
 }
 
+// htdemucsFtManifest returns the canonical manifest for the built-in
+// htdemucs_ft Demucs model.  When the model is installed on disk its manifest
+// is used; otherwise a hard-coded manifest keeps tests and fresh installs
+// consistent.
+func htdemucsFtManifest() (*modelManifest, bool) {
+	if modelDir, _, found := searchModelOnDisk("htdemucs_ft"); found {
+		if m, ok := loadModelManifest(modelDir); ok {
+			return m, true
+		}
+	}
+	return &modelManifest{
+		Name: "HTDemucs FT",
+		Type: "demucs",
+		Stems: modelManifestStems{
+			Stems:    []string{"drums", "bass", "other", "vocals"},
+			NumStems: 4,
+		},
+		Flags: builtInHtdemucsFtManifestFlags(),
+	}, true
+}
+
 // categoryFromType derives the user-facing category from the real model type
 // stored in the manifest. This is the single source of truth for categories;
 // no part of the code invents categories from filenames or folder names.
@@ -775,8 +796,8 @@ func listModels() ModelsListResponse {
 	}
 
 	// Ensure htdemucs_ft is always listed as a Demucs model.
-	// It's a PyTorch model loaded by the demucs CLI, not a file on disk,
-	// so it won't be picked up by the filesystem scan.
+	// It's a PyTorch model loaded by the demucs CLI, not always a file on disk,
+	// so it won't be picked up by the filesystem scan in test environments.
 	hasHtdemucsFT := false
 	for _, m := range models {
 		if m.Name == "htdemucs_ft" {
@@ -785,20 +806,23 @@ func listModels() ModelsListResponse {
 		}
 	}
 	if !hasHtdemucsFT {
-		models = append(models, ModelEntry{
-			Name:            "htdemucs_ft",
-			InstalledName:   "htdemucs_ft",
-			DisplayName:     "HTDemucs FT",
-			Category:        "Demucs",
-			Type:            "demucs",
-			Path:            "",
-			SizeMB:          2800,
-			VramEstimateMB:  2800,
-			Stems:           []string{"drums", "bass", "other", "vocals"},
-			NumStems:        4,
-			ManifestMissing: true,
-		})
-		categorySet["Demucs"] = true
+		if manifest, ok := htdemucsFtManifest(); ok {
+			models = append(models, ModelEntry{
+				Name:            "htdemucs_ft",
+				InstalledName:   "htdemucs_ft",
+				DisplayName:     manifest.Name,
+				Category:        categoryFromType(manifest.Type),
+				Type:            manifest.Type,
+				Path:            "",
+				SizeMB:          2800,
+				VramEstimateMB:  2800,
+				Stems:           manifest.Stems.Stems,
+				NumStems:        manifest.Stems.NumStems,
+				Target:          manifest.Stems.Target,
+				ManifestMissing: false,
+			})
+			categorySet[categoryFromType(manifest.Type)] = true
+		}
 	}
 
 	var categories []string

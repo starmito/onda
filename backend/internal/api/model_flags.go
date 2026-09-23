@@ -16,17 +16,21 @@ import (
 
 // ModelFlagValue is a single flag as returned by the config API.
 // It contains the effective value plus the declaration (default, range,
-// editable) so the frontend can render controls without hardcoded tables.
+// editable, description and quality/VRAM/speed metadata) so the frontend can
+// render controls without hardcoded tables.
 type ModelFlagValue struct {
-	Name     string      `json:"name"`
-	Value    interface{} `json:"value"`
-	Default  interface{} `json:"default"`
-	Min      interface{} `json:"min,omitempty"`
-	Max      interface{} `json:"max,omitempty"`
-	Step     interface{} `json:"step,omitempty"`
-	Editable bool        `json:"editable"`
-	Type     string      `json:"type,omitempty"`
-	Choices  []string    `json:"choices,omitempty"`
+	Name        string      `json:"name"`
+	Value       interface{} `json:"value"`
+	Default     interface{} `json:"default"`
+	Min         interface{} `json:"min,omitempty"`
+	Max         interface{} `json:"max,omitempty"`
+	Step        interface{} `json:"step,omitempty"`
+	Editable    bool        `json:"editable"`
+	Type        string      `json:"type,omitempty"`
+	Choices     []string    `json:"choices,omitempty"`
+	Description string      `json:"description,omitempty"`
+	Affects     []string    `json:"affects,omitempty"`
+	BetterSide  string      `json:"better_side,omitempty"`
 }
 
 // ModelFlagsResponse is returned by GET /api/models/{name}/config.
@@ -37,27 +41,106 @@ type ModelFlagsResponse struct {
 
 // modelFlagDef is the internal representation of a flag declaration.
 type modelFlagDef struct {
-	Default  interface{} `json:"default"`
-	Min      interface{} `json:"min,omitempty"`
-	Max      interface{} `json:"max,omitempty"`
-	Step     interface{} `json:"step,omitempty"`
-	Editable bool        `json:"editable"`
-	Type     string      `json:"type,omitempty"`
-	Choices  []string    `json:"choices,omitempty"`
+	Default     interface{} `json:"default"`
+	Min         interface{} `json:"min,omitempty"`
+	Max         interface{} `json:"max,omitempty"`
+	Step        interface{} `json:"step,omitempty"`
+	Editable    bool        `json:"editable"`
+	Type        string      `json:"type,omitempty"`
+	Choices     []string    `json:"choices,omitempty"`
+	Description string      `json:"description,omitempty"`
+	Affects     []string    `json:"affects,omitempty"`
+	BetterSide  string      `json:"better_side,omitempty"`
 }
 
-// knownFlags holds the generic ranges and defaults for every supported flag.
-// These are used both as fallback and as range metadata when the manifest does
-// not declare its own bounds.
+// knownFlags holds the generic ranges, defaults and user-facing metadata for
+// every supported flag.  These are used both as fallback and as range metadata
+// when the manifest does not declare its own bounds.
 var knownFlags = map[string]modelFlagDef{
-	"segment_size": {Default: 512, Min: 64, Max: 2048, Step: 1, Editable: true, Type: "int"},
-	"num_overlap":  {Default: 4, Min: 1, Max: 16, Step: 1, Editable: true, Type: "int"},
-	"chunk_size":   {Default: 0, Min: 0, Max: 1000000, Step: 1, Editable: true, Type: "int"},
-	"batch_size":   {Default: 1, Min: 0, Max: 32, Step: 1, Editable: true, Type: "int"},
-	"device":       {Default: "cuda", Editable: true, Type: "choice", Choices: []string{"cuda", "cpu"}},
-	"shifts":       {Default: 1, Min: 0, Max: 20, Step: 1, Editable: true, Type: "int"},
-	"segment":      {Default: 0, Min: 0, Max: 7, Step: 1, Editable: true, Type: "int"},
-	"jobs":         {Default: 0, Min: 0, Max: 8, Step: 1, Editable: true, Type: "int"},
+	"segment_size": {
+		Default:     512,
+		Min:         128,
+		Max:         2048,
+		Step:        1,
+		Editable:    true,
+		Type:        "int",
+		Description: "Número de muestras de audio que el modelo procesa en cada ventana de análisis. Valores mayores suelen mejorar la calidad hasta el óptimo del modelo, pero consumen más VRAM.",
+		Affects:     []string{"quality", "vram"},
+		BetterSide:  "quality",
+	},
+	"num_overlap": {
+		Default:     4,
+		Min:         1,
+		Max:         8,
+		Step:        1,
+		Editable:    true,
+		Type:        "int",
+		Description: "Número de ventanas solapadas entre segmentos consecutivos. Más solapamiento reduce artefactos de costura y mejora la calidad, a costa de más VRAM y tiempo de proceso.",
+		Affects:     []string{"quality", "vram"},
+		BetterSide:  "quality",
+	},
+	"chunk_size": {
+		Default:     0,
+		Min:         0,
+		Max:         600,
+		Step:        1,
+		Editable:    true,
+		Type:        "int",
+		Description: "Duración máxima de cada trozo procesado, en segundos. 0 procesa la canción entera de una vez (máxima calidad, más VRAM).",
+		Affects:     []string{"quality", "vram"},
+		BetterSide:  "quality",
+	},
+	"batch_size": {
+		Default:     1,
+		Min:         1,
+		Max:         8,
+		Step:        1,
+		Editable:    true,
+		Type:        "int",
+		Description: "Número de segmentos procesados a la vez. Valores mayores aceleran la separación y usan más VRAM, sin cambiar la calidad del resultado.",
+		Affects:     []string{"vram", "speed"},
+		BetterSide:  "vram",
+	},
+	"device": {
+		Default:     "cuda",
+		Editable:    true,
+		Type:        "choice",
+		Choices:     []string{"cuda", "cpu"},
+		Description: "Dispositivo de cálculo: CUDA (GPU) o CPU.",
+	},
+	"shifts": {
+		Default:     1,
+		Min:         1,
+		Max:         10,
+		Step:        1,
+		Editable:    true,
+		Type:        "int",
+		Description: "Número de predicciones con pequeños desplazamientos temporales que se promedian. Aumentar mejora la calidad a costa de mucho más tiempo.",
+		Affects:     []string{"quality", "speed"},
+		BetterSide:  "quality",
+	},
+	"segment": {
+		Default:     0,
+		Min:         0,
+		Max:         7,
+		Step:        1,
+		Editable:    true,
+		Type:        "int",
+		Description: "Longitud de los segmentos analizados por Demucs, en segundos. 0 deja que el modelo elija automáticamente. Valores mayores suelen dar mejor calidad hasta el óptimo del modelo.",
+		Affects:     []string{"quality"},
+		BetterSide:  "quality",
+	},
+	"jobs": {
+		Default:     1,
+		Min:         1,
+		Max:         8,
+		Step:        1,
+		Editable:    true,
+		Type:        "int",
+		Description: "Número de trabajos paralelos durante la separación. Más trabajos aceleran el proceso pero no afectan la calidad.",
+		Affects:     []string{"speed"},
+		BetterSide:  "speed",
+	},
 }
 
 // flagsByType maps a canonical model type to the flag names it exposes.
@@ -78,13 +161,35 @@ var flagsByType = map[string][]string{
 func loadModelManifestFlags(name string) (map[string]modelFlagDef, bool) {
 	modelDir, _, found := searchModelOnDisk(name)
 	if !found {
+		if strings.EqualFold(name, "htdemucs_ft") {
+			return builtInHtdemucsFtManifestFlags(), true
+		}
 		return nil, false
 	}
 	manifest, ok := loadModelManifest(modelDir)
 	if !ok || len(manifest.Flags) == 0 {
+		if strings.EqualFold(name, "htdemucs_ft") {
+			return builtInHtdemucsFtManifestFlags(), true
+		}
 		return nil, false
 	}
 	return manifest.Flags, true
+}
+
+// builtInHtdemucsFtManifestFlags returns the canonical flag set for the
+// built-in htdemucs_ft Demucs model.  It is used both in tests (where the model
+// is not installed on disk) and as a safe fallback in production.
+func builtInHtdemucsFtManifestFlags() map[string]modelFlagDef {
+	flags := make(map[string]modelFlagDef, len(knownFlags))
+	for _, name := range flagsByType["demucs"] {
+		flags[name] = copyFlagDef(knownFlags[name])
+	}
+	// Defaults inferred from the shipped htdemucs_ft.yaml, clamped to the
+	// documented valid ranges.
+	setFlagDefault(flags, "shifts", 10)
+	setFlagDefault(flags, "segment", 7)
+	setFlagDefault(flags, "jobs", 8)
+	return flags
 }
 
 // fallbackFlagsForModel returns generic flag declarations inferred from the
@@ -162,6 +267,11 @@ func copyFlagDef(def modelFlagDef) modelFlagDef {
 		copied := make([]string, len(def.Choices))
 		copy(copied, def.Choices)
 		def.Choices = copied
+	}
+	if def.Affects != nil {
+		copied := make([]string, len(def.Affects))
+		copy(copied, def.Affects)
+		def.Affects = copied
 	}
 	return def
 }
@@ -269,15 +379,18 @@ func getModelFlagsResponse(name string) (*ModelFlagsResponse, error) {
 			val = v
 		}
 		flags = append(flags, ModelFlagValue{
-			Name:     k,
-			Value:    val,
-			Default:  def.Default,
-			Min:      def.Min,
-			Max:      def.Max,
-			Step:     def.Step,
-			Editable: def.Editable,
-			Type:     def.Type,
-			Choices:  def.Choices,
+			Name:        k,
+			Value:       val,
+			Default:     def.Default,
+			Min:         def.Min,
+			Max:         def.Max,
+			Step:        def.Step,
+			Editable:    def.Editable,
+			Type:        def.Type,
+			Choices:     def.Choices,
+			Description: def.Description,
+			Affects:     def.Affects,
+			BetterSide:  def.BetterSide,
 		})
 	}
 

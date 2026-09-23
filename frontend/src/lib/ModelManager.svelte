@@ -306,6 +306,68 @@
     flagValues = { ...flagValues, [name]: value };
   }
 
+  type Affect = 'quality' | 'vram' | 'speed';
+
+  const FLAG_NOUNS: Record<string, string> = {
+    num_overlap: 'solape',
+    segment_size: 'segmento',
+    chunk_size: 'trozo',
+    batch_size: 'segmentos',
+    shifts: 'predicciones',
+    segment: 'segmento',
+    jobs: 'trabajos',
+  };
+
+  // Flags whose semantic "more is better" is reversed: the best value is at the minimum.
+  // chunk_size: 0 = process whole song = maximum quality.
+  function isSliderInverted(flag: ModelFlag): boolean {
+    return flag.name === 'chunk_size' && flag.better_side === 'quality';
+  }
+
+  function getSliderLabels(flag: ModelFlag): { left: string; right: string } | null {
+    if (!flag.affects?.length || !flag.better_side) return null;
+
+    const noun = FLAG_NOUNS[flag.name];
+    const worseText = {
+      quality: 'menos calidad',
+      vram: 'menos VRAM',
+      speed: 'más lento',
+    }[flag.better_side as Affect];
+
+    const betterText = {
+      quality: 'más calidad',
+      vram: 'más VRAM',
+      speed: 'más rápido',
+    }[flag.better_side as Affect];
+
+    if (flag.name === 'chunk_size') {
+      // Inverted: left = many chunks / worse, right = whole song / better.
+      return { left: `más trozos · ${worseText}`, right: `canción entera · ${betterText}` };
+    }
+
+    if (noun) {
+      return { left: `menos ${noun} · ${worseText}`, right: `más ${noun} · ${betterText}` };
+    }
+
+    return { left: worseText, right: betterText };
+  }
+
+  function getFlagRealValue(flag: ModelFlag): number {
+    const v = flagValues[flag.name];
+    if (v === undefined || v === null) return Number(flag.default);
+    return Number(v);
+  }
+
+  function sliderInputToRealValue(flag: ModelFlag, visualValue: number): number {
+    if (!isSliderInverted(flag)) return visualValue;
+    return Number(flag.max ?? 100) - visualValue;
+  }
+
+  function realValueToSliderInput(flag: ModelFlag, realValue: number): number {
+    if (!isSliderInverted(flag)) return realValue;
+    return Number(flag.max ?? 100) - realValue;
+  }
+
   function formatGb(mb: number): string {
     return (mb / 1024).toFixed(1) + ' GB';
   }
@@ -380,7 +442,10 @@
       <fieldset class="sliders" disabled={!selectedModel}>
         {#each flags as flag (flag.name)}
           {#if flag.editable}
-            <div class="field">
+            {@const inverted = isSliderInverted(flag)}
+            {@const realValue = getFlagRealValue(flag)}
+            {@const labels = getSliderLabels(flag)}
+            <div class="field flag-field" data-flag-name={flag.name}>
               <label for="flag-{flag.name}">
                 {flag.name}: <strong>{formatFlagValue(flag)}</strong>
               </label>
@@ -398,12 +463,29 @@
                 <input
                   id="flag-{flag.name}"
                   type="range"
-                  min={flag.min ?? 0}
-                  max={flag.max ?? 100}
+                  class="flag-slider"
+                  class:inverted
+                  min={inverted ? 0 : (flag.min ?? 0)}
+                  max={inverted
+                    ? Number(flag.max ?? 100) - Number(flag.min ?? 0)
+                    : (flag.max ?? 100)}
                   step={flag.step ?? 1}
-                  value={Number(flagValues[flag.name] ?? flag.default)}
-                  oninput={(e) => updateFlag(flag.name, Number(e.currentTarget.value))}
+                  value={inverted ? realValueToSliderInput(flag, realValue) : realValue}
+                  oninput={(e) =>
+                    updateFlag(
+                      flag.name,
+                      sliderInputToRealValue(flag, Number(e.currentTarget.value)),
+                    )}
                 />
+              {/if}
+              {#if flag.description}
+                <p class="param-desc flag-description">{flag.description}</p>
+              {/if}
+              {#if labels}
+                <div class="slider-labels">
+                  <span class="slider-min">{labels.left}</span>
+                  <span class="slider-max">{labels.right}</span>
+                </div>
               {/if}
             </div>
           {/if}
@@ -761,5 +843,26 @@
     font-size: 0.7rem;
     color: var(--text-secondary);
     padding-top: 1.1rem;
+  }
+
+  /* Flag descriptions and slider corner labels */
+  .flag-description {
+    font-size: 0.75rem;
+    color: var(--text-secondary);
+    margin: 2px 0 4px;
+    line-height: 1.35;
+  }
+
+  .slider-labels {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.7rem;
+    color: var(--text-muted);
+  }
+
+  .slider-min,
+  .slider-max {
+    color: var(--text-muted);
+    font-size: 0.65rem;
   }
 </style>
