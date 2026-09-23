@@ -132,6 +132,69 @@ func TestCheckVramHeadroom(t *testing.T) {
 	}
 }
 
+func TestRunSinglePipeline_BlockedGPUUnreadable(t *testing.T) {
+	orig := gpuInfoProvider
+	defer func() { gpuInfoProvider = orig }()
+	gpuInfoProvider = func() GPUInfoResponse {
+		return GPUInfoResponse{OK: false, Error: "nvidia-smi failed: command not found"}
+	}
+	mockLowRAMProvider(t, 32000)
+
+	s := &Server{jobs: make(map[string]*JobState)}
+	state := &JobState{Song: "test", Status: "waiting"}
+	job := JobRequest{
+		Song: "test",
+		Config: SeparateRequest{
+			VocalModel: "BS_Roformer_Viperx",
+		},
+	}
+
+	s.runSinglePipeline(job, state)
+
+	if state.Status != "blocked_no_gpu" {
+		t.Errorf("status = %q, want blocked_no_gpu", state.Status)
+	}
+	if state.Error == "" {
+		t.Errorf("expected non-empty error reason")
+	}
+	if state.BlockedReason != "gpu_unreadable" {
+		t.Errorf("blocked_reason = %q, want gpu_unreadable", state.BlockedReason)
+	}
+	if state.BlockedReasonMsg == "" {
+		t.Errorf("expected non-empty blocked_reason_msg")
+	}
+}
+
+func TestRunMultiStepPipeline_BlockedGPUUnreadable(t *testing.T) {
+	orig := gpuInfoProvider
+	defer func() { gpuInfoProvider = orig }()
+	gpuInfoProvider = func() GPUInfoResponse {
+		return GPUInfoResponse{OK: false, Error: "nvidia-smi failed: command not found"}
+	}
+	mockLowRAMProvider(t, 32000)
+
+	s := &Server{jobs: make(map[string]*JobState)}
+	state := &JobState{Song: "test", Status: "waiting"}
+	s.jobs["test"] = state
+	steps := []cli.PipelineStep{
+		{ID: "vocal", Type: "vocal", Model: "BS_Roformer_Viperx", Enabled: true},
+	}
+	job := JobRequest{
+		Song:   "test",
+		Config: SeparateRequest{Input: "/app/input/test.wav"},
+		Steps:  steps,
+	}
+
+	s.runMultiStepPipeline(job, steps, state)
+
+	if state.Status != "blocked_no_gpu" {
+		t.Errorf("status = %q, want blocked_no_gpu", state.Status)
+	}
+	if state.BlockedReason != "gpu_unreadable" {
+		t.Errorf("blocked_reason = %q, want gpu_unreadable", state.BlockedReason)
+	}
+}
+
 func TestRunSinglePipeline_BlockedNoGPU(t *testing.T) {
 	orig := gpuInfoProvider
 	defer func() { gpuInfoProvider = orig }()

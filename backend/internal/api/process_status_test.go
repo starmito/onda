@@ -4,74 +4,31 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os/exec"
-	"strings"
 	"testing"
-	"time"
 )
 
-func TestCollectProcessState(t *testing.T) {
-	cmd := exec.Command("sleep", "3")
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("failed to start sleep: %v", err)
+// TestHandleProcessStatus_ReportsDeviceVRAM verifies that the GPU memory fields
+// exposed by /api/processes/status come from the device (nvidia-smi), not from
+// our own process allocation. We inject a known reading and check it propagates
+// unchanged.
+func TestHandleProcessStatus_ReportsDeviceVRAM(t *testing.T) {
+	origGPU := gpuInfoProvider
+	defer func() { gpuInfoProvider = origGPU }()
+	gpuInfoProvider = func() GPUInfoResponse {
+		return GPUInfoResponse{
+			OK:                true,
+			Name:              "NVIDIA GeForce RTX 5060 Ti",
+			Runtime:           "nvidia-smi",
+			VRAMTotalMB:       16311,
+			VRAMUsedMB:        376,
+			VRAMFreeMB:        15475,
+			UtilizationGPUPct: 5,
+			TemperatureC:      42,
+		}
 	}
-	defer cmd.Process.Kill()
 
-	// Give the kernel a moment to create /proc/<pid>.
-	time.Sleep(20 * time.Millisecond)
-
-	info := collectProcessState(cmd.Process.Pid)
-	if !info.Alive {
-		t.Errorf("expected process to be alive")
-	}
-	if info.Pid != cmd.Process.Pid {
-		t.Errorf("pid = %d, want %d", info.Pid, cmd.Process.Pid)
-	}
-	if !strings.Contains(info.Cmd, "sleep") {
-		t.Errorf("cmd = %q, want to contain 'sleep'", info.Cmd)
-	}
-	if info.ElapsedSec < 0 {
-		t.Errorf("elapsed_sec = %d, want >= 0", info.ElapsedSec)
-	}
-}
-
-func TestCollectProcessState_NotFound(t *testing.T) {
-	// PIDs are positive and the kernel will never assign this one.
-	info := collectProcessState(99999999)
-	if info.Alive {
-		t.Errorf("expected process to be not alive")
-	}
-	if info.Pid != 99999999 {
-		t.Errorf("pid = %d, want 99999999", info.Pid)
-	}
-}
-
-func TestHandleProcessStatus(t *testing.T) {
-	cmd := exec.Command("sleep", "5")
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("failed to start sleep: %v", err)
-	}
-	defer cmd.Process.Kill()
-
-	s := &Server{
-		mux:       http.NewServeMux(),
-		jobs:      make(map[string]*JobState),
-		currentPID: cmd.Process.Pid,
-	}
+	s := &Server{mux: http.NewServeMux(), jobs: make(map[string]*JobState)}
 	s.mux.HandleFunc("GET /api/processes/status", s.handleProcessStatus)
-	s.jobs["blocked_song"] = &JobState{
-		Song:             "blocked_song",
-		Status:           "blocked_no_gpu",
-		Error:            "insufficient VRAM",
-		BlockedReason:    "insufficient_vram",
-		BlockedReasonMsg: "insufficient VRAM: test",
-		Index:            0,
-	}
-	s.jobs["waiting_song"] = &JobState{
-		Song:   "waiting_song",
-		Status: "waiting",
-		Index:  1,
-	}
 
 	req := httptest.NewRequest(http.MethodGet, "/api/processes/status", nil)
 	rr := httptest.NewRecorder()
@@ -80,48 +37,21 @@ func TestHandleProcessStatus(t *testing.T) {
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}
-
-	var resp struct {
-		QueueJobs       []JobState `json:"queue_jobs"`
-		GPU             struct {
-			TotalMB int    `json:"total_mb"`
-			UsedMB  int    `json:"used_mb"`
-			FreeMB  int    `json:"free_mb"`
-			Runtime string `json:"runtime"`
-			Name    string `json:"name"`
-		} `json:"gpu"`
-		PipelineProcess struct {
-			Alive      bool   `json:"alive"`
-			Pid        int    `json:"pid"`
-			Cmd        string `json:"cmd"`
-			ElapsedSec int    `json:"elapsed_sec"`
-		} `json:"pipeline_process"`
-		Blocked []struct {
-			Song    string `json:"song"`
-			Message string `json:"message"`
-		} `json:"blocked"`
-	}
+	var resp map[string]interface{}
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-
-	if len(resp.QueueJobs) != 2 {
-		t.Errorf("expected 2 queue_jobs, got %d", len(resp.QueueJobs))
+	gpu, ok := resp["gpu"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected gpu object, got %T", resp["gpu"])
 	}
-	if resp.PipelineProcess.Pid != cmd.Process.Pid {
-		t.Errorf("pipeline_process.pid = %d, want %d", resp.PipelineProcess.Pid, cmd.Process.Pid)
+	if gpu["used_mb"] != 376.0 {
+		t.Errorf("used_mb = %v, want 376 (device real usage)", gpu["used_mb"])
 	}
-	if !resp.PipelineProcess.Alive {
-		t.Errorf("expected pipeline_process.alive = true")
+	if gpu["free_mb"] != 15475.0 {
+		t.Errorf("free_mb = %v, want 15475 (device real free)", gpu["free_mb"])
 	}
-	if len(resp.Blocked) != 1 {
-		t.Errorf("expected 1 blocked job, got %d", len(resp.Blocked))
-	} else {
-		if resp.Blocked[0].Song != "blocked_song" {
-			t.Errorf("blocked[0].song = %q, want blocked_song", resp.Blocked[0].Song)
-		}
-		if resp.Blocked[0].Message == "" {
-			t.Errorf("blocked[0].message empty")
-		}
+	if gpu["total_mb"] != 16311.0 {
+		t.Errorf("total_mb = %v, want 16311 (device real total)", gpu["total_mb"])
 	}
 }

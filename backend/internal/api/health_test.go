@@ -20,9 +20,18 @@ func TestCheckGPU_Available(t *testing.T) {
 func TestHandleHealth_GPUUsableByTorch(t *testing.T) {
 	orig := checkGPU
 	checkGPU = func() (bool, string, error) {
-		return true, "NVIDIA GeForce RTX 5060 Ti, 376 MiB, 16311 MiB", nil
+		return true, "CUDA available", nil
 	}
 	t.Cleanup(func() { checkGPU = orig })
+
+	origGPU := gpuInfoProvider
+	gpuInfoProvider = func() GPUInfoResponse {
+		return GPUInfoResponse{
+			OK: true, Name: "NVIDIA GeForce RTX 5060 Ti",
+			VRAMTotalMB: 16311, VRAMUsedMB: 376, VRAMFreeMB: 15475,
+		}
+	}
+	t.Cleanup(func() { gpuInfoProvider = origGPU })
 
 	s := &Server{mux: http.NewServeMux()}
 	s.mux.HandleFunc("/api/health", s.handleHealth)
@@ -48,6 +57,15 @@ func TestHandleHealth_GPUUsableByTorch(t *testing.T) {
 	if gpu["usable_by_torch"] != true {
 		t.Errorf("expected gpu.usable_by_torch true, got %v", gpu["usable_by_torch"])
 	}
+	if gpu["used_mb"] != 376.0 {
+		t.Errorf("expected used_mb from device (376), got %v", gpu["used_mb"])
+	}
+	if gpu["free_mb"] != 15475.0 {
+		t.Errorf("expected free_mb from device (15475), got %v", gpu["free_mb"])
+	}
+	if gpu["total_mb"] != 16311.0 {
+		t.Errorf("expected total_mb from device (16311), got %v", gpu["total_mb"])
+	}
 }
 
 func TestHandleHealth_GPUNotUsableByTorch(t *testing.T) {
@@ -56,6 +74,12 @@ func TestHandleHealth_GPUNotUsableByTorch(t *testing.T) {
 		return false, "CUDA not available", nil
 	}
 	t.Cleanup(func() { checkGPU = orig })
+
+	origGPU := gpuInfoProvider
+	gpuInfoProvider = func() GPUInfoResponse {
+		return GPUInfoResponse{OK: false, Error: "nvidia-smi failed: command not found"}
+	}
+	t.Cleanup(func() { gpuInfoProvider = origGPU })
 
 	s := &Server{mux: http.NewServeMux()}
 	s.mux.HandleFunc("/api/health", s.handleHealth)
