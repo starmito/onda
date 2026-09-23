@@ -1077,7 +1077,6 @@
         for (let j = start; j < end; j++) max = Math.max(max, Math.abs(channel[j]));
         data.push(max);
       }
-      audioCtx.close();
       playerState.wavePeaksCache = { ...playerState.wavePeaksCache, [song]: data };
       return data;
     } catch {
@@ -1253,7 +1252,6 @@
         for (let j = start; j < end; j++) max = Math.max(max, Math.abs(channel[j]));
         data.push(max);
       }
-      audioCtx.close();
       playerState.subgroupWavePeaksCache = { ...playerState.subgroupWavePeaksCache, [key]: data };
       return data;
     } catch {
@@ -1432,6 +1430,7 @@
       <div class="output-groups-list">
         {#each groupSongs as song}
           {@const stems = stemsForSong(song)}
+          {@const groupProgress = playerState.groupPlayers[song]?.duration ? playerState.groupPlayers[song].currentTime / playerState.groupPlayers[song].duration : 0}
           {#if stems.length > 0}
             <div class="output-group-card">
               <!-- ── Group header with combined player ── -->
@@ -1459,8 +1458,8 @@
                   <span class="time-display">{fmtTime(playerState.groupPlayers[song]?.currentTime)}/{fmtTime(playerState.groupPlayers[song]?.duration)}</span>
                 </div>
                 <div class="vol-slider-wrap">
-                  <label class="vol-label-small">Vol:</label>
-                  <input type="range" min="0" max="100"
+                  <label class="vol-label-small" for="group-vol-{song}">Vol:</label>
+                  <input id="group-vol-{song}" type="range" min="0" max="100"
                     value={100}
                     oninput={(e) => {
                       for (const stem of stems) setVolume(song, stem.name, parseInt((e.target as HTMLInputElement).value));
@@ -1482,7 +1481,8 @@
                   onmouseup={(e) => handleWaveformMouseUp(e, song)}
                   onmouseleave={(e) => handleWaveformMouseLeave(e, song)}
                   role="slider" tabindex="0"
-                  aria-label="Barra de reproducción" />
+                  aria-valuenow={groupProgress}
+                  aria-label="Barra de reproducción"></canvas>
               </div>
 
               <!-- ── Individual stem rows (mute/solo/volume) ── -->
@@ -1521,8 +1521,8 @@
 
               <!-- ── Pitch shift controls ── -->
               <div class="pitch-control-row">
-                <label class="pitch-label">Tono:</label>
-                <input type="range" min="-12" max="12" step="1"
+                <label class="pitch-label" for="group-pitch-{song}">Tono:</label>
+                <input id="group-pitch-{song}" type="range" min="-12" max="12" step="1"
                   value={getPitchValue(song)}
                   oninput={(e) => { playerState.pitchValues = { ...playerState.pitchValues, [song]: parseFloat((e.target as HTMLInputElement).value) }; }}
                   class="pitch-slider" />
@@ -1540,6 +1540,7 @@
                   {#each playerState.pitchSubgroups[song] as subs, idx}
                     {@const subKey = getSubgroupKey(song, idx)}
                     {@const subStems = subs.stems}
+                    {@const subgroupProgress = playerState.subgroupPlayers[subKey]?.duration ? playerState.subgroupPlayers[subKey].currentTime / playerState.subgroupPlayers[subKey].duration : 0}
                     <div class="pitch-subgroup-card">
                       <div class="subgroup-header">
                         <span class="subgroup-pitch-label">Tono: {subs.pitch > 0 ? '+' : ''}{subs.pitch}</span>
@@ -1566,8 +1567,8 @@
                           <span class="time-display">{fmtTime(playerState.subgroupPlayers[subKey]?.currentTime)}/{fmtTime(playerState.subgroupPlayers[subKey]?.duration)}</span>
                         </div>
                         <div class="vol-slider-wrap">
-                          <label class="vol-label-small">Vol:</label>
-                          <input type="range" min="0" max="100" value={100}
+                          <label class="vol-label-small" for="sub-vol-{subKey}">Vol:</label>
+                          <input id="sub-vol-{subKey}" type="range" min="0" max="100" value={100}
                             oninput={(e) => {
                               for (const sstem of subStems) setSubgroupVolume(song, idx, sstem.name, parseInt((e.target as HTMLInputElement).value));
                             }}
@@ -1584,7 +1585,8 @@
                           onmouseup={(e) => handleSubgroupWaveformMouseUp(e, subKey)}
                           onmouseleave={(e) => handleSubgroupWaveformMouseLeave(e, subKey)}
                           role="slider" tabindex="0"
-                          aria-label="Barra de reproducción" />
+                          aria-valuenow={subgroupProgress}
+                          aria-label="Barra de reproducción"></canvas>
                       </div>
 
                       <!-- ── Subgroup stems (full controls like main group) ── -->
@@ -1643,6 +1645,7 @@
       ondragover={handleDragOver}
       ondrop={handleDropEvent}
       onclick={handleClick}
+      onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleClick(); } }}
       role="button" tabindex="0">
       <span class="pitch-dropzone-icon">{@html IconUpload}</span>
       <span class="pitch-dropzone-text">Arrastra archivos aquí o haz clic</span>
@@ -1697,8 +1700,8 @@
               </div>
               <div class="stem-controls">
                 <div class="vol-slider-wrap">
-                  <label class="vol-label-small">Vol:</label>
-                  <input type="range" min="0" max="100" value={p.volume}
+                  <label class="vol-label-small" for="upload-vol-{p.id}">Vol:</label>
+                  <input id="upload-vol-{p.id}" type="range" min="0" max="100" value={p.volume}
                     oninput={(e) => handleUploadVolume(e, p.id)} class="vol-slider" title="Volumen" />
                   <span class="vol-label">{p.volume}</span>
                 </div>
@@ -1706,8 +1709,8 @@
 
               <!-- ── Pitch shift controls for uploaded file ── -->
               <div class="pitch-control-row">
-                <label class="pitch-label">Tono:</label>
-                <input type="range" min="-12" max="12" step="1"
+                <label class="pitch-label" for="upload-pitch-{p.name}">Tono:</label>
+                <input id="upload-pitch-{p.name}" type="range" min="-12" max="12" step="1"
                   value={getUploadPitchValue(p.name)}
                   oninput={(e) => { playerState.uploadPitchValues = { ...playerState.uploadPitchValues, [p.name]: parseFloat((e.target as HTMLInputElement).value) }; }}
                   class="pitch-slider" />
@@ -1936,9 +1939,6 @@
   }
   .waveform-seek:active {
     cursor: grabbing;
-  }
-  .light-theme .waveform-seek {
-    background: #e8e8f0;
   }
 
   .playback-controls { display: flex; gap: 0.3rem; flex-shrink: 0; }

@@ -1076,7 +1076,6 @@
         for (let j = start; j < end; j++) max = Math.max(max, Math.abs(channel[j]));
         data.push(max);
       }
-      audioCtx.close();
       pitchedWavePeaksCache = { ...pitchedWavePeaksCache, [pitchedKey]: data };
       return data;
     } catch {
@@ -1332,10 +1331,11 @@
 
         <!-- Pitch controls -->
         <div class="pitch-section">
-          <label class="pitch-label">
+          <label class="pitch-label" for="pitch-slider-{group.song}">
             Tono: <strong>{pitchSliderValue[group.song] || 0}</strong>
           </label>
           <input
+            id="pitch-slider-{group.song}"
             type="range"
             class="pitch-slider"
             min="-12"
@@ -1426,6 +1426,7 @@
           {#each playerState.resultsPitchSubgroups[group.song] as sg (sg.pitch)}
             {@const subPlayer = sg.player}
             {@const subsStems = sg.stems}
+            {@const subProgress = subPlayer?.duration ? subPlayer.currentTime / subPlayer.duration : 0}
             <div class="pitched-group">
               <!-- Subgroup header -->
               <div class="pitched-header">
@@ -1471,7 +1472,6 @@
 
               <!-- Subgroup waveform seek canvas -->
               <div style="width:100%; margin-bottom:0.4rem; cursor:pointer; border-radius:4px; overflow:hidden"
-                onmouseover={() => {}}
                 class:waveform-hover={true}>
                 <canvas class="waveform-seek" width="200" height="80"
                   use:pitchedWaveformAction={{ song: group.song, pitch: sg.pitch }}
@@ -1480,7 +1480,8 @@
                   onmouseup={(e) => handlePitchedWaveformMouseUp(e, group.song, sg.pitch)}
                   onmouseleave={(e) => handlePitchedWaveformMouseLeave(e, group.song, sg.pitch)}
                   role="slider" tabindex="0"
-                  aria-label="Waveform seek" />
+                  aria-valuenow={subProgress}
+                  aria-label="Waveform seek"></canvas>
               </div>
 
               <!-- Subgroup stems with full controls + peak meters -->

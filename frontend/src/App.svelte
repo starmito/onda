@@ -115,7 +115,7 @@
 
   // Toast
   let toastMessage = $state('');
-  let toastType = $state<'success' | 'error'>('success');
+  let toastType = $state<'success' | 'warning' | 'error'>('success');
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
 
   // Persistent error banner
@@ -184,7 +184,7 @@
     document.body.removeChild(ta);
   }
 
-  function showToast(message: string, type: 'success' | 'error') {
+  function showToast(message: string, type: 'success' | 'warning' | 'error') {
     if (type === 'error') {
       errorBanner = { message };
     } else {
@@ -1031,7 +1031,7 @@
       collapsed={sidebarCollapsed}
       presets={sidebarPresets}
       ontoggle={() => sidebarCollapsed = !sidebarCollapsed}
-      ontabchange={(tab) => {
+      ontabchange={(tab: string) => {
         activeTab = tab;
         if (isQueueVisible(tab)) {
           queueFiles = applyDefaultChecked(queueFiles);
@@ -1084,8 +1084,8 @@
             {pipelineModel}
             {pipelineFlags}
             hidePresetSelector={true}
-            onError={(msg) => showToast(msg, 'error')}
-            onQueueChange={(files) => queueFiles = files}
+            onError={(msg: string) => showToast(msg, 'error')}
+            onQueueChange={(files: QueueFile[]) => queueFiles = files}
             onStart={handlePipelineStart}
             onCancel={handleCancel}
             onRemoveFile={handleRemoveQueueFile}
@@ -1109,9 +1109,9 @@
             {pipelineModel}
             {pipelineFlags}
             hidePresetSelector={false}
-            onPresetChange={(name) => selectedPresetName = name}
-            onError={(msg) => showToast(msg, 'error')}
-            onQueueChange={(files) => queueFiles = files}
+            onPresetChange={(name: string) => selectedPresetName = name}
+            onError={(msg: string) => showToast(msg, 'error')}
+            onQueueChange={(files: QueueFile[]) => queueFiles = files}
             onStart={handlePipelineStart}
             onCancel={handleCancel}
             onRemoveFile={handleRemoveQueueFile}
@@ -1146,7 +1146,7 @@
             {inferenceDevice}
             {pipelineModel}
             {pipelineFlags}
-            onQueueChange={(files) => queueFiles = files}
+            onQueueChange={(files: QueueFile[]) => queueFiles = files}
             onStart={handlePipelineStart}
             onCancel={handleCancel}
             onRemoveFile={handleRemoveQueueFile}
@@ -1412,10 +1412,6 @@
     text-transform: uppercase; letter-spacing: 0.5px;
     color: var(--text-secondary);
   }
-  .queue-columns-header input[type="checkbox"] {
-    flex-shrink: 0; width: 16px; height: 16px;
-    cursor: pointer; accent-color: var(--accent);
-  }
   .col-title { flex: 1; }
   .col-progress { width: 180px; text-align: center; }
   .col-status { width: 90px; text-align: center; }
@@ -1429,10 +1425,6 @@
     border: 1px solid var(--border);
     border-radius: 8px;
     font-size: 0.85rem;
-  }
-  .queue-row input[type="checkbox"] {
-    accent-color: var(--accent);
-    flex-shrink: 0;
   }
   .queue-name {
     flex: 1;
@@ -1591,6 +1583,9 @@
   .toast.error {
     background: #f44336;
   }
+  .toast.warning {
+    background: #ff9800;
+  }
   @keyframes toastIn {
     from {
       opacity: 0;
@@ -1602,11 +1597,6 @@
       opacity: 0;
       transform: translateX(-50%) translateY(-20px);
     }
-  }
-
-  /* Smooth transitions between states */
-  section {
-    animation: fadeIn 0.3s ease;
   }
 
   @keyframes fadeIn {
@@ -1701,7 +1691,6 @@
     padding: 16px 20px;
     border-bottom: 1px solid var(--border);
   }
-  .logs-header h2 { margin: 0; color: var(--text-primary); font-size: 18px; }
   .logs-list {
     flex: 1;
     overflow-y: auto;
@@ -1803,10 +1792,6 @@
   padding: 0.75rem 1.25rem;
   border-bottom: 1px solid var(--border);
   background: var(--bg-surface);
-}
-.fullscreen-header h2 {
-  margin: 0; font-size: 1.1rem; color: var(--text-primary);
-  flex: 1; text-align: center;
 }
 .fullscreen-body {
   flex: 1; overflow-y: auto; padding: 1.25rem;

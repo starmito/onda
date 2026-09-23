@@ -250,6 +250,14 @@
       plugins: [regionsPlugin, timelinePlugin],
     });
 
+    regionsPlugin.on('region-created', (region) => {
+      if (region.element) {
+        region.element.style.border = '2px solid rgba(108, 92, 231, 0.6)';
+        region.element.style.borderRadius = '4px';
+        region.element.style.boxSizing = 'border-box';
+      }
+    });
+
     ws.on('ready', () => {
       track.isReady = true;
       ws.zoom(zoom);
@@ -281,7 +289,7 @@
       track.isReady = false;
     });
 
-    ws.on('seek', () => {
+    ws.on('seeking', () => {
       if (syncSeek) return;
       syncSeek = true;
       const time = ws.getCurrentTime();
@@ -351,7 +359,6 @@
         start: r.start,
         end: r.end,
         color: 'rgba(108, 92, 231, 0.28)',
-        borderColor: 'rgba(108, 92, 231, 0.6)',
         drag: true,
         resize: true,
       });
@@ -366,7 +373,6 @@
       start: 0,
       end,
       color: 'rgba(108, 92, 231, 0.28)',
-      borderColor: 'rgba(108, 92, 231, 0.6)',
       drag: true,
       resize: true,
     });
@@ -544,7 +550,6 @@
       start,
       end,
       color: 'rgba(108, 92, 231, 0.28)',
-      borderColor: 'rgba(108, 92, 231, 0.6)',
       drag: true,
       resize: true,
     });
@@ -910,6 +915,7 @@
             class="track"
             class:active={track.id === activeTrackId}
             onclick={() => (activeTrackId = track.id)}
+            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); activeTrackId = track.id; } }}
             role="button"
             tabindex="0"
           >
