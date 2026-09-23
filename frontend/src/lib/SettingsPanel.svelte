@@ -205,6 +205,9 @@
                 <div
                   class="log-row log-{log.level}"
                   onclick={() => logDetail = log}
+                  onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); logDetail = log; } }}
+                  role="button"
+                  tabindex="0"
                 >
                   <span class="log-time">{new Date(log.nano / 1e6).toLocaleString()}</span>
                   <span class="log-service" style="color: {log.service === 'pipeline' ? '#ff9800' : log.service === 'inference' ? '#9c27b0' : '#6c757d'}">{log.service}</span>
@@ -223,6 +226,9 @@
                 <div
                   class="log-row log-{log.level}"
                   onclick={() => logDetail = log}
+                  onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); logDetail = log; } }}
+                  role="button"
+                  tabindex="0"
                 >
                   <span class="log-time">{new Date(log.nano / 1e6).toLocaleString()}</span>
                   <span class="log-service" style="color: {log.service === 'pipeline' ? '#ff9800' : log.service === 'backend' ? '#2196f3' : log.service === 'onda' ? '#9c27b0' : '#6c757d'}">{log.service}</span>
@@ -252,8 +258,8 @@
 
 <!-- Log detail overlay -->
 {#if logDetail}
-  <div class="logs-overlay" onclick={() => logDetail = null}>
-    <div class="log-detail-panel" onclick={(e) => e.stopPropagation()}>
+  <div class="logs-overlay" onclick={() => logDetail = null} onkeydown={(e) => { if (e.key === 'Escape') logDetail = null; }} role="button" tabindex="0">
+    <div class="log-detail-panel" onclick={(e) => e.stopPropagation()} onkeydown={(e) => e.stopPropagation()} role="presentation">
       <div class="logs-header">
         <h2>Detalle del evento</h2>
         <button class="btn-icon" onclick={() => logDetail = null}>{@html IconClose}</button>

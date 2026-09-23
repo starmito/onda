@@ -413,8 +413,9 @@
         <!-- PRESET NAME INPUT  -->
         <!-- ═══════════════════ -->
         <div class="section">
-          <label class="label">Nombre del preset</label>
+          <label class="label" for="preset-name-input">Nombre del preset</label>
           <input
+            id="preset-name-input"
             type="text"
             class="input"
             placeholder="Ej: Mi preset personalizado"
@@ -459,8 +460,9 @@
               <!-- Type + Model row -->
               <div class="step-config-row">
                 <div class="config-group">
-                  <label class="config-label">Tipo</label>
+                  <label class="config-label" for="step-type-{step.id}">Tipo</label>
                   <select
+                    id="step-type-{step.id}"
                     class="select"
                     value={categoryOfModel(step.model)}
                     onchange={(e) => updateStepCategory(step.id, (e.target as HTMLSelectElement).value)}
@@ -472,8 +474,9 @@
                 </div>
 
                 <div class="config-group">
-                  <label class="config-label">Modelo</label>
+                  <label class="config-label" for="step-model-{step.id}">Modelo</label>
                   <select
+                    id="step-model-{step.id}"
                     class="select"
                     value={step.model}
                     onchange={(e) => updateStepModel(step.id, (e.target as HTMLSelectElement).value)}

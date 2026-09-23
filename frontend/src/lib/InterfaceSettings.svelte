@@ -197,6 +197,7 @@
         onclick={handleThemeToggle}
         role="switch"
         aria-checked={isLight}
+        aria-label="Alternar entre tema oscuro y claro"
       >
         <span class="toggle-knob"></span>
       </button>
