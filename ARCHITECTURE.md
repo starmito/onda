@@ -1,6 +1,6 @@
 # Onda Architecture
 
-> Versión actual: resuelta en tiempo de build desde los tags de git (`onda-vX.Y.Z`, `gui-vX.Y.Z`).
+> Versión actual: `VERSION` en la raíz del repo es la única fuente de verdad. `build.sh` y `deploy.sh` validan que `onda/_version.py`, `pyproject.toml` y `frontend/package.json` coincidan.
 
 ## Project Structure
 
@@ -14,7 +14,7 @@ onda/
 │   │   ├── pipeline/           # Pipeline orchestrator
 │   │   └── daw/                # DAW helpers (MIDI, tempo, effects)
 │   └── go.mod
-├── frontend/                   # Svelte 5 + TypeScript frontend
+├── frontend/                   # Svelte 5 + TypeScript 6 frontend
 │   ├── src/
 │   │   ├── lib/                # Components and API client
 │   │   └── App.svelte
@@ -25,12 +25,17 @@ onda/
 │   ├── cli.py
 │   └── ...
 ├── models/                     # Model checkpoints (not in git)
-├── config/                     # Local runtime config (not in git)
-├── config.example/             # Example config templates
-├── output/                     # Generated stems (not in git)
-├── input/                      # User upload source (not in git)
-├── daw-data/                   # DAW project data (not in git)
+├── data/                       # Single data root (not in git)
+│   ├── input/                  # User upload source
+│   ├── output/                 # Generated stems
+│   ├── daw-data/               # DAW project data
+│   ├── input_rubberband/       # Pitch-shift uploads
+│   ├── config/                 # Local runtime config
+│   ├── logs/                   # Service and event logs
+│   ├── models/                 # Model cache (alternative to ./models)
+│   └── .cache/                 # HF, torch, numba, xdg caches
 ├── tests/                      # Python / Go / API / e2e tests
+├── tools/                      # Repo guards and pipeline helpers
 ├── VERSION
 ├── CHANGELOG.md
 ├── ARCHITECTURE.md
@@ -41,27 +46,27 @@ onda/
 
 - **Name**: `onda`
 - **Go backend**: serves the compiled Svelte frontend and the REST API on `:3000`
-- **Python inference**: Demucs, ViperX, pitch shift, DAW audio effects
+- **Python inference**: Demucs, ViperX, MDX/SCNet/ONNX, pitch shift, DAW audio effects
 - **Bind mounts**:
-  - `./input/`      → `/app/input/`
-  - `./output/`     → `/app/output/`
-  - `./config/`     → `/app/config/`
-  - `./daw-data/`   → `/app/daw-data/`
-  - `./models/`     → `/app/models/`
+  - `./data/`       → `/app/data` (single data root: `input/`, `output/`, `daw-data/`, `config/`, `logs/`, `models/`, `.cache/`)
+  - `./models/`     → `/app/models` (model repository, optional if stored under `./data/models`)
+  - `pytorch-cache` → `/opt/pytorch-backends` (CUDA/CPU torch backend cache)
+
+All runtime paths are resolved relative to `ONDA_DATA_DIR` (default `/app/data`). The legacy fixed paths `/app/input/`, `/app/output/` and bare `/input/` are obsolete.
 
 ## Pipeline Flow
 
 ```
-Frontend upload → POST /api/upload → /app/input/<file>
+Frontend upload → POST /api/upload → ${ONDA_DATA_DIR}/input/<file>
 POST /api/separate → Job queue → Worker
-  → pipeline.sh --steps JSON /app/input/<file>
+  → pipeline.sh --steps JSON ${ONDA_DATA_DIR}/input/<file>
   → vocal/stem separation (Python inference)
   → optional pitch shift (rubberband CLI)
-  → writes stems to /app/output/<song>/
+  → writes stems to ${ONDA_DATA_DIR}/output/<song>/
   → status JSON updated for polling
 ```
 
-## DAW Flow (v3.2.x)
+## DAW Flow
 
 ```
 Frontend DAWWorkspace → /api/daw/* endpoints
@@ -74,9 +79,10 @@ Frontend DAWWorkspace → /api/daw/* endpoints
 
 ## Versioning
 
-Versions are read from git tags at build time:
+Versions are read from the `VERSION` file at build time:
 
-- `onda-vX.Y.Z` is injected into the Go binary and the Python package.
-- `gui-vX.Y.Z` is injected into the Svelte build via `VITE_ONDA_VERSION`.
+- `ONDAP_VERSION` is injected into the Go binary (`-ldflags`) and the Python package (`onda/_version.py`).
+- `GUI_VERSION` (same value) is injected into the Svelte build via `VITE_ONDA_VERSION`.
+- `pyproject.toml` stores the version without the leading `v` (PEP 440).
 
-`build.sh` and `deploy.sh` resolve these tags; the container image receives them as Docker `ARG`s because `.dockerignore` excludes `.git`.
+`build.sh` and `deploy.sh` read `VERSION` and validate all consumers. Release tags (`onda-vX.Y.Z`) are labels created from `VERSION`, not its source.

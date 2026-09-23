@@ -12,13 +12,11 @@
 
 .DEFAULT_GOAL := help
 
-# ── Versiones desde tags de git ─────────────────
-# Se prefiere el tag con prefijo de servicio; si no existe, se usa el tag más
-# reciente. El prefijo se elimina para que la versión inyectada sea vX.Y.Z.
-ONDAP_VERSION := $(shell git describe --tags --match 'onda-*' --abbrev=0 2>/dev/null || git describe --tags --abbrev=0 2>/dev/null || echo unknown)
-GUI_VERSION := $(shell git describe --tags --match 'gui-*' --abbrev=0 2>/dev/null || git describe --tags --abbrev=0 2>/dev/null || echo unknown)
-ONDAP_VERSION := $(ONDAP_VERSION:onda-%=%)
-GUI_VERSION := $(GUI_VERSION:gui-%=%)
+# ── Versiones desde VERSION ─────────────────────
+# VERSION es la única fuente de verdad. build.sh y deploy.sh la leen y validan
+# que onda/_version.py, pyproject.toml y frontend/package.json coincidan.
+ONDAP_VERSION := $(shell cat VERSION 2>/dev/null || echo unknown)
+GUI_VERSION := $(ONDAP_VERSION)
 export ONDAP_VERSION GUI_VERSION
 
 # ── Detect GPU ──────────────────────────────────
@@ -26,16 +24,16 @@ HAS_NVIDIA := $(shell command -v nvidia-smi >/dev/null 2>&1 && echo 1 || echo 0)
 GPU_TYPE ?= cpu
 
 # ── Paths ───────────────────────────────────────
+# Todos los datos de usuario viven bajo la raíz única ./data (ONDA_DATA_DIR).
 MODEL_DIR ?= ./models
-INPUT_DIR := ./input
-OUTPUT_DIR := ./output
+DATA_DIR := ./data
+INPUT_DIR := $(DATA_DIR)/input
+OUTPUT_DIR := $(DATA_DIR)/output
 
 # ── File lists for GPU detection ────────────────
 COMPOSE_FILES := -f docker-compose.yml
 ifeq ($(GPU_TYPE),nvidia)
-  COMPOSE_FILES += -f docker-compose.nvidia.yml
-else ifeq ($(GPU_TYPE),amd)
-  COMPOSE_FILES += -f docker-compose.amd.yml
+  COMPOSE_FILES += -f docker-compose.cuda.yml
 endif
 
 # ── Colors ──────────────────────────────────────
@@ -107,7 +105,7 @@ setup: ## Configuración inicial: detecta GPU, crea .env y directorios
 	@echo "    3. make up"
 	@echo "    4. Abre http://localhost:3000"
 
-build: ## Construye las imágenes Docker (versiones desde tags de git)
+build: ## Construye las imágenes Docker (versiones desde VERSION)
 	@echo "$(CYAN)🔨 Construyendo imágenes...$(NC)"
 	@echo "  ONDAP_VERSION=$(ONDAP_VERSION)  GUI_VERSION=$(GUI_VERSION)"
 	docker compose $(COMPOSE_FILES) build

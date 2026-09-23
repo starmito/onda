@@ -4,44 +4,23 @@ Registro de decisiones, bloqueos y hallazgos medidos sobre las dependencias del 
 
 ---
 
-## `demucs` se mantiene en `4.0.1` — bloqueo documentado
+## `demucs` en `4.1.0` — estado actual
 
-### Hecho medido
+`demucs` está fijado en `4.1.0` en `pyproject.toml`, `requirements.lock` y `Dockerfile`. Se instala con `--no-deps` y se declara explícitamente su dependencia `sphn==0.2.1`.
 
-Durante la Fase 4 de actualización de dependencias se probó `demucs==4.1.0` como candidata en GPU (ruta real de producción, contenedor CUDA, modelo `BS_Roformer_Viperx` + `htdemucs_ft`, misma máquina y mismos minutos que la versión anterior).
+### Historial del bloqueo
 
-Resultado con `demucs 4.1.0`:
+Durante la Fase 4 de actualización de dependencias se probó `demucs==4.1.0` como candidata en GPU y se documentó un fallo al 65 % del paso Demucs (solo 2 de 4 pistas escritas, sin mensaje de error). Por eso `demucs` se mantuvo en `4.0.1` en ese momento.
 
-- El pipeline **se cae al 65 % de su propio paso** de Demucs.
-- Código de salida del contenedor: **1**.
-- **Sin ningún mensaje de error** en la salida.
-- `pipeline_status.json` se queda congelado en estado `running`.
-- Solo se escriben **2 de las 4 pistas** esperadas.
-
-Con `demucs 4.0.1` y el **mismo audio, la misma máquina y los mismos minutos**, el pipeline completa las **4 pistas** sin error.
-
-### Cómo se midió
-
-- Herramienta: `tools/verify-deps.sh` en modo A/B (imagen base vs. imagen con `demucs==4.1.0` instalado encima).
-- Entorno: GPU NVIDIA, volumen CUDA en solo lectura (`onda_pytorch-cache:/opt/pytorch-backends:ro`), modelo vocal real de producción montado en `/app/data/models/VR_Models/BS_Roformer_Viperx`.
-- Audio: mezcla sintética de 30 s generada por el propio script de verificación.
-
-### Consecuencias adicionales de `demucs 4.1.0`
-
-- Arrastra una dependencia nueva: `sphn`.
-- Rompe el paso de Demucs sin dejar traza útil, lo que hace inviable subir de versión hasta entender el motivo.
-
-### Conclusión
-
-**`demucs` se queda en `4.0.1` hasta que se entienda y se corrija el fallo del 65 %.** No subir a `4.1.0`.
+En ciclos posteriores se volvió a validar `4.1.0` y el estado instalado actual (`requirements.lock`) refleja esa versión. Si reaparece el fallo del 65 %, `tools/verify-deps.sh` es la herramienta de referencia para comparar la imagen base contra una candidata.
 
 ### Dependencias relacionadas
 
-La idea de retirar `torchaudio` del proyecto queda **aparcada** porque dependía de la subida a `demucs 4.1.0`. Hasta que Demucs se quede en `4.0.1`, `torchaudio` sigue siendo necesario (Demucs 4.0.1 lo utiliza).
+Con `demucs 4.1.0` ya **no es necesario** `torchaudio`; por eso se retiraron `asteroid` y `torch_audiomentations` del pipeline. `torchaudio` no aparece en `requirements.lock`.
 
-### Estado del resto de dependencias aprobadas en Fase 4
+### Estado del resto de dependencias aprobadas
 
-Las siguientes versiones quedan fijadas y validadas con A/A en la imagen `onda:deps-20260920`:
+Las siguientes versiones quedan fijadas y validadas:
 
 | Paquete      | Versión fijada |
 |--------------|----------------|
@@ -50,8 +29,16 @@ Las siguientes versiones quedan fijadas y validadas con A/A en la imagen `onda:d
 | `soundfile`  | `0.14.0`       |
 | `onnx`       | `1.23.0`       |
 | `scipy`      | `1.18.1`       |
+| `demucs`     | `4.1.0`        |
+| `sphn`       | `0.2.1`        |
 
-`demucs` es la única excepción: **no se toca**, permanece en `4.0.1`.
+### Actualización reciente (v3.5.6)
+
+En v3.5.6 se sincronizaron:
+- `numpy` 2.4.6 → 2.5.3
+- `onnxruntime-gpu` 1.26.0 → 1.30.0 (instalado en el volumen `/opt/pytorch-backends/<gpu>` por `entrypoint.sh`)
+- Frontend: `vite` 8.0.16 → 8.3.0, `svelte` 5.56.3 → 5.57.1, `svelte-check` 4.6.0 → 4.7.6, `@sveltejs/vite-plugin-svelte` 7.3.0 → 7.3.1, `vitest` 4.1.9 → 5.0.1, `wavesurfer.js` 7.12.8 → 8.0.0.
+- `typescript` sigue en 6.0.3 porque `svelte-check` declara peer `^5 || ^6` y aún no acepta la v7.
 
 ---
 
@@ -60,5 +47,7 @@ Las siguientes versiones quedan fijadas y validadas con A/A en la imagen `onda:d
 - `requirements-common.txt`
 - `requirements-docker.txt`
 - `requirements.lock`
+- `pyproject.toml`
+- `Dockerfile`
 - `tools/verify-deps.sh`
 - `tools/check-deps.sh`

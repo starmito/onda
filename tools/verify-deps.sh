@@ -9,11 +9,11 @@
 #
 # Ejemplos:
 #   tools/verify-deps.sh
-#       # imagen por defecto: onda:v3.4.14
+#       # imagen por defecto: onda:v3.5.6
 #       # paquetes por defecto: requirements-common.txt + requirements-docker.txt
-#   tools/verify-deps.sh onda:v3.4.14 "numpy==2.4.6 scipy==1.18.1"
+#   tools/verify-deps.sh onda:v3.5.6 "numpy==2.5.3 scipy==1.18.1"
 #       # imagen y paquetes explicitos
-#   tools/verify-deps.sh onda:v3.4.14 ""
+#   tools/verify-deps.sh onda:v3.5.6 ""
 #       # control A/A real: no se instala nada; se ejecuta la misma
 #       # configuracion tres veces y se mide el ruido de medicion.
 #
@@ -57,7 +57,7 @@ set -euo pipefail
 # -----------------------------------------------------------------------------
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DEFAULT_IMAGE="onda:v3.4.14"
+DEFAULT_IMAGE="onda:v3.5.6"
 REQ_FILES=(
   "$REPO_ROOT/requirements-common.txt"
   "$REPO_ROOT/requirements-docker.txt"

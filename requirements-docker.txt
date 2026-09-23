@@ -1,6 +1,6 @@
 # Onda — Dependencias fijadas para inferencia (torch 2.14.0; el wheel CUDA lo instala
 # entrypoint.sh en runtime dentro de /opt/pytorch-backends/<gpu>).
-# TODAS las versiones estan fijadas y coinciden con el estado REAL instalado en la imagen validada onda:v3.5.0-test.
+# TODAS las versiones estan fijadas y coinciden con el estado REAL instalado en la imagen validada onda:v3.5.6.
 # Inventario exacto de referencia (pip freeze): requirements.lock
 # Verificacion: tools/check-deps.sh
 
@@ -39,7 +39,7 @@ rotary_embedding_torch==0.9.1
 segmentation_models_pytorch==0.5.0
 transformers==5.17.0
 spafe==0.3.3
-# audiomentations: declarado historicamente pero NO esta instalado en onda:v3.4.14
+# audiomentations: declarado historicamente pero NO esta instalado en onda:v3.5.6
 # (`pip show audiomentations` -> "Package(s) not found") y ningun codigo del repo lo importa.
 # Se deja comentado para que no quede una linea sin fijar. Si vuelve a hacer falta, fijarlo a la
 # version realmente instalada (no inventarla).

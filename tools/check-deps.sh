@@ -5,7 +5,7 @@
 #
 # Uso:
 #   tools/check-deps.sh                  # verifica los requirements contra requirements.lock
-#   tools/check-deps.sh onda:v3.4.15     # ademas, compara el freeze de esa imagen con requirements.lock
+#   tools/check-deps.sh onda:v3.5.6      # ademas, compara el freeze de esa imagen con requirements.lock
 #
 # Comprueba:
 #   (a) que ninguna linea de los requirements quede sin '=='

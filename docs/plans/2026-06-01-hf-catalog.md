@@ -1,4 +1,4 @@
-# Catálogo HF — Plan de Implementación
+> ⚠️ Documento histórico (2026-06-01). Las versiones y cifras que cita son las de ese momento; ver `CHANGELOG.md` para el estado actual.\n\n# Catálogo HF — Plan de Implementación
 
 > **Para Hermes:** Usar subagent-driven-development, delegando cada fase como una unidad.
 

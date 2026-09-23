@@ -1,4 +1,4 @@
-# Onda v3.5.0 — Contenedor unificado (Python + Go + Svelte)
+# Onda v3.5.6 — Contenedor unificado (Python + Go + Svelte)
 # GPU auto-detect en runtime via entrypoint.sh
 # Build: docker compose build
 # Deploy: docker compose up -d  (o bash deploy.sh para auto-detectar GPU)
@@ -56,7 +56,7 @@ RUN SKLEARN_ALLOW_DEPRECATED_SKLEARN_PACKAGE_INSTALL=True \
 
 # Paquetes que dependen de torch (torch CPU ya está instalado, pip NO descargará CUDA)
 # NOTA: no se instalan asteroid/torch_audiomentations porque arrastran torchaudio,
-# y Onda v3.5.0 usa demucs 4.1.0 que no lo necesita.
+# y Onda v3.5.6 usa demucs 4.1.0 que no lo necesita.
 # NOTA: diffq y torchcodec se omiten porque no se usan (diffq solo para modelos
 # cuantizados de demucs; torchcodec no es requerido por ningun paquete ni importado por Onda).
 RUN /opt/venv/bin/pip install --no-cache-dir \

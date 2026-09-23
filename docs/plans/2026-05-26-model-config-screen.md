@@ -1,4 +1,4 @@
-# Pantalla de Configuración Avanzada — Plan de Implementación
+> ⚠️ Documento histórico (2026-05-26). Las versiones y cifras que cita son las de ese momento; ver `CHANGELOG.md` para el estado actual.\n\n# Pantalla de Configuración Avanzada — Plan de Implementación
 
 > **Para Hermes:** Delegar vía subagent-driven-development. 1 subagente para el componente completo.
 

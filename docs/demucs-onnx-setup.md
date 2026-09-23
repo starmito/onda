@@ -1,15 +1,17 @@
 # Demucs ONNX — Guía de Setup y Troubleshooting
 
-> **Última actualización:** 2026-05-26 — Bind mounts arreglados, GPU pendiente de rebuild
+> **Última actualización:** 2026-09-23 — Versiones sincronizadas con Onda v3.5.6
+>
+> ⚠️ Esta guía cubre el setup de Demucs ONNX. Onda v3.5.6 usa `onnxruntime-gpu` 1.30.0.
 
 ## Dependencias
 
 ```txt
-# requirements-docker-v2.txt (o instalar vía pip)
+# requirements-docker.txt (o instalar vía pip)
 demucs-onnx==0.3.4        # Wrapper StemSplitio (0.1 MB, sin PyTorch)
-onnxruntime-gpu==1.26.0   # NVIDIA CUDA (recomendado)
+onnxruntime-gpu==1.30.0   # NVIDIA CUDA (recomendado)
 # OR
-onnxruntime==1.26.0       # CPU-only (fallback universal)
+onnxruntime==1.30.0       # CPU-only (fallback universal)
 ```
 
 **Nota:** `demucs-onnx` NO requiere PyTorch. Solo numpy + onnxruntime + soundfile + soxr + tqdm + huggingface-hub.
@@ -53,7 +55,7 @@ El contenedor necesita **3 cosas** para que ONNX detecte GPU:
 ```dockerfile
 # Además de onnxruntime-gpu, instalar las bibliotecas CUDA vía pip wheels
 RUN pip install --no-cache-dir \
-    onnxruntime-gpu==1.26.0 \
+    onnxruntime-gpu==1.30.0 \
     nvidia-cublas-cu12 \
     nvidia-cudnn-cu12
 ```
@@ -85,15 +87,16 @@ pip install onnxruntime  # sin sufijo -gpu
 
 ## Bind Mounts
 
-El contenedor necesita acceso a 3 directorios del host:
+El contenedor usa una única raíz de datos (`ONDA_DATA_DIR`, por defecto `/app/data`):
 
 ```yaml
 # docker-compose.yml
 volumes:
-  - ./models:/app/models    # Modelos ONNX (lectura)
-  - ./input:/input          # Audio de entrada
-  - ./output:/output        # Stems generados
+  - ./data:/app/data        # input/, output/, config/, models/, .cache/...
+  - ./models:/app/models    # Modelos ONNX (opcional, lectura)
 ```
+
+Dentro del contenedor los datos están en `${ONDA_DATA_DIR}/input/`, `${ONDA_DATA_DIR}/output/`, etc. Los mounts bare `./input:/input` y `./output:/output` son obsoletos.
 
 **⚠️ Si los mounts no funcionan** (directorios vacíos en el contenedor):
 - Verificar inodos: `stat -c '%i' /host/path` vs `docker exec onda stat -c '%i' /container/path` — deben coincidir
@@ -151,7 +154,7 @@ files = separate(
 | Método | Tiempo (30s audio) | Ratio | VRAM |
 |---|---|---|---|
 | Demucs ONNX (CPU) | 19.3s | 1.6x | ~270 MB |
-| Demucs ONNX (GPU) | *pendiente — viable con CUDA 12.8 + onnxruntime-gpu 1.26* | | |
+| Demucs ONNX (GPU) | *pendiente — viable con CUDA 12.8 + onnxruntime-gpu 1.30* | | |
 | Demucs PyTorch (GPU) | ~4s | ~7.5x | ~3 GB |
 
 ## Roadmap
