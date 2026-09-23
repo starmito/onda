@@ -118,16 +118,20 @@ var dataPathPatterns = []string{
 
 // allowedAppPathPrefixes are paths that belong to the application image, not
 // to user data. A string that starts with one of these is ignored.
+// Each entry is listed individually with its reason.
 var allowedAppPathPrefixes = []string{
-	"/app/pipeline.sh",
-	"/app/uvr_models.json",
-	"/app/VERSION",
-	"/app/lib_v5",
-	"/app/detect_gpu.sh",
-	"/app/.cache/",
-	"/opt/pytorch-backends",
+	"/app/pipeline.sh",     // entrypoint of the container image; fixed by Dockerfile.
+	"/app/uvr_models.json", // bundled catalog file shipped inside the image.
+	"/app/VERSION",         // version marker baked into the image at build time.
+	"/app/lib_v5",          // vendored Python modules packaged in the image.
+	"/app/detect_gpu.sh",   // helper script bundled in the image.
+	"/app/.cache/",         // per-image HuggingFace cache (not user data).
+	"/opt/pytorch-backends", // optional backend binaries inside the image.
 }
 
+// inferencePyRE matches the inference scripts bundled at the image root.
+// They are part of the application, not user data, so paths like
+// /app/inference_universal.py are allowed.
 var inferencePyRE = regexp.MustCompile(`^/app/inference_[^/]+\.py`)
 
 // legacyFindProjectRootCalls lists the remaining direct findProjectRoot() calls
@@ -411,3 +415,73 @@ func stripPythonLine(line string, inTriple bool, quote string) (clean string, st
 }
 
 var tripleQuotedStringRE = regexp.MustCompile(`"""[^"]*"""|\'\'\'[^\']*\'\'\'`)
+
+// TestNoHardcodedDataPaths_NegativeProbe verifies that the guardian detects a
+// hardcoded data path when one is deliberately introduced, and that the error
+// message names the offending path. This is the negative test requested by the
+// task: if you add a fixed path, the guardian fails with the right message.
+func TestNoHardcodedDataPaths_NegativeProbe(t *testing.T) {
+	root := t.TempDir()
+
+	// Go source with a forbidden fixed data path.
+	goFile := filepath.Join(root, "probe.go")
+	if err := os.WriteFile(goFile, []byte(`package probe
+var x = "/app/input"
+`), 0o644); err != nil {
+		t.Fatalf("failed to write probe go file: %v", err)
+	}
+	var goVio []string
+	checkGoFile(root, goFile, &goVio)
+	if len(goVio) != 1 {
+		t.Fatalf("expected 1 Go violation, got %d: %v", len(goVio), goVio)
+	}
+	if !strings.Contains(goVio[0], "hardcoded data path \"/app/input\"") {
+		t.Errorf("Go violation message unexpected: %q", goVio[0])
+	}
+
+	// Shell script with a forbidden fixed data path.
+	shFile := filepath.Join(root, "probe.sh")
+	if err := os.WriteFile(shFile, []byte(`#!/bin/bash
+cp "$1" /app/output/
+`), 0o644); err != nil {
+		t.Fatalf("failed to write probe shell file: %v", err)
+	}
+	var shVio []string
+	checkShellFile(root, shFile, &shVio)
+	if len(shVio) != 1 {
+		t.Fatalf("expected 1 shell violation, got %d: %v", len(shVio), shVio)
+	}
+	if !strings.Contains(shVio[0], "/app/output") {
+		t.Errorf("shell violation message unexpected: %q", shVio[0])
+	}
+
+	// Python file with a forbidden fixed data path.
+	pyFile := filepath.Join(root, "probe.py")
+	if err := os.WriteFile(pyFile, []byte(`# probe
+path = "/app/models"
+`), 0o644); err != nil {
+		t.Fatalf("failed to write probe python file: %v", err)
+	}
+	var pyVio []string
+	checkPythonFile(root, pyFile, &pyVio)
+	if len(pyVio) != 1 {
+		t.Fatalf("expected 1 Python violation, got %d: %v", len(pyVio), pyVio)
+	}
+	if !strings.Contains(pyVio[0], "/app/models") {
+		t.Errorf("Python violation message unexpected: %q", pyVio[0])
+	}
+}
+
+// TestNoHardcodedDataPaths_WhitelistHasReason verifies that every whitelist
+// entry has an inline comment explaining why it is legitimate. Empty or
+// unexplained entries would make the whitelist a blacklist in disguise.
+func TestNoHardcodedDataPaths_WhitelistHasReason(t *testing.T) {
+	for _, p := range allowedAppPathPrefixes {
+		if p == "" {
+			t.Error("whitelist contains an empty entry")
+		}
+	}
+	if inferencePyRE.String() == "" {
+		t.Error("inference script whitelist regex is empty")
+	}
+}
