@@ -253,11 +253,16 @@ kill_wait() {
     wait "$pid" 2>/dev/null || true
 }
 
-# Return 0 if a PID exists and is actually running.
-# ``kill -0`` returns success for zombie/defunct processes, so we also check
-# the process state with ps: a leading Z means dead-but-not-reaped.
+# Return 0 if a PID exists, is actually running, and still looks like our worker.
+# ``kill -0`` returns success for zombie/defunct processes and for any process
+# that happens to reuse the same PID, so we also verify identity:
+#   - the process state with ps: a leading Z means dead-but-not-reaped
+#   - the command line contains the worker marker (e.g. demucs_worker.py)
+#   - the process still holds the expected output file descriptor
 _process_is_alive() {
     local pid="${1:-}"
+    local worker_marker="${2:-demucs_worker.py}"
+    local events_file="${3:-}"
     [ -n "$pid" ] || return 1
     if ! kill -0 "$pid" 2>/dev/null; then
         return 1
@@ -267,6 +272,37 @@ _process_is_alive() {
     case "$proc_stat" in
         Z*|z*) return 1 ;;
     esac
+
+    # Identity check #1: the command line must still look like our worker.
+    # A recycled PID will belong to a different program and fail this test.
+    local cmdline
+    cmdline=$(tr '\0' ' ' < /proc/"$pid"/cmdline 2>/dev/null || echo "")
+    case "$cmdline" in
+        *"$worker_marker"*) : ;;
+        *) return 1 ;;
+    esac
+
+    # Identity check #2: the worker must still hold the events file descriptor.
+    # This is stronger than cmdline: even another demucs_worker.py process would
+    # not have our exact events file open for writing.
+    if [ -n "$events_file" ] && [ -e "$events_file" ]; then
+        local expected_fd
+        expected_fd=$(readlink -f "$events_file" 2>/dev/null || echo "$events_file")
+        local found=false
+        local fd real_path
+        for fd in /proc/"$pid"/fd/[0-9]*; do
+            [ -e "$fd" ] || continue
+            real_path=$(readlink -f "$fd" 2>/dev/null || true)
+            if [ "$real_path" = "$expected_fd" ]; then
+                found=true
+                break
+            fi
+        done
+        if ! $found; then
+            return 1
+        fi
+    fi
+
     return 0
 }
 
@@ -1193,13 +1229,20 @@ run_demucs_step() {
     local last_progress=0
     local done_seen=false
     local silence_timeout=120
+    local step_timeout="${DEMUCS_STEP_TIMEOUT_SECONDS:-7200}"
+    local step_start_time
+    step_start_time=$(date +%s)
+    local worker_marker
+    worker_marker=$(basename "${DEMUCS_WORKER}")
+    local loop_aborted_reason=""
 
     local poll_interval=1
-    while _process_is_alive "$worker_pid"; do
-        local total_lines current_time elapsed_since_event
+    while _process_is_alive "$worker_pid" "$worker_marker" "${events_file}"; do
+        local total_lines current_time elapsed_since_event step_elapsed
         total_lines=$(wc -l < "${events_file}" 2>/dev/null || echo 0)
         current_time=$(date +%s)
         elapsed_since_event=$((current_time - last_event_time))
+        step_elapsed=$((current_time - step_start_time))
 
         if [ "${total_lines}" -gt "${lines_read}" ]; then
             local line
@@ -1234,8 +1277,20 @@ run_demucs_step() {
         # Silence detection: 120s without any new event means the worker is stuck.
         if [ "${elapsed_since_event}" -ge "${silence_timeout}" ]; then
             echo "⚠️  Demucs worker silent for ${silence_timeout}s, aborting..." >&2
+            loop_aborted_reason="silence"
             kill -INT "$worker_pid" 2>/dev/null || true
             # Give the worker a moment to shut down cleanly.
+            sleep 1
+            break
+        fi
+
+        # Absolute step timeout: never let a single step hang forever.  This is
+        # the last-resort guard; the normal completion path should always fire
+        # first for healthy workers.
+        if [ "${step_elapsed}" -ge "${step_timeout}" ]; then
+            echo "⚠️  Demucs worker exceeded maximum step time (${step_timeout}s), aborting..." >&2
+            loop_aborted_reason="timeout"
+            kill -INT "$worker_pid" 2>/dev/null || true
             sleep 1
             break
         fi
@@ -1264,6 +1319,14 @@ run_demucs_step() {
     set +e
     wait "$worker_pid"
     local worker_rc=$?
+    # Bash wait returns 127 when the PID is not a child of this shell.  That
+    # happens when the kernel has recycled the PID to a different process, or
+    # when the original worker vanished before wait could reap it.  In either
+    # case the worker is gone, so we continue and let the output validation
+    # decide whether the step actually succeeded.
+    if [ "$worker_rc" -eq 127 ]; then
+        worker_rc=0
+    fi
     if $old_set_e; then
         set -e
     fi
@@ -1271,20 +1334,35 @@ run_demucs_step() {
     # Restore the outer EXIT trap before returning.
     eval "${prev_exit_trap:-trap - EXIT}"
 
-    # Final validation: success requires exit code 0, a 'done' event, and the
-    # expected stems present on disk.
+    # Final validation: success requires a 'done' event and the expected stems
+    # present on disk.  The exit code is informative but not enough: if the
+    # loop stopped watching a recycled PID we may not have reaped the original
+    # worker, yet the outputs can prove it finished honestly.
     local final_rc=${worker_rc}
-    if [ "${final_rc}" -eq 0 ]; then
-        if ! $done_seen; then
-            final_rc=99
-            echo "⚠️  Demucs worker exited 0 but no 'done' event was seen" >&2
-        else
-            local stem_count
-            stem_count=$(find "${output_dir}" -maxdepth 3 -type f -iname "*.wav" 2>/dev/null | wc -l)
-            if [ "${stem_count}" -lt "${expected_stems}" ]; then
-                final_rc=40
-                echo "⚠️  Demucs worker exited 0 but only ${stem_count}/${expected_stems} stems found" >&2
-            fi
+    if [ "${final_rc}" -ne 0 ]; then
+        : # Worker itself reported failure; keep its exit code.
+    elif ! $done_seen; then
+        final_rc=99
+        echo "⚠️  Demucs worker finished but no 'done' event was seen" >&2
+    else
+        local stem_count
+        stem_count=$(find "${output_dir}" -maxdepth 3 -type f -iname "*.wav" 2>/dev/null | wc -l)
+        if [ "${stem_count}" -lt "${expected_stems}" ]; then
+            final_rc=40
+            echo "⚠️  Demucs worker finished but only ${stem_count}/${expected_stems} stems found" >&2
+        fi
+    fi
+
+    # Honest close: if the loop aborted because the worker stopped being
+    # identifiable (recycled PID) or hit the hard timeout, but the expected
+    # outputs are complete, treat the step as successful.  The real work is
+    # done; the watcher had simply lost track of the worker.
+    if [ "${final_rc}" -ne 0 ] && [ -n "${loop_aborted_reason}" ]; then
+        local stem_count
+        stem_count=$(find "${output_dir}" -maxdepth 3 -type f -iname "*.wav" 2>/dev/null | wc -l)
+        if $done_seen && [ "${stem_count}" -ge "${expected_stems}" ]; then
+            echo "ℹ️  Demucs watcher lost the worker (${loop_aborted_reason}), but outputs are complete; treating as success" >&2
+            final_rc=0
         fi
     fi
 
