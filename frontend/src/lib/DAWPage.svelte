@@ -99,12 +99,19 @@
   });
 
   $effect(() => {
+    // Snapshot every tracked container key so this effect re-runs as soon as
+    // Svelte binds a new DOM node. Reading only trackContainers[track.id]
+    // misses the first bind because the key does not exist yet when the
+    // effect initially executes, so the dependency is never registered.
+    const ids = Object.keys(trackContainers);
     for (const track of tracks) {
       const container = trackContainers[track.id];
       if (container && !track.ws) {
         initTrackWaveSurfer(track, container);
       }
     }
+    // Reference ids to keep the dependency on the whole container map alive.
+    ids;
   });
 
   onDestroy(() => {
@@ -125,6 +132,7 @@
     track.regionsPlugin = null;
     track.timelinePlugin = null;
     track.grid = null;
+    delete trackContainers[track.id];
   }
 
   async function loadTempoGrid(fileName: string, trackId: string) {
@@ -215,15 +223,6 @@
 
   function generateId(): string {
     return `${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-  }
-
-  function trackContainer(node: HTMLDivElement, id: string) {
-    trackContainers[id] = node;
-    return {
-      destroy() {
-        delete trackContainers[id];
-      },
-    };
   }
 
   function getActiveTrack(): Track | undefined {
@@ -959,7 +958,7 @@
                 </label>
               </div>
             </div>
-            <div class="track-waveform" use:trackContainer={track.id}></div>
+            <div class="track-waveform" bind:this={trackContainers[track.id]}></div>
           </div>
         {/each}
       {/if}
