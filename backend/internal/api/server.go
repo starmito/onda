@@ -856,6 +856,37 @@ func normalizeSteps(steps []Step, jobStatus string) []Step {
 	return out
 }
 
+// computeJobProgress returns the global progress percentage for a job.
+//
+// When the pipeline exposes a per-step list, the global progress is the simple
+// arithmetic mean of the normalized step progresses. Each step weighs the same,
+// so the global bar moves honestly as steps advance and cannot get stuck at 99
+// just because the active step has not finished yet.
+//
+// Without step data we fall back to the live single-step progress reported by
+// the pipeline (st.Progress / st.OverallProgress). While the job is not done,
+// the result is clamped below 100 so the UI never shows "100%" before the job
+// is actually complete.
+func computeJobProgress(steps []Step, liveProgress float64, jobStatus string) int {
+	var progress int
+	if len(steps) > 0 {
+		var sum float64
+		for _, s := range steps {
+			sum += s.Progress
+		}
+		progress = int(math.Round(sum / float64(len(steps))))
+	} else {
+		progress = int(math.Round(liveProgress * 100))
+	}
+	if progress < 0 {
+		progress = 0
+	}
+	if jobStatus != "done" && progress >= 100 {
+		progress = 99
+	}
+	return progress
+}
+
 // collectQueueJobs returns the current list of jobs ordered by status priority.
 // It mirrors the internal logic of handleQueueStatus so it can be reused by
 // the real-time process status endpoint.
@@ -956,10 +987,7 @@ func (s *Server) collectQueueJobs() []*JobState {
 			if liveProgress > 1 {
 				liveProgress = 1
 			}
-			j.Progress = int(math.Round(liveProgress * 100))
-			if j.Progress >= 100 {
-				j.Progress = 99
-			}
+			j.Progress = computeJobProgress(j.StepList, liveProgress, j.Status)
 			j.ETA = int(st.ETA)
 			j.Elapsed = int(st.Elapsed)
 			// Ensure total_steps is at least current_step
