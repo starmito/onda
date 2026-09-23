@@ -69,6 +69,9 @@ class ProgressTracker:
         self.current_step_idx: int | None = None
         self.step_progress: dict[int, float] = {}
         self.step_status: dict[int, str] = {}
+        # Highest overall_progress ever published; guards against backwards
+        # jumps when a new step starts or a spurious write occurs.
+        self.max_overall_progress: float = 0.0
         # Per-step metadata for the UI: id, name, status, progress, eta, elapsed.
         # Persisted in tracker state and published in pipeline_status.json.
         self.steps: list[dict] = []
@@ -203,12 +206,9 @@ class ProgressTracker:
                 + (1.0 - self.smooth_alpha) * self.last_eta
             )
 
-        eta = self.last_eta
-        # Never publish eta: 0 while work is unfinished; return the floor only
-        # when we have decided there is a real estimate to show.
-        if eta < self.min_eta_seconds:
-            eta = self.min_eta_seconds
-        return eta
+        # Do not publish the floor as an estimate.  A value below 1 s rounds to
+        # 0 and the UI hides it, which is honest for very short remaining work.
+        return self.last_eta
 
     def _overall_progress(self, current_progress: float) -> float:
         """Weighted overall: completed steps count fully, current step partial.
@@ -255,17 +255,35 @@ class ProgressTracker:
         return "queued"
 
     def init_steps(self, steps: list[dict]) -> None:
-        """Initialize the full list of steps with stable ids and readable names."""
+        """Initialize the full list of steps with stable ids and readable names.
+
+        When the tracker already knows the state of a step (for example because
+        a previous per-step invocation completed it), the published entry is
+        preserved so the UI does not momentarily show a completed step as
+        queued again.
+        """
+        old_steps = self.steps
         self.steps = []
-        for s in steps:
-            self.steps.append({
+        for i, s in enumerate(steps):
+            entry = {
                 "id": s.get("id", ""),
                 "name": s.get("name", ""),
                 "status": "queued",
                 "progress": 0,
                 "eta": 0,
                 "elapsed": 0,
-            })
+            }
+            if i < len(old_steps) and old_steps[i].get("status") not in (
+                None,
+                "",
+                "queued",
+            ):
+                prev = old_steps[i]
+                entry["status"] = prev["status"]
+                entry["progress"] = prev["progress"]
+                entry["eta"] = prev.get("eta", 0)
+                entry["elapsed"] = prev.get("elapsed", 0)
+            self.steps.append(entry)
 
     def update_step_list(
         self,
@@ -327,12 +345,28 @@ class ProgressTracker:
         prev = self.step_progress.get(step_idx)
         if prev is not None and status == "processing":
             progress = max(progress, prev)
+
+        # Capture the previous status *before* overwriting it so the safety
+        # belt below can detect a premature "done" write.
+        prev_status = self.step_status.get(step_idx)
         self.set_step_status(step_idx, status, progress)
 
         # ``completed`` means this step is done but the pipeline may continue,
         # so ETA must not collapse to 0 until the whole job is ``done``.
         # ``done`` always means 100 % for this step.
         finished = status == "done"
+
+        # Safety belt: a step cannot be marked done before it has ever been
+        # reported as running/processing. The root cause (pipeline.sh remapping
+        # the final "done" write to the last step in intermediate backend
+        # invocations) is fixed there; this guard protects the UI from any
+        # other stray premature "done" write.
+        if finished and prev_status in (None, "", "queued", "waiting"):
+            finished = False
+            status = "processing"
+            progress = max(progress, self.step_progress.get(step_idx, 0.0))
+            self.set_step_status(step_idx, status, progress)
+
         if finished:
             progress = 100.0
         result = self.update(elapsed, progress, finished=finished)
@@ -381,6 +415,7 @@ class ProgressTracker:
             "max_total_multiplier": self.max_total_multiplier,
             "eta_spike_ratio": self.eta_spike_ratio,
             "min_eta_seconds": self.min_eta_seconds,
+            "max_overall_progress": self.max_overall_progress,
         }
 
     @classmethod
@@ -404,6 +439,7 @@ class ProgressTracker:
         tracker.step_progress = {int(k): v for k, v in data.get("step_progress", {}).items()}
         tracker.step_status = {int(k): v for k, v in data.get("step_status", {}).items()}
         tracker.steps = data.get("steps", [])
+        tracker.max_overall_progress = data.get("max_overall_progress", 0.0)
         return tracker
 
 

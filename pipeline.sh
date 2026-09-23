@@ -2420,7 +2420,17 @@ if $RUBBERBAND; then
     fi
 fi
 
-_report_step "done" "complete" 100
+# In backend-driven per-step chaining, only the last invocation may claim the
+# whole pipeline is done. Intermediate invocations have already reported their
+# own step as "completed" inside the step branch; emitting a final "done" here
+# would remap the status to the last step and mark it complete before it runs.
+if [ -n "${ONDA_CURRENT_STEP_INDEX:-}" ] && [ -n "${ONDA_TOTAL_STEPS:-}" ]; then
+    if [ "$ONDA_CURRENT_STEP_INDEX" -ge "$((ONDA_TOTAL_STEPS - 1))" ]; then
+        _report_step "done" "complete" 100
+    fi
+else
+    _report_step "done" "complete" 100
+fi
 
 # ── Cleanup temps ────────────────────────────────
 rm -rf "${OUTPUT}/_vocal" "${OUTPUT}/_demucs" 2>/dev/null || true
