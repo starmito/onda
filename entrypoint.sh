@@ -70,16 +70,17 @@ for job_dir in "${ONDA_DATA_DIR}/output"/*; do
     fi
 done
 
-# Use persistent caches under /app so torch/hf/numba state survives restarts.
-# HF_HOME is injected by docker-compose.yml (default: /app/data/.cache/huggingface);
-# the entrypoint only provides a fallback for environments that do not set it.
-export TORCH_HOME=/app/.cache/torch
-export NUMBA_CACHE_DIR=/app/.cache/numba
-export XDG_CACHE_HOME=/app/.cache/xdg
-export HF_HOME="${HF_HOME:-/app/.cache/hf}"
+# Keep persistent caches inside the configured data root so they survive
+# container recreation. The data root is bind-mounted from the host; /app is
+# not. HF_HOME is injected by docker-compose.yml; the entrypoint only provides
+# a fallback for environments that do not set it.
+export TORCH_HOME="${TORCH_HOME:-${ONDA_DATA_DIR:-/app/data}/.cache/torch}"
+export NUMBA_CACHE_DIR="${NUMBA_CACHE_DIR:-${ONDA_DATA_DIR:-/app/data}/.cache/numba}"
+export XDG_CACHE_HOME="${XDG_CACHE_HOME:-${ONDA_DATA_DIR:-/app/data}/.cache/xdg}"
+export HF_HOME="${HF_HOME:-${ONDA_DATA_DIR:-/app/data}/.cache/huggingface}"
 
-# Crear directorios de caché persistentes como appuser
-mkdir -p /app/.cache/numba /app/.cache/torch /app/.cache/xdg "${HF_HOME}"
+# Crear directorios de caché persistentes bajo la raíz de datos
+mkdir -p "${TORCH_HOME}" "${NUMBA_CACHE_DIR}" "${XDG_CACHE_HOME}" "${HF_HOME}"
 
 echo "🚀 Starting Onda ${ONDAP_VERSION:-unknown} ($GPU mode)..."
 exec /usr/local/bin/onda-backend serve --addr 0.0.0.0:3000

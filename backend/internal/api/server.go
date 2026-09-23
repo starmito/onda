@@ -1379,6 +1379,27 @@ func resolvePipelineScript() string {
 	return "/app/pipeline.sh"
 }
 
+// buildPipelineEnv returns the environment slice for a pipeline subprocess.
+// It starts with the current process environment, forces PYTHONUNBUFFERED, and
+// forwards the cache/config variables that the pipeline needs. The extra slice
+// is appended last so callers can override or add step-specific variables.
+func buildPipelineEnv(extra []string) []string {
+	env := append([]string(nil), os.Environ()...)
+	env = append(env, "PYTHONUNBUFFERED=1")
+	if cfgDir := configDir(); cfgDir != "" {
+		env = append(env, fmt.Sprintf("ONDA_CONFIG_DIR=%s", cfgDir))
+	}
+	for _, key := range []string{"HF_HOME", "TORCH_HOME", "NUMBA_CACHE_DIR", "XDG_CACHE_HOME"} {
+		if v := os.Getenv(key); v != "" {
+			env = append(env, fmt.Sprintf("%s=%s", key, v))
+		}
+	}
+	if len(extra) > 0 {
+		env = append(env, extra...)
+	}
+	return env
+}
+
 // runSinglePipeline executes a single pipeline.sh invocation.
 func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	// VRAM headroom check before launching.
@@ -1472,16 +1493,7 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 
 	cmd := exec.CommandContext(ctx, "bash", args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Env = append(os.Environ(), "PYTHONUNBUFFERED=1")
-	if cfgDir := configDir(); cfgDir != "" {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("ONDA_CONFIG_DIR=%s", cfgDir))
-	}
-	if hfHome := os.Getenv("HF_HOME"); hfHome != "" {
-		cmd.Env = append(cmd.Env, fmt.Sprintf("HF_HOME=%s", hfHome))
-	}
-	if len(job.Env) > 0 {
-		cmd.Env = append(cmd.Env, job.Env...)
-	}
+	cmd.Env = buildPipelineEnv(job.Env)
 
 	var out bytes.Buffer
 	cmd.Stdout = &out
@@ -1660,22 +1672,12 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		pipelineArgs := append([]string{script}, stepArgs...)
 		cmd := exec.CommandContext(ctx, "bash", pipelineArgs...)
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		cmd.Env = append(os.Environ(), "PYTHONUNBUFFERED=1")
-		if cfgDir := configDir(); cfgDir != "" {
-			cmd.Env = append(cmd.Env, fmt.Sprintf("ONDA_CONFIG_DIR=%s", cfgDir))
-		}
-		if hfHome := os.Getenv("HF_HOME"); hfHome != "" {
-			cmd.Env = append(cmd.Env, fmt.Sprintf("HF_HOME=%s", hfHome))
-		}
-		if len(stepEnv) > 0 {
-			cmd.Env = append(cmd.Env, stepEnv...)
-		}
-		cmd.Env = append(cmd.Env,
+		cmd.Env = buildPipelineEnv(append(stepEnv,
 			fmt.Sprintf("ONDA_STEP_IDS=%s", strings.Join(stepIDs, ",")),
 			fmt.Sprintf("ONDA_STEP_NAMES=%s", strings.Join(stepNames, ",")),
 			fmt.Sprintf("ONDA_CURRENT_STEP_INDEX=%d", i),
 			fmt.Sprintf("ONDA_TOTAL_STEPS=%d", len(steps)),
-		)
+		))
 
 		var out bytes.Buffer
 		cmd.Stdout = &out
