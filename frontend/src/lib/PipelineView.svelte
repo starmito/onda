@@ -336,7 +336,7 @@
   {#if queueFiles.length > 0}
     <section class="queue-section">
       <div class="queue-header">
-        <span class="queue-title">Cola ({queueFiles.length})</span>
+        <span class="queue-title">Preparación ({queueFiles.length})</span>
         <button class="btn-clear" onclick={handleClearQueue}>Limpiar</button>
       </div>
       <div class="queue-columns-header">
