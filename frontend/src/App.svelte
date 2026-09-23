@@ -81,8 +81,8 @@
   // ---- Safeguard: if the UI flag gets stuck but there is no real work, fix it next tick ----
   $effect(() => {
     if (!separating) return;
-    const hasActiveJob = queueJobs.some(j => j.status === 'waiting' || j.status === 'processing');
-    const hasActiveFile = queueFiles.some(qf => qf.status === 'uploading' || qf.status === 'processing');
+		const hasActiveJob = queueJobs.some(j => j.status === 'waiting' || j.status === 'processing' || j.status === 'blocked_no_gpu');
+		const hasActiveFile = queueFiles.some(qf => qf.status === 'uploading' || qf.status === 'processing' || qf.status === 'blocked_no_gpu');
     if (!hasActiveJob && !hasActiveFile) {
       separating = false;
       if (pipelineStatus === 'running') {

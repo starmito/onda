@@ -450,6 +450,37 @@
       />
     {/if}
   {/if}
+
+  <!-- Progress panel for jobs started outside this client (e.g. API) when
+       there are no local queue files to host it. -->
+  {#if queueFiles.length === 0 && (separating || pipelineStatus === 'running' || processingJob)}
+    <section class="direct-execute-section">
+      <button
+        class="btn-stop"
+        onclick={onCancel}
+        title="Cancela el proceso en curso y limpia la cola de espera"
+        aria-label="Cancela el proceso en curso y limpia la cola de espera"
+      >
+        ⏹ Detener
+      </button>
+      <span class="stop-hint">Cancela el proceso en curso y limpia la cola de espera</span>
+
+      <div class="progress-card">
+        <ProgressPanel
+          status={pipelineStatus}
+          step={pipelineStep}
+          song={pipelineSong}
+          eta={pipelineEta}
+          device={inferenceDevice}
+          model={pipelineModel}
+          flags={pipelineFlags}
+          progress={currentProgress}
+          steps={processingSteps}
+          gpuInfo={processStatus?.gpu}
+        />
+      </div>
+    </section>
+  {/if}
 </section>
 
 {#if blockedMsg && !vramDismissed}

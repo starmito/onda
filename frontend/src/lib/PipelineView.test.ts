@@ -183,6 +183,44 @@ describe('PipelineView', () => {
     unmount(app);
   });
 
+  it('shows the progress panel for API-launched jobs without local queue files', () => {
+    const queueFiles: QueueFile[] = [];
+    const queueJobs: QueueJob[] = [
+      {
+        song: 'api-song',
+        status: 'processing',
+        progress: 40,
+        current_step: 1,
+        total_steps: 2,
+        step_name: 'Voz',
+        device: 'cuda',
+        steps: [
+          { id: 'vocal', name: 'Voz', status: 'running', progress: 80, eta: 10, elapsed: 20 },
+          { id: 'demucs', name: 'Demucs', status: 'queued', progress: 0, eta: 0, elapsed: 0 },
+        ],
+      },
+    ];
+
+    const { app } = render({
+      queueFiles,
+      queueJobs,
+      separating: true,
+      pipelineStatus: 'running',
+      hidePresetSelector: true,
+      currentProgress: 0.4,
+    });
+
+    expect(target.querySelector('[data-testid="steps-list"]')).not.toBeNull();
+    const rows = target.querySelectorAll('[data-testid="step-row"]');
+    expect(rows.length).toBe(2);
+
+    const pcts = Array.from(target.querySelectorAll('.step-pct')).map((el) => el.textContent);
+    expect(pcts).toContain('80%');
+    expect(pcts).toContain('0%');
+
+    unmount(app);
+  });
+
   it('keeps the legacy global bar when the active job has no steps', () => {
     const queueFiles: QueueFile[] = [
       {
