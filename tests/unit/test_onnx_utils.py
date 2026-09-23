@@ -127,7 +127,30 @@ def test_create_onnx_session_uses_helper(monkeypatch, tmp_path):
     session.get_providers.assert_called_once()
 
 
-def test_get_onnx_runtime_info_structure(monkeypatch):
+@pytest.fixture(autouse=True)
+def _clear_onnx_runtime_cache():
+    """Ensure each test starts with a fresh ONNX provider probe cache."""
+    import onda.onnx_utils as ou
+
+    ou._clear_onnx_runtime_info_cache()
+    yield
+    ou._clear_onnx_runtime_info_cache()
+
+
+@pytest.fixture
+def onnx_probe_model(monkeypatch):
+    """Replace the in-memory ONNX probe model with cheap dummy bytes.
+
+    The host test runner does not have the ``onnx`` package installed, so
+    building a real model would fail. The provider probe only cares about the
+    session's reported providers, not the model contents.
+    """
+    import onda.onnx_utils as ou
+
+    monkeypatch.setattr(ou, "_build_minimal_onnx_model_bytes", lambda: b"dummy")
+
+
+def test_get_onnx_runtime_info_structure(monkeypatch, onnx_probe_model):
     """get_onnx_runtime_info returns the expected JSON-serializable fields."""
     import onda.onnx_utils as ou
 
@@ -137,23 +160,82 @@ def test_get_onnx_runtime_info_structure(monkeypatch):
     assert "version" in info
     assert "providers" in info
     assert info["cuda"] is False
+    assert info["cuda_supported"] is False
     assert info["cuda_requested"] is False
     assert info["error"] is None
 
 
-def test_get_onnx_runtime_info_detects_cuda_provider(monkeypatch):
-    """cuda=true when CUDAExecutionProvider is in available providers."""
+def test_get_onnx_runtime_info_detects_cuda_provider(monkeypatch, onnx_probe_model):
+    """cuda=true when the real session effectively uses CUDAExecutionProvider."""
     import onda.onnx_utils as ou
 
     monkeypatch.setattr("torch.cuda.is_available", lambda: True)
     # The conftest mock returns ["CPUExecutionProvider"]; patch it temporarily.
     import onnxruntime as ort
 
-    original = ort.get_available_providers
+    original_get_providers = ort.get_available_providers
     ort.get_available_providers = mock.Mock(return_value=[ou.CUDA_PROVIDER, ou.CPU_PROVIDER])
+
+    fake_session = mock.MagicMock()
+    fake_session.get_providers.return_value = [ou.CUDA_PROVIDER, ou.CPU_PROVIDER]
+    original_inference_session = ort.InferenceSession
+    ort.InferenceSession = mock.Mock(return_value=fake_session)
+
     try:
         info = ou.get_onnx_runtime_info()
         assert info["cuda"] is True
+        assert info["cuda_supported"] is True
         assert info["cuda_requested"] is True
+        assert info["providers"] == [ou.CUDA_PROVIDER, ou.CPU_PROVIDER]
+        assert info["error"] is None
     finally:
-        ort.get_available_providers = original
+        ort.get_available_providers = original_get_providers
+        ort.InferenceSession = original_inference_session
+
+
+def test_get_onnx_runtime_info_honest_cpu_fallback(monkeypatch, onnx_probe_model):
+    """cuda=false when the binary lists CUDA but the session falls back to CPU."""
+    import onda.onnx_utils as ou
+
+    monkeypatch.setattr("torch.cuda.is_available", lambda: True)
+    import onnxruntime as ort
+
+    original_get_providers = ort.get_available_providers
+    ort.get_available_providers = mock.Mock(return_value=[ou.CUDA_PROVIDER, ou.CPU_PROVIDER])
+
+    fake_session = mock.MagicMock()
+    fake_session.get_providers.return_value = [ou.CPU_PROVIDER]
+    original_inference_session = ort.InferenceSession
+    ort.InferenceSession = mock.Mock(return_value=fake_session)
+
+    try:
+        info = ou.get_onnx_runtime_info()
+        assert info["cuda"] is False
+        assert info["cuda_supported"] is True
+        assert info["cuda_requested"] is True
+        assert info["providers"] == [ou.CPU_PROVIDER]
+        assert info["error"] is not None
+        assert "fell back" in info["error"]
+    finally:
+        ort.get_available_providers = original_get_providers
+        ort.InferenceSession = original_inference_session
+
+
+def test_get_onnx_runtime_info_session_creation_failure(monkeypatch, onnx_probe_model):
+    """cuda=false with an error when session creation fails outright."""
+    import onda.onnx_utils as ou
+
+    monkeypatch.setattr("torch.cuda.is_available", lambda: True)
+    import onnxruntime as ort
+
+    original_inference_session = ort.InferenceSession
+    ort.InferenceSession = mock.Mock(side_effect=RuntimeError("libcublasLt.so.12: cannot open shared object file"))
+
+    try:
+        info = ou.get_onnx_runtime_info()
+        assert info["cuda"] is False
+        assert info["providers"] == [ou.CPU_PROVIDER]
+        assert info["error"] is not None
+        assert "libcublasLt" in info["error"]
+    finally:
+        ort.InferenceSession = original_inference_session

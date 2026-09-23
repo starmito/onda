@@ -4,10 +4,11 @@ Ensures CUDA/cuDNN libraries are visible to onnxruntime-gpu before creating an
 inference session, and verifies the execution provider actually selected.
 """
 
+import functools
 import logging
 import os
 import warnings
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
@@ -158,17 +159,86 @@ def create_onnx_session(
     return session
 
 
+def _build_minimal_onnx_model_bytes() -> bytes:
+    """Build a tiny ONNX Identity model in memory for provider probing.
+
+    The model has a single float32 input and output of shape [1] and one
+    Identity node. It is cheap to create (no disk, no download) and is only
+    used to ask onnxruntime which execution providers it can actually load.
+    """
+    from onnx import helper, TensorProto
+
+    input_tensor = helper.make_tensor_value_info("input", TensorProto.FLOAT, [1])
+    output_tensor = helper.make_tensor_value_info("output", TensorProto.FLOAT, [1])
+    node = helper.make_node("Identity", ["input"], ["output"])
+    graph = helper.make_graph([node], "onda_onnx_probe", [input_tensor], [output_tensor])
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+    return model.SerializeToString()
+
+
+@functools.lru_cache(maxsize=None)
+def _probe_onnx_providers(cuda_requested: bool = True) -> Tuple[List[str], bool, Optional[str]]:
+    """Create a real ONNX Runtime session and report the effective providers.
+
+    Args:
+        cuda_requested: Whether the caller expected CUDA to be used. When
+            ``False``, falling back to CPU is not treated as an error.
+
+    Returns:
+        A tuple of (effective_providers, cuda_is_active, error_message).
+        ``error_message`` is set when session creation fails or when CUDA was
+        requested but the session silently fell back to CPU.
+    """
+    import onnxruntime as ort
+
+    try:
+        model_bytes = _build_minimal_onnx_model_bytes()
+    except Exception as exc:
+        return [CPU_PROVIDER], False, f"could not build probe model: {exc}"
+
+    requested = [CUDA_PROVIDER, CPU_PROVIDER]
+    try:
+        session = ort.InferenceSession(model_bytes, providers=requested)
+    except Exception as exc:
+        return [CPU_PROVIDER], False, str(exc)
+
+    try:
+        providers = session.get_providers()
+    except Exception as exc:
+        return [CPU_PROVIDER], False, f"session created but could not read providers: {exc}"
+
+    has_cuda = CUDA_PROVIDER in providers
+    error: Optional[str] = None
+    if not has_cuda and cuda_requested:
+        error = (
+            "CUDAExecutionProvider was requested but ONNX Runtime fell back to "
+            f"{providers}"
+        )
+    return providers, has_cuda, error
+
+
+def _clear_onnx_runtime_info_cache() -> None:
+    """Invalidate the cached ONNX provider probe.
+
+    Intended for tests; production code should not need to call this.
+    """
+    _probe_onnx_providers.cache_clear()
+
+
 def get_onnx_runtime_info() -> Dict[str, Any]:
     """Return a JSON-serializable dict describing the ONNX Runtime environment.
 
     Used by the Go health endpoint to surface provider support without forcing
-    operators to read Python logs.
+    operators to read Python logs. The ``cuda`` field reflects the *effective*
+    provider used by a real session, not just the providers listed by
+    ``get_available_providers()``.
     """
     info: Dict[str, Any] = {
         "available": False,
         "version": None,
         "providers": [],
         "cuda": False,
+        "cuda_supported": False,
         "cuda_requested": False,
         "error": None,
     }
@@ -177,9 +247,16 @@ def get_onnx_runtime_info() -> Dict[str, Any]:
 
         info["available"] = True
         info["version"] = ort.__version__
-        info["providers"] = ort.get_available_providers()
-        info["cuda"] = CUDA_PROVIDER in info["providers"]
-        info["cuda_requested"] = _torch_cuda_available()
+        available_providers = ort.get_available_providers()
+        info["cuda_supported"] = CUDA_PROVIDER in available_providers
+        cuda_requested = _torch_cuda_available()
+        info["cuda_requested"] = cuda_requested
+
+        effective_providers, cuda_active, error = _probe_onnx_providers(cuda_requested=cuda_requested)
+        info["providers"] = effective_providers
+        info["cuda"] = cuda_active
+        if error:
+            info["error"] = error
     except Exception as exc:
         info["error"] = str(exc)
     return info

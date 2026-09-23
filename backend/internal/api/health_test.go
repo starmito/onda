@@ -77,6 +77,7 @@ func TestHandleHealth_ONNXRuntimeCUDA(t *testing.T) {
 			"version":        "1.30.0",
 			"providers":      []interface{}{"CUDAExecutionProvider", "CPUExecutionProvider"},
 			"cuda":           true,
+			"cuda_supported": true,
 			"cuda_requested": true,
 			"error":          nil,
 		}, nil
@@ -114,6 +115,9 @@ func TestHandleHealth_ONNXRuntimeCUDA(t *testing.T) {
 	}
 	if onnx["cuda"] != true {
 		t.Errorf("expected onnxruntime.cuda true, got %v", onnx["cuda"])
+	}
+	if onnx["cuda_supported"] != true {
+		t.Errorf("expected onnxruntime.cuda_supported true, got %v", onnx["cuda_supported"])
 	}
 	providers, ok := onnx["providers"].([]interface{})
 	if !ok || len(providers) == 0 || providers[0] != "CUDAExecutionProvider" {
