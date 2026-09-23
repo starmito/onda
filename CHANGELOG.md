@@ -9,7 +9,7 @@
 - **Peso real de los modelos Demucs instalados en `/api/models/list`** (antes 0 MB).
 - **Desplegable TIPO del editor de presets con las categorías reales del backend**.
 - **Fichero de ajustes (`ONDA_SETTINGS_FILE`) dentro de la raíz montada** + carpeta de configuración elegible dentro de la raíz de datos.
-- **Caché de modelos de HuggingFace (`HF_HOME`) dentro de la raíz de datos**: los modelos descargados **ya no se pierden** al recrear el contenedor (antes se volvían a bajar cientos de MB).
+- **Caché de modelos de HuggingFace (`HF_HOME`) dentro de la raíz de datos**: los modelos descargados **ya no se pierden** al recrear el contenedor, y el panel de Almacenamiento reporta su uso real en la fila **Caché de modelos** sin contar dos veces los pesos ya registrados bajo `models/`.
 
 ## [v3.5.3] - 2026-09-23
 

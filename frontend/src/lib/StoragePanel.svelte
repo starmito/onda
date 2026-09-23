@@ -13,10 +13,16 @@
     bytes: number;
   }
 
+  interface CacheUsage {
+    files: number;
+    bytes: number;
+  }
+
   interface UsageResponse {
     folders: Record<string, FolderUsage>;
     free_bytes: number;
     models?: ModelsUsage;
+    cache?: CacheUsage;
   }
 
   interface CleanResponse {
@@ -45,13 +51,14 @@
   let configSuccess = $state<string | null>(null);
   let savingConfig = $state(false);
 
-  const folderOrder = ['input', 'input_rubberband', 'daw-data', 'output', 'models', 'logs'];
+  const folderOrder = ['input', 'input_rubberband', 'daw-data', 'output', 'models', 'cache', 'logs'];
   const folderLabels: Record<string, string> = {
     input: 'Cola / subidas',
     input_rubberband: 'Subidas de tono',
     'daw-data': 'Proyectos DAW',
     output: 'Resultados',
     models: 'Modelos IA',
+    cache: 'Caché de modelos',
     logs: 'Registros',
   };
 
@@ -549,11 +556,13 @@
           {#each folderOrder as key}
             {@const u = usage.folders[key] ?? { files: 0, bytes: 0 }}
             {@const isModels = key === 'models'}
+            {@const isCache = key === 'cache'}
             {@const modelU = isModels && usage.models ? usage.models : null}
+            {@const cacheU = isCache && usage.cache ? usage.cache : null}
             <tr>
               <td>{folderLabels[key] ?? key}</td>
-              <td>{modelU ? modelU.entries : u.files}</td>
-              <td>{formatBytes(modelU ? modelU.bytes : u.bytes)}</td>
+              <td>{cacheU ? cacheU.files : (modelU ? modelU.entries : u.files)}</td>
+              <td>{formatBytes(cacheU ? cacheU.bytes : (modelU ? modelU.bytes : u.bytes))}</td>
             </tr>
           {/each}
         </tbody>
