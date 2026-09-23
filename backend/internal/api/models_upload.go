@@ -144,9 +144,7 @@ func (s *Server) handleModelsUpload(w http.ResponseWriter, r *http.Request) {
 		processed := false
 		for _, cfg := range configParts {
 			cfgName := cfg.Filename
-			ext := strings.ToLower(filepath.Ext(cfgName))
-			base := strings.TrimSuffix(cfgName, ext)
-			foundDir, weightFile, ok := findModelDirByBaseName(base)
+			foundDir, weightFile, ok := findModelDirByConfigName(cfgName)
 			if !ok {
 				continue
 			}
