@@ -1,5 +1,10 @@
 # Changelog
 
+## [v3.5.6] - 2026-09-23
+
+### Changed
+- **Dependencias al día**: `onnxruntime-gpu` 1.26.0 → 1.30.0, `numpy` 2.4.6 → 2.5.3 (sincronizados en `requirements-common.txt`, `requirements-docker.txt`, `pyproject.toml` y `entrypoint.sh`). `pytorch_lightning` y `rotary_embedding_torch` ya estaban en sus últimas versiones (2.6.6 y 0.9.1). Frontend: `vite` 8.0.16 → 8.3.0, `svelte` 5.56.3 → 5.57.1, `svelte-check` 4.6.0 → 4.7.6, `@sveltejs/vite-plugin-svelte` 7.3.0 → 7.3.1, `vitest` 4.1.9 → 5.0.1, `wavesurfer.js` 7.12.8 → 8.0.0. `typescript` 7.0.2 se deja en 6.0.3 porque `svelte-check` aún no acepta su peer range.
+
 ## [v3.5.5] - 2026-09-23
 
 ### Fixed
