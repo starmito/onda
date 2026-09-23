@@ -12,7 +12,7 @@ dependencies = [
     "sphn==0.2.1",
     "librosa==1.0.0",
     "soundfile==0.14.0",
-    "numpy==2.4.6",
+    "numpy==2.5.3",
     "PyYAML==6.0.3",
 ]
 

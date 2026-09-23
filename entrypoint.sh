@@ -22,7 +22,7 @@ if [ "$GPU" != "cpu" ]; then
                 # distinta de la declarada en pyproject.toml. NO usamos --no-deps: las ruedas de
                 # torch para Linux traen las librerias CUDA (cublasLt, cudnn, triton...) como
                 # dependencias de pip; sin ellas torch no ve la GPU.
-                python3 -m pip install --target "$CACHE_DIR" torch==2.14.0 torchvision==0.29.0 onnxruntime-gpu==1.26.0 numpy==2.4.6
+                python3 -m pip install --target "$CACHE_DIR" torch==2.14.0 torchvision==0.29.0 onnxruntime-gpu==1.30.0 numpy==2.5.3
                 ;;
         esac
         echo "✅ $GPU backend installed"
@@ -35,7 +35,7 @@ if [ "$GPU" != "cpu" ]; then
         case $GPU in
             cuda)
                 # Reintento con --upgrade para forzar la reinstalacion; numpy sigue fijado.
-                python3 -m pip install --upgrade --target "$CACHE_DIR" onnxruntime-gpu==1.26.0 numpy==2.4.6
+                python3 -m pip install --upgrade --target "$CACHE_DIR" onnxruntime-gpu==1.30.0 numpy==2.5.3
                 ;;
         esac
         echo "✅ onnxruntime reinstalled"

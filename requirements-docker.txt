@@ -5,7 +5,7 @@
 # Verificacion: tools/check-deps.sh
 
 # -- Core científico --
-numpy==2.4.6
+numpy==2.5.3
 scipy==1.18.1
 soundfile==0.14.0
 librosa==1.0.0
@@ -29,8 +29,8 @@ ml_collections==1.1.0
 # -- ONNX --
 onnx==1.23.0
 # onnxruntime-gpu NO esta en site-packages: lo instala entrypoint.sh en /opt/pytorch-backends/<gpu>.
-# Version instalada verificada en el volumen: 1.26.0 (por eso no aparece en requirements.lock).
-onnxruntime-gpu==1.26.0
+# Version instalada verificada en el volumen: 1.30.0 (por eso no aparece en requirements.lock).
+onnxruntime-gpu==1.30.0
 onnx2pytorch==0.6.0
 
 # -- Modelos específicos --
