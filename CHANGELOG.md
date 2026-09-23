@@ -1,5 +1,17 @@
 # Changelog
 
+## [v3.5.3] - 2026-09-23
+
+### Added
+- **Barra de progreso por proceso**: el pipeline publica la lista de pasos con el progreso real de cada uno, el backend la expone y la interfaz la pinta, con el total como resumen.
+- **Flags de modelo explicadas**: cada flag lleva descripción y hacia qué lado está la calidad, la VRAM o la velocidad, con etiquetas en las esquinas del slider; manifiesto propio para demucs (adiós a la tabla fija) y rango real de `shifts`.
+- **Guardián del repo**: test que falla si `.hermes/` vuelve a quedar bajo control de versiones.
+
+### Fixed
+- **Vigilante del paso demucs**: comprueba la identidad real del worker (no solo que el PID exista) y tiene tiempo límite de paso además del de silencio; un trabajo no puede quedarse «en curso» para siempre.
+- **Subida de modelos**: al subir un modelo se lee su `.yaml` y se asocia bien (también al resubir solo el config).
+- **Calculadora de VRAM**: responde al troceado, modela SCNet por duración y no puede lanzar excepción.
+
 ## [v3.5.2] - 2026-09-22
 
 ### Fixed
