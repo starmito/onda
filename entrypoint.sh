@@ -41,10 +41,22 @@ if [ "$GPU" != "cpu" ]; then
         echo "✅ onnxruntime reinstalled"
     fi
 
-    # onnxruntime-gpu needs CUDA libraries that are bundled inside torch's lib dir.
+    # onnxruntime-gpu 1.27+ is built against CUDA 13. The PyTorch wheel installs
+    # the NVIDIA CUDA/cuDNN packages under $CACHE_DIR/nvidia/; torch/lib itself
+    # no longer contains the CUDA libraries. Prepend those lib dirs so the
+    # dynamic loader can resolve libcublasLt.so.13, libcudnn.so.9, etc.
+    if [ -d "$CACHE_DIR/nvidia/cu13/lib" ]; then
+        export LD_LIBRARY_PATH="$CACHE_DIR/nvidia/cu13/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    fi
+    if [ -d "$CACHE_DIR/nvidia/cudnn/lib" ]; then
+        export LD_LIBRARY_PATH="$CACHE_DIR/nvidia/cudnn/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+    fi
+    # Keep the legacy torch/lib fallback for older wheel layouts.
     if [ -d "$CACHE_DIR/torch/lib" ]; then
         export LD_LIBRARY_PATH="$CACHE_DIR/torch/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
     fi
+
+    export ONDA_GPU_CACHE_DIR="$CACHE_DIR"
 fi
 
 ONDA_DATA_DIR="${ONDA_DATA_DIR:-/app/data}"
