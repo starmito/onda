@@ -1,5 +1,16 @@
 # Changelog
 
+## [v3.5.4] - 2026-09-23
+
+### Fixed
+- **Progreso global de un trabajo calculado como media real de sus pasos** (antes se quedaba clavado en 99 %).
+- **ETA por paso honesto**: no se publica hasta tener datos suficientes y se estabiliza (se acabaron el «≈ 1 s» al arrancar y los valores absurdos en trabajos cortos).
+- **Stems mostrados según lo que el proceso genera de verdad** (número y nombre, desde el manifiesto) y cada uno con su icono propio.
+- **Peso real de los modelos Demucs instalados en `/api/models/list`** (antes 0 MB).
+- **Desplegable TIPO del editor de presets con las categorías reales del backend**.
+- **Fichero de ajustes (`ONDA_SETTINGS_FILE`) dentro de la raíz montada** + carpeta de configuración elegible dentro de la raíz de datos.
+- **Caché de modelos de HuggingFace (`HF_HOME`) dentro de la raíz de datos**: los modelos descargados **ya no se pierden** al recrear el contenedor (antes se volvían a bajar cientos de MB).
+
 ## [v3.5.3] - 2026-09-23
 
 ### Added
