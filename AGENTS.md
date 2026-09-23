@@ -16,6 +16,7 @@ Reglas OBLIGATORIAS para cualquier agente que trabaje en este repositorio. Incum
 - Compilar y pasar TODOS los tests antes de commitear:
   - `cd backend && go build ./... && go test ./...`
   - `pytest` desde la raíz del repo
+  - `cd frontend && npm run check && npm run test && npm run build`
 - Ejecutar los **guardianes del repo** antes de commitear cambios de dependencias o código de terceros:
   - `tools/check-gitignore.sh` — asegura que `.hermes/` y rutas ignoradas no están trackeadas.
   - `tools/check-deps.sh` — asegura que los requirements Python están fijados y coinciden con `requirements.lock`.
