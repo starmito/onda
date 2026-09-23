@@ -1174,6 +1174,7 @@ func (s *Server) worker() {
 		// honest state as soon as it starts.
 		statusPath := filepath.Join(mustSub("output"), job.Song, "pipeline_status.json")
 		os.Remove(statusPath)
+		os.Remove(statusPath + ".tmp")
 		os.Remove(statusPath + ".tracker.json")
 		os.Remove(statusPath + ".tracker.json.tmp")
 
