@@ -47,3 +47,41 @@ Reglas OBLIGATORIAS para cualquier agente que trabaje en este repositorio. Incum
 - **Regla de las flags de modelo**: `shifts`, `segment`, `batch`, `jobs` y `device` se gestionan **solo** en **Ajustes → Modelos**. Los presets no mandan flags; la petición de separación ya no puede sobreescribirlas. El rango declarado de cada slider siempre puede representar el valor guardado (por ejemplo, `shifts` de Demucs usa el rango real del manifiesto).
 - **VRAM real**: el guard de VRAM lee la memoria del dispositivo vía `nvidia-smi`. Si no puede leer la VRAM disponible, Onda **no lanza** el trabajo (estado `blocked_no_gpu`). El usuario puede forzar con `force_vram`, pero el bloqueo por defecto es seguro.
 - `onda-gui/` fue eliminado en v3.2.0: no existe ya como directorio ni como servicio.
+
+## Cómo medimos
+
+Para no engañarnos con mejoras o regresiones, Onda usa un protocolo **baseline → un cambio aislado → medir otra vez**. Nunca se miden dos cambios en la misma corrida.
+
+### Herramientas
+
+- `tools/bench-baseline.sh` — mide la versión desplegada de Onda hablando con su API:
+  - Genera un clip de prueba fijo (`.hermes/bench/fixtures/`) si no existe.
+  - Lee el preset y las flags efectivas de **Ajustes → Modelos** por API y las guarda en el JSON.
+  - Lanza un trabajo y muestrea `GET /api/queue/status` y `GET /api/processes/status` con intervalo configurable.
+  - Mide duración total, duración por paso, VRAM pico/media vía `nvidia-smi`, dispositivo usado, número/nombre de stems y energía/crest de cada stem.
+  - Guarda versiones: Onda (backend/pipeline/frontend), torch, torchvision, onnxruntime y demucs.
+  - Escribe `.hermes/bench/<fecha>-<etiqueta>.json` e imprime un resumen.
+
+  Uso típico:
+  ```bash
+  bash tools/bench-baseline.sh --label base --preset "Voces Total"
+  ```
+
+- `tools/bench_compare.py` — compara dos JSON de benchmark:
+  - Muestra una tabla de deltas por métrica (tiempo total, por paso, VRAM, energía por stem).
+  - Emite un veredicto con umbrales explícitos (default: ±5 % tiempos, ±10 % VRAM, ±2 dB energía).
+  - Avisa claramente cuando las versiones no coinciden.
+  - Códigos de salida: `0` igual, `1` cambio, `2` no comparable.
+
+  Uso típico:
+  ```bash
+  python3 tools/bench_compare.py .hermes/bench/<fecha>-base.json .hermes/bench/<fecha>-nuevo.json
+  ```
+
+### Reglas de la medición
+
+1. Correr la base con la versión actual desplegada.
+2. Aplicar **un solo cambio** (código, configuración o dependencia).
+3. Volver a medir con las mismas flags y el mismo clip.
+4. Comparar con `bench_compare.py` y registrar el veredicto.
+5. No lanzar benchmarks de GPU automáticamente en CI; son pruebas manuales coordinadas.
