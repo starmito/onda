@@ -15,7 +15,7 @@ func setupPipelineStatusTestRoot(t *testing.T) string {
 	t.Helper()
 	root := setTestRoot(t, "status-test-")
 
-	for _, dir := range []string{"input", "output"} {
+	for _, dir := range []string{"input", "output", "output/song"} {
 		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
 			t.Fatalf("failed to create %s: %v", dir, err)
 		}
@@ -27,7 +27,7 @@ func TestWorker_RemovesPipelineStatusAtJobStart(t *testing.T) {
 	root := setupPipelineStatusTestRoot(t)
 	mockResourceProviders(t)
 
-	statusPath := filepath.Join(root, "output", "pipeline_status.json")
+	statusPath := filepath.Join(root, "output", "song", "pipeline_status.json")
 	stale := `{"status":"running","step":"vocal","progress":0.5,"song":"old_song","shifts":20,"jobs":8,"chunk_size":35,"batch_size":2}`
 	if err := os.WriteFile(statusPath, []byte(stale), 0o644); err != nil {
 		t.Fatalf("failed to write stale status: %v", err)
@@ -80,7 +80,7 @@ func TestWorker_RemovesPipelineStatusAtJobStart(t *testing.T) {
 func TestPipelineStatusNoStaleFields_AfterRemoval(t *testing.T) {
 	root := setupPipelineStatusTestRoot(t)
 
-	statusPath := filepath.Join(root, "output", "pipeline_status.json")
+	statusPath := filepath.Join(root, "output", "song", "pipeline_status.json")
 	stale := `{"status":"running","step":"vocal","progress":0.5,"song":"old_song","shifts":20,"jobs":8,"chunk_size":35,"batch_size":2}`
 	if err := os.WriteFile(statusPath, []byte(stale), 0o644); err != nil {
 		t.Fatalf("failed to write stale status: %v", err)
@@ -88,7 +88,7 @@ func TestPipelineStatusNoStaleFields_AfterRemoval(t *testing.T) {
 
 	// Simulate what worker() does at the start of a new job.
 	if projectRoot := resolveProjectRoot(); projectRoot != "" {
-		sp := filepath.Join(projectRoot, "output", "pipeline_status.json")
+		sp := filepath.Join(projectRoot, "output", "song", "pipeline_status.json")
 		os.Remove(sp)
 	}
 

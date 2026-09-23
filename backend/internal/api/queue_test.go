@@ -192,7 +192,7 @@ func TestHandleQueueStatus_PipelineProgress(t *testing.T) {
 	if err := os.MkdirAll(songDir, 0o755); err != nil {
 		t.Fatalf("failed to create song output dir: %v", err)
 	}
-	statusPath := filepath.Join(outputRoot, "pipeline_status.json")
+	statusPath := filepath.Join(songDir, "pipeline_status.json")
 	status := `{"status":"running","step":"demucs","progress":0.42,"device":"cuda","gpu_type":"NVIDIA GeForce RTX 5060 Ti"}`
 	if err := os.WriteFile(statusPath, []byte(status), 0o644); err != nil {
 		t.Fatalf("failed to write pipeline status: %v", err)
@@ -246,7 +246,7 @@ func TestHandleQueueStatus_OverallProgressFallback(t *testing.T) {
 	if err := os.MkdirAll(songDir, 0o755); err != nil {
 		t.Fatalf("failed to create song output dir: %v", err)
 	}
-	statusPath := filepath.Join(outputRoot, "pipeline_status.json")
+	statusPath := filepath.Join(songDir, "pipeline_status.json")
 	// multi-step mode reports overall_progress as a 0-100 integer.
 	status := `{"status":"running","step":"vocal","overall_progress":25,"device":"cpu","gpu_type":"N/A"}`
 	if err := os.WriteFile(statusPath, []byte(status), 0o644); err != nil {
@@ -290,7 +290,7 @@ func TestHandleQueueStatus_OverallProgressClamped(t *testing.T) {
 	if err := os.MkdirAll(songDir, 0o755); err != nil {
 		t.Fatalf("failed to create song output dir: %v", err)
 	}
-	statusPath := filepath.Join(outputRoot, "pipeline_status.json")
+	statusPath := filepath.Join(songDir, "pipeline_status.json")
 	// An out-of-range overall_progress must be clamped to 0-100.
 	status := `{"status":"running","step":"vocal","overall_progress":150,"device":"cpu","gpu_type":"N/A"}`
 	if err := os.WriteFile(statusPath, []byte(status), 0o644); err != nil {
@@ -773,7 +773,7 @@ func TestHandleQueueStatus_FinishedJobShowsDeviceAndRanOnCPU(t *testing.T) {
 		t.Fatalf("failed to create song output dir: %v", err)
 	}
 	status := `{"status":"completed","step":"rubberband","device":"cpu","gpu_type":"N/A"}`
-	if err := os.WriteFile(filepath.Join(outputRoot, "pipeline_status.json"), []byte(status), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(songDir, "pipeline_status.json"), []byte(status), 0o644); err != nil {
 		t.Fatalf("failed to write pipeline status: %v", err)
 	}
 
@@ -816,7 +816,7 @@ func TestHandleQueueStatus_FinishedCudaJobDoesNotFlagCPU(t *testing.T) {
 		t.Fatalf("failed to create song output dir: %v", err)
 	}
 	status := `{"status":"completed","step":"rubberband","device":"cuda","gpu_type":"NVIDIA GeForce RTX 5060 Ti"}`
-	if err := os.WriteFile(filepath.Join(outputRoot, "pipeline_status.json"), []byte(status), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(songDir, "pipeline_status.json"), []byte(status), 0o644); err != nil {
 		t.Fatalf("failed to write pipeline status: %v", err)
 	}
 
@@ -859,7 +859,7 @@ func TestHandleQueueStatus_FailedDeviceStepExposesReason(t *testing.T) {
 		t.Fatalf("failed to create song output dir: %v", err)
 	}
 	status := `{"status":"failed","step":"device","error":"CUDA requested but no usable GPU found","exit_code":1,"device":"cpu","gpu_type":"N/A"}`
-	if err := os.WriteFile(filepath.Join(outputRoot, "pipeline_status.json"), []byte(status), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(songDir, "pipeline_status.json"), []byte(status), 0o644); err != nil {
 		t.Fatalf("failed to write pipeline status: %v", err)
 	}
 
@@ -1162,6 +1162,52 @@ func TestHandleQueueStatus_StepsList(t *testing.T) {
 	}
 	if j.StepList[1].ETA != 30 || j.StepList[1].Elapsed != 30 {
 		t.Errorf("expected second step eta=30 elapsed=30, got eta=%d elapsed=%d", j.StepList[1].ETA, j.StepList[1].Elapsed)
+	}
+}
+
+func TestHandleQueueStatus_KeepsCompletedStepsAndPendingAtZero(t *testing.T) {
+	root := setupQueueTestRoot(t)
+	s := newQueueTestServer(t)
+
+	outputRoot := filepath.Join(root, "output")
+	songDir := filepath.Join(outputRoot, "processing-song")
+	if err := os.MkdirAll(songDir, 0o755); err != nil {
+		t.Fatalf("failed to create song output dir: %v", err)
+	}
+	status := `{"status":"running","step":"demucs","progress":0.6,"overall_progress":60,"device":"cuda","gpu_type":"NVIDIA GeForce RTX 3060","steps":[{"id":"vocal","name":"Voz","status":"done","progress":100,"eta":0,"elapsed":30},{"id":"demucs","name":"Demucs","status":"running","progress":60,"eta":45,"elapsed":15}]}`
+	if err := os.WriteFile(filepath.Join(songDir, "pipeline_status.json"), []byte(status), 0o644); err != nil {
+		t.Fatalf("failed to write pipeline status: %v", err)
+	}
+
+	s.jobsMu.Lock()
+	s.jobs["processing-song"] = &JobState{Song: "processing-song", Status: "processing", Index: 0, TotalSteps: 2}
+	s.jobsMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/queue/status", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	var resp struct {
+		Jobs []*JobState `json:"jobs"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if len(resp.Jobs) != 1 {
+		t.Fatalf("expected 1 job, got %d", len(resp.Jobs))
+	}
+	j := resp.Jobs[0]
+	if len(j.StepList) != 2 {
+		t.Fatalf("expected 2 steps, got %d", len(j.StepList))
+	}
+	if j.StepList[0].Status != "done" || j.StepList[0].Progress != 100 {
+		t.Errorf("expected first step done at 100, got status=%q progress=%v", j.StepList[0].Status, j.StepList[0].Progress)
+	}
+	if j.StepList[1].Status != "running" || j.StepList[1].Progress != 60 {
+		t.Errorf("expected second step running at 60, got status=%q progress=%v", j.StepList[1].Status, j.StepList[1].Progress)
+	}
+	if j.Progress >= 100 {
+		t.Errorf("expected unfinished job progress below 100, got %d", j.Progress)
 	}
 }
 

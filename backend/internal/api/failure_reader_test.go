@@ -20,7 +20,7 @@ func TestReadFailureDiagnostics(t *testing.T) {
 	}
 
 	status := `{"status":"failed","step":"demucs","exit_code":1,"error":"model not found"}`
-	if err := os.WriteFile(filepath.Join(outputRoot, "pipeline_status.json"), []byte(status), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(outputDir, "pipeline_status.json"), []byte(status), 0o644); err != nil {
 		t.Fatalf("failed to write pipeline_status.json: %v", err)
 	}
 
@@ -63,7 +63,7 @@ func TestReadFailureDiagnostics_NoFailure(t *testing.T) {
 	}
 
 	status := `{"status":"running","step":"demucs","progress":0.5}`
-	if err := os.WriteFile(filepath.Join(outputRoot, "pipeline_status.json"), []byte(status), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(outputDir, "pipeline_status.json"), []byte(status), 0o644); err != nil {
 		t.Fatalf("failed to write pipeline_status.json: %v", err)
 	}
 
@@ -81,7 +81,7 @@ func TestReadFailureDiagnostics_PrefersMatchingStep(t *testing.T) {
 	}
 
 	status := `{"status":"failed","step":"vocal","exit_code":2,"error":"missing model"}`
-	if err := os.WriteFile(filepath.Join(outputRoot, "pipeline_status.json"), []byte(status), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(outputDir, "pipeline_status.json"), []byte(status), 0o644); err != nil {
 		t.Fatalf("failed to write pipeline_status.json: %v", err)
 	}
 
@@ -204,7 +204,7 @@ func TestHandleQueueStatus_FailureDetails(t *testing.T) {
 		t.Fatalf("failed to create song dir: %v", err)
 	}
 	status := `{"status":"failed","step":"demucs","exit_code":1,"error":"model not found"}`
-	if err := os.WriteFile(filepath.Join(outputRoot, "pipeline_status.json"), []byte(status), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(songDir, "pipeline_status.json"), []byte(status), 0o644); err != nil {
 		t.Fatalf("failed to write pipeline_status.json: %v", err)
 	}
 	failedDir := filepath.Join(songDir, "_failed_demucs")

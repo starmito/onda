@@ -84,11 +84,6 @@ fi
 START_TIME=$(date +%s)
 export START_TIME
 export PIPELINE_START_TIME=$START_TIME
-STATUS_FILE="${PIPELINE_STATUS_FILE:-$OUTPUT_DIR/pipeline_status.json}"
-export STATUS_FILE
-mkdir -p "$(dirname "$STATUS_FILE")"
-rm -f "$STATUS_FILE"
-rm -f "$STATUS_FILE.tracker.json"
 CURRENT_STEP=""
 
 VOCAL_MODEL_DISPLAY=""   # friendly name like "BS_Roformer_Viperx"
@@ -166,7 +161,12 @@ _report_step() {
     now=$(date +%s)
     elapsed=$((now - START_TIME))
 
-    if [ -n "${STEPS_CONFIG_FILE:-}" ]; then
+    if [ -n "${ONDA_CURRENT_STEP_INDEX:-}" ]; then
+        # Backend-driven multi-step chaining: each invocation runs one step but
+        # reports its real position in the full chain.
+        step_idx=$ONDA_CURRENT_STEP_INDEX
+        tracker_step_name="${step_field:-$step_id}"
+    elif [ -n "${STEPS_CONFIG_FILE:-}" ]; then
         # Chained mode: the current step index is known from the main loop.
         step_idx="${CURRENT_STEP_INDEX:-0}"
         # Keep the original contract in --steps mode: ``step`` is an integer.
@@ -1646,6 +1646,26 @@ fi
 SONG=$(basename "${INPUT%.*}")
 OUTPUT="${OUTPUT:-$OUTPUT_DIR/${SONG}}"
 
+# The job state lives inside the job output directory, never in the output root.
+STATUS_FILE="${PIPELINE_STATUS_FILE:-$OUTPUT/pipeline_status.json}"
+export STATUS_FILE
+mkdir -p "$(dirname "$STATUS_FILE")"
+
+# Preserve existing multi-step state when the backend continues a job across
+# separate pipeline.sh invocations. If the status file already contains a steps
+# list, this is a later step of a chained pipeline; deleting it would erase the
+# history of completed steps.
+_PRESERVE_STATUS=0
+if [ -s "$STATUS_FILE" ]; then
+    _STEPS_LEN=$(python3 -c "import json,sys; d=json.load(open('$STATUS_FILE')); print(len(d.get('steps',[])))" 2>/dev/null || echo 0)
+    if [ "$_STEPS_LEN" -gt 0 ]; then
+        _PRESERVE_STATUS=1
+    fi
+fi
+if [ "$_PRESERVE_STATUS" -eq 0 ]; then
+    rm -f "$STATUS_FILE" "$STATUS_FILE.tracker.json" "$STATUS_FILE.tracker.json.tmp"
+fi
+
 # Ensure temporary vocal/demucs dirs are always removed, even on error or cancellation.
 cleanup_legacy_temps() {
     if [ -n "${OUTPUT:-}" ]; then
@@ -2028,14 +2048,42 @@ if $RUBBERBAND; then
     STEP_IDS+=("rubberband")
     STEP_NAMES+=("Rubberband (pitch ${PITCH})")
 fi
+
+# Backend-driven multi-step chaining can declare the full step list even when
+# this invocation only executes one step. When present, trust the environment
+# variables over the local flag-based detection so indices and totals are
+# consistent across invocations.
+if [ -z "${STEPS_JSON:-}" ] && [ -n "${ONDA_STEP_IDS:-}" ]; then
+    IFS=',' read -r -a STEP_IDS <<< "$ONDA_STEP_IDS"
+    if [ -n "${ONDA_STEP_NAMES:-}" ]; then
+        IFS=',' read -r -a STEP_NAMES <<< "$ONDA_STEP_NAMES"
+    else
+        STEP_NAMES=()
+    fi
+    while [ "${#STEP_NAMES[@]}" -lt "${#STEP_IDS[@]}" ]; do
+        STEP_NAMES+=("${STEP_IDS[${#STEP_NAMES[@]}]}")
+    done
+    _VOCAL_IDX=""; _DEMUCS_IDX=""; _RUBBERBAND_IDX=""; TOTAL_STEPS=0
+    for _i in "${!STEP_IDS[@]}"; do
+        case "${STEP_IDS[$_i]}" in
+            vocal|starting) _VOCAL_IDX=$_i ;;
+            demucs)         _DEMUCS_IDX=$_i ;;
+            rubberband|complete) _RUBBERBAND_IDX=$_i ;;
+        esac
+        TOTAL_STEPS=$((TOTAL_STEPS + 1))
+    done
+    [ "$TOTAL_STEPS" -eq 0 ] && TOTAL_STEPS=1
+    export TOTAL_STEPS
+fi
+
 # Defensive fallback: pipeline always reports at least one conceptual step.
 if [ "${#STEP_IDS[@]}" -eq 0 ]; then
     STEP_IDS+=("vocal")
     STEP_NAMES+=("Voz")
 fi
+
 export _STEP_IDS="$(printf '%s\n' "${STEP_IDS[@]}")"
 export _STEP_NAMES="$(printf '%s\n' "${STEP_NAMES[@]}")"
-_init_tracker_steps
 
 # ── Validate ─────────────────────────────────────
 if [ ! -f "$INPUT" ]; then
@@ -2098,6 +2146,13 @@ fi
 # Clean previous output to prevent accumulation of old stems
 if ! $NO_CLEAN; then
     rm -f "${OUTPUT}"/*.wav 2>/dev/null || true
+fi
+
+# Initialize the published steps list now that the output directory is clean and
+# the status file is guaranteed to survive until the step starts. If we are
+# continuing a multi-step job, the tracker already knows the full list.
+if [ "$_PRESERVE_STATUS" -eq 0 ]; then
+    _init_tracker_steps
 fi
 
 # ── Track what's available for downstream steps ──

@@ -1106,11 +1106,13 @@ func (s *Server) worker() {
 		state.Status = "processing"
 		s.jobsMu.Unlock()
 
-		// Remove pipeline_status.json so no field from a previous job bleeds into
-		// the new one. The pipeline will recreate it with a complete, honest state
-		// as soon as it starts.
-		statusPath := filepath.Join(mustSub("output"), "pipeline_status.json")
+		// Remove the per-song pipeline_status.json so no field from a previous job
+		// bleeds into the new one. The pipeline will recreate it with a complete,
+		// honest state as soon as it starts.
+		statusPath := filepath.Join(mustSub("output"), job.Song, "pipeline_status.json")
 		os.Remove(statusPath)
+		os.Remove(statusPath + ".tracker.json")
+		os.Remove(statusPath + ".tracker.json.tmp")
 
 		// Handle multi-step pipeline chaining
 		steps := job.Steps
@@ -1460,7 +1462,7 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 			}
 			tail := tailOutput(errMsg, 40, 8192)
 			state.Error = tail
-			statusPath := filepath.Join(mustSub("output"), "pipeline_status.json")
+			statusPath := filepath.Join(songDir, "pipeline_status.json")
 			writePipelineStatusFailed(statusPath, stepName, exitCode, signalName)
 			_ = cleanupOldFailedDirs(songDir, maxFailedDiagnosticsDirs, stepName)
 			logMsg := fmt.Sprintf("Pipeline failed for %s (step=%s, exit=%d, signal=%s, duration=%.1fs): %s",
@@ -1490,6 +1492,19 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 
 	currentInput := job.Config.Input
 	allStems := make([]FileEntry, 0)
+
+	// Build stable step metadata so each separate pipeline.sh invocation knows
+	// its position in the full chain and preserves completed steps.
+	stepIDs := make([]string, len(steps))
+	stepNames := make([]string, len(steps))
+	for i, s := range steps {
+		id := s.ID
+		if id == "" {
+			id = s.Type
+		}
+		stepIDs[i] = id
+		stepNames[i] = stepTypeDisplay(s.Type)
+	}
 
 	for i, step := range steps {
 		if !step.Enabled {
@@ -1580,6 +1595,12 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		if len(stepEnv) > 0 {
 			cmd.Env = append(cmd.Env, stepEnv...)
 		}
+		cmd.Env = append(cmd.Env,
+			fmt.Sprintf("ONDA_STEP_IDS=%s", strings.Join(stepIDs, ",")),
+			fmt.Sprintf("ONDA_STEP_NAMES=%s", strings.Join(stepNames, ",")),
+			fmt.Sprintf("ONDA_CURRENT_STEP_INDEX=%d", i),
+			fmt.Sprintf("ONDA_TOTAL_STEPS=%d", len(steps)),
+		)
 
 		var out bytes.Buffer
 		cmd.Stdout = &out
@@ -1620,7 +1641,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 				errMsg = err.Error()
 			}
 			tail := tailOutput(errMsg, 40, 8192)
-			statusPath := filepath.Join(mustSub("output"), "pipeline_status.json")
+			statusPath := filepath.Join(outputDir, "pipeline_status.json")
 			writePipelineStatusFailed(statusPath, step.ID, exitCode, signalName)
 			_ = cleanupOldFailedDirs(outputDir, maxFailedDiagnosticsDirs, step.ID)
 			s.jobsMu.Lock()
