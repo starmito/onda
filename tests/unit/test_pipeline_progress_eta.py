@@ -187,6 +187,95 @@ class TestProgressTracker:
         tracker.update_step(0, "completed", 100, 10, step_id="vocal", step_name="Voz")
         assert tracker.steps[0]["status"] == "done"
 
+    def test_overall_progress_never_decreases(self):
+        """Weighted global progress cannot go backwards when a new step starts."""
+        tracker = _import_tracker().ProgressTracker(total_steps=2)
+        tracker.init_steps([
+            {"id": "vocal", "name": "Voz"},
+            {"id": "demucs", "name": "Demucs"},
+        ])
+        results = [
+            tracker.update_step(0, "processing", 30, 5, step_id="vocal", step_name="Voz"),
+            tracker.update_step(0, "processing", 60, 10, step_id="vocal", step_name="Voz"),
+            tracker.update_step(0, "completed", 100, 15, step_id="vocal", step_name="Voz"),
+            tracker.update_step(1, "processing", 0, 16, step_id="demucs", step_name="Demucs"),
+            tracker.update_step(1, "processing", 40, 20, step_id="demucs", step_name="Demucs"),
+        ]
+        overalls = [r["overall_progress"] for r in results]
+        for prev, curr in zip(overalls, overalls[1:]):
+            assert curr >= prev, (
+                f"overall_progress went backwards: {overalls}"
+            )
+
+    def test_step_done_before_started_is_rejected(self):
+        """A stray 'done' for a step that never ran is not published as done."""
+        tracker = _import_tracker().ProgressTracker(total_steps=2)
+        tracker.init_steps([
+            {"id": "vocal", "name": "Voz"},
+            {"id": "demucs", "name": "Demucs"},
+        ])
+        # Simulate the bug: pipeline.sh writes 'done' for the last step before
+        # it has ever been reported as running.
+        tracker.update_step(1, "done", 100, 5, step_id="demucs", step_name="Demucs")
+        assert tracker.steps[1]["status"] != "done"
+        assert tracker.step_status.get(1) != "done"
+
+    def test_eta_is_zero_until_enough_data_and_never_floor(self):
+        """Early ETA is 0; the 1s floor is never published as an estimate."""
+        tracker = _import_tracker().ProgressTracker()
+        # Too few samples / too little elapsed -> 0 (calculating...).
+        assert tracker.update(1, 1)["eta"] == 0
+        assert tracker.update(2, 1.5)["eta"] == 0
+        assert tracker.update(2.5, 1.8)["eta"] == 0
+        # Once the thresholds are crossed the estimate is real, not clamped.
+        r = tracker.update(4, 5)
+        assert r["eta"] > 1, f"expected a real ETA, got {r['eta']}"
+
+    def test_eta_at_100_before_finished_is_not_floor(self):
+        """A step that reaches 100% before the pipeline closes shows 0, not 1s."""
+        tracker = self._tracker()
+        tracker.update(1, 10)
+        tracker.update(5, 50)
+        # Step reports 100% but the pipeline has not declared completion yet.
+        r = tracker.update(5.5, 100)
+        assert r["eta"] == 0, (
+            f"eta at 100%% before finished should be 0, got {r['eta']}"
+        )
+        # The internal state must not be contaminated with the old 1s floor.
+        assert tracker.last_eta != tracker.min_eta_seconds, (
+            f"last_eta looks like the old floor: {tracker.last_eta}"
+        )
+
+    def test_last_eta_not_contaminated_by_floor(self):
+        """A tiny real ETA is stored raw; it does not get replaced by the floor."""
+        tracker = self._tracker(
+            min_samples_for_eta=2,
+            min_seconds_for_eta=0.1,
+            min_progress_for_eta=0.1,
+            min_window_seconds=0.05,
+        )
+        tracker.update(0.1, 50)
+        r = tracker.update(0.2, 99)
+        # Remaining work is far below 1s; the UI hides it as 0.
+        assert r["eta"] == 0
+        assert tracker.last_eta is not None
+        assert tracker.last_eta < 1.0, (
+            f"last_eta was contaminated with the floor: {tracker.last_eta}"
+        )
+
+    def test_eta_with_real_data_is_order_of_magnitude_honest(self):
+        """With enough samples the ETA reflects the real remaining work."""
+        tracker = self._tracker(
+            min_samples_for_eta=2,
+            min_seconds_for_eta=0.1,
+            min_progress_for_eta=0.1,
+        )
+        tracker.update(0.1, 10)
+        r = tracker.update(5, 20)
+        # ~2%/s, 80% remaining -> ~40s left.
+        assert r["eta"] > 1, f"expected a real ETA, got {r['eta']}"
+        assert r["eta"] <= 200, f"ETA spiked unrealistically: {r['eta']}"
+
 
 class TestPipelineStepsProgress:
     """Integration tests for pipeline.sh --steps progress behaviour."""
@@ -502,3 +591,67 @@ print(json.dumps({"event": "done", "seconds": 1.0}), flush=True)
 
         # Surface the sampled values so the report can include the table.
         self._last_fake_chain_samples = samples
+
+    def test_backend_per_step_invocations_do_not_mark_future_step_done(
+        self, tmp_path, monkeypatch
+    ):
+        """Two separate backend invocations must not mark step 1 done before it runs."""
+        _skip_if_missing_bin("bash")
+
+        input_wav = tmp_path / "input.wav"
+        input_wav.write_bytes(b"RIFF" + b"\x00" * 100)
+
+        output_dir = tmp_path / "output" / "input"
+        status_file = tmp_path / "pipeline_status.json"
+        monkeypatch.setenv("PIPELINE_STATUS_FILE", str(status_file))
+
+        bin_dir = tmp_path / "workers"
+        bin_dir.mkdir()
+        fake = self._write_fake_worker(bin_dir)
+        monkeypatch.setenv("DEMUCS_WORKER", str(fake))
+
+        def run_step(step_index: int, extra_args: list[str]):
+            env = {
+                **os.environ,
+                "ONDA_CURRENT_STEP_INDEX": str(step_index),
+                "ONDA_TOTAL_STEPS": "2",
+                "ONDA_STEP_IDS": "demucs,demucs",
+                "ONDA_STEP_NAMES": "Demucs,Demucs",
+            }
+            cmd = [
+                "bash",
+                str(PIPELINE_SH),
+                "--device", "cuda",
+                "--stem-model", "htdemucs_ft",
+                "--demucs-keep", "all",
+                "--output", str(output_dir),
+                *extra_args,
+                str(input_wav),
+            ]
+            return subprocess.run(cmd, capture_output=True, text=True, env=env)
+
+        r0 = run_step(0, [])
+        assert r0.returncode == 0, r0.stderr or r0.stdout
+
+        mid = json.loads(status_file.read_text())
+        assert mid.get("status") != "done", (
+            "intermediate backend invocation reported the whole job as done"
+        )
+        steps = mid.get("steps", [])
+        assert len(steps) == 2
+        assert steps[0]["status"] == "done"
+        assert steps[0]["progress"] == 100.0
+        assert steps[1]["status"] != "done", (
+            "step 1 was marked done before it started"
+        )
+        assert mid.get("overall_progress") < 100
+
+        r1 = run_step(1, ["--no-clean"])
+        assert r1.returncode == 0, r1.stderr or r1.stdout
+
+        final = json.loads(status_file.read_text())
+        assert final.get("status") == "done"
+        assert final.get("overall_progress") == 100
+        steps = final.get("steps", [])
+        assert steps[0]["status"] == "done"
+        assert steps[1]["status"] == "done"

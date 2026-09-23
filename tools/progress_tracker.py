@@ -135,6 +135,15 @@ class ProgressTracker:
 
         eta = self._compute_eta(elapsed, progress, finished)
         overall = self._overall_progress(progress)
+        # Belt: the published global progress can never decrease while work is
+        # still running. Real fixes live in the caller order, but this guard
+        # protects downstream UI/backend code from transient backwards jumps.
+        if finished:
+            overall = 100.0
+            self.max_overall_progress = 100.0
+        else:
+            overall = max(overall, self.max_overall_progress)
+            self.max_overall_progress = max(self.max_overall_progress, overall)
         return {
             "eta": round(eta),
             "progress": round(progress, 4),
@@ -159,18 +168,18 @@ class ProgressTracker:
         """Return an ETA in seconds; 0 means "not enough data yet".
 
         The UI renders ``eta: 0`` as "--" / "calculating..." so we never emit
-        a made-up number while the sample window is still too small.
+        a made-up number while the sample window is still too small.  Once a
+        real estimate exists we return it as-is; the configured floor is no
+        longer published as a fake "1 s" estimate.
         """
         if finished:
             self.last_eta = 0.0
             return 0.0
 
         if progress >= 100.0:
-            # Step reports 100% but the pipeline has not declared completion yet;
-            # keep a small, honest ETA instead of claiming zero while work may
-            # still continue.
-            eta = self.last_eta if self.last_eta is not None else self.min_eta_seconds
-            return max(eta, self.min_eta_seconds)
+            # Step reports 100% but the pipeline has not declared completion yet.
+            # Do not invent a floor value; the UI hides eta=0 as "calculating...".
+            return 0.0
 
         rate = self._rate_from_window(elapsed, progress)
         if rate is None or rate <= 0:

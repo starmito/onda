@@ -1,5 +1,11 @@
 # Changelog
 
+## [v3.5.5] - 2026-09-23
+
+### Fixed
+- **Progreso global monótono**: ya no retrocede al cambiar de paso en trabajos encadenados; el tracker guarda el máximo publicado y `pipeline.sh` no marca el último paso como terminado en invocaciones intermedias del backend.
+- **ETA honesto**: se elimina el suelo de `1 s`; mientras no haya datos suficientes se publica `0` (la interfaz lo oculta) y un paso al `100 %` antes de cerrarse ya no muestra un segundo inventado.
+
 ## [v3.5.4] - 2026-09-23
 
 ### Fixed
