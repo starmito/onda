@@ -172,6 +172,7 @@ describe('ModelManager flags from API', () => {
     temperature_c: 45,
     runtime: 'nvidia-smi',
     ok: true,
+    usable_by_torch: true,
   };
 
   const vramCalc: VRAMCalculatorResponse = {
@@ -225,7 +226,7 @@ describe('ModelManager flags from API', () => {
   }
 
   it('renders only the flags returned by the API for BS_Roformer_SW_6stem', async () => {
-    global.fetch = mockFetch('BS-Rofo-SW-Fixed');
+    globalThis.fetch = mockFetch('BS-Rofo-SW-Fixed');
 
     const app = mount(ModelManager, {
       target,
@@ -246,7 +247,7 @@ describe('ModelManager flags from API', () => {
   });
 
   it('renders only the flags returned by the API for MDX23C_D1581 (no chunk_size)', async () => {
-    global.fetch = mockFetch('mdx23c_d1581');
+    globalThis.fetch = mockFetch('mdx23c_d1581');
 
     const app = mount(ModelManager, {
       target,
@@ -266,7 +267,7 @@ describe('ModelManager flags from API', () => {
   });
 
   it('renders descriptions and slider corner labels from flag metadata', async () => {
-    global.fetch = mockFetch('BS-Rofo-SW-Fixed');
+    globalThis.fetch = mockFetch('BS-Rofo-SW-Fixed');
 
     const app = mount(ModelManager, {
       target,
@@ -292,7 +293,7 @@ describe('ModelManager flags from API', () => {
   });
 
   it('does not render slider labels for flags without affects metadata', async () => {
-    global.fetch = mockFetch('BS-Rofo-SW-Fixed');
+    globalThis.fetch = mockFetch('BS-Rofo-SW-Fixed');
 
     const app = mount(ModelManager, {
       target,
@@ -310,7 +311,7 @@ describe('ModelManager flags from API', () => {
   it('sends the real value (not the visual one) when an inverted slider changes', async () => {
     let savedBody: Record<string, unknown> | null = null;
 
-    global.fetch = vi.fn().mockImplementation(async (url: string | URL, init?: RequestInit) => {
+    globalThis.fetch = vi.fn().mockImplementation(async (url: string | URL, init?: RequestInit) => {
       const u = url.toString();
       if (u.includes('/api/models/list')) {
         return { ok: true, status: 200, json: async () => models } as Response;
@@ -347,7 +348,7 @@ describe('ModelManager flags from API', () => {
     applyBtn.click();
 
     await vi.waitFor(() => expect(savedBody).not.toBeNull(), { timeout: 2000 });
-    expect((savedBody as { flags: Record<string, unknown> }).flags.chunk_size).toBe(1000000);
+    expect((savedBody as unknown as { flags: Record<string, unknown> }).flags.chunk_size).toBe(1000000);
 
     unmount(app);
   });

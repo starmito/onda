@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { mount, unmount, tick } from 'svelte';
+import { mount, unmount, type ComponentProps } from 'svelte';
+import { tick } from 'svelte';
 import PipelineEditor from './PipelineEditor.svelte';
 import type { LocalModelsResponse, PresetData } from './api';
 
@@ -132,8 +133,8 @@ describe('PipelineEditor stems from model manifest', () => {
     mountedApps = [];
   }
 
-  function render(props: Partial<Record<keyof PipelineEditor['$$prop_def'], unknown>> = {}) {
-    global.fetch = mockFetch();
+  function render(props: Partial<ComponentProps<typeof PipelineEditor>> = {}) {
+    globalThis.fetch = mockFetch();
     const app = mount(PipelineEditor, {
       target,
       props: {
