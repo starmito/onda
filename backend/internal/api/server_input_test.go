@@ -111,7 +111,6 @@ func TestBuildPipelineArgs_MultiStepNormalizesInput(t *testing.T) {
 		Steps: []cli.PipelineStep{
 			{ID: "vocal", Type: "vocal", Enabled: true, Model: "BS_Roformer_Viperx"},
 		},
-		Device: "cuda",
 	}
 	_, args, _, _, _ := buildPipelineArgs(req)
 	if !contains(args, expectedInput) {

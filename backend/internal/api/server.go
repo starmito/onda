@@ -1174,6 +1174,7 @@ func (s *Server) worker() {
 		// honest state as soon as it starts.
 		statusPath := filepath.Join(mustSub("output"), job.Song, "pipeline_status.json")
 		os.Remove(statusPath)
+		os.Remove(statusPath + ".tmp")
 		os.Remove(statusPath + ".tracker.json")
 		os.Remove(statusPath + ".tracker.json.tmp")
 
@@ -1253,22 +1254,19 @@ func vramConfigForStep(step cli.PipelineStep, inputPath string) VRAMConfig {
 	}
 }
 
-// vramConfigForModelAndRequest builds a VRAMConfig for the legacy single-step
-// path from the effective model name and the request overrides.
-func vramConfigForModelAndRequest(modelName, stepType string, req SeparateRequest, inputPath string) VRAMConfig {
+// vramConfigForModel builds a VRAMConfig for the legacy single-step path
+// from the effective model name. All inference flags come from the saved
+// model configuration (Ajustes → Modelos); the request cannot override them.
+func vramConfigForModel(modelName, stepType string, inputPath string) VRAMConfig {
 	modelName = resolveModelAlias(modelName)
+	cfg := readModelConfigFromYaml(modelName)
 	if stepType == "demucs" {
-		seg := int(req.DemucsSegment)
-		if seg <= 0 {
-			cfg := readModelConfigFromYaml(modelName)
-			seg = int(cfg.Segment)
-		}
+		seg := int(roundDemucsSegment(cfg.Segment))
 		if seg <= 0 {
 			seg = 7
 		}
 		return VRAMConfig{DemucsSegment: seg}
 	}
-	cfg := readModelConfigFromYaml(modelName)
 	return VRAMConfig{
 		SegmentSize: cfg.SegmentSize,
 		ChunkSize:   cfg.ChunkSize,
@@ -1356,6 +1354,18 @@ func compactFlags(args []string) string {
 	return strings.Join(parts, " ")
 }
 
+// deviceFromArgs returns the device declared by a --device flag in an already
+// built argument list. It is used after buildPipelineArgs so the worker can
+// report the effective device without exposing a request-level override.
+func deviceFromArgs(args []string) string {
+	for i, a := range args {
+		if a == "--device" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return "cuda"
+}
+
 // resolvePipelineScript returns the path to the pipeline.sh entrypoint.
 // Production images use /app/pipeline.sh. For local development (go run from
 // the repo) we fall back to a pipeline.sh found in the current working tree.
@@ -1425,7 +1435,7 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	if modelName == "" {
 		modelName = "unknown"
 	}
-	vramCfg := vramConfigForModelAndRequest(modelName, stepType, job.Config, job.Config.Input)
+	vramCfg := vramConfigForModel(modelName, stepType, job.Config.Input)
 
 	stepName := "pipeline"
 	if len(job.Steps) == 1 {
@@ -1477,10 +1487,7 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	}
 	args := append([]string{script}, pipelineArgs...)
 
-	device := job.Config.Device
-	if device == "" {
-		device = "cuda"
-	}
+	device := deviceFromArgs(pipelineArgs)
 	if state.TotalSteps < 1 {
 		state.TotalSteps = 1
 	}
@@ -1625,7 +1632,8 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		}
 
 		// Build args for this specific step
-		stepArgs, stepEnv, stepErr := buildStepPipelineArgs(step, currentInput, containerOutput, job.Config.Device)
+		device := deviceFromArgs(job.Args)
+		stepArgs, stepEnv, stepErr := buildStepPipelineArgs(step, currentInput, containerOutput, device)
 		if stepErr != nil {
 			s.jobsMu.Lock()
 			if state, ok := s.jobs[job.Song]; ok {
@@ -1646,10 +1654,6 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		stepArgs = append(stepArgs, currentInput)
 
 		// Update job state with the effective model/flags for this step.
-		device := job.Config.Device
-		if device == "" {
-			device = "cuda"
-		}
 		if state.TotalSteps < len(steps) {
 			state.TotalSteps = len(steps)
 		}
@@ -2004,24 +2008,6 @@ func formatJobConfig(req SeparateRequest) string {
 	vocalCfg := readModelConfigFromYaml(vocalModel)
 	stemCfg := readModelConfigFromYaml(stemModel)
 
-	device := req.Device
-	if device == "" {
-		device = "cuda"
-	}
-
-	shifts := req.Shifts
-	if shifts <= 0 {
-		shifts = stemCfg.Shifts
-	}
-	segment := req.DemucsSegment
-	if segment <= 0 {
-		segment = stemCfg.Segment
-	}
-	jobs := req.Jobs
-	if jobs <= 0 {
-		jobs = stemCfg.Jobs
-	}
-
 	return fmt.Sprintf(
 		"preset=%s vocal_model=%s stem_model=%s dim_t=%d segment_size=%d overlap=%.4f num_overlap=%d batch=%d chunk=%d shifts=%d segment=%.0f jobs=%d device=%s",
 		req.Preset,
@@ -2033,10 +2019,10 @@ func formatJobConfig(req SeparateRequest) string {
 		vocalCfg.NumOverlap,
 		vocalCfg.BatchSize,
 		vocalCfg.ChunkSize,
-		shifts,
-		segment,
-		jobs,
-		device,
+		stemCfg.Shifts,
+		stemCfg.Segment,
+		stemCfg.Jobs,
+		"cuda",
 	)
 }
 
@@ -2218,7 +2204,7 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 	if len(steps) > 0 {
 		// For multi-step presets, build args for the FIRST step only.
 		// The worker will iterate through remaining steps.
-		stepArgs, stepEnv, stepErr := buildStepPipelineArgs(steps[0], req.Input, containerOutput, req.Device)
+		stepArgs, stepEnv, stepErr := buildStepPipelineArgs(steps[0], req.Input, containerOutput, "cuda")
 		if stepErr != nil {
 			return "", nil, nil, nil, stepErr
 		}
@@ -2276,37 +2262,25 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 		}
 	}
 
-	// Demucs-specific flags: use saved config when the request does not override.
+	// Demucs-specific flags: single source of truth is the saved model config.
 	if isDemucsModel(stemModel) {
 		cfg := readModelConfigFromYaml(stemModel)
-		shifts := req.Shifts
-		if shifts <= 0 {
-			shifts = cfg.Shifts
+		if cfg.Shifts > 1 {
+			args = append(args, "--shifts", fmt.Sprintf("%d", cfg.Shifts))
 		}
-		if shifts > 1 {
-			args = append(args, "--shifts", fmt.Sprintf("%d", shifts))
+		segment := roundDemucsSegment(cfg.Segment)
+		if segment < 0 || segment > 7 {
+			return "", nil, nil, nil, fmt.Errorf("invalid demucs segment %.0f for model %q: must be between 0 and 7", cfg.Segment, stemModel)
 		}
-		segment := req.DemucsSegment
-		if segment <= 0 {
-			segment = cfg.Segment
-		}
-		segment = clampDemucsSegment(segment)
 		if segment > 0 {
 			args = append(args, "--demucs-segment", fmt.Sprintf("%d", int(segment)))
 		}
-		jobs := req.Jobs
-		if jobs <= 0 {
-			jobs = cfg.Jobs
+		if cfg.Jobs > 0 {
+			args = append(args, "--jobs", fmt.Sprintf("%d", cfg.Jobs))
 		}
-		if jobs > 0 {
-			args = append(args, "--jobs", fmt.Sprintf("%d", jobs))
-		}
-		Log("backend", "info", fmt.Sprintf("Effective Demucs config for %s: shifts=%d segment=%d jobs=%d", stemModel, shifts, int(segment), jobs))
+		Log("backend", "info", fmt.Sprintf("Effective Demucs config for %s: shifts=%d segment=%d jobs=%d", stemModel, cfg.Shifts, int(segment), cfg.Jobs))
 	}
-	// Device override (defaults to cuda in pipeline.sh)
-	if req.Device != "" && req.Device != "cuda" {
-		args = append(args, "--device", req.Device)
-	}
+	// Device is always cuda; pipeline.sh already defaults to cuda, so no --device flag is emitted.
 
 	if vocalModel != "" {
 		vocalCfg := readModelConfigFromYaml(vocalModel)
@@ -2425,7 +2399,10 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 			if cfg.Shifts > 1 {
 				args = append(args, "--shifts", fmt.Sprintf("%d", cfg.Shifts))
 			}
-			segment := clampDemucsSegment(cfg.Segment)
+			segment := roundDemucsSegment(cfg.Segment)
+			if segment < 0 || segment > 7 {
+				return nil, nil, fmt.Errorf("invalid demucs segment %.0f for model %q: must be between 0 and 7", cfg.Segment, stemModel)
+			}
 			if segment > 0 {
 				args = append(args, "--demucs-segment", fmt.Sprintf("%d", int(segment)))
 			}
@@ -2547,13 +2524,6 @@ type SeparateRequest struct {
 
 	// New v2.8.0: explicit steps array for multi-step pipeline chaining
 	Steps []cli.PipelineStep `json:"steps,omitempty"`
-
-	// Demucs-specific overrides (optional, only used when model is htdemucs*)
-	Shifts        int     `json:"shifts,omitempty"`
-	DemucsSegment float64 `json:"demucs_segment,omitempty"`
-	Jobs          int     `json:"jobs,omitempty"`
-	// Device override (defaults to cuda)
-	Device string `json:"device,omitempty"`
 
 	// ForceVRAM skips the VRAM headroom check and lets the user launch the
 	// pipeline even when the GPU appears to be low on memory.
@@ -3463,8 +3433,12 @@ func readModelConfigFromYaml(name string) ModelConfigResponse {
 // writeModelConfigToYaml writes inference parameters to the user-saved model YAML
 // at config/model_configs/<name>.yaml. It never modifies model-shipped YAMLs.
 func writeModelConfigToYaml(name string, cfg ModelConfigResponse) error {
-	// Clamp Demucs segment to the valid integer range accepted by the CLI.
-	cfg.Segment = clampDemucsSegment(cfg.Segment)
+	// Round the segment to a whole second but do not silently clamp it; invalid
+	// values are rejected with a clear error.
+	cfg.Segment = roundDemucsSegment(cfg.Segment)
+	if err := validateModelConfig(name, cfg); err != nil {
+		return err
+	}
 
 	// UI "Segment Size" is dim_t directly; num_overlap is derived from overlap.
 	numOverlap := cfg.NumOverlap
@@ -3623,9 +3597,19 @@ func contains(s []string, v string) bool {
 	return false
 }
 
+// roundDemucsSegment rounds a Demucs segment value to the nearest whole
+// second. Zero and negative values mean "auto" and are returned as 0.
+func roundDemucsSegment(v float64) float64 {
+	if v <= 0 {
+		return 0
+	}
+	return math.Round(v)
+}
+
 // clampDemucsSegment clamps a Demucs segment value to the valid integer range
-// accepted by the demucs CLI. The model internal limit is 7.8 seconds but the
-// CLI only accepts whole seconds, so the maximum configurable value is 7.
+// accepted by the demucs CLI. It is used only when reading model-shipped YAMLs
+// that may contain training-only values; user-saved configs are validated, not
+// silently clamped.
 // Zero means "auto" and is returned as-is; values are rounded to the nearest
 // integer and limited to [1, 7].
 func clampDemucsSegment(v float64) float64 {

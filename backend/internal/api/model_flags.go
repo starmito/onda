@@ -187,8 +187,10 @@ func builtInHtdemucsFtManifestFlags() map[string]modelFlagDef {
 	for _, name := range flagsByType["demucs"] {
 		flags[name] = copyFlagDef(knownFlags[name])
 	}
-	// Defaults inferred from the shipped htdemucs_ft.yaml, clamped to the
-	// documented valid ranges.
+	// Defaults inferred from the shipped htdemucs_ft.yaml. The shifts upper
+	// bound is raised to 20 because the saved (and used) configuration for
+	// htdemucs_ft uses --shifts 20.
+	flags["shifts"] = raisedMaxFlagDef(flags["shifts"], 20)
 	setFlagDefault(flags, "shifts", 10)
 	setFlagDefault(flags, "segment", 7)
 	setFlagDefault(flags, "jobs", 8)
@@ -279,6 +281,17 @@ func copyFlagDef(def modelFlagDef) modelFlagDef {
 	return def
 }
 
+// raisedMaxFlagDef returns a copy of the flag definition with its Max raised
+// to at least newMax. It is used when a model manifest (or built-in fallback)
+// declares a range wider than the generic knownFlags range.
+func raisedMaxFlagDef(def modelFlagDef, newMax int) modelFlagDef {
+	def = copyFlagDef(def)
+	if def.Max == nil || toFloat64(def.Max) < float64(newMax) {
+		def.Max = newMax
+	}
+	return def
+}
+
 // readUserFlagValues reads user-saved flag values from config/model_configs/<name>.yaml.
 func readUserFlagValues(name string) map[string]interface{} {
 	values := make(map[string]interface{})
@@ -356,7 +369,7 @@ func flagValuesToModelConfig(values map[string]interface{}) ModelConfigResponse 
 	if v, ok := values["jobs"]; ok {
 		cfg.Jobs = toInt(v)
 	}
-	cfg.Segment = clampDemucsSegment(cfg.Segment)
+	cfg.Segment = roundDemucsSegment(cfg.Segment)
 	return cfg
 }
 
@@ -453,11 +466,26 @@ func saveModelFlags(name string, updates []ModelFlagValue) error {
 	}
 
 	cfg := flagValuesToModelConfig(values)
+	if err := validateModelConfig(name, cfg); err != nil {
+		return err
+	}
 	if err := writeModelConfigToYaml(name, cfg); err != nil {
 		return fmt.Errorf("failed to save model config YAML: %w", err)
 	}
 	if err := writeUVRModelConfigJSON(name, cfg); err != nil {
 		log.Printf("ERROR: failed to sync UVR JSON for %s: %v", name, err)
+	}
+	return nil
+}
+
+// validateModelConfig checks the effective model configuration for values that
+// would break the pipeline, returning a clear error instead of silently
+// clamping them. Only Demucs-specific bounds are enforced here; RoFormer/MDX
+// flags are validated by validateFlagValue against their own declarations.
+func validateModelConfig(modelName string, cfg ModelConfigResponse) error {
+	segment := roundDemucsSegment(cfg.Segment)
+	if cfg.Segment > 0 && (segment < 1 || segment > 7) {
+		return fmt.Errorf("flag %q for model %q must be between %v and %v", "segment", modelName, 0, 7)
 	}
 	return nil
 }

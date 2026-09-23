@@ -426,8 +426,9 @@ for s in steps:
 with open(state_file, 'w') as f:
     json.dump(state, f)
 
-# Reset tracker state so overall progress starts from scratch.
-for stale in (status_file + '.tracker.json', status_file + '.tracker.json.tmp'):
+# Reset tracker state so overall progress starts from scratch and remove any
+# orphaned atomic-write temp file left behind by a crash/OOM/SIGKILL.
+for stale in (status_file + '.tmp', status_file + '.tracker.json', status_file + '.tracker.json.tmp'):
     try:
         os.remove(stale)
     except FileNotFoundError:
@@ -1663,7 +1664,8 @@ if [ -s "$STATUS_FILE" ]; then
     fi
 fi
 if [ "$_PRESERVE_STATUS" -eq 0 ]; then
-    rm -f "$STATUS_FILE" "$STATUS_FILE.tracker.json" "$STATUS_FILE.tracker.json.tmp"
+    # Also remove orphaned atomic-write temp files from a previous crash.
+    rm -f "$STATUS_FILE" "$STATUS_FILE.tmp" "$STATUS_FILE.tracker.json" "$STATUS_FILE.tracker.json.tmp"
 fi
 
 # Ensure temporary vocal/demucs dirs are always removed, even on error or cancellation.
@@ -2420,7 +2422,17 @@ if $RUBBERBAND; then
     fi
 fi
 
-_report_step "done" "complete" 100
+# In backend-driven per-step chaining, only the last invocation may claim the
+# whole pipeline is done. Intermediate invocations have already reported their
+# own step as "completed" inside the step branch; emitting a final "done" here
+# would remap the status to the last step and mark it complete before it runs.
+if [ -n "${ONDA_CURRENT_STEP_INDEX:-}" ] && [ -n "${ONDA_TOTAL_STEPS:-}" ]; then
+    if [ "$ONDA_CURRENT_STEP_INDEX" -ge "$((ONDA_TOTAL_STEPS - 1))" ]; then
+        _report_step "done" "complete" 100
+    fi
+else
+    _report_step "done" "complete" 100
+fi
 
 # ── Cleanup temps ────────────────────────────────
 rm -rf "${OUTPUT}/_vocal" "${OUTPUT}/_demucs" 2>/dev/null || true
