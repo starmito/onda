@@ -36,12 +36,31 @@ class ProgressTracker:
         min_window_seconds: float = 3.0,
         max_samples: int = 50,
         smooth_alpha: float = 0.3,
+        min_samples_for_eta: int = 3,
+        min_seconds_for_eta: float = 3.0,
+        min_progress_for_eta: float = 2.0,
+        max_total_multiplier: float = 10.0,
+        eta_spike_ratio: float = 3.0,
+        min_eta_seconds: float = 1.0,
     ):
         self.total_steps = max(int(total_steps), 1)
         self.window_seconds = float(window_seconds)
         self.min_window_seconds = float(min_window_seconds)
         self.max_samples = int(max_samples)
         self.smooth_alpha = float(smooth_alpha)
+
+        # Honest ETA guardrails.  We do not publish an ETA until we have enough
+        # real samples, enough elapsed time and enough progress to estimate a
+        # rate that is not just noise.  Once we do, we clamp the estimate so it
+        # never implies a total duration wildly larger than the time already
+        # spent, and we reject sudden spikes that would make the UI jump from
+        # seconds to hours.
+        self.min_samples_for_eta = max(int(min_samples_for_eta), 2)
+        self.min_seconds_for_eta = float(min_seconds_for_eta)
+        self.min_progress_for_eta = float(min_progress_for_eta)
+        self.max_total_multiplier = float(max_total_multiplier)
+        self.eta_spike_ratio = float(eta_spike_ratio)
+        self.min_eta_seconds = float(min_eta_seconds)
 
         # (elapsed_seconds, progress_0_100); seed with t=0 so the very first
         # update can already produce a global-average ETA estimate.
@@ -119,9 +138,26 @@ class ProgressTracker:
             "overall_progress": round(overall, 4),
         }
 
+    def _real_sample_count(self) -> int:
+        """Number of real progress samples, excluding the t=0 seed."""
+        return max(0, len(self.samples) - 1)
+
+    def _have_enough_data_for_eta(self, elapsed: float, progress: float) -> bool:
+        """True when the sample window is wide enough to trust a rate estimate."""
+        if self._real_sample_count() < self.min_samples_for_eta:
+            return False
+        if elapsed < self.min_seconds_for_eta:
+            return False
+        if progress < self.min_progress_for_eta:
+            return False
+        return True
+
     def _compute_eta(self, elapsed: float, progress: float, finished: bool) -> float:
-        """Return an ETA in seconds; never 0 while work is unfinished."""
-        eta: float = 0.0
+        """Return an ETA in seconds; 0 means "not enough data yet".
+
+        The UI renders ``eta: 0`` as "--" / "calculating..." so we never emit
+        a made-up number while the sample window is still too small.
+        """
         if finished:
             self.last_eta = 0.0
             return 0.0
@@ -130,26 +166,48 @@ class ProgressTracker:
             # Step reports 100% but the pipeline has not declared completion yet;
             # keep a small, honest ETA instead of claiming zero while work may
             # still continue.
-            eta = self.last_eta if self.last_eta is not None else 1.0
-            eta = max(eta, 1.0)
-        else:
-            rate = self._rate_from_window(elapsed, progress)
-            if rate is not None and rate > 0:
-                new_eta = (100.0 - progress) / rate
-                if self.last_eta is None:
-                    self.last_eta = new_eta
-                else:
-                    self.last_eta = (
-                        self.smooth_alpha * new_eta
-                        + (1.0 - self.smooth_alpha) * self.last_eta
-                    )
-            # If rate is zero / unavailable, keep the previous ETA so it does
-            # not collapse to 0 during a stall.
-            eta = self.last_eta if self.last_eta is not None else 0.0
+            eta = self.last_eta if self.last_eta is not None else self.min_eta_seconds
+            return max(eta, self.min_eta_seconds)
 
-        # Never publish eta: 0 while work is unfinished.
-        if eta < 1.0:
-            eta = 1.0
+        rate = self._rate_from_window(elapsed, progress)
+        if rate is None or rate <= 0:
+            # Not enough data or progress stalled.  Keep the previous ETA if we
+            # ever had a sane one; otherwise publish 0 (calculating...).
+            return self.last_eta if self.last_eta is not None else 0.0
+
+        if not self._have_enough_data_for_eta(elapsed, progress):
+            # Window too small: do not guess.  Hold any previous estimate but
+            # keep returning 0 until we are confident.
+            return self.last_eta if self.last_eta is not None else 0.0
+
+        new_eta = (100.0 - progress) / rate
+
+        # Sanity cap: the total estimated duration cannot be orders of magnitude
+        # larger than the time already invested.  This prevents the "77 min"
+        # spikes caused by a temporary stall in the recent window.
+        max_sane_eta = elapsed * self.max_total_multiplier
+        new_eta = min(new_eta, max_sane_eta)
+
+        # Spike guard: a sudden jump upward without a matching rate drop is
+        # almost always noise from a bursty progress report.  Keep the last
+        # published estimate until the new one stabilises.  Drops are allowed
+        # immediately so the ETA can converge downward.
+        if self.last_eta is not None and new_eta > self.last_eta * self.eta_spike_ratio:
+            new_eta = self.last_eta
+
+        if self.last_eta is None:
+            self.last_eta = new_eta
+        else:
+            self.last_eta = (
+                self.smooth_alpha * new_eta
+                + (1.0 - self.smooth_alpha) * self.last_eta
+            )
+
+        eta = self.last_eta
+        # Never publish eta: 0 while work is unfinished; return the floor only
+        # when we have decided there is a real estimate to show.
+        if eta < self.min_eta_seconds:
+            eta = self.min_eta_seconds
         return eta
 
     def _overall_progress(self, current_progress: float) -> float:
@@ -313,6 +371,16 @@ class ProgressTracker:
             "step_progress": self.step_progress,
             "step_status": self.step_status,
             "steps": self.steps,
+            "window_seconds": self.window_seconds,
+            "min_window_seconds": self.min_window_seconds,
+            "max_samples": self.max_samples,
+            "smooth_alpha": self.smooth_alpha,
+            "min_samples_for_eta": self.min_samples_for_eta,
+            "min_seconds_for_eta": self.min_seconds_for_eta,
+            "min_progress_for_eta": self.min_progress_for_eta,
+            "max_total_multiplier": self.max_total_multiplier,
+            "eta_spike_ratio": self.eta_spike_ratio,
+            "min_eta_seconds": self.min_eta_seconds,
         }
 
     @classmethod
@@ -323,6 +391,12 @@ class ProgressTracker:
             min_window_seconds=data.get("min_window_seconds", 3.0),
             max_samples=data.get("max_samples", 50),
             smooth_alpha=data.get("smooth_alpha", 0.3),
+            min_samples_for_eta=data.get("min_samples_for_eta", 4),
+            min_seconds_for_eta=data.get("min_seconds_for_eta", 5.0),
+            min_progress_for_eta=data.get("min_progress_for_eta", 3.0),
+            max_total_multiplier=data.get("max_total_multiplier", 10.0),
+            eta_spike_ratio=data.get("eta_spike_ratio", 3.0),
+            min_eta_seconds=data.get("min_eta_seconds", 1.0),
         )
         tracker.samples = data.get("samples", [(0.0, 0.0)])
         tracker.last_eta = data.get("last_eta")
