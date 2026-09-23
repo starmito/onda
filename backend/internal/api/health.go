@@ -16,11 +16,13 @@ type GPUPresenceResponse struct {
 	Info      string `json:"info"`
 }
 
-// checkGPU verifica si hay GPU NVIDIA vía PyTorch.
+// checkGPU verifica si PyTorch puede usar una GPU NVIDIA. En el contenedor de
+// Onda torch suele traer solo la parte CPU, por lo que este chequeo dice si el
+// runtime puede lanzar kernels CUDA, no si hay hardware físico.
 var checkGPU = func() (bool, string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	script := "import torch; d=torch.cuda.get_device_properties(0) if torch.cuda.is_available() else None; print(f'{d.name}, {torch.cuda.memory_allocated(0)//1024//1024} MiB, {torch.cuda.get_device_properties(0).total_memory//1024//1024} MiB' if d else 'CUDA not available')"
+	script := "import torch; print('CUDA available' if torch.cuda.is_available() else 'CUDA not available')"
 	cmd := exec.CommandContext(ctx, "python3", "-c", script)
 	out, err := cmd.Output()
 	if err != nil {
