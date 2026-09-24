@@ -6,12 +6,23 @@ import WaveSurfer from 'wavesurfer.js';
 function createMockWaveSurfer() {
   const handlers: Record<string, (() => void)[]> = {};
   let loadedUrl: string | null = null;
+  const registeredPlugins: unknown[] = [];
   return {
     on(event: string, handler: () => void) {
       if (!handlers[event]) handlers[event] = [];
       handlers[event].push(handler);
+      return () => {
+        handlers[event] = handlers[event]?.filter((h) => h !== handler) ?? [];
+      };
     },
     un(_event: string, _handler: () => void) {},
+    registerPlugin(plugin: unknown) {
+      registeredPlugins.push(plugin);
+      return plugin;
+    },
+    getRegisteredPlugins() {
+      return registeredPlugins;
+    },
     load(url: string) {
       loadedUrl = url;
       // Only signal readiness when the component actually provided a real URL.
