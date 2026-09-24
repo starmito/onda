@@ -3,6 +3,7 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -190,6 +191,37 @@ func TestHandleImportStem_Validation(t *testing.T) {
 		if rr.Code != http.StatusBadRequest {
 			t.Fatalf("expected 400 for %s, got %d: %s", body, rr.Code, rr.Body.String())
 		}
+	}
+}
+
+func TestHandleImportStem_Input_LegacyAbsolutePath(t *testing.T) {
+	root := setupDAWTestRoot(t)
+	srcContent := []byte("input-song-content")
+	writeTestFile(t, filepath.Join(root, "input", "mi_cancion.wav"), srcContent)
+
+	srv := newDAWTestServer(t)
+	// Reference uses the legacy absolute container path while the file lives
+	// under the current data root (data/input/). The endpoint must resolve it.
+	body := `{"source":"input","file":"/app/input/mi_cancion.wav","song":"mi_cancion"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/daw/import", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp ImportResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.File != "import_mi_cancion.wav" {
+		t.Fatalf("expected file import_mi_cancion.wav, got %s", resp.File)
+	}
+	wantPath := filepath.Join("daw-data", "mi_cancion", "imports", "import_mi_cancion.wav")
+	if resp.Path != wantPath {
+		t.Fatalf("expected path %q, got %q", wantPath, resp.Path)
 	}
 }
 
@@ -531,5 +563,35 @@ func TestHandleTrim_MissingFile_StructuredError(t *testing.T) {
 	}
 	if !strings.Contains(resp.Help, "Vuelve a subirlo") {
 		t.Fatalf("expected recovery hint, got %q", resp.Help)
+	}
+}
+
+func TestHandleTrim_MissingLegacyFile_IncludesOriginalPath(t *testing.T) {
+	setupDAWTestRoot(t)
+	srv := newDAWTestServer(t)
+
+	original := "/app/data/daw-data/mi_cancion/original/legacy.wav"
+	body := fmt.Sprintf(`{"file":%q,"start":0,"end":5}`, original)
+	req := httptest.NewRequest(http.MethodPost, "/api/audio/trim", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	srv.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp dawFileNotFoundResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.Code != "file_not_found" {
+		t.Fatalf("expected code file_not_found, got %q", resp.Code)
+	}
+	if !strings.Contains(resp.Help, original) {
+		t.Fatalf("expected help to include original path %q, got %q", original, resp.Help)
+	}
+	if !strings.Contains(resp.Help, "ya no está") {
+		t.Fatalf("expected honest missing-audio message, got %q", resp.Help)
 	}
 }
