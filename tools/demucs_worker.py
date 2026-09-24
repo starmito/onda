@@ -100,6 +100,9 @@ class DemucsWorker:
         )
 
     def _load_model(self):
+        # El pipeline usa la instalación oficial de demucs en /opt/venv
+        # (demucs==4.1.0, ruta /opt/venv/lib/python3.14/site-packages/demucs),
+        # NO una copia en lib_v5/. Ver informe oc_task38_demucs_informe.md.
         import demucs.api
 
         try:
