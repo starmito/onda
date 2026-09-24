@@ -1,8 +1,15 @@
-"""Unit tests for the real RoFormer/MelBand progress total calculation."""
+"""Unit tests for the real RoFormer/MelBand progress total calculation.
+
+These tests run in the inference environment where ``torch`` is installed;
+outside of it (e.g. the host test runner without the heavy ML stack) the
+whole module is skipped at collection time via ``pytest.importorskip``.
+"""
 
 import math
 
 import pytest
+
+pytest.importorskip("torch")
 
 from inference_universal import _progress_total_for
 

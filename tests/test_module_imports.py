@@ -1,5 +1,14 @@
+"""Smoke tests that every separation module imports cleanly.
+
+These tests run in the inference environment where ``torch`` (and the rest
+of the heavy ML stack) is available; they are skipped on the host runner
+where ``torch`` is not installed.
+"""
+
 import importlib
 import pytest
+
+pytest.importorskip("torch")
 
 MODULOS = [
     "onda.mdx",
