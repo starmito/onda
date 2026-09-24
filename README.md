@@ -183,7 +183,7 @@ Ver `backend/internal/api/server.go` para el listado completo.
 | Variable | Descripción | Default en contenedor |
 |----------|-------------|----------------------|
 | `ONDA_DATA_DIR` | Raíz única de datos (`input/`, `output/`, `daw-data/`, `config/`, `logs/`, `models/`, `.cache/`) | `/app/data` |
-| `ONDA_SETTINGS_FILE` | Fichero persistente de ajustes (vive fuera de `ONDA_DATA_DIR` para sobrevivir a cambios de raíz) | `/app/data/config/.onda-settings.json` |
+| `ONDA_SETTINGS_FILE` | Fichero persistente de ajustes (vive fuera de `ONDA_DATA_DIR` para sobrevivir a cambios de raíz y recreaciones del contenedor) | `/app/.onda-settings.json` |
 | `ONDA_CONFIG_DIR` | Carpeta de configuración (debe estar dentro de `ONDA_DATA_DIR`) | `${ONDA_DATA_DIR}/config` |
 | `ONDA_EXPORT_DIR` | Carpeta destino de exportaciones del DAW | vacío (usa ubicación legada) |
 | `ONDA_APP_DIR` | Directorio de la aplicación | `/app` |

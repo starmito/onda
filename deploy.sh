@@ -113,6 +113,19 @@ echo "All required pipeline paths present"
 '
 }
 
+# Ensure the persistent settings file exists as a regular file before Docker
+# tries to bind-mount it. Docker creates a directory when the source is missing,
+# which breaks the backend that expects a JSON file.
+ensure_settings_file() {
+  local path="${1:-$ROOT/.onda-settings.json}"
+  if [ ! -e "$path" ]; then
+    echo "{}" > "$path"
+  elif [ -d "$path" ]; then
+    echo "ERROR: $path is a directory; the persistent settings file must be a regular file" >&2
+    exit 1
+  fi
+}
+
 # Evitar que se ejecute el cuerpo del deploy cuando el script se sourcea
 # (por ejemplo, desde los tests) para poder reutilizar la funcion.
 if [ "${BASH_SOURCE[0]}" = "$0" ]; then
@@ -145,6 +158,10 @@ repair_bind_dir_permissions "$BIND_DIRS"
 # Asegurar que el script del pipeline sea ejecutable en el host (y por tanto
 # dentro del contenedor, ya que se monta como bind volume).
 chmod +x pipeline.sh
+
+# Asegurar que el fichero de ajustes persistente existe como archivo regular
+# antes de que Docker intente montarlo.
+ensure_settings_file "$ROOT/.onda-settings.json"
 
 case $GPU in
   cuda)

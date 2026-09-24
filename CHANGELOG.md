@@ -1,5 +1,17 @@
 # Changelog
 
+## [v3.5.7] - unreleased
+
+### Added
+- **Aviso de VRAM informativo antes de lanzar**: `VramLaunchInfo.svelte` muestra, para el preset seleccionado, la VRAM estimada por paso, la VRAM libre/total de la tarjeta y si cabe/justo/no cabe, usando `/api/gpu/info` y `/api/gpu/vram-calculator` con las flags guardadas en Ajustes → Modelos.
+- **Espectrograma interactivo**: la zona vacía acepta clic para abrir el selector de archivo y la página acepta arrastrar y soltar un audio.
+
+### Changed
+- **Fichero de ajustes persistente fuera de la raíz de datos**: `docker-compose.yml` y `deploy.sh` montan `./.onda-settings.json` → `/app/.onda-settings.json`, de modo que los ajustes sobreviven a recrear el contenedor y a cambios de `ONDA_DATA_DIR`.
+
+### Fixed
+- **Limpieza de temporales del pipeline**: los directorios `_step_*` y `_routed` se eliminan también cuando un trabajo encadenado falla, y `pipeline.sh` limpia su propio `.tmp` sin tocar archivos ajenos.
+
 ## [v3.5.6] - 2026-09-23
 
 ### Added
