@@ -87,7 +87,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 			song = ""
 			subdir = ""
 		} else {
-			writeDAWFileNotFound(w, safeName)
+			writeDAWFileNotFound(w, safeName, req.File)
 			return
 		}
 	}

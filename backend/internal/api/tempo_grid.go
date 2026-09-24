@@ -43,7 +43,7 @@ func (s *Server) handleTempoGrid(w http.ResponseWriter, r *http.Request) {
 
 	inputPath, safeName, _, _, err := resolveDAWAudioSource(file)
 	if err != nil {
-		writeDAWFileNotFound(w, safeName)
+		writeDAWFileNotFound(w, safeName, file)
 		return
 	}
 

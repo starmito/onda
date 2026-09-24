@@ -153,7 +153,7 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 		// Resolve the source inside the tree to learn its song and subdir.
 		srcAbs, srcName, srcSong, srcSubdir, err := resolveDAWAudioSource(req.File)
 		if err != nil {
-			writeDAWFileNotFound(w, filepath.Base(req.File))
+			writeDAWFileNotFound(w, filepath.Base(req.File), req.File)
 			return
 		}
 		srcPath = srcAbs
@@ -165,11 +165,11 @@ func (s *Server) handleImportStem(w http.ResponseWriter, r *http.Request) {
 		}
 	if srcSubdir == dawImportsSubdir {
 		// Already imported: return it where it actually lives.
-		info, err := os.Stat(srcPath)
-		if err != nil {
-			writeDAWFileNotFound(w, srcName)
-			return
-		}
+			info, err := os.Stat(srcPath)
+			if err != nil {
+				writeDAWFileNotFound(w, srcName, req.File)
+				return
+			}
 		relPath := filepath.Join(dawDataDirName, srcSong, dawImportsSubdir, srcName)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)

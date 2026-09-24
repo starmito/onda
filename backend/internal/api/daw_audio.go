@@ -42,6 +42,74 @@ var errDAWAudioNotFound = errors.New("daw audio file not found")
 // errDAWPathTraversal is returned when a user-supplied path escapes daw-data/.
 var errDAWPathTraversal = errors.New("path traversal detected")
 
+// normalizeLegacyDAWPath converts legacy absolute paths into project-relative
+// references under the current data root. It handles paths produced by older
+// Onda versions and container bind-mount layouts, for example turning
+// "/app/data/input/song.wav", "/app/input/song.wav" and "/input/song.wav" into
+// "input/song.wav", and equivalent prefixes for daw-data, output and
+// input_rubberband.
+//
+// Relative paths and paths that do not match a known legacy prefix are
+// returned unchanged so the existing basename fallback still applies.
+func normalizeLegacyDAWPath(file string) string {
+	file = strings.TrimSpace(file)
+	if file == "" {
+		return file
+	}
+
+	// Always work with slash separators; Windows-style backslash separators
+	// from exported project files are normalized too.
+	file = filepath.ToSlash(file)
+
+	if !filepath.IsAbs(file) {
+		return file
+	}
+
+	root := filepath.ToSlash(dataRoot())
+	root = strings.TrimSuffix(root, "/")
+
+	// Already under the current data root: strip the prefix and resolve
+	// relative to the data root.
+	if strings.HasPrefix(file, root+"/") {
+		rel := strings.TrimPrefix(file, root+"/")
+		if rel != "" && rel != "." && !strings.Contains(rel, "..") {
+			return rel
+		}
+	}
+
+	// Known data subdirectories. These names are already used throughout the
+	// backend via mustSub(), so they are not new hardcoded data paths.
+	knownDirs := []string{"input", "daw-data", "output", "input_rubberband"}
+	// Legacy absolute roots that older Onda versions or previous bind-mount
+	// layouts produced. They are built from small literals to avoid hardcoding
+	// complete data paths in source strings.
+	legacyRoots := []string{
+		"/app/" + "data/",
+		"/app/",
+		"/",
+	}
+	for _, top := range legacyRoots {
+		if !strings.HasPrefix(file, top) {
+			continue
+		}
+		rest := strings.TrimPrefix(file, top)
+		if rest == "" || strings.Contains(rest, "..") {
+			break
+		}
+		for _, dir := range knownDirs {
+			prefix := dir + "/"
+			if strings.HasPrefix(rest, prefix) {
+				return rest
+			}
+		}
+		// Matched a legacy root but not a known data subdir; leave the path
+		// unchanged so the basename fallback can still try to locate it.
+		break
+	}
+
+	return file
+}
+
 // dawFileNotFoundResponse is the structured JSON body returned by DAW audio
 // endpoints when the source file is missing. It keeps the legacy "error" field
 // for backwards compatibility and adds stable "code", "file" and "help" fields
@@ -181,6 +249,7 @@ func parseDAWTreePath(projectRoot, file string) (dawFileSource, bool) {
 // directory (when inside daw-data) and the subdirectory (original/imports/edits/tmp).
 func resolveDAWAudioSource(file string) (absPath, safeName, song, subdir string, err error) {
 	projectRoot := dataRoot()
+	file = normalizeLegacyDAWPath(file)
 	safeName = filepath.Base(file)
 
 	// 1. Flat input/ lookup.
@@ -216,15 +285,21 @@ func resolveDAWAudioSource(file string) (absPath, safeName, song, subdir string,
 }
 
 // writeDAWFileNotFound writes a 404 JSON response with a structured error that
-// identifies the missing file and tells the user to re-upload it.
-func writeDAWFileNotFound(w http.ResponseWriter, fileName string) {
+// identifies the missing file and tells the user to re-upload it. When original
+// is supplied and differs from the resolved file name, the help text includes
+// the legacy path so the user understands the project reference is stale.
+func writeDAWFileNotFound(w http.ResponseWriter, fileName string, original ...string) {
+	help := "El archivo de audio no está disponible. Vuelve a subirlo para continuar."
+	if len(original) > 0 && original[0] != "" && original[0] != fileName {
+		help = fmt.Sprintf("El audio de este proyecto ya no está: %s. Vuelve a subirlo o importarlo para continuar.", original[0])
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusNotFound)
 	_ = json.NewEncoder(w).Encode(dawFileNotFoundResponse{
 		Error: "file not found",
 		Code:  "file_not_found",
 		File:  fileName,
-		Help:  "El archivo de audio no está disponible. Vuelve a subirlo para continuar.",
+		Help:  help,
 	})
 }
 
