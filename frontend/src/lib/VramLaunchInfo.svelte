@@ -9,6 +9,7 @@
     type GpuInfo,
     type ModelFlagsResponse,
     type VRAMCalculatorResponse,
+    type VRAMModelEntry,
   } from './api';
 
   interface Props {
@@ -29,6 +30,31 @@
   function formatMb(mb: number): string {
     if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
     return `${Math.round(mb)} MB`;
+  }
+
+  function pickEntryMB(entry: VRAMModelEntry): {
+    mb: number;
+    source: 'measured' | 'estimated';
+    measuredMb: number;
+    measuredN: number;
+    estimatedMb: number;
+  } {
+    if (entry.source === 'measured' && entry.measured_mb && entry.measured_mb > 0) {
+      return {
+        mb: entry.measured_mb,
+        source: 'measured',
+        measuredMb: entry.measured_mb,
+        measuredN: entry.measured_n ?? 0,
+        estimatedMb: entry.estimated_mb ?? entry.vram_mb,
+      };
+    }
+    return {
+      mb: entry.vram_mb,
+      source: 'estimated',
+      measuredMb: entry.measured_mb ?? 0,
+      measuredN: entry.measured_n ?? 0,
+      estimatedMb: entry.estimated_mb ?? entry.vram_mb,
+    };
   }
 
   onMount(() => {
@@ -105,13 +131,32 @@
     };
   });
 
+  const stepSummaries = $derived(
+    stepEstimates.map((estimate, index) => {
+      const step = enabledSteps[index];
+      const entry = estimate.models[0];
+      const picked = entry ? pickEntryMB(entry) : null;
+      return {
+        name: step?.model ?? '',
+        mb: picked?.mb ?? estimate.total_vram_mb,
+        source: picked?.source ?? 'estimated',
+        measuredMb: picked?.measuredMb ?? 0,
+        measuredN: picked?.measuredN ?? 0,
+        estimatedMb: picked?.estimatedMb ?? estimate.total_vram_mb,
+      };
+    }),
+  );
+
   const totalRequiredMb = $derived(
-    stepEstimates.reduce((sum, e) => sum + (e?.total_vram_mb ?? 0), 0),
+    stepSummaries.reduce((sum, s) => sum + s.mb, 0),
   );
   const maxStepMb = $derived(
-    stepEstimates.length > 0
-      ? Math.max(...stepEstimates.map((e) => e?.total_vram_mb ?? 0))
-      : 0,
+    stepSummaries.length > 0 ? Math.max(...stepSummaries.map((s) => s.mb)) : 0,
+  );
+  const maxStepSummary = $derived(
+    stepSummaries.length > 0
+      ? stepSummaries.reduce((max, s) => (s.mb > max.mb ? s : max), stepSummaries[0])
+      : null,
   );
   const fits = $derived(gpuInfo ? gpuInfo.vram_free_mb >= maxStepMb : false);
   const tight = $derived(
@@ -130,9 +175,16 @@
     <div class="vram-row">
       <span class="vram-label">VRAM:</span>
       <span class="vram-value">
-        {#if stepEstimates.length > 0}
-          necesita ~{formatMb(maxStepMb)} por paso
-          {#if enabledSteps.length > 1}
+        {#if stepSummaries.length > 0 && maxStepSummary}
+          {#if maxStepSummary.source === 'measured'}
+            medido: ~{formatMb(maxStepSummary.mb)} por paso
+            {#if maxStepSummary.measuredN > 0}
+              (n={maxStepSummary.measuredN})
+            {/if}
+          {:else}
+            estimado: ~{formatMb(maxStepSummary.mb)} por paso
+          {/if}
+          {#if stepSummaries.length > 1}
             · hasta ~{formatMb(totalRequiredMb)} si se solapan
           {/if}
         {:else}
@@ -146,7 +198,7 @@
         {formatMb(gpuInfo.vram_free_mb)} libres / {formatMb(gpuInfo.vram_total_mb)} total
       </span>
     </div>
-    {#if stepEstimates.length > 0}
+    {#if stepSummaries.length > 0}
       <div class="vram-row">
         <span class="vram-badge" class:fits class:tight>
           {#if fits}

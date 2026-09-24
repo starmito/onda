@@ -1268,21 +1268,25 @@ func audioDurationSeconds(inputPath string) int {
 // vramConfigForStep builds a VRAMConfig for a multi-step pipeline step.
 func vramConfigForStep(step cli.PipelineStep, inputPath string) VRAMConfig {
 	step.Model = resolveModelAlias(step.Model)
-	if step.Type == "demucs" && isDemucsModel(stepModelName(step)) {
-		cfg := readModelConfigFromYaml(step.Model)
-		seg := int(cfg.Segment)
-		if seg <= 0 {
-			seg = 7
-		}
-		return VRAMConfig{DemucsSegment: seg}
-	}
 	cfg := readModelConfigFromYaml(step.Model)
-	return VRAMConfig{
+	base := VRAMConfig{
 		SegmentSize: cfg.SegmentSize,
 		ChunkSize:   cfg.ChunkSize,
 		BatchSize:   cfg.BatchSize,
+		NumOverlap:  cfg.NumOverlap,
+		Shifts:      cfg.Shifts,
+		Jobs:        cfg.Jobs,
 		Duration:    audioDurationSeconds(inputPath),
 	}
+	if step.Type == "demucs" && isDemucsModel(stepModelName(step)) {
+		seg := int(roundDemucsSegment(cfg.Segment))
+		if seg <= 0 {
+			seg = 7
+		}
+		base.DemucsSegment = seg
+		return base
+	}
+	return base
 }
 
 // vramConfigForModel builds a VRAMConfig for the legacy single-step path
@@ -1291,19 +1295,24 @@ func vramConfigForStep(step cli.PipelineStep, inputPath string) VRAMConfig {
 func vramConfigForModel(modelName, stepType string, inputPath string) VRAMConfig {
 	modelName = resolveModelAlias(modelName)
 	cfg := readModelConfigFromYaml(modelName)
+	base := VRAMConfig{
+		SegmentSize: cfg.SegmentSize,
+		ChunkSize:   cfg.ChunkSize,
+		BatchSize:   cfg.BatchSize,
+		NumOverlap:  cfg.NumOverlap,
+		Shifts:      cfg.Shifts,
+		Jobs:        cfg.Jobs,
+		Duration:    audioDurationSeconds(inputPath),
+	}
 	if stepType == "demucs" {
 		seg := int(roundDemucsSegment(cfg.Segment))
 		if seg <= 0 {
 			seg = 7
 		}
-		return VRAMConfig{DemucsSegment: seg}
+		base.DemucsSegment = seg
+		return base
 	}
-	return VRAMConfig{
-		SegmentSize: cfg.SegmentSize,
-		ChunkSize:   cfg.ChunkSize,
-		BatchSize:   cfg.BatchSize,
-		Duration:    audioDurationSeconds(inputPath),
-	}
+	return base
 }
 
 // stepTypeForSinglePipeline guesses the step type for a legacy single-step job
@@ -1470,6 +1479,7 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 		modelName = "unknown"
 	}
 	vramCfg := vramConfigForModel(modelName, stepType, job.Config.Input)
+	device := deviceFromArgs(job.Args)
 
 	stepName := "pipeline"
 	if len(job.Steps) == 1 {
@@ -1497,7 +1507,7 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 			Log("pipeline", "warn", fmt.Sprintf("Job blocked for %s: %s", job.Song, reason))
 			return
 		}
-		if ok, _, reason, warning := checkVramHeadroom(gpu.VRAMFreeMB, gpu.VRAMTotalMB, modelName, stepType, vramCfg, modelName); !ok {
+		if ok, _, reason, warning := checkVramHeadroom(gpu.VRAMFreeMB, gpu.VRAMTotalMB, modelName, stepType, device, vramCfg, modelName); !ok {
 			s.jobsMu.Lock()
 			state.Status = "blocked_no_gpu"
 			state.Error = reason
@@ -1531,7 +1541,6 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	}
 	args := append([]string{script}, pipelineArgs...)
 
-	device := deviceFromArgs(pipelineArgs)
 	if state.TotalSteps < 1 {
 		state.TotalSteps = 1
 	}
@@ -1550,6 +1559,13 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 
+	samplerCtx, samplerCancel := context.WithCancel(context.Background())
+	defer func() {
+		if samplerCancel != nil {
+			samplerCancel()
+		}
+	}()
+
 	s.jobsMu.Lock()
 	s.currentCancel = cancel
 	s.currentCmd = cmd
@@ -1558,6 +1574,9 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 		err = sErr
 	} else {
 		s.currentPID = cmd.Process.Pid
+		go func() {
+			recordMeasuredVRAMPeak(samplerCtx, modelName, device, vramCfg)
+		}()
 	}
 	s.jobsMu.Unlock()
 
@@ -1624,6 +1643,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 
 	currentInput := job.Config.Input
 	allStems := make([]FileEntry, 0)
+	device := deviceFromArgs(job.Args)
 
 	// Build stable step metadata so each separate pipeline.sh invocation knows
 	// its position in the full chain and preserves completed steps.
@@ -1666,7 +1686,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 				Log("pipeline", "warn", fmt.Sprintf("Job blocked for %s at step %d: %s", job.Song, i+1, reason))
 				return
 			}
-			if ok, _, reason, warning := checkVramHeadroom(gpu.VRAMFreeMB, gpu.VRAMTotalMB, modelName, deriveRealStepType(step), vramCfg, step.Model); !ok {
+			if ok, _, reason, warning := checkVramHeadroom(gpu.VRAMFreeMB, gpu.VRAMTotalMB, modelName, deriveRealStepType(step), device, vramCfg, step.Model); !ok {
 				s.jobsMu.Lock()
 				if state, ok := s.jobs[job.Song]; ok {
 					state.Status = "blocked_no_gpu"
@@ -1691,7 +1711,6 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		}
 
 		// Build args for this specific step
-		device := deviceFromArgs(job.Args)
 		stepArgs, stepEnv, stepErr := buildStepPipelineArgs(step, currentInput, containerOutput, device)
 		if stepErr != nil {
 			s.jobsMu.Lock()
@@ -1746,6 +1765,13 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		cmd.Stdout = &out
 		cmd.Stderr = &out
 
+		samplerCtx, samplerCancel := context.WithCancel(context.Background())
+		defer func() {
+			if samplerCancel != nil {
+				samplerCancel()
+			}
+		}()
+
 		s.jobsMu.Lock()
 		s.currentCancel = cancel
 		s.currentCmd = cmd
@@ -1754,6 +1780,9 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 			err = sErr
 		} else {
 			s.currentPID = cmd.Process.Pid
+		go func() {
+			recordMeasuredVRAMPeak(samplerCtx, modelName, device, vramCfg)
+		}()
 		}
 		s.jobsMu.Unlock()
 

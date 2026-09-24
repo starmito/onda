@@ -1160,6 +1160,11 @@ export interface VRAMModelEntry {
   name: string;
   type: string;
   vram_mb: number;
+  source?: 'measured' | 'estimated';
+  measured_mb?: number;
+  measured_n?: number;
+  measured_ts?: string;
+  estimated_mb?: number;
 }
 
 export interface VRAMCalculatorResponse {
@@ -1180,6 +1185,7 @@ export interface VRAMCalculatorParams {
   overlap?: number;
   batch_size?: number;
   demucs_segment?: number;
+  jobs?: number;
 }
 
 // Build VRAM calculator params from a model name and its effective flag values.
@@ -1215,6 +1221,10 @@ export function buildVRAMCalculatorParams(
     const v = Number(values['segment']);
     params.demucs_segment = v;
   }
+  if ('jobs' in values) {
+    const v = Number(values['jobs']);
+    if (v > 0) params.jobs = v;
+  }
   return params;
 }
 
@@ -1238,6 +1248,9 @@ export async function getVRAMCalculator(params: VRAMCalculatorParams): Promise<V
   }
   if (params.demucs_segment !== undefined) {
     qs.set('demucs_segment', String(params.demucs_segment));
+  }
+  if (params.jobs !== undefined && params.jobs > 0) {
+    qs.set('jobs', String(params.jobs));
   }
   const res = await fetch(`${API_BASE}/api/gpu/vram-calculator?${qs.toString()}`);
   if (!res.ok) {

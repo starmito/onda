@@ -226,7 +226,7 @@ func TestCheckVramHeadroom_NeverRequiresMoreThanTotal(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ok, required, reason, warning := checkVramHeadroom(tt.freeMB, tt.totalMB, tt.model, tt.stepType, tt.cfg, tt.fallbackModel)
+			ok, required, reason, warning := checkVramHeadroom(tt.freeMB, tt.totalMB, tt.model, tt.stepType, "cuda", tt.cfg, tt.fallbackModel)
 			if ok != tt.wantOK {
 				t.Errorf("ok = %v, want %v", ok, tt.wantOK)
 			}
