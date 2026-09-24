@@ -78,6 +78,23 @@ def _report_pipeline_status(status_file, step_name, step_idx, total_steps,
         pass  # Non-critical; don't crash the pipeline over a status write failure
 
 
+def _progress_total_for(num_samples, C, step, batch_size):
+    """Return the real total number of work units for _process_mix progress.
+
+    In _process_mix ``chunk_idx`` is incremented once per sliding window
+    (each position where the model is applied), so ``progress_total`` must
+    equal the total window count for progress to reach exactly 1.0 and for
+    the ETA tracker to receive enough intermediate samples.
+
+    The loop walks ``i = 0, step, 2*step, ...`` while ``i < num_samples``,
+    padding the last window. The window count is ``ceil(num_samples / step)``.
+    ``C`` and ``batch_size`` are accepted to mirror the real call site but do
+    not change the number of individual windows.
+    """
+    _ = C, batch_size  # signature kept for symmetry with the real call site
+    return max(1, int(np.ceil(num_samples / step)))
+
+
 def _ensure_output_length(result, expected_len, context=''):
     """Force a tensor to have the requested time dimension.
 
@@ -114,6 +131,9 @@ def _process_mix(model, mix, C, step, batch_size, S, device,
     Returns a tensor of shape (S, channels, mix_len) with the accumulated
     overlap-add result (padding is NOT removed — caller must trim it).
     """
+    if progress_total <= 1:
+        progress_total = _progress_total_for(mix.shape[1], C, step, batch_size)
+
     result = torch.zeros((S,) + tuple(mix.shape), dtype=torch.float32, device=device)
     counter = torch.zeros((S,) + tuple(mix.shape), dtype=torch.float32, device=device)
 
@@ -239,7 +259,7 @@ def _chunked_process(model, audio, C, step, batch_size, S, device, chunk_seconds
         chunk_len = end - start
         apply_pad = chunk_len > 2 * pad_len
         padded_len = chunk_len + 2 * pad_len if apply_pad else chunk_len
-        total_chunk = int(np.ceil(padded_len / step))
+        total_chunk = _progress_total_for(padded_len, C, step, batch_size)
         chunk_infos.append((start, end, chunk_len, apply_pad, total_chunk))
         progress_total += total_chunk
 
