@@ -23,6 +23,8 @@ func newExportDirTestServer(t *testing.T) *httptest.Server {
 	s.mux.HandleFunc("POST /api/stems/merge", s.handleStemsMerge)
 	s.mux.HandleFunc("POST /api/daw/midi/export", s.handleMidiExport)
 	s.mux.HandleFunc("GET /api/export/files/{file}", s.handleExportFileServe)
+	s.mux.HandleFunc("GET /api/daw/stems", s.handleListStems)
+	s.mux.HandleFunc("GET /api/pitch/{song}", s.handleListPitchSubgroups)
 	srv := httptest.NewServer(s.mux)
 	t.Cleanup(srv.Close)
 	return srv
@@ -43,7 +45,8 @@ func TestExportDirConfigPrecedence(t *testing.T) {
 	settingsPath := filepath.Join(root, ".onda-settings.json")
 	t.Setenv("ONDA_SETTINGS_FILE", settingsPath)
 
-	// 1. Default: empty.
+	// 1. Default: <dataRoot>/exports.
+	defaultExportDir := filepath.Join(root, "exports")
 	t.Setenv("ONDA_DATA_DIR", root)
 	t.Setenv("ONDA_EXPORT_DIR", "")
 	if err := os.WriteFile(settingsPath, []byte(`{"data_root":""}`), 0o644); err != nil {
@@ -60,8 +63,8 @@ func TestExportDirConfigPrecedence(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatalf("failed to decode: %v", err)
 	}
-	if body.ExportDir != "" || body.ExportSource != "default" {
-		t.Fatalf("default: expected empty/default, got %q/%q", body.ExportDir, body.ExportSource)
+	if body.ExportDir != defaultExportDir || body.ExportSource != "default" {
+		t.Fatalf("default: expected %q/default, got %q/%q", defaultExportDir, body.ExportDir, body.ExportSource)
 	}
 
 	// 2. Settings win over default.
@@ -447,7 +450,7 @@ func TestHandleMidiExport_UsesExportDir(t *testing.T) {
 	}
 }
 
-func TestHandleMidiExport_DefaultKeepsDirectDownload(t *testing.T) {
+func TestHandleMidiExport_DefaultUsesExportDir(t *testing.T) {
 	root := setupStorageTestRoot(t)
 	t.Setenv("ONDA_DATA_DIR", root)
 	t.Setenv("ONDA_EXPORT_DIR", "")
@@ -464,13 +467,176 @@ func TestHandleMidiExport_DefaultKeepsDirectDownload(t *testing.T) {
 		b, _ := io.ReadAll(resp.Body)
 		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(b))
 	}
-	ct := resp.Header.Get("Content-Type")
-	if ct != "audio/midi" {
-		t.Fatalf("expected audio/midi content type, got %q", ct)
+
+	var mr MidiExportResponse
+	if err := json.NewDecoder(resp.Body).Decode(&mr); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
 	}
-	cd := resp.Header.Get("Content-Disposition")
-	if !strings.Contains(cd, "export.mid") {
-		t.Fatalf("expected attachment disposition, got %q", cd)
+	if mr.File != "export.mid" {
+		t.Fatalf("expected export.mid, got %s", mr.File)
+	}
+	if mr.URL != "/api/export/files/export.mid" {
+		t.Fatalf("expected /api/export/files/export.mid, got %s", mr.URL)
+	}
+
+	exportedPath := filepath.Join(root, "exports", "export.mid")
+	if _, err := os.Stat(exportedPath); err != nil {
+		t.Fatalf("expected MIDI file at default export dir %s: %v", exportedPath, err)
+	}
+}
+
+// TestHandleStemsMerge_DefaultExportDir verifies that, with no explicit export
+// directory configured, a merge is written to <dataRoot>/exports and does not
+// appear in the stem or pitch subgroup listings.
+func TestHandleStemsMerge_DefaultExportDir(t *testing.T) {
+	skipIfMissingBinary(t, "ffmpeg")
+
+	root := setupStorageTestRoot(t)
+	t.Setenv("ONDA_DATA_DIR", root)
+	t.Setenv("ONDA_EXPORT_DIR", "")
+
+	songDir := filepath.Join(root, "output", "cancion1")
+	if err := os.MkdirAll(songDir, 0o755); err != nil {
+		t.Fatalf("failed to create song dir: %v", err)
+	}
+	for _, stem := range []string{"vocals.wav", "instrumental.wav"} {
+		cmd := exec.Command("ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono", "-t", "0.1", "-acodec", "pcm_s16le", filepath.Join(songDir, stem))
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("failed to create test wav %s: %v\n%s", stem, err, string(out))
+		}
+	}
+
+	srv := newExportDirTestServer(t)
+	body := `{"song":"cancion1","stems":["vocals.wav","instrumental.wav"],"format":"flac"}`
+	resp, err := srv.Client().Post(srv.URL+"/api/stems/merge", "application/json", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(b))
+	}
+
+	var mr MergeResponse
+	if err := json.NewDecoder(resp.Body).Decode(&mr); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	defaultExportDir := filepath.Join(root, "exports")
+	exportedPath := filepath.Join(defaultExportDir, mr.File)
+	if _, err := os.Stat(exportedPath); err != nil {
+		t.Fatalf("expected merged file at default export dir %s: %v", exportedPath, err)
+	}
+
+	legacyPath := filepath.Join(songDir, mr.File)
+	if _, err := os.Stat(legacyPath); !os.IsNotExist(err) {
+		t.Fatalf("merged file must not be written next to stems: %s", legacyPath)
+	}
+
+	// The export must not appear in the stem list.
+	stemsResp, err := srv.Client().Get(srv.URL + "/api/daw/stems")
+	if err != nil {
+		t.Fatalf("stems request failed: %v", err)
+	}
+	defer stemsResp.Body.Close()
+	var stems StemsResponse
+	if err := json.NewDecoder(stemsResp.Body).Decode(&stems); err != nil {
+		t.Fatalf("failed to decode stems: %v", err)
+	}
+	for _, name := range stems.Output["cancion1"] {
+		if name == mr.File {
+			t.Fatalf("export file %q must not appear in /api/daw/stems", mr.File)
+		}
+	}
+
+	// The export must not appear in the pitch subgroup list.
+	pitchResp, err := srv.Client().Get(srv.URL + "/api/pitch/cancion1")
+	if err != nil {
+		t.Fatalf("pitch request failed: %v", err)
+	}
+	defer pitchResp.Body.Close()
+	var subgroups []PitchSubgroup
+	if err := json.NewDecoder(pitchResp.Body).Decode(&subgroups); err != nil {
+		t.Fatalf("failed to decode pitch subgroups: %v", err)
+	}
+	for _, sg := range subgroups {
+		for _, f := range sg.Files {
+			if f.Name == mr.File {
+				t.Fatalf("export file %q must not appear in /api/pitch/{song}", mr.File)
+			}
+		}
+	}
+}
+
+// TestListStemsFiltersLegacyExports verifies that export files already present
+// in the song directory (written before the default export dir moved to
+// <dataRoot>/exports) are not listed as stems.
+func TestListStemsFiltersLegacyExports(t *testing.T) {
+	root := setupStorageTestRoot(t)
+	t.Setenv("ONDA_DATA_DIR", root)
+
+	songDir := filepath.Join(root, "output", "cancion1")
+	if err := os.MkdirAll(songDir, 0o755); err != nil {
+		t.Fatalf("failed to create song dir: %v", err)
+	}
+	writeTestFile(t, filepath.Join(songDir, "vocals.wav"), []byte("vocals"))
+	writeTestFile(t, filepath.Join(songDir, "merge_cancion1.flac"), []byte("legacy export"))
+	writeTestFile(t, filepath.Join(songDir, "export.mid"), []byte("legacy midi"))
+
+	srv := newExportDirTestServer(t)
+	resp, err := srv.Client().Get(srv.URL + "/api/daw/stems")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var stems StemsResponse
+	if err := json.NewDecoder(resp.Body).Decode(&stems); err != nil {
+		t.Fatalf("failed to decode stems: %v", err)
+	}
+	want := []string{"vocals.wav"}
+	if got := stems.Output["cancion1"]; !sliceEqual(got, want) {
+		t.Fatalf("expected stems %v, got %v", want, got)
+	}
+}
+
+// TestListPitchSubgroupsFiltersLegacyExports verifies that export files already
+// present inside a pitch subgroup directory are not listed.
+func TestListPitchSubgroupsFiltersLegacyExports(t *testing.T) {
+	root := setupStorageTestRoot(t)
+	t.Setenv("ONDA_DATA_DIR", root)
+
+	songDir := filepath.Join(root, "output", "cancion1")
+	pitchDir := filepath.Join(songDir, "cancion1_pitch-1")
+	if err := os.MkdirAll(pitchDir, 0o755); err != nil {
+		t.Fatalf("failed to create pitch dir: %v", err)
+	}
+	writeTestFile(t, filepath.Join(pitchDir, "bass_pitch-1.wav"), []byte("bass"))
+	writeTestFile(t, filepath.Join(pitchDir, "merge_cancion1.flac"), []byte("legacy export in subgroup"))
+
+	srv := newExportDirTestServer(t)
+	resp, err := srv.Client().Get(srv.URL + "/api/pitch/cancion1")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	var subgroups []PitchSubgroup
+	if err := json.NewDecoder(resp.Body).Decode(&subgroups); err != nil {
+		t.Fatalf("failed to decode pitch subgroups: %v", err)
+	}
+	if len(subgroups) != 1 {
+		t.Fatalf("expected 1 subgroup, got %d", len(subgroups))
+	}
+	want := []string{"bass_pitch-1.wav"}
+	var got []string
+	for _, f := range subgroups[0].Files {
+		got = append(got, f.Name)
+	}
+	if !sliceEqual(got, want) {
+		t.Fatalf("expected subgroup files %v, got %v", want, got)
 	}
 }
 

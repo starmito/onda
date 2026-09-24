@@ -271,14 +271,22 @@ func TestHandleExport(t *testing.T) {
 	if err := json.NewDecoder(resp.Body).Decode(&er); err != nil {
 		t.Fatalf("failed to decode response: %v", err)
 	}
-	if er.File != "mix.wav" {
-		t.Fatalf("expected mix.wav, got %s", er.File)
+	if er.File != "export_mix.wav" {
+		t.Fatalf("expected export_mix.wav, got %s", er.File)
 	}
 	if er.Format != "wav" {
 		t.Fatalf("expected format wav, got %s", er.Format)
 	}
 	if er.Size != int64(len(content)) {
 		t.Fatalf("expected size %d, got %d", len(content), er.Size)
+	}
+	if er.URL != "/api/export/files/export_mix.wav" {
+		t.Fatalf("expected export URL /api/export/files/export_mix.wav, got %s", er.URL)
+	}
+
+	exportedPath := filepath.Join(root, "exports", "export_mix.wav")
+	if _, err := os.Stat(exportedPath); err != nil {
+		t.Fatalf("expected exported file at default export dir %s: %v", exportedPath, err)
 	}
 }
 

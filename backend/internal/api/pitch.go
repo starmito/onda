@@ -246,12 +246,13 @@ func (s *Server) handleListPitchSubgroups(w http.ResponseWriter, r *http.Request
 
 		var files []FileEntry
 		for _, se := range subEntries {
-			if !se.IsDir() {
-				files = append(files, FileEntry{
-					Name: se.Name(),
-					Path: "/api/pitch/files/" + song + "/" + pitchStr + "/" + se.Name(),
-				})
+			if se.IsDir() || isExportFileName(se.Name()) {
+				continue
 			}
+			files = append(files, FileEntry{
+				Name: se.Name(),
+				Path: "/api/pitch/files/" + song + "/" + pitchStr + "/" + se.Name(),
+			})
 		}
 
 		subgroups = append(subgroups, PitchSubgroup{
