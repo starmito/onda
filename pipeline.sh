@@ -1681,15 +1681,20 @@ if [ "$_PRESERVE_STATUS" -eq 0 ]; then
     rm -f "$STATUS_FILE" "$STATUS_FILE.tmp" "$STATUS_FILE.tracker.json" "$STATUS_FILE.tracker.json.tmp"
 fi
 
-# Ensure temporary vocal/demucs dirs are always removed, even on error or cancellation.
-cleanup_legacy_temps() {
+# Ensure temporary dirs/files are always removed, even on error or cancellation.
+# Only deletes paths that belong to the current job inside ${OUTPUT}.
+cleanup_pipeline_temps() {
     if [ -n "${OUTPUT:-}" ]; then
         rm -rf "${OUTPUT}/_vocal" "${OUTPUT}/_demucs" 2>/dev/null || true
+        rm -rf "${OUTPUT}/_routed" 2>/dev/null || true
+        rm -rf "${OUTPUT}/_step_"* 2>/dev/null || true
         rm -f "${OUTPUT}"/*.eta 2>/dev/null || true
     fi
     rm -f "${STATUS_FILE}.eta" 2>/dev/null || true
 }
-trap 'cleanup_legacy_temps' EXIT
+# Keep the legacy name as an alias so existing callers/traps keep working.
+cleanup_legacy_temps() { cleanup_pipeline_temps; }
+trap 'cleanup_pipeline_temps' EXIT
 
 # ── Auto-detect steps: if no step was explicitly requested and not in --steps mode,
 #    enable all steps for backward compatibility (full pipeline).
