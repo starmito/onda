@@ -809,6 +809,13 @@ export async function setDefaultPreset(name: string): Promise<void> {
   });
 }
 
+export async function restoreDefaultPresets(): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/presets/restore-defaults`, {
+    method: 'POST',
+  });
+  if (!res.ok) throw new Error(`Failed to restore default presets: ${res.status}`);
+}
+
 export interface PitchResponse {
   song: string;
   pitch: number;

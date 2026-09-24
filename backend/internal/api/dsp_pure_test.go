@@ -443,17 +443,20 @@ func TestHandleSavePreset_Validation(t *testing.T) {
 	}
 }
 
-func TestHandleDeletePreset_Validation(t *testing.T) {
-	setTestRoot(t, "presets-delete-")
+func TestHandleDeletePreset_FactoryAllowed(t *testing.T) {
+	root := setTestRoot(t, "presets-delete-")
+	t.Setenv("ONDA_DATA_DIR", root)
+	resetPresetsState(t)
+
 	s := &Server{mux: http.NewServeMux()}
 	s.mux.HandleFunc("DELETE /api/presets/{name}", s.handleDeletePreset)
 
-	// Deleting a locked built-in preset is forbidden.
+	// Deleting a locked built-in preset is now allowed and tombstoned.
 	req2 := httptest.NewRequest(http.MethodDelete, "/api/presets/Voces%20Total", nil)
 	rr2 := httptest.NewRecorder()
 	s.mux.ServeHTTP(rr2, req2)
-	if rr2.Code != http.StatusForbidden {
-		t.Errorf("status = %d, want 403", rr2.Code)
+	if rr2.Code != http.StatusOK {
+		t.Errorf("status = %d, want 200", rr2.Code)
 	}
 }
 
