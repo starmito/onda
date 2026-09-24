@@ -1,9 +1,10 @@
 <script lang="ts">
   import PresetsPanel from './PresetsPanel.svelte';
   import ProgressPanel from './ProgressPanel.svelte';
+  import VramLaunchInfo from './VramLaunchInfo.svelte';
   import { validateExecutePreset } from './executeValidation';
   import { uploadAudio, deleteInput, clearQueue, separateAudio, cancelQueue, getProcessesStatus } from './api';
-  import type { ProcessStatus, QueueJob } from './api';
+  import type { ProcessStatus, QueueJob, PipelineStep } from './api';
   import { IconUpload } from './icons';
   import { getDefaultChecked, withToggledCheck, withToggledAll } from './queueDefaults';
   import type { QueueFile } from './queueDefaults';
@@ -69,6 +70,11 @@
   let toastMessage = $state('');
   let toastType = $state<'success' | 'error' | 'info' | 'warning'>('success');
   let toastTimer = $state<ReturnType<typeof setTimeout> | null>(null);
+
+  // ---- VRAM preview for the selected preset ----
+  let selectedSteps = $derived<PipelineStep[]>(
+    savedPresets.find(p => p.name === presetName)?.config?.steps ?? []
+  );
 
   // ---- Inline execute validation message ----
   let executeError = $state('');
@@ -419,6 +425,10 @@
     {#if hidePresetSelector}
       <!-- Built-in preset: no selector, direct execute button -->
       <section class="direct-execute-section">
+        {#if !separating && selectedSteps.length > 0}
+          <VramLaunchInfo steps={selectedSteps} />
+        {/if}
+
         <button class="btn-execute-direct" onclick={handleExecute} disabled={separating || queueFiles.filter(q => q.checked).length === 0}>
           ▶ Ejecutar {displayName || presetName}
         </button>
@@ -451,6 +461,11 @@
         {/if}
       </section>
     {:else}
+      {#if !separating && selectedSteps.length > 0}
+        <div class="vram-launch-wrap">
+          <VramLaunchInfo steps={selectedSteps} />
+        </div>
+      {/if}
       <PresetsPanel
         presets={savedPresets}
         selectedPreset={presetName}
@@ -927,6 +942,11 @@
   }
   .btn-force:hover {
     background: #5a4a2a;
+  }
+
+  .vram-launch-wrap {
+    width: 100%;
+    box-sizing: border-box;
   }
 
   .progress-gpu {

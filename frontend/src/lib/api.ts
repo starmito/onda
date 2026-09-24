@@ -1165,7 +1165,7 @@ export interface VRAMCalculatorResponse {
   warning?: string;
 }
 
-export async function getVRAMCalculator(params: {
+export interface VRAMCalculatorParams {
   models: string;
   chunk_size?: number;
   shifts?: number;
@@ -1173,7 +1173,45 @@ export async function getVRAMCalculator(params: {
   overlap?: number;
   batch_size?: number;
   demucs_segment?: number;
-}): Promise<VRAMCalculatorResponse> {
+}
+
+// Build VRAM calculator params from a model name and its effective flag values.
+// Mirrors the logic used by ModelManager so the launch preview and the model
+// settings page agree on the numbers sent to the backend.
+export function buildVRAMCalculatorParams(
+  model: string,
+  values: Record<string, number | string>,
+): VRAMCalculatorParams {
+  const params: VRAMCalculatorParams = { models: model };
+
+  if ('segment_size' in values) {
+    const v = Number(values['segment_size']);
+    if (v > 0) params.segment_size = v;
+  }
+  if ('num_overlap' in values) {
+    const v = Number(values['num_overlap']);
+    if (v > 0) params.overlap = 1 / v;
+  }
+  if ('chunk_size' in values) {
+    const v = Number(values['chunk_size']);
+    if (v > 0) params.chunk_size = v;
+  }
+  if ('batch_size' in values) {
+    const v = Number(values['batch_size']);
+    if (v > 0) params.batch_size = v;
+  }
+  if ('shifts' in values) {
+    const v = Number(values['shifts']);
+    if (v > 0) params.shifts = v;
+  }
+  if ('segment' in values) {
+    const v = Number(values['segment']);
+    params.demucs_segment = v;
+  }
+  return params;
+}
+
+export async function getVRAMCalculator(params: VRAMCalculatorParams): Promise<VRAMCalculatorResponse> {
   const qs = new URLSearchParams();
   qs.set('models', params.models);
   if (params.chunk_size !== undefined && params.chunk_size > 0) {
