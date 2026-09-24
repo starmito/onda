@@ -310,6 +310,7 @@ class OnnxMDX:
         self.model_path = model_path
         self.device = device
         self.overlap = overlap
+        self._overlap_fraction = self._normalize_overlap(overlap)
         self.compensate = config.get("compensate", 1.0)
 
         # Config may be flat (UVR JSON) or nested (audio/inference).
@@ -341,6 +342,44 @@ class OnnxMDX:
         self.gen_size = self.chunk_size - 2 * self.trim
         self.stft = STFT(self.n_fft, self.hop_length, self.dim_f, self.device)
 
+    @staticmethod
+    def _normalize_overlap(overlap: Any, default: float = 0.25) -> float:
+        """Return a valid overlap fraction, accepting either unit.
+
+        - ``overlap <= 1`` (and > 0) is interpreted as a fraction, e.g. 0.25.
+        - ``overlap > 1`` is interpreted as an integer overlap count, e.g. 8
+          meaning 8 overlapping windows → fraction 1/8.
+        - Invalid values (``None``, non-numeric, 0 or negative, NaN) fall back
+          to ``default`` and emit a warning.
+        """
+        try:
+            value = float(overlap)
+        except Exception:
+            print(
+                f"⚠️  MDXNet ONNX overlap={overlap!r} inválido (no numérico), "
+                f"usando fracción por defecto {default}"
+            )
+            return default
+
+        if value <= 0 or value != value:  # NaN
+            print(
+                f"⚠️  MDXNet ONNX overlap={overlap!r} inválido, "
+                f"usando fracción por defecto {default}"
+            )
+            return default
+
+        if value <= 1.0:
+            return value
+        return 1.0 / value
+
+    def _chunking_plan(self, mixture_len: int) -> tuple[int, int]:
+        """Return the positive step size and total chunk count for a mixture."""
+        step = int((1 - self._overlap_fraction) * self.chunk_size)
+        if step <= 0:
+            step = self.chunk_size
+        total_chunks = max(1, (mixture_len + step - 1) // step)
+        return step, total_chunks
+
     def demix(
         self,
         mix: np.ndarray,
@@ -369,13 +408,20 @@ class OnnxMDX:
             1,
         )
 
-        step = int((1 - self.overlap) * chunk_size)
-        if step == 0:
-            step = chunk_size
+        step, total_chunks = self._chunking_plan(mixture.shape[-1])
+
+        try:
+            raw_float = float(self.overlap)
+        except Exception:
+            raw_float = self._overlap_fraction
+        unit_label = "fracción" if raw_float <= 1.0 else "cuenta"
+        print(
+            f"ℹ️  MDXNet ONNX overlap={self.overlap} ({unit_label}) → "
+            f"fracción {self._overlap_fraction:.3f}, step={step}, chunks={total_chunks}"
+        )
 
         result = np.zeros((1, 2, mixture.shape[-1]), dtype=np.float32)
         divider = np.zeros((1, 2, mixture.shape[-1]), dtype=np.float32)
-        total_chunks = (mixture.shape[-1] + step - 1) // step
 
         _write_progress(progress_file, 0, total_chunks)
         _write_pipeline_status(
@@ -546,9 +592,6 @@ def run_onnx_mdx(args):
     print(f"   Audio: {audio.shape[1] / sr:.1f}s, {audio.shape[1]} samples")
 
     overlap = getattr(args, "overlap", 0.25)
-    if isinstance(overlap, int) and overlap > 1:
-        # pipeline.sh passes an integer overlap factor (e.g. 4 → 0.25).
-        overlap = 1.0 / overlap
     progress_file = getattr(args, "progress_file", None)
     pipeline_status = getattr(args, "pipeline_status", None)
     step_idx = getattr(args, "step_idx", 0)
