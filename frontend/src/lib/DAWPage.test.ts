@@ -5,6 +5,7 @@ import DAWPage from './DAWPage.svelte';
 vi.mock('wavesurfer.js', () => ({
   default: class WaveSurfer {
     volume = 1;
+    registeredPlugins: unknown[] = [];
     static create() {
       return new WaveSurfer();
     }
@@ -13,6 +14,11 @@ vi.mock('wavesurfer.js', () => ({
         // Simulate async ready so applyTrackAudioState runs
         setTimeout(handler, 0);
       }
+      return () => {};
+    }
+    registerPlugin(plugin: unknown) {
+      this.registeredPlugins.push(plugin);
+      return plugin;
     }
     load() {}
     empty() {}
@@ -44,13 +50,16 @@ vi.mock('wavesurfer.js/dist/plugins/regions.js', () => ({
       getRegions: () => [],
       clearRegions: () => {},
       addRegion: () => {},
+      on: () => () => {},
     }),
   },
 }));
 
 vi.mock('wavesurfer.js/dist/plugins/timeline.js', () => ({
   default: {
-    create: () => ({}),
+    create: () => ({
+      on: () => () => {},
+    }),
   },
 }));
 

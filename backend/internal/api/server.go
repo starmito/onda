@@ -2211,18 +2211,27 @@ func listResultStems(song string, steps []cli.PipelineStep) []FileEntry {
 	return files
 }
 
-// normalizeContainerInput converts a relative filename or a bare input name into
-// the absolute input path under the data root. Absolute paths and paths already
-// under the input directory are left untouched so callers can pass explicit
+// normalizeContainerInput converts a relative filename, a bare input name or a
+// legacy absolute path into the absolute input path under the current data
+// root. Absolute paths that point to legacy Onda data directories (e.g.
+// "/input/song.wav", "/app/input/song.wav", "/app/data/input/song.wav") are
+// normalized to the current data root so migrations do not break queued jobs.
+// Other absolute paths are preserved so callers can still pass explicit
 // host/container paths through unchanged.
 func normalizeContainerInput(input string) string {
 	if input == "" {
 		return input
 	}
+	// Reuse the DAW path normalizer so queue/pipeline inputs benefit from the
+	// same legacy-path compatibility as effects/trim/fade.
+	normalized := normalizeLegacyDAWPath(input)
+	if normalized != input {
+		return filepath.Join(mustSub("input"), filepath.Base(normalized))
+	}
 	if filepath.IsAbs(input) {
 		return input
 	}
-	return filepath.Join(mustSub("input"), filepath.Base(input))
+	return filepath.Join(mustSub("input"), filepath.Base(normalized))
 }
 
 // buildPipelineArgs constructs the argument list for pipeline.sh from a SeparateRequest.

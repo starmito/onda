@@ -83,7 +83,7 @@ func (s *Server) handleFade(w http.ResponseWriter, r *http.Request) {
 
 	sourcePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
 	if err != nil {
-		writeDAWFileNotFound(w, safeName)
+		writeDAWFileNotFound(w, safeName, req.File)
 		return
 	}
 	if song == "" {

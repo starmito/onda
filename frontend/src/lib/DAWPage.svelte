@@ -247,8 +247,10 @@
       cursorColor: 'var(--text-primary)',
       height: 120,
       normalize: true,
-      plugins: [regionsPlugin, timelinePlugin],
     });
+
+    ws.registerPlugin(regionsPlugin);
+    ws.registerPlugin(timelinePlugin);
 
     regionsPlugin.on('region-created', (region) => {
       if (region.element) {
@@ -284,10 +286,12 @@
       updateStatus();
     });
 
-    ws.on('error', (err: any) => {
-      const msg = err?.message || err || 'desconocido';
-      console.error(`WaveSurfer error for track ${track.id}:`, msg);
-      track.loadError = `No se pudo cargar el audio: ${msg}`;
+    ws.on('error', (err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err ?? 'desconocido');
+      const code = err instanceof Error && 'code' in err ? String((err as Error & { code: unknown }).code) : undefined;
+      const display = code ? `${message} (code ${code})` : message;
+      console.error(`WaveSurfer error for track ${track.id}:`, display);
+      track.loadError = `No se pudo cargar el audio: ${display}`;
       track.isReady = false;
       status = track.loadError;
     });
@@ -403,12 +407,11 @@
     track.name = name;
     loadTrackAudio(track, source);
     if (addRegionFlag) {
-      const once = () => {
+      const unsubscribe = track.ws.on('ready', () => {
         addDefaultRegion(track);
         pushHistory(fileName, source, getTrackRegions(track));
-        track.ws?.un('ready', once);
-      };
-      track.ws.on('ready', once);
+        unsubscribe();
+      });
     }
   }
 
@@ -439,13 +442,12 @@
     if (!state || !track || !track.ws) return;
     historyIndex = index;
     loadSource(track, state.fileName, state.source, track.name, false);
-    const once = () => {
+    const unsubscribe = track.ws.on('ready', () => {
       setTrackRegions(track, state.regions);
       track.ws?.zoom(zoom);
       updateStatus();
-      track.ws?.un('ready', once);
-    };
-    track.ws.on('ready', once);
+      unsubscribe();
+    });
   }
 
   function undo() {

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getModelConfig, setModelConfig, getLocalModels, getGpuInfo, getVRAMCalculator, type ModelFlag, type ModelFlagsResponse, type LocalModel, type GpuInfo, type VRAMCalculatorResponse } from './api';
+  import { getModelConfig, setModelConfig, getLocalModels, getGpuInfo, getVRAMCalculator, buildVRAMCalculatorParams, type ModelFlag, type ModelFlagsResponse, type LocalModel, type GpuInfo, type VRAMCalculatorResponse } from './api';
 
   interface Props {
     onclose?: () => void;
@@ -134,52 +134,9 @@
   });
 
   // Build VRAM calculator params purely from flag names returned by the API.
-  // No category checks: if the model exposes a flag, we forward it using the
-  // calculator's query parameter names.
-  function buildVRAMParams(model: string, values: Record<string, number | string>): {
-    models: string;
-    segment_size?: number;
-    overlap?: number;
-    chunk_size?: number;
-    batch_size?: number;
-    shifts?: number;
-    demucs_segment?: number;
-  } {
-    const params: {
-      models: string;
-      segment_size?: number;
-      overlap?: number;
-      chunk_size?: number;
-      batch_size?: number;
-      shifts?: number;
-      demucs_segment?: number;
-    } = { models: model };
-
-    if ('segment_size' in values) {
-      const v = Number(values['segment_size']);
-      if (v > 0) params.segment_size = v;
-    }
-    if ('num_overlap' in values) {
-      const v = Number(values['num_overlap']);
-      if (v > 0) params.overlap = 1 / v;
-    }
-    if ('chunk_size' in values) {
-      const v = Number(values['chunk_size']);
-      if (v > 0) params.chunk_size = v;
-    }
-    if ('batch_size' in values) {
-      const v = Number(values['batch_size']);
-      if (v > 0) params.batch_size = v;
-    }
-    if ('shifts' in values) {
-      const v = Number(values['shifts']);
-      if (v > 0) params.shifts = v;
-    }
-    if ('segment' in values) {
-      const v = Number(values['segment']);
-      params.demucs_segment = v;
-    }
-    return params;
+  // The shared helper lives in api.ts so the launch preview and this page agree.
+  function buildVRAMParams(model: string, values: Record<string, number | string>) {
+    return buildVRAMCalculatorParams(model, values);
   }
 
   // True when the current VRAM estimate is backed by a real measurement.

@@ -20,9 +20,9 @@ func TestNormalizeContainerInput(t *testing.T) {
 			want:  filepath.Join(mustSub("input"), "fiesta_pagana.flac"),
 		},
 		{
-			name:  "full container input path is preserved",
+			name:  "legacy container input path is normalized to data root",
 			input: "/app/input/fiesta_pagana.flac",
-			want:  "/app/input/fiesta_pagana.flac",
+			want:  filepath.Join(mustSub("input"), "fiesta_pagana.flac"),
 		},
 		{
 			name:  "other absolute path is preserved",
@@ -61,7 +61,8 @@ func TestBuildPipelineArgs_NormalizesRelativeInput(t *testing.T) {
 	}
 }
 
-func TestBuildPipelineArgs_KeepsContainerInput(t *testing.T) {
+func TestBuildPipelineArgs_NormalizesContainerInput(t *testing.T) {
+	expectedInput := filepath.Join(mustSub("input"), "fiesta_pagana.flac")
 	req := &SeparateRequest{
 		Input: "/app/input/fiesta_pagana.flac",
 	}
@@ -72,9 +73,11 @@ func TestBuildPipelineArgs_KeepsContainerInput(t *testing.T) {
 	if len(steps) != 0 {
 		t.Errorf("old format should not return steps, got %d", len(steps))
 	}
-	last := args[len(args)-1]
-	if last != "/app/input/fiesta_pagana.flac" {
-		t.Errorf("expected last arg to be /app/input/fiesta_pagana.flac, got %q", last)
+	if !contains(args, expectedInput) {
+		t.Errorf("expected args to contain normalized input path %q, got %v", expectedInput, args)
+	}
+	if req.Input != expectedInput {
+		t.Errorf("expected request input to be normalized, got %q", req.Input)
 	}
 }
 

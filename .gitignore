@@ -33,7 +33,6 @@ model_config.json
 Thumbs.db
 
 # Compiled binaries
-bin/
 onda-backend
 
 # Frontend

@@ -1,5 +1,27 @@
 # Changelog
 
+## [v3.5.7] - 2026-09-24
+
+### Added
+- **Aviso de VRAM informativo antes de lanzar**: `VramLaunchInfo.svelte` muestra, para el preset seleccionado, la VRAM estimada por paso, la VRAM libre/total de la tarjeta y si cabe/justo/no cabe, usando `/api/gpu/info` y `/api/gpu/vram-calculator` con las flags guardadas en Ajustes → Modelos.
+- **Espectrograma interactivo**: la zona vacía acepta clic para abrir el selector de archivo y la página acepta arrastrar y soltar un audio.
+
+### Changed
+- **Migración a wavesurfer.js 8 completada**: los plugins (`regions`, `timeline`, `spectrogram`) se registran con `registerPlugin()` en lugar de pasarse en `create()` —dejó de ser la vía en v7 y en v8 se ignora en silencio—, de modo que en el DAW las regiones y la línea de tiempo vuelven a estar registradas, y el espectrograma se registra igual. Los manejadores de `error` leen el `Error` que envuelve v8 (`message` y `code`), y la baja de eventos usa la función que devuelve `on()` en vez del `un()` deprecado.
+- **Fichero de ajustes persistente fuera de la raíz de datos**: `docker-compose.yml` y `deploy.sh` montan `./.onda-settings.json` → `/app/.onda-settings.json`, de modo que los ajustes sobreviven a recrear el contenedor y a cambios de `ONDA_DATA_DIR`.
+
+### Fixed
+- **Rutas legacy de audio del DAW**: las referencias guardadas con las rutas anteriores a la migración de monturas se resuelven en las ubicaciones válidas actuales; si el audio ya no existe en ninguna, el error es explícito («El audio de este proyecto ya no está: …») en vez de un 404 seco. Convención documentada en `docs/daw-audio-paths.md`.
+- **Limpieza de temporales del pipeline**: los directorios `_step_*` y `_routed` se eliminan también cuando un trabajo encadenado falla, y `pipeline.sh` limpia su propio `.tmp` sin tocar ficheros ajenos.
+
+### Removed
+- **Restos legados**: la entrada obsoleta de `bin/` en `.gitignore` (el directorio estaba vacío y ningún código lo usa como ruta del repositorio; el binario compilado se ignora aparte como `onda-backend`). Los demás candidatos (`go/`, `input_rubberband/`, `daw-data/` de la raíz) **se conservan** porque hay referencias vivas: los crea el `Dockerfile` y los verifica un test de contratos de la API.
+
+### Docs
+- **Grafo real de dependencias Python** con `deptry` + `vulture`: informe en `docs/task37-dependency-analysis.md` y análisis crudo en `.hermes/deps-deptry.txt` / `.hermes/deps-vulture.txt`. Conclusión: **no hay dependencias muertas demostrables** en este ciclo (los candidatos `torchvision`, `sphn` y `PyYAML` quedan justificados).
+- `tools/demucs_worker.py`: documentado que el demucs que manda es el oficial de `/opt/venv`, no la copia `lib_v5`.
+- **Pruebas nuevas**: `frontend/src/lib/DAWPage.plugins.test.ts` (registro de plugins y regiones con wavesurfer 8; verificada en rojo con el código anterior y en verde con el arreglo) y pruebas A/B de rutas legacy de audio en `backend/internal/api`.
+
 ## [v3.5.6] - 2026-09-23
 
 ### Added

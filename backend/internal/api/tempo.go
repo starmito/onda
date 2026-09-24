@@ -48,7 +48,7 @@ func (s *Server) handleTempo(w http.ResponseWriter, r *http.Request) {
 
 	sourcePath, safeName, _, _, err := resolveDAWAudioSource(file)
 	if err != nil {
-		writeDAWFileNotFound(w, safeName)
+		writeDAWFileNotFound(w, safeName, file)
 		return
 	}
 

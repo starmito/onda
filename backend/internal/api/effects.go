@@ -178,7 +178,7 @@ func (s *Server) handleCompressor(w http.ResponseWriter, r *http.Request) {
 
 	sourcePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
 	if err != nil {
-		writeDAWFileNotFound(w, safeName)
+		writeDAWFileNotFound(w, safeName, req.File)
 		return
 	}
 
@@ -266,7 +266,7 @@ func (s *Server) handleReverb(w http.ResponseWriter, r *http.Request) {
 
 	sourcePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
 	if err != nil {
-		writeDAWFileNotFound(w, safeName)
+		writeDAWFileNotFound(w, safeName, req.File)
 		return
 	}
 
@@ -339,7 +339,7 @@ func (s *Server) handleDelay(w http.ResponseWriter, r *http.Request) {
 
 	sourcePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
 	if err != nil {
-		writeDAWFileNotFound(w, safeName)
+		writeDAWFileNotFound(w, safeName, req.File)
 		return
 	}
 
@@ -425,7 +425,7 @@ func (s *Server) handleChorus(w http.ResponseWriter, r *http.Request) {
 
 	sourcePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
 	if err != nil {
-		writeDAWFileNotFound(w, safeName)
+		writeDAWFileNotFound(w, safeName, req.File)
 		return
 	}
 
@@ -503,7 +503,7 @@ func (s *Server) handleFlanger(w http.ResponseWriter, r *http.Request) {
 
 	sourcePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
 	if err != nil {
-		writeDAWFileNotFound(w, safeName)
+		writeDAWFileNotFound(w, safeName, req.File)
 		return
 	}
 
@@ -580,7 +580,7 @@ func (s *Server) handlePhaser(w http.ResponseWriter, r *http.Request) {
 
 	sourcePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
 	if err != nil {
-		writeDAWFileNotFound(w, safeName)
+		writeDAWFileNotFound(w, safeName, req.File)
 		return
 	}
 
@@ -660,7 +660,7 @@ func (s *Server) handleTremolo(w http.ResponseWriter, r *http.Request) {
 
 	sourcePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
 	if err != nil {
-		writeDAWFileNotFound(w, safeName)
+		writeDAWFileNotFound(w, safeName, req.File)
 		return
 	}
 
@@ -731,7 +731,7 @@ func (s *Server) handleNoiseGate(w http.ResponseWriter, r *http.Request) {
 
 	sourcePath, safeName, song, _, err := resolveDAWAudioSource(req.File)
 	if err != nil {
-		writeDAWFileNotFound(w, safeName)
+		writeDAWFileNotFound(w, safeName, req.File)
 		return
 	}
 
