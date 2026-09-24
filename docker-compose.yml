@@ -42,6 +42,9 @@ services:
       - ONDA_DATA_DIR=/app/data
       - ONDA_SETTINGS_FILE=/app/.onda-settings.json
       - HF_HOME=/app/data/.cache/huggingface
+      - TORCH_HOME=/app/data/.cache/torch
+      - NUMBA_CACHE_DIR=/app/data/.cache/numba
+      - XDG_CACHE_HOME=/app/data/.cache/xdg
     volumes:
       # Bind-mount del script del pipeline: refleja los cambios del host en el
       # contenedor sin rebuild ni `docker cp`, evitando drift silencioso.
