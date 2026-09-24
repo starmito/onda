@@ -64,3 +64,6 @@ config/
 
 # Unified data directory (bind-mounted into the container)
 data/
+
+# Fichero de ajustes persistente: lo crea la montura en el host (estado de ejecucion, no fuente)
+.onda-settings.json
