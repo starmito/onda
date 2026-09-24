@@ -1,5 +1,24 @@
 # Changelog
 
+## [v3.5.8] - 2026-09-24
+
+### Fixed
+- **MDX-C no arrancaba**: `onda/mdx.py` usaba `time.time()` sin importar `time`, así que toda la familia MDX23C fallaba al empezar (`NameError: name 'time' is not defined`).
+- **MDX-Net ONNX escribía audio corrupto**: `onda/onnx_mdx.py` interpretaba `overlap` como fracción (herencia de UVR5) mientras Onda le pasa un número de solapes; con `num_overlap ≥ 2` el paso salía negativo, no se procesaba nada y el WAV quedaba a −32768 (DC offset −1.0). Ahora la cuenta se convierte a fracción y el total de trozos se calcula antes de recorrerlos.
+- **Progreso y ETA del RoFormer**: `inference_universal.py` no pasaba el total real de trozos en la ruta de canción completa, así que la barra saltaba al 100 % al poco de empezar y el ETA no existía. Se calcula el total antes del bucle: la barra avanza de verdad y el ETA estima.
+- **Nombre y tipo del paso**: la interfaz mostraba identificadores internos (`step-1790258542647-a1c3`) y presets con tipo equivocado (`type: demucs` con modelo RoFormer). Ahora nombre y tipo se derivan del modelo real del paso.
+- **Procesos huérfanos**: el contenedor arranca con `init`, de modo que los procesos del pipeline que quedan colgados se reapean en vez de acumular `<defunct>`.
+- **Plantilla de nombre de exportación**: no era idempotente y generaba nombres anidados (`… (+5) ((6stems)).flac`); repetir la exportación ya no acumula sufijos.
+
+### Added
+- **Presets de fábrica borrables**: los presets de fábrica se pueden borrar desde Ajustes → Presets (lápidas en el directorio de configuración), con opción de restaurarlos de fábrica.
+- **Directorio de exportaciones configurable**: las exportaciones de «Unir y exportar» van a su propio directorio (Ajustes → Almacenamiento), así que el listado de stems deja de ver los mixdowns anteriores y desaparece el conflicto por construcción.
+- **VRAM real medida**: la VRAM mostrada deja de ser una fórmula fija sobre el `segment`. Se mide la VRAM real por modelo y flags durante la inferencia, se guardan los picos y la API y la interfaz distinguen honestamente entre «medido» y «estimado».
+
+### Changed
+- **Guardián de tests**: los tests que necesitan el entorno de inferencia se saltan fuera de él en lugar de romper la colección de la suite, de modo que `pytest` arranca siempre y sigue detectando imports rotos donde vive la app.
+
+
 ## [v3.5.7] - 2026-09-24
 
 ### Added
