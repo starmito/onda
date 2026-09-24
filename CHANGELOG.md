@@ -1,5 +1,13 @@
 # Changelog
 
+## [v3.5.9] - 2026-09-24
+
+### Fixed
+- **La VRAM medida no se aplicaba**: el almacén de medidas emparejaba con una clave que incluía el hash exacto de flags y un cubo de duración, así que en la práctica nunca coincidía y la interfaz seguía mostrando la estimación (caso real: 2000 MB estimados teniendo 4137 MB medidos del modelo de 6 stems). Ahora se empareja por modelo, tipo de paso, dispositivo y solo los flags realmente capturados (los no capturados actúan de comodín), la duración sale de la clave y hay **una sola fuente de verdad** para las medidas. Si no hay medición aplicable, la API lo dice (`fallback_reason`): nunca cae a estimado en silencio.
+- **La pantalla de modelos no distinguía medido de estimado**: Ajustes → Modelos muestra ahora «medido (n=…, fecha)» o «estimado» junto al valor.
+- **Las exportaciones reaparecían como stems y en el cambio de tono**: el directorio de exportaciones por defecto pasa a ser el subdirectorio `exports` de la raíz de datos (antes el defecto era vacío y el mixdown se escribía junto a los stems). Además las exportaciones se registran en un índice propio y se ocultan de los listados, incluidas las que ya existían antes con la forma de la plantilla de nombres.
+
+
 ## [v3.5.8] - 2026-09-24
 
 ### Fixed

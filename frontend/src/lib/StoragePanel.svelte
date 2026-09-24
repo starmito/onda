@@ -410,7 +410,7 @@
           <span class="root-label">Estado</span>
           <span class="root-status">
             {#if config.export_dir === ''}
-              <span class="status-info">ℹ️ Por defecto: <code>{defaultExportDir(config.current_root)}</code> (se creará al guardar). Si dejas el campo vacío y guardas, las exportaciones seguirán guardándose junto a los stems.</span>
+              <span class="status-info">ℹ️ Por defecto: <code>{defaultExportDir(config.current_root)}</code> (se creará al guardar). Las exportaciones se guardan fuera de la carpeta de stems para que no reaparezcan en los listados.</span>
             {:else if config.export_exists && config.export_writable}
               <span class="status-ok">✅ Existe y se puede escribir</span>
             {:else if config.export_exists}

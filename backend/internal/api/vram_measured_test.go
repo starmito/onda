@@ -19,7 +19,7 @@ func mapKeys(m map[string]MeasuredVRAMRecord) []string {
 	return keys
 }
 
-func TestVramMeasuredKey_IsStableAndSensitiveToFlags(t *testing.T) {
+func TestVramMeasuredKey_IsStableAndSensitiveToModelStepDevice(t *testing.T) {
 	base := VRAMConfig{
 		SegmentSize:   512,
 		ChunkSize:     35,
@@ -30,47 +30,40 @@ func TestVramMeasuredKey_IsStableAndSensitiveToFlags(t *testing.T) {
 		Jobs:          8,
 		Duration:      30,
 	}
+	captured := vramFlagsCaptured(base, "demucs")
 
-	key1 := vramMeasuredKey("htdemucs_ft", "demucs", "cuda", base)
-	key2 := vramMeasuredKey("htdemucs_ft", "demucs", "cuda", base)
+	key1 := vramMeasuredKey("htdemucs_ft", "demucs", "cuda", base, captured)
+	key2 := vramMeasuredKey("htdemucs_ft", "demucs", "cuda", base, captured)
 	if key1 != key2 {
 		t.Fatalf("expected identical keys for identical config, got %q vs %q", key1, key2)
 	}
 
 	// Different model -> different key.
-	if got := vramMeasuredKey("other", "demucs", "cuda", base); got == key1 {
+	if got := vramMeasuredKey("other", "demucs", "cuda", base, captured); got == key1 {
 		t.Errorf("different model should produce different key, got %q", got)
 	}
 
 	// Different step type -> different key.
-	if got := vramMeasuredKey("htdemucs_ft", "vocal", "cuda", base); got == key1 {
+	if got := vramMeasuredKey("htdemucs_ft", "vocal", "cuda", base, captured); got == key1 {
 		t.Errorf("different step type should produce different key, got %q", got)
 	}
 
 	// Different device -> different key.
-	if got := vramMeasuredKey("htdemucs_ft", "demucs", "cpu", base); got == key1 {
+	if got := vramMeasuredKey("htdemucs_ft", "demucs", "cpu", base, captured); got == key1 {
 		t.Errorf("different device should produce different key, got %q", got)
 	}
 
-	// Different flag -> different key.
+	// Different captured flag value -> different key.
 	changed := base
-	changed.Shifts = 20
-	if got := vramMeasuredKey("htdemucs_ft", "demucs", "cuda", changed); got == key1 {
-		t.Errorf("different shifts should produce different key, got %q", got)
+	changed.DemucsSegment = 3
+	if got := vramMeasuredKey("htdemucs_ft", "demucs", "cuda", changed, captured); got == key1 {
+		t.Errorf("different captured flag should produce different key, got %q", got)
 	}
 
-	// Different duration within the same bucket -> same key.
-	sameBucket := base
-	sameBucket.Duration = 29
-	if got := vramMeasuredKey("htdemucs_ft", "demucs", "cuda", sameBucket); got != key1 {
-		t.Errorf("duration inside the same bucket should keep the key, got %q vs %q", got, key1)
-	}
-
-	// Different duration bucket -> different key.
-	otherBucket := base
-	otherBucket.Duration = 90
-	if got := vramMeasuredKey("htdemucs_ft", "demucs", "cuda", otherBucket); got == key1 {
-		t.Errorf("different duration bucket should produce different key, got %q", got)
+	// Wildcard key (no captured flags) is just model|step|device.
+	wildcard := vramMeasuredKey("htdemucs_ft", "demucs", "cuda", base, nil)
+	if want := "htdemucs_ft|demucs|cuda"; wildcard != want {
+		t.Errorf("wildcard key = %q, want %q", wildcard, want)
 	}
 }
 
@@ -89,7 +82,8 @@ func TestVramMeasuredStore_RoundTrip(t *testing.T) {
 		Jobs:          1,
 		Duration:      30,
 	}
-	key := vramMeasuredKey("BS_Roformer_Viperx", "roformer", "cuda", cfg)
+	captured := vramFlagsCaptured(cfg, "roformer")
+	key := vramMeasuredKey("BS_Roformer_Viperx", "roformer", "cuda", cfg, captured)
 
 	store.record(key, 2048, 5)
 	if err := store.save(); err != nil {
@@ -139,30 +133,6 @@ func TestVramMeasuredStore_RoundTrip(t *testing.T) {
 	}
 	if r.N != 15 {
 		t.Errorf("N after updates = %d, want 15", r.N)
-	}
-}
-
-func TestVramFlagsHash_IsDeterministic(t *testing.T) {
-	cfg := VRAMConfig{
-		SegmentSize:   512,
-		ChunkSize:     35,
-		BatchSize:     1,
-		DemucsSegment: 7,
-		NumOverlap:    4,
-		Shifts:        10,
-		Jobs:          8,
-	}
-
-	h1 := vramFlagsHash(cfg)
-	h2 := vramFlagsHash(cfg)
-	if h1 != h2 {
-		t.Fatalf("flag hash not deterministic: %q vs %q", h1, h2)
-	}
-
-	changed := cfg
-	changed.NumOverlap = 8
-	if got := vramFlagsHash(changed); got == h1 {
-		t.Errorf("different num_overlap should change hash, got %q", got)
 	}
 }
 
@@ -246,8 +216,9 @@ sleep 3
 	var foundKey string
 	var r MeasuredVRAMRecord
 	var ok bool
+	prefix := "bs_roformer_viperx|vocal|cuda"
 	for k, v := range fresh.data {
-		if strings.HasPrefix(k, "bs_roformer_viperx|vocal|cuda|") {
+		if k == prefix || strings.HasPrefix(k, prefix+"|") {
 			foundKey = k
 			r = v
 			ok = true
@@ -263,6 +234,71 @@ sleep 3
 	}
 	if r.N < 2 {
 		t.Errorf("N for %q = %d, want at least 2 samples", foundKey, r.N)
+	}
+}
+
+// TestHandleVRAMCalculator_MeasuredSource_RealStoreKey reproduces the bug
+// reported in task 50: the UI queries the calculator with only the model name,
+// but the persistent store contains a real measurement keyed with the old
+// model|step|device|flag-hash|duration format. Before the fix the calculator
+// falls back to the analytical estimate (2000 MB); after the fix it must
+// return the measured peak (4137 MB).
+func TestHandleVRAMCalculator_MeasuredSource_RealStoreKey(t *testing.T) {
+	setupTestLogStore(t)
+	root := setTestRoot(t, "vram-calc-real-key-")
+
+	storeDir := filepath.Join(root, "config")
+	storePath := filepath.Join(storeDir, vramMeasuredFileName)
+	if err := os.MkdirAll(storeDir, 0o755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+	resetVRAMMeasuredStoreForTests()
+	vramMeasuredStoreInstance = newVRAMMeasuredStore(storePath)
+
+	// Key copied from the real deployed store (flag hash + duration bucket).
+	key := "bs_roformer_sw_6stem|vocal|cuda|fb6dc349e617a901|240"
+	getVRAMMeasuredStore().record(key, 4137, 92)
+	if err := getVRAMMeasuredStore().save(); err != nil {
+		t.Fatalf("save failed: %v", err)
+	}
+
+	origGPU := gpuInfoProvider
+	defer func() { gpuInfoProvider = origGPU }()
+	gpuInfoProvider = func() GPUInfoResponse {
+		return GPUInfoResponse{OK: true, VRAMTotalMB: 16000, VRAMFreeMB: 12000, VRAMUsedMB: 4000}
+	}
+
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)
+
+	// Query exactly as the deployed UI does for this model.
+	req := httptest.NewRequest(http.MethodGet, "/api/gpu/vram-calculator?models=BS_Roformer_SW_6stem", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp VRAMCalculatorResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if len(resp.Models) != 1 {
+		t.Fatalf("expected 1 model, got %d", len(resp.Models))
+	}
+	m := resp.Models[0]
+	if m.Source != "measured" {
+		t.Errorf("source = %q, want measured", m.Source)
+	}
+	if m.VRAMMB != 4137 {
+		t.Errorf("vram_mb = %d, want 4137", m.VRAMMB)
+	}
+	if m.MeasuredMB != 4137 {
+		t.Errorf("measured_mb = %d, want 4137", m.MeasuredMB)
+	}
+	if m.MeasuredN != 92 {
+		t.Errorf("measured_n = %d, want 92", m.MeasuredN)
 	}
 }
 
@@ -289,7 +325,8 @@ func TestHandleVRAMCalculator_MeasuredSource(t *testing.T) {
 		NumOverlap:  4,
 		Duration:    30,
 	}
-	key := vramMeasuredKey("BS_Roformer_Viperx", "vocal", "cuda", cfg)
+	captured := vramFlagsCaptured(cfg, "vocal")
+	key := vramMeasuredKey("BS_Roformer_Viperx", "vocal", "cuda", cfg, captured)
 	getVRAMMeasuredStore().record(key, 2800, 12)
 	if err := getVRAMMeasuredStore().save(); err != nil {
 		t.Fatalf("save failed: %v", err)

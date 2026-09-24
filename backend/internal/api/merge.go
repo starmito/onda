@@ -86,9 +86,10 @@ func (s *Server) handleStemsMerge(w http.ResponseWriter, r *http.Request) {
 	if pitchSuffix != "" {
 		stemsDir = filepath.Join(stemsDir, pitchSuffix)
 	}
-	// Merged output is always stored under the song directory so it can be
-	// served by the static handler at /output/{song}/{file}, matching the
-	// naming used by the pitch-shift UI for groups/subgroups.
+	// mergeDir is the legacy fallback location used only when exportDir() is
+	// empty. Since the default export directory is now the exports subdirectory
+	// under the data root, normal merges go there and do not pollute the song
+	// directory.
 	mergeDir := filepath.Join(projectRoot, "output", safeSong)
 
 	var inputFiles []string
@@ -180,6 +181,8 @@ func (s *Server) handleStemsMerge(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to stat merged file"})
 		return
 	}
+
+	registerExportFile(safeSong, outputName)
 
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)

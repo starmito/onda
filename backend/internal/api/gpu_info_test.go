@@ -302,21 +302,21 @@ func TestHandleVRAMCalculator_UsesAnalyticalEstimates(t *testing.T) {
 		reliable bool
 	}{
 		{
-			name:     "BS_Roformer_SW_6stem uses estimate so segment_size can move",
+			name:     "BS_Roformer_SW_6stem uses measured peak when flags match",
 			query:    "models=BS_Roformer_SW_6stem&chunk_size=485100&batch_size=1&duration=30",
-			wantVRAM: 2000, // analytical estimate with segment_size=0
+			wantVRAM: 2803, // seeded measured peak
 			reliable: false, // chunk_size is ignored by the vocal estimate
 		},
 		{
-			name:     "SCNet_MUSDB18 whole song matches reference estimate",
+			name:     "SCNet_MUSDB18 whole song uses measured peak regardless of duration",
 			query:    "models=SCNet_MUSDB18&chunk_size=0&batch_size=1&duration=296",
 			wantVRAM: 6372,
 			reliable: true,
 		},
 		{
-			name:     "SCNet_MUSDB18 whole song scales with duration",
+			name:     "SCNet_MUSDB18 measured peak still matches at half reference duration",
 			query:    "models=SCNet_MUSDB18&chunk_size=0&batch_size=1&duration=148",
-			wantVRAM: 3186,
+			wantVRAM: 6372,
 			reliable: true,
 		},
 		{
@@ -384,9 +384,9 @@ func TestHandleVRAMCalculator_ViperxDurationAware(t *testing.T) {
 			reliable: false,
 		},
 		{
-			name:     "SW estimate used with long audio instead of stale measured peak",
+			name:     "SW measured peak used when flags match even for long audio",
 			query:    "models=BS_Roformer_SW_6stem&chunk_size=485100&batch_size=1&duration=300",
-			wantVRAM: 2000,
+			wantVRAM: 2803,
 			fits:     true,
 			reliable: false,
 		},
@@ -484,8 +484,10 @@ func TestHandleVRAMCalculator_SCNetDurationAffectsVRAM(t *testing.T) {
 	s := &Server{mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)
 
-	reqShort := httptest.NewRequest(http.MethodGet, "/api/gpu/vram-calculator?models=SCNet_MUSDB18&chunk_size=0&batch_size=1&duration=100", nil)
-	reqLong := httptest.NewRequest(http.MethodGet, "/api/gpu/vram-calculator?models=SCNet_MUSDB18&chunk_size=0&batch_size=1&duration=296", nil)
+	// Use an unknown SCNet model so the analytical estimator (which scales with
+	// duration for whole-song mode) is exercised, not the seeded measured peak.
+	reqShort := httptest.NewRequest(http.MethodGet, "/api/gpu/vram-calculator?models=SCNet_Unknown&chunk_size=0&batch_size=1&duration=100", nil)
+	reqLong := httptest.NewRequest(http.MethodGet, "/api/gpu/vram-calculator?models=SCNet_Unknown&chunk_size=0&batch_size=1&duration=296", nil)
 
 	short := mustVRAMCalc(t, s, reqShort)
 	long := mustVRAMCalc(t, s, reqLong)

@@ -3,7 +3,7 @@
   import { listStems, mergeStems, getExportProfiles, downloadUrl, deleteSong } from './api';
   import type { StemsResponse, AudioExportProfiles } from './api';
   import { IconDownload, IconRefresh, IconTrash } from './icons';
-  import { removeGroup } from './exportHelpers';
+  import { removeGroup, filterExportFileNames } from './exportHelpers';
   import { expandExportName, groupBaseSong, groupPitch, groupDisplayName } from './exportName';
 
   // ── State ──
@@ -38,7 +38,7 @@
   async function loadStems() {
     loading = true;
     try {
-      stemsResponse = await listStems();
+      stemsResponse = filterExportFileNames(await listStems());
       // Initialize default format per song from the configured export profile.
       const defaults: Record<string, string> = {};
       if (stemsResponse?.output) {

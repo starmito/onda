@@ -31,14 +31,15 @@ type GPUInfoResponse struct {
 
 // VRAMModelEntry represents one model in the VRAM calculator response.
 type VRAMModelEntry struct {
-	Name        string `json:"name"`
-	Type        string `json:"type"`
-	VRAMMB      int    `json:"vram_mb"`
-	Source      string `json:"source,omitempty"`
-	MeasuredMB  int    `json:"measured_mb,omitempty"`
-	MeasuredN   int    `json:"measured_n,omitempty"`
-	MeasuredTS  string `json:"measured_ts,omitempty"`
-	EstimatedMB int    `json:"estimated_mb,omitempty"`
+	Name           string `json:"name"`
+	Type           string `json:"type"`
+	VRAMMB         int    `json:"vram_mb"`
+	Source         string `json:"source,omitempty"`
+	MeasuredMB     int    `json:"measured_mb,omitempty"`
+	MeasuredN      int    `json:"measured_n,omitempty"`
+	MeasuredTS     string `json:"measured_ts,omitempty"`
+	EstimatedMB    int    `json:"estimated_mb,omitempty"`
+	FallbackReason string `json:"fallback_reason,omitempty"`
 }
 
 // VRAMCalculatorResponse is the response for GET /api/gpu/vram-calculator.
@@ -115,41 +116,63 @@ var measuredVRAMPeaks = []measuredVRAMPeak{
 }
 
 // findMeasuredVRAMPeak returns the measured peak in MiB for a model/step
-// combination when the requested settings match a real measurement exactly.
-// It prefers the persistent measured store (keyed by the canonical model type)
-// and falls back to the built-in hardcoded table. It returns 0 otherwise so
-// the analytical estimator can run (and warn).
+// combination when a matching measurement exists in the unified store. It
+// returns 0 otherwise so the analytical estimator can run (and warn).
 func findMeasuredVRAMPeak(modelName, stepType, device string, cfg VRAMConfig) int {
-	if peak := findMeasuredVRAMPeakInStore(modelName, device, cfg); peak > 0 {
-		return peak
-	}
-
-	lowerModel := strings.ToLower(modelName)
-	lowerStep := strings.ToLower(stepType)
-	for _, m := range measuredVRAMPeaks {
-		if strings.ToLower(m.ModelName) != lowerModel || strings.ToLower(m.StepType) != lowerStep {
-			continue
-		}
-		if m.SegmentSize != measuredParamUnused && cfg.SegmentSize != m.SegmentSize {
-			continue
-		}
-		if m.ChunkSize > 0 && cfg.ChunkSize != m.ChunkSize {
-			continue
-		}
-		if m.BatchSize > 0 && cfg.BatchSize != m.BatchSize {
-			continue
-		}
-		if m.DemucsSegment != measuredParamUnused && cfg.DemucsSegment != m.DemucsSegment {
-			continue
-		}
-		// Duration only matters for whole-song (chunk_size=0) measurements.
-		// Chunked measurements are representative regardless of total song length.
-		if m.Duration > 0 && cfg.Duration != m.Duration && m.ChunkSize <= 0 {
-			continue
-		}
-		return m.PeakMB
+	rec, ok := findMeasuredVRAMPeakInStore(modelName, device, cfg)
+	if ok && rec.N > 0 {
+		return rec.PeakMBMax
 	}
 	return 0
+}
+
+// seedMeasuredVRAMPeaks loads the built-in measured table into the persistent
+// store so there is a single lookup path. Existing records for the same
+// model/step/device are preserved (the store keeps both the wildcard and the
+// seeded records).
+func seedMeasuredVRAMPeaks(store *vramMeasuredStore) {
+	for _, m := range measuredVRAMPeaks {
+		rec := MeasuredVRAMRecord{
+			PeakMBMax:  m.PeakMB,
+			PeakMBLast: m.PeakMB,
+			N:          1,
+			LastTS:     time.Now().UTC(),
+			Duration:   m.Duration,
+			Flags: VRAMFlags{
+				SegmentSize:   m.SegmentSize,
+				ChunkSize:     m.ChunkSize,
+				BatchSize:     m.BatchSize,
+				DemucsSegment: m.DemucsSegment,
+			},
+			Captured: measuredPeakCapturedFlags(m),
+		}
+		key := vramMeasuredKey(m.ModelName, m.StepType, "cuda", VRAMConfig{
+			SegmentSize:   m.SegmentSize,
+			ChunkSize:     m.ChunkSize,
+			BatchSize:     m.BatchSize,
+			DemucsSegment: m.DemucsSegment,
+		}, rec.Captured)
+		store.recordMeasured(key, rec)
+	}
+}
+
+// measuredPeakCapturedFlags derives which flags were captured for a built-in
+// measured peak, mirroring the wildcard semantics of measuredParamUnused.
+func measuredPeakCapturedFlags(m measuredVRAMPeak) map[string]bool {
+	captured := make(map[string]bool)
+	if m.SegmentSize != measuredParamUnused {
+		captured[vramFlagSegmentSize] = true
+	}
+	if m.ChunkSize > 0 || (strings.ToLower(m.StepType) == "scnet" && m.ChunkSize == 0) {
+		captured[vramFlagChunkSize] = true
+	}
+	if m.BatchSize > 0 {
+		captured[vramFlagBatchSize] = true
+	}
+	if m.DemucsSegment != measuredParamUnused {
+		captured[vramFlagDemucsSegment] = true
+	}
+	return captured
 }
 
 // resolveModelName returns the most useful model name available. If modelName
@@ -910,19 +933,26 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 		modelName = strings.TrimSpace(modelName)
 		modelType := classifyModelType(modelName)
 
-		// Prefer a real measurement when one exists for the exact flags; fall
-		// back to the analytical estimator so the UI still shows a number that
-		// reacts to slider changes.
+		// Prefer a real measurement when one matches; fall back to the
+		// analytical estimator so the UI still shows a number that reacts to
+		// slider changes. The response always exposes source and, when
+		// estimated, a human-readable fallback reason.
 		estimatedMB := estimateVRAMMB(modelName, segmentSize, chunkSize, batchSize, demucsSegment, duration)
-		measuredMB := findMeasuredVRAMPeakInStore(modelName, device, cfg)
+		measuredRec, hasMeasured := findMeasuredVRAMPeakInStore(modelName, device, cfg)
 		var vramMB int
 		var source string
-		if measuredMB > 0 {
-			vramMB = measuredMB
+		var fallbackReason string
+		if hasMeasured && measuredRec.N > 0 {
+			vramMB = measuredRec.PeakMBMax
 			source = "measured"
 		} else {
 			vramMB = estimatedMB
 			source = "estimated"
+			if !getVRAMMeasuredStore().hasKey(vramMeasuredKey(modelName, modelType, device, VRAMConfig{}, nil)) {
+				fallbackReason = "no hay medición para este modelo y dispositivo"
+			} else {
+				fallbackReason = "no hay medición para estas flags"
+			}
 		}
 
 		if ok, w := vramEstimateReliable(modelType, cfg); !ok {
@@ -933,18 +963,18 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 		}
 
 		entry := VRAMModelEntry{
-			Name:        modelName,
-			Type:        modelType,
-			VRAMMB:      vramMB,
-			Source:      source,
-			EstimatedMB: estimatedMB,
+			Name:           modelName,
+			Type:           modelType,
+			VRAMMB:         vramMB,
+			Source:         source,
+			EstimatedMB:    estimatedMB,
+			FallbackReason: fallbackReason,
 		}
-		if measuredMB > 0 {
-			record, _ := getVRAMMeasuredStore().get(vramMeasuredKey(modelName, modelType, device, cfg))
-			entry.MeasuredMB = measuredMB
-			entry.MeasuredN = record.N
-			if !record.LastTS.IsZero() {
-				entry.MeasuredTS = record.LastTS.UTC().Format(time.RFC3339)
+		if hasMeasured && measuredRec.N > 0 {
+			entry.MeasuredMB = measuredRec.PeakMBMax
+			entry.MeasuredN = measuredRec.N
+			if !measuredRec.LastTS.IsZero() {
+				entry.MeasuredTS = measuredRec.LastTS.UTC().Format(time.RFC3339)
 			}
 		}
 		models = append(models, entry)

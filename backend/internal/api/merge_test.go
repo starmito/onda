@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -102,6 +103,11 @@ func TestHandleStemsMerge_DefaultFormat(t *testing.T) {
 	if !strings.HasPrefix(resp.File, "merge_cancion1") {
 		t.Errorf("expected file to start with merge_cancion1, got %q", resp.File)
 	}
+
+	mergePath := filepath.Join(root, "exports", resp.File)
+	if _, err := os.Stat(mergePath); err != nil {
+		t.Errorf("merged file not found at %s: %v", mergePath, err)
+	}
 }
 
 func TestHandleStemsMerge_OutputName(t *testing.T) {
@@ -170,7 +176,7 @@ func TestHandleStemsMerge_OutputName(t *testing.T) {
 				t.Errorf("expected file %q, got %q", tc.wantFile, resp.File)
 			}
 
-			mergePath := filepath.Join(songDir, resp.File)
+			mergePath := filepath.Join(root, "exports", resp.File)
 			if _, err := os.Stat(mergePath); err != nil {
 				t.Errorf("merged file not found at %s: %v", mergePath, err)
 			}
@@ -228,7 +234,7 @@ func TestHandleStemsMerge_HappyPath(t *testing.T) {
 		t.Errorf("expected positive size, got %d", resp.Size)
 	}
 
-	mergePath := filepath.Join(songDir, resp.File)
+	mergePath := filepath.Join(root, "exports", resp.File)
 	if _, err := os.Stat(mergePath); err != nil {
 		t.Errorf("merged file not found at %s: %v", mergePath, err)
 	}
@@ -280,15 +286,14 @@ func TestHandleStemsMerge_PitchSubgroup(t *testing.T) {
 		t.Errorf("expected flac file, got %q", resp.File)
 	}
 
-	// The merged file must live under the base song dir, not inside the
-	// pitch-shifted stem subdirectory, so the static handler can serve it.
-	baseSongDir := filepath.Join(root, "output", "Base")
-	mergePath := filepath.Join(baseSongDir, resp.File)
+	// The merged file is written to the default export directory, not next to
+	// the source stems.
+	mergePath := filepath.Join(root, "exports", resp.File)
 	if _, err := os.Stat(mergePath); err != nil {
 		t.Errorf("merged file not found at %s: %v", mergePath, err)
 	}
 
-	wantURL := "/output/Base/" + resp.File
+	wantURL := "/api/export/files/" + resp.File
 	if resp.URL != wantURL {
 		t.Errorf("expected download URL %q, got %q", wantURL, resp.URL)
 	}
@@ -329,7 +334,7 @@ func TestHandleStemsMerge_PitchSubgroupWithoutPitchStemsStillWorks(t *testing.T)
 		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
 	}
 
-	mergePath := filepath.Join(songDir, "merge_Normal.flac")
+	mergePath := filepath.Join(root, "exports", "merge_Normal.flac")
 	if _, err := os.Stat(mergePath); err != nil {
 		t.Errorf("merged file not found at %s: %v", mergePath, err)
 	}
@@ -370,16 +375,16 @@ func TestHandleStemsMerge_ResolutionGroupAndSubgroup(t *testing.T) {
 			song:       "Otra",
 			stems:      []string{"vocals.wav"},
 			outputName: "Otra (0).flac",
-			wantPath:   filepath.Join(root, "output", "Otra", "Otra (0).flac"),
-			wantURL:    "/output/Otra/Otra (0).flac",
+			wantPath:   filepath.Join(root, "exports", "Otra (0).flac"),
+			wantURL:    "/api/export/files/" + url.PathEscape("Otra (0).flac"),
 		},
 		{
 			name:       "pitch subgroup",
 			song:       baseSong + " (pitch +1)",
 			stems:      []string{"bass_pitch+1.wav", "drums.wav"},
 			outputName: baseSong + " (+1).flac",
-			wantPath:   filepath.Join(baseDir, baseSong+" (+1).flac"),
-			wantURL:    "/output/" + baseSong + "/" + baseSong + " (+1).flac",
+			wantPath:   filepath.Join(root, "exports", baseSong+" (+1).flac"),
+			wantURL:    "/api/export/files/" + url.PathEscape(baseSong+" (+1).flac"),
 		},
 	}
 

@@ -94,9 +94,20 @@ func dataRootWithSource() (string, string) {
 	return dataRoot(), "default"
 }
 
-// exportDir returns the configured export directory, or empty if the user has
-// not configured one. An empty result means "use the legacy per-export
-// locations", preserving today's default behaviour.
+// defaultExportDirName is the subdirectory under the data root used for
+// exports when the user has not configured an explicit export directory.
+// Keeping exports outside output/ prevents exported mixdowns from being
+// listed as stems or pitch-shifted again.
+const defaultExportDirName = "exports"
+
+// exportDir returns the configured export directory with precedence:
+//   1. ONDA_EXPORT_DIR environment variable.
+//   2. export_dir value persisted in the settings file.
+//   3. The exports subdirectory under the data root as the default.
+//
+// The default was changed from empty to the exports subdirectory so that
+// exports never land next to the source stems, which caused them to reappear
+// in the stem and pitch lists (issue reported 24-sep-2026).
 func exportDir() string {
 	if dir := os.Getenv("ONDA_EXPORT_DIR"); dir != "" {
 		return dir
@@ -104,12 +115,11 @@ func exportDir() string {
 	if dir := persistedExportDir(); dir != "" {
 		return dir
 	}
-	return ""
+	return mustSub(defaultExportDirName)
 }
 
 // exportDirWithSource returns the effective export directory and where it
-// comes from according to the precedence rules. The default is an empty string
-// and source "default".
+// comes from according to the precedence rules.
 func exportDirWithSource() (string, string) {
 	if dir := os.Getenv("ONDA_EXPORT_DIR"); dir != "" {
 		return dir, "env"
@@ -117,7 +127,7 @@ func exportDirWithSource() (string, string) {
 	if dir := persistedExportDir(); dir != "" {
 		return dir, "settings"
 	}
-	return "", "default"
+	return mustSub(defaultExportDirName), "default"
 }
 
 func loadStorageSettings() (*storageSettings, error) {

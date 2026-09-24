@@ -1165,6 +1165,7 @@ export interface VRAMModelEntry {
   measured_n?: number;
   measured_ts?: string;
   estimated_mb?: number;
+  fallback_reason?: string;
 }
 
 export interface VRAMCalculatorResponse {

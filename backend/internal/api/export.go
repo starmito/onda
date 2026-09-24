@@ -121,6 +121,7 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 				json.NewEncoder(w).Encode(map[string]string{"error": "failed to copy exported file: " + err.Error()})
 				return
 			}
+			registerExportFile(song, outputName)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusOK)
 			json.NewEncoder(w).Encode(ExportResponse{
@@ -224,6 +225,8 @@ func (s *Server) handleExport(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]string{"error": "failed to stat exported file"})
 		return
 	}
+
+	registerExportFile(song, outputName)
 
 	var downloadURL string
 	if exportDir() != "" {
