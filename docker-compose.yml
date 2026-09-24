@@ -32,6 +32,8 @@ services:
         GUI_VERSION: "${GUI_VERSION:-unknown}"
     image: onda:${ONDA_IMAGE_TAG:-${ONDAP_VERSION:-latest}}
     container_name: onda
+    # init: true inserta tini como PID 1 para reapear huérfanos del pipeline.
+    init: true
     ports:
       - "${ONDA_PORT:-3000}:3000"
     environment:
