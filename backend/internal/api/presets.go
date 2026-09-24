@@ -19,17 +19,27 @@ func defaultPresetFile() string {
 	return filepath.Join(mustConfigDir(), "default_preset.json")
 }
 
+func deletedPresetsFile() string {
+	return filepath.Join(mustConfigDir(), "presets_deleted.json")
+}
+
 var (
-	userPresets      map[string]cli.Preset
-	userPresetsMu    sync.RWMutex
+	userPresets       map[string]cli.Preset
+	userPresetsMu     sync.RWMutex
 	defaultPresetName string
-	defaultPresetMu  sync.RWMutex
+	defaultPresetMu   sync.RWMutex
+	deletedPresets    map[string]struct{}
+	deletedPresetsMu  sync.RWMutex
 )
 
 func init() {
 	userPresets = make(map[string]cli.Preset)
+	deletedPresets = make(map[string]struct{})
 
-	// Seed 4 built-in presets with Locked=true — only if they don't exist in user presets.
+	loadDeletedPresets()
+
+	// Seed 4 built-in presets with Locked=true — only if they don't exist in user presets
+	// and they have not been deleted by the user.
 	seedPresets()
 
 	loadUserPresets()
@@ -39,101 +49,101 @@ func init() {
 // seedPresets inserts the 4 default presets into the Presets map.
 // If a user preset with the same name exists on disk, the user version takes precedence
 // (loaded later in loadUserPresets which puts into userPresets, and getAllPresets lets user presets override).
+// Presets listed in presets_deleted.json are skipped so users can permanently remove built-ins.
 func seedPresets() {
-	// 1. Separador Voces Total → 1 step Vocal, vocals=route_to_result, instrumental=save
-	cli.Presets["Voces Total"] = cli.Preset{
-		Name:        "Voces Total",
-		Description: "1 paso: Vocal separa voces → instrumental guardado, voces enviadas a resultado",
-		Pitch:       0,
-		Locked:      true,
-		Steps: []cli.PipelineStep{
-			{
-				ID:      "vocal",
-				Model:   "BS_Roformer_Viperx",
-				Type:    "vocal",
-				Enabled: true,
-				Stems: map[string]cli.StemRoute{
-					"vocals":       {Action: cli.StemSave, Target: "result"},
-					"instrumental": {Action: cli.StemSave, Target: "result"},
+	factory := map[string]cli.Preset{
+		"Voces Total": {
+			Name:        "Voces Total",
+			Description: "1 paso: Vocal separa voces → instrumental guardado, voces enviadas a resultado",
+			Pitch:       0,
+			Locked:      true,
+			Steps: []cli.PipelineStep{
+				{
+					ID:      "vocal",
+					Model:   "BS_Roformer_Viperx",
+					Type:    "vocal",
+					Enabled: true,
+					Stems: map[string]cli.StemRoute{
+						"vocals":       {Action: cli.StemSave, Target: "result"},
+						"instrumental": {Action: cli.StemSave, Target: "result"},
+					},
+				},
+			},
+		},
+		"Eliminador de Voz": {
+			Name:        "Eliminador de Voz",
+			Description: "1 paso: Vocal elimina voces, solo instrumental guardado",
+			Pitch:       0,
+			Locked:      true,
+			Steps: []cli.PipelineStep{
+				{
+					ID:      "vocal",
+					Model:   "BS_Roformer_Viperx",
+					Type:    "vocal",
+					Enabled: true,
+					Stems: map[string]cli.StemRoute{
+						"vocals":       {Action: cli.StemDiscard},
+						"instrumental": {Action: cli.StemSave, Target: "result"},
+					},
+				},
+			},
+		},
+		"Separador Completo": {
+			Name:        "Separador Completo",
+			Description: "2 pasos: Vocal separa voces → Demucs separa el instrumental en drums, bass, other",
+			Pitch:       0,
+			Locked:      true,
+			Steps: []cli.PipelineStep{
+				{
+					ID:      "vocal",
+					Model:   "BS_Roformer_Viperx",
+					Type:    "vocal",
+					Enabled: true,
+					Stems: map[string]cli.StemRoute{
+						"vocals":       {Action: cli.StemSave, Target: "result"},
+						"instrumental": {Action: cli.ActionRoute, Target: "step:demucs"},
+					},
+				},
+				{
+					ID:      "demucs",
+					Model:   "htdemucs_ft",
+					Type:    "demucs",
+					Enabled: true,
+					Stems: map[string]cli.StemRoute{
+						"drums":  {Action: cli.StemSave, Target: "result"},
+						"bass":   {Action: cli.StemSave, Target: "result"},
+						"other":  {Action: cli.StemSave, Target: "result"},
+						"vocals": {Action: cli.StemDiscard},
+					},
+				},
+			},
+		},
+		"Solo Instrumentos": {
+			Name:        "Solo Instrumentos",
+			Description: "1 paso: Demucs separa stems, descarta voces",
+			Pitch:       0,
+			Locked:      true,
+			Steps: []cli.PipelineStep{
+				{
+					ID:      "demucs",
+					Model:   "htdemucs_ft",
+					Type:    "demucs",
+					Enabled: true,
+					Stems: map[string]cli.StemRoute{
+						"drums":  {Action: cli.StemSave, Target: "result"},
+						"bass":   {Action: cli.StemSave, Target: "result"},
+						"other":  {Action: cli.StemSave, Target: "result"},
+						"vocals": {Action: cli.StemDiscard},
+					},
 				},
 			},
 		},
 	}
 
-	// 2. Eliminador de Voz → 1 step Vocal, vocals=discard, instrumental=save
-	cli.Presets["Eliminador de Voz"] = cli.Preset{
-		Name:        "Eliminador de Voz",
-		Description: "1 paso: Vocal elimina voces, solo instrumental guardado",
-		Pitch:       0,
-		Locked:      true,
-		Steps: []cli.PipelineStep{
-			{
-				ID:      "vocal",
-				Model:   "BS_Roformer_Viperx",
-				Type:    "vocal",
-				Enabled: true,
-				Stems: map[string]cli.StemRoute{
-					"vocals":       {Action: cli.StemDiscard},
-					"instrumental": {Action: cli.StemSave, Target: "result"},
-				},
-			},
-		},
-	}
-
-	// 3. Separador Completo → 2 steps:
-	//    Vocal saves vocals to result and routes instrumental to Demucs.
-	//    Demucs splits the instrumental into drums/bass/other (saved) and discards its vocals.
-	cli.Presets["Separador Completo"] = cli.Preset{
-		Name:        "Separador Completo",
-		Description: "2 pasos: Vocal separa voces → Demucs separa el instrumental en drums, bass, other",
-		Pitch:       0,
-		Locked:      true,
-		Steps: []cli.PipelineStep{
-			{
-				ID:      "vocal",
-				Model:   "BS_Roformer_Viperx",
-				Type:    "vocal",
-				Enabled: true,
-				Stems: map[string]cli.StemRoute{
-					"vocals":       {Action: cli.StemSave, Target: "result"},
-					"instrumental": {Action: cli.ActionRoute, Target: "step:demucs"},
-				},
-			},
-			{
-				ID:      "demucs",
-				Model:   "htdemucs_ft",
-				Type:    "demucs",
-				Enabled: true,
-				Stems: map[string]cli.StemRoute{
-					"drums":  {Action: cli.StemSave, Target: "result"},
-					"bass":   {Action: cli.StemSave, Target: "result"},
-					"other":  {Action: cli.StemSave, Target: "result"},
-					"vocals": {Action: cli.StemDiscard},
-				},
-			},
-		},
-	}
-
-	// 4. Solo Instrumentos → 1 step Demucs htdemucs_ft, drums,bass,other=save, vocals=discard
-	cli.Presets["Solo Instrumentos"] = cli.Preset{
-		Name:        "Solo Instrumentos",
-		Description: "1 paso: Demucs separa stems, descarta voces",
-		Pitch:       0,
-		Locked:      true,
-		Steps: []cli.PipelineStep{
-			{
-				ID:      "demucs",
-				Model:   "htdemucs_ft",
-				Type:    "demucs",
-				Enabled: true,
-				Stems: map[string]cli.StemRoute{
-					"drums":  {Action: cli.StemSave, Target: "result"},
-					"bass":   {Action: cli.StemSave, Target: "result"},
-					"other":  {Action: cli.StemSave, Target: "result"},
-					"vocals": {Action: cli.StemDiscard},
-				},
-			},
-		},
+	for name, preset := range factory {
+		if !isPresetDeleted(name) {
+			cli.Presets[name] = preset
+		}
 	}
 }
 
@@ -272,11 +282,64 @@ func saveUserPresetsLocked() error {
 	return nil
 }
 
+// loadDeletedPresets reads the tombstone list of factory presets removed by the user.
+func loadDeletedPresets() {
+	deletedPresetsMu.Lock()
+	defer deletedPresetsMu.Unlock()
+	deletedPresets = make(map[string]struct{})
+	data, err := readConfigFile(deletedPresetsFile())
+	if err != nil {
+		return
+	}
+	var names []string
+	if err := json.Unmarshal(data, &names); err != nil {
+		return
+	}
+	for _, name := range names {
+		deletedPresets[name] = struct{}{}
+	}
+}
+
+// saveDeletedPresetsLocked writes the tombstone list to disk.
+// Must be called with deletedPresetsMu already held (write lock).
+func saveDeletedPresetsLocked() error {
+	names := make([]string, 0, len(deletedPresets))
+	for name := range deletedPresets {
+		names = append(names, name)
+	}
+	data, err := json.MarshalIndent(names, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal deleted presets: %w", err)
+	}
+	path := deletedPresetsFile()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return fmt.Errorf("create deleted presets dir: %w", err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return fmt.Errorf("write deleted presets: %w", err)
+	}
+	return nil
+}
+
+// isPresetDeleted reports whether a factory preset has been removed by the user.
+func isPresetDeleted(name string) bool {
+	deletedPresetsMu.RLock()
+	defer deletedPresetsMu.RUnlock()
+	_, ok := deletedPresets[name]
+	return ok
+}
+
 // getAllPresets returns built-in presets + user presets merged.
 // User presets with the same name override built-in ones.
+// Factory presets listed in presets_deleted.json are omitted.
 func getAllPresets() map[string]cli.Preset {
+	deletedPresetsMu.RLock()
+	defer deletedPresetsMu.RUnlock()
 	result := make(map[string]cli.Preset, len(cli.Presets)+len(userPresets))
 	for k, v := range cli.Presets {
+		if _, deleted := deletedPresets[k]; deleted {
+			continue
+		}
 		result[k] = v
 	}
 	userPresetsMu.RLock()
@@ -336,11 +399,33 @@ func (s *Server) handleDeletePreset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Check if the preset is locked (built-in) — cannot delete
-	if p, ok := getAllPresets()[name]; ok && p.Locked {
+	p, ok := getAllPresets()[name]
+	if !ok {
+		// Preset not found — nothing to delete.
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusForbidden)
-		json.NewEncoder(w).Encode(map[string]string{"error": "cannot delete a locked preset"})
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		return
+	}
+
+	if p.Locked {
+		// Built-in preset: tombstone it so it stays removed across restarts.
+		deletedPresetsMu.Lock()
+		deletedPresets[name] = struct{}{}
+		err := saveDeletedPresetsLocked()
+		deletedPresetsMu.Unlock()
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+			return
+		}
+
+		// Also drop it from the in-memory built-in map so it disappears immediately.
+		delete(cli.Presets, name)
+
+		Log("backend", "info", "Factory preset deleted: "+name)
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 		return
 	}
 
@@ -356,6 +441,27 @@ func (s *Server) handleDeletePreset(w http.ResponseWriter, r *http.Request) {
 	}
 
 	Log("backend", "info", "Preset deleted: "+name)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleRestoreDefaultPresets(w http.ResponseWriter, r *http.Request) {
+	deletedPresetsMu.Lock()
+	deletedPresets = make(map[string]struct{})
+	err := saveDeletedPresetsLocked()
+	deletedPresetsMu.Unlock()
+	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	// Re-seed the in-memory built-in presets so they reappear immediately.
+	seedPresets()
+
+	Log("backend", "success", "Factory presets restored")
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "ok"})

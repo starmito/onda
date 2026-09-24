@@ -31,9 +31,14 @@ type GPUInfoResponse struct {
 
 // VRAMModelEntry represents one model in the VRAM calculator response.
 type VRAMModelEntry struct {
-	Name   string `json:"name"`
-	Type   string `json:"type"`
-	VRAMMB int    `json:"vram_mb"`
+	Name        string `json:"name"`
+	Type        string `json:"type"`
+	VRAMMB      int    `json:"vram_mb"`
+	Source      string `json:"source,omitempty"`
+	MeasuredMB  int    `json:"measured_mb,omitempty"`
+	MeasuredN   int    `json:"measured_n,omitempty"`
+	MeasuredTS  string `json:"measured_ts,omitempty"`
+	EstimatedMB int    `json:"estimated_mb,omitempty"`
 }
 
 // VRAMCalculatorResponse is the response for GET /api/gpu/vram-calculator.
@@ -60,6 +65,9 @@ type VRAMConfig struct {
 	ChunkSize     int
 	BatchSize     int
 	DemucsSegment int
+	NumOverlap    int
+	Shifts        int
+	Jobs          int
 	Duration      int // audio duration in seconds (0 = unknown)
 }
 
@@ -98,6 +106,9 @@ var measuredVRAMPeaks = []measuredVRAMPeak{
 	// SegmentSize was not captured; the calculator uses the analytical estimate
 	// so the number still moves when the user changes segment_size.
 	{ModelName: "BS_Roformer_SW_6stem", StepType: "vocal", PeakMB: 2803, SegmentSize: measuredParamUnused, ChunkSize: 485100, BatchSize: 1, Duration: 30},
+	// Same measurement indexed by the real step type derived from the model
+	// (the preset may still declare the step as "demucs").
+	{ModelName: "BS_Roformer_SW_6stem", StepType: "roformer", PeakMB: 2803, SegmentSize: measuredParamUnused, ChunkSize: 485100, BatchSize: 1, Duration: 30},
 	// Measured 2026-09-21: SCNet_MUSDB18 with chunk_size=0 (whole song),
 	// 296 s stereo 44.1 kHz, batch_size=1.
 	{ModelName: "SCNet_MUSDB18", StepType: "scnet", PeakMB: 6372, SegmentSize: measuredParamUnused, ChunkSize: 0, BatchSize: 1, Duration: 296},
@@ -105,8 +116,14 @@ var measuredVRAMPeaks = []measuredVRAMPeak{
 
 // findMeasuredVRAMPeak returns the measured peak in MiB for a model/step
 // combination when the requested settings match a real measurement exactly.
-// It returns 0 otherwise so the analytical estimator can run (and warn).
-func findMeasuredVRAMPeak(modelName, stepType string, cfg VRAMConfig) int {
+// It prefers the persistent measured store (keyed by the canonical model type)
+// and falls back to the built-in hardcoded table. It returns 0 otherwise so
+// the analytical estimator can run (and warn).
+func findMeasuredVRAMPeak(modelName, stepType, device string, cfg VRAMConfig) int {
+	if peak := findMeasuredVRAMPeakInStore(modelName, device, cfg); peak > 0 {
+		return peak
+	}
+
 	lowerModel := strings.ToLower(modelName)
 	lowerStep := strings.ToLower(stepType)
 	for _, m := range measuredVRAMPeaks {
@@ -163,11 +180,11 @@ func resolveModelName(modelName, fallbackModel string) string {
 // It returns: ok, requiredMB, blockReason, warning. Only one of blockReason and
 // warning is non-empty: a block reason when ok is false, or a warning when ok
 // is true but the margin could not be applied.
-func checkVramHeadroom(freeMB, totalMB int, modelName, stepType string, cfg VRAMConfig, fallbackModel string) (bool, int, string, string) {
+func checkVramHeadroom(freeMB, totalMB int, modelName, stepType, device string, cfg VRAMConfig, fallbackModel string) (bool, int, string, string) {
 	effectiveModel := resolveModelName(modelName, fallbackModel)
 
 	var base int
-	if peak := findMeasuredVRAMPeak(effectiveModel, stepType, cfg); peak > 0 {
+	if peak := findMeasuredVRAMPeak(effectiveModel, stepType, device, cfg); peak > 0 {
 		base = peak
 	} else {
 		base = estimateVRAMMB(effectiveModel, cfg.SegmentSize, cfg.ChunkSize, cfg.BatchSize, cfg.DemucsSegment, cfg.Duration)
@@ -787,6 +804,22 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Parse num_overlap query parameter. The frontend sends overlap as a
+	// fraction (1/num_overlap), but num_overlap is the value that affects VRAM.
+	numOverlap := 0
+	if no := r.URL.Query().Get("num_overlap"); no != "" {
+		if v, err := strconv.Atoi(no); err == nil && v > 0 {
+			numOverlap = v
+		}
+	}
+	if numOverlap == 0 {
+		if ov := r.URL.Query().Get("overlap"); ov != "" {
+			if f, err := strconv.ParseFloat(ov, 64); err == nil && f > 0 && f < 1 {
+				numOverlap = int(math.Round(1.0 / f))
+			}
+		}
+	}
+
 	// Parse demucs_segment query parameter (affects VRAM for Demucs models).
 	// The manifest flag is named "segment"; the frontend sends it as
 	// demucs_segment, but accept "segment" too for direct API callers.
@@ -809,6 +842,29 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Parse shifts query parameter (affects Demucs VRAM estimates and matching).
+	shifts := 0
+	if s := r.URL.Query().Get("shifts"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil && v > 0 {
+			shifts = v
+		}
+	}
+
+	// Parse jobs query parameter (Demucs parallel jobs; it is part of the
+	// measured key even though it does not change the analytical estimate).
+	jobs := 0
+	if j := r.URL.Query().Get("jobs"); j != "" {
+		if v, err := strconv.Atoi(j); err == nil && v > 0 {
+			jobs = v
+		}
+	}
+
+	// Parse device query parameter (measurements are keyed by device).
+	device := r.URL.Query().Get("device")
+	if device == "" {
+		device = "cuda"
+	}
+
 	// Parse models query parameter: models=vocal=melband_kj,stems=htdemucs_ft
 	modelsParam := r.URL.Query().Get("models")
 	if modelsParam == "" {
@@ -825,6 +881,9 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 		ChunkSize:     chunkSize,
 		BatchSize:     batchSize,
 		DemucsSegment: demucsSegment,
+		NumOverlap:    numOverlap,
+		Shifts:        shifts,
+		Jobs:          jobs,
 		Duration:      duration,
 	}
 
@@ -851,11 +910,21 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 		modelName = strings.TrimSpace(modelName)
 		modelType := classifyModelType(modelName)
 
-		// The calculator always uses the analytical estimator so the displayed
-		// number moves when the user changes flags. Measured peaks are kept for
-		// the launch-time headroom guard, where the effective config is known
-		// precisely.
-		vramMB := estimateVRAMMB(modelName, segmentSize, chunkSize, batchSize, demucsSegment, duration)
+		// Prefer a real measurement when one exists for the exact flags; fall
+		// back to the analytical estimator so the UI still shows a number that
+		// reacts to slider changes.
+		estimatedMB := estimateVRAMMB(modelName, segmentSize, chunkSize, batchSize, demucsSegment, duration)
+		measuredMB := findMeasuredVRAMPeakInStore(modelName, device, cfg)
+		var vramMB int
+		var source string
+		if measuredMB > 0 {
+			vramMB = measuredMB
+			source = "measured"
+		} else {
+			vramMB = estimatedMB
+			source = "estimated"
+		}
+
 		if ok, w := vramEstimateReliable(modelType, cfg); !ok {
 			allReliable = false
 			if w != "" {
@@ -863,11 +932,22 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 
-		models = append(models, VRAMModelEntry{
-			Name:   modelName,
-			Type:   modelType,
-			VRAMMB: vramMB,
-		})
+		entry := VRAMModelEntry{
+			Name:        modelName,
+			Type:        modelType,
+			VRAMMB:      vramMB,
+			Source:      source,
+			EstimatedMB: estimatedMB,
+		}
+		if measuredMB > 0 {
+			record, _ := getVRAMMeasuredStore().get(vramMeasuredKey(modelName, modelType, device, cfg))
+			entry.MeasuredMB = measuredMB
+			entry.MeasuredN = record.N
+			if !record.LastTS.IsZero() {
+				entry.MeasuredTS = record.LastTS.UTC().Format(time.RFC3339)
+			}
+		}
+		models = append(models, entry)
 		totalVRAM += vramMB
 	}
 

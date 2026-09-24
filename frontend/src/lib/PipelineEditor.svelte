@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { LocalModel } from './api';
-  import { getLocalModels, getPresets, savePreset, deletePreset, setDefaultPreset } from './api';
+  import { getLocalModels, getPresets, savePreset, deletePreset, setDefaultPreset, restoreDefaultPresets } from './api';
   import type { PresetData } from './api';
   import { stemDisplayName } from './types';
   import { IconClose } from './icons';
@@ -65,6 +65,9 @@
 
   let defaultSuccess = $state(false);
   let defaultTimer: ReturnType<typeof setTimeout> | null = null;
+
+  let restoreSuccess = $state(false);
+  let restoreTimer: ReturnType<typeof setTimeout> | null = null;
 
   let deleteConfirmVisible = $state(false);
 
@@ -367,6 +370,20 @@
     }
   }
 
+  // ── Restore factory presets ──
+  async function handleRestoreDefaults() {
+    try {
+      await restoreDefaultPresets();
+      await loadPresets();
+      restoreSuccess = true;
+      if (restoreTimer) clearTimeout(restoreTimer);
+      restoreTimer = setTimeout(() => { restoreSuccess = false; }, 5000);
+      onpresetschange?.();
+    } catch {
+      // Handle error silently
+    }
+  }
+
   // ── Delete preset ──
   async function handleDeletePreset() {
     if (!selectedPreset) return;
@@ -617,6 +634,16 @@
                   <button class="btn-confirm-delete" onclick={handleDeletePreset}>Sí, eliminar</button>
                 </div>
               </div>
+            {/if}
+          </div>
+
+          <!-- Restore factory presets -->
+          <div class="section restore-section">
+            <button class="btn-restore" onclick={handleRestoreDefaults}>
+              🏭 Restaurar presets de fábrica
+            </button>
+            {#if restoreSuccess}
+              <div class="feedback-banner success">✅ Presets de fábrica restaurados</div>
             {/if}
           </div>
         </div>
@@ -1189,5 +1216,28 @@
     border-radius: 6px;
     cursor: pointer;
     font-weight: bold;
+  }
+
+  .restore-section {
+    border-top: 1px solid var(--border);
+    padding-top: 1rem;
+  }
+
+  .btn-restore {
+    width: 100%;
+    padding: 12px;
+    background: transparent;
+    border: 2px solid var(--accent);
+    color: var(--accent);
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .btn-restore:hover {
+    background: var(--accent);
+    color: white;
   }
 </style>

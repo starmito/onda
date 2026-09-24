@@ -77,7 +77,7 @@ describe('VramLaunchInfo', () => {
     );
 
     const text = target.querySelector('[data-testid="vram-launch-info"]')?.textContent ?? '';
-    expect(text).toContain('necesita');
+    expect(text).toContain('estimado');
     expect(text).toContain('libres');
 
     unmount(app);

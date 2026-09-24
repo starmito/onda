@@ -122,8 +122,9 @@ def _mock_gpu_audio_deps():
     torch.view_as_real = lambda x: _Tensor(np.stack([x._data, x._data], axis=-1))
     torch.view_as_complex = lambda x: _Tensor(x._data[..., 0] + 1j * x._data[..., 1])
     torch.nn = _inject("torch.nn")
+    torch.nn.__path__ = []  # allow ``import torch.nn.functional``
     torch.nn.Module = type("Module", (), {"eval": lambda self: self, "to": lambda self, *args: self, "parameters": lambda self: []})
-    torch.nn.functional = ModuleType("torch.nn.functional")
+    torch.nn.functional = _inject("torch.nn.functional")
     def _pad(tensor, pad, mode="constant", value=0):
         arr = np.array(tensor)
         ndim = arr.ndim

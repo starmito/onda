@@ -109,7 +109,7 @@ func TestCheckVramHeadroom(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ok, needed, reason, warning := checkVramHeadroom(tt.freeMB, tt.totalMB, tt.model, tt.stepType, tt.cfg, "")
+			ok, needed, reason, warning := checkVramHeadroom(tt.freeMB, tt.totalMB, tt.model, tt.stepType, "cuda", tt.cfg, "")
 			if ok != tt.wantOK {
 				t.Errorf("checkVramHeadroom(%d, %d, %q, %q) ok = %v, want %v", tt.freeMB, tt.totalMB, tt.model, tt.stepType, ok, tt.wantOK)
 			}
