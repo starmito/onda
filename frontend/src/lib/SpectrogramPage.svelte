@@ -41,23 +41,26 @@
     destroyWavesurfer();
     if (!waveformContainer) return;
 
-    const plugins = spectrogramVisible
-      ? [
-          Spectrogram.create({
-            labels: true,
-            height: 200,
-            splitChannels: false,
-          }),
-        ]
-      : [];
-
     const instance = WaveSurfer.create({
       container: waveformContainer,
       waveColor: '#4a4a7a',
       progressColor: '#7a7aba',
       url,
-      plugins,
     });
+
+    if (spectrogramVisible) {
+      // v8: plugins are registered via registerPlugin(), not passed to create().
+      // We keep the default 'full' rendering and omit noverlap so wavesurfer
+      // deduces it from the canvas size (the v8 change that stops clamping
+      // noverlap to 50% only matters when the option is explicitly set).
+      instance.registerPlugin(
+        Spectrogram.create({
+          labels: true,
+          height: 200,
+          splitChannels: false,
+        }),
+      );
+    }
 
     instance.on('play', () => {
       isPlaying = true;
@@ -65,8 +68,9 @@
     instance.on('pause', () => {
       isPlaying = false;
     });
-    instance.on('error', (err: any) => {
-      error = `Error del reproductor: ${err?.message || err || 'desconocido'}`;
+    instance.on('error', (err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err ?? 'desconocido');
+      error = `Error del reproductor: ${message}`;
     });
 
     ws = instance;
