@@ -352,4 +352,110 @@ describe('ModelManager flags from API', () => {
 
     unmount(app);
   });
+
+  it('shows "medido" label with sample count when VRAM calculation is measured', async () => {
+    const measuredCalc: VRAMCalculatorResponse = {
+      models: [{
+        name: 'BS-Rofo-SW-Fixed',
+        type: 'vocal',
+        vram_mb: 4137,
+        source: 'measured',
+        measured_mb: 4137,
+        measured_n: 92,
+        measured_ts: '2026-09-24T19:11:39Z',
+        estimated_mb: 2000,
+      }],
+      total_vram_mb: 4137,
+      available_vram_mb: 15475,
+      free_after_mb: 11338,
+      fits: true,
+      reliable: true,
+    };
+
+    globalThis.fetch = vi.fn().mockImplementation(async (url: string | URL) => {
+      const u = url.toString();
+      if (u.includes('/api/models/list')) {
+        return { ok: true, status: 200, json: async () => models } as Response;
+      }
+      if (u.includes('/api/gpu/info')) {
+        return { ok: true, status: 200, json: async () => gpuInfo } as Response;
+      }
+      if (u.includes('models') && u.includes('config')) {
+        return { ok: true, status: 200, json: async () => swFlags } as Response;
+      }
+      if (u.includes('/api/gpu/vram-calculator')) {
+        return { ok: true, status: 200, json: async () => measuredCalc } as Response;
+      }
+      throw new Error(`Unexpected fetch: ${u}`);
+    });
+
+    const app = mount(ModelManager, {
+      target,
+      props: { initialModel: 'BS-Rofo-SW-Fixed' },
+    });
+
+    await vi.waitFor(
+      () => expect(target.textContent).toContain('medido'),
+      { timeout: 2000 },
+    );
+
+    const text = target.textContent ?? '';
+    expect(text).toContain('n=92');
+    expect(text).toContain('4.0 GB');
+    expect(text).not.toContain('estimado');
+
+    unmount(app);
+  });
+
+  it('shows "estimado" label and fallback reason when VRAM calculation is estimated', async () => {
+    const estimatedCalc: VRAMCalculatorResponse = {
+      models: [{
+        name: 'BS-Rofo-SW-Fixed',
+        type: 'vocal',
+        vram_mb: 2000,
+        source: 'estimated',
+        estimated_mb: 2000,
+        fallback_reason: 'no hay medición para este modelo y dispositivo',
+      }],
+      total_vram_mb: 2000,
+      available_vram_mb: 15475,
+      free_after_mb: 13475,
+      fits: true,
+      reliable: true,
+    };
+
+    globalThis.fetch = vi.fn().mockImplementation(async (url: string | URL) => {
+      const u = url.toString();
+      if (u.includes('/api/models/list')) {
+        return { ok: true, status: 200, json: async () => models } as Response;
+      }
+      if (u.includes('/api/gpu/info')) {
+        return { ok: true, status: 200, json: async () => gpuInfo } as Response;
+      }
+      if (u.includes('models') && u.includes('config')) {
+        return { ok: true, status: 200, json: async () => swFlags } as Response;
+      }
+      if (u.includes('/api/gpu/vram-calculator')) {
+        return { ok: true, status: 200, json: async () => estimatedCalc } as Response;
+      }
+      throw new Error(`Unexpected fetch: ${u}`);
+    });
+
+    const app = mount(ModelManager, {
+      target,
+      props: { initialModel: 'BS-Rofo-SW-Fixed' },
+    });
+
+    await vi.waitFor(
+      () => expect(target.textContent).toContain('estimado'),
+      { timeout: 2000 },
+    );
+
+    const text = target.textContent ?? '';
+    expect(text).toContain('no hay medición');
+    expect(text).toContain('2.0 GB');
+    expect(text).not.toContain('medido');
+
+    unmount(app);
+  });
 });

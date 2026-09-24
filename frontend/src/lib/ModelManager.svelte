@@ -329,6 +329,23 @@
     return (mb / 1024).toFixed(1) + ' GB';
   }
 
+  function vramSourceLabel(result: VRAMCalculatorResponse): string {
+    const entry = result.models[0];
+    if (!entry) return 'estimado';
+    if (entry.source === 'measured' && entry.measured_mb && entry.measured_mb > 0) {
+      const n = entry.measured_n ?? 0;
+      const date = entry.measured_ts ? new Date(entry.measured_ts).toLocaleDateString() : '';
+      if (n > 0 && date) {
+        return `medido (n=${n}, ${date})`;
+      }
+      if (n > 0) {
+        return `medido (n=${n})`;
+      }
+      return 'medido';
+    }
+    return entry.fallback_reason ? `estimado · ${entry.fallback_reason}` : 'estimado';
+  }
+
   function vramBarColor(pct: number): string {
     if (pct > 85) return '#e57373';
     if (pct >= 60) return '#ffb74d';
@@ -475,7 +492,7 @@
               ></div>
             </div>
             <div class="vram-text">
-              Estimado: {formatGb(vramCalcResult.total_vram_mb)}
+              {vramSourceLabel(vramCalcResult)}: {formatGb(vramCalcResult.total_vram_mb)}
               {#if totalVramMb !== null} / {formatGb(totalVramMb)}{/if}
               {#if vramPercent !== null} ({vramPercent.toFixed(0)}%){/if}
               {#if vramCalcResult.free_after_mb !== undefined}

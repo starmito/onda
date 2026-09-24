@@ -2,13 +2,12 @@ package api
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,20 +25,48 @@ const vramSampleInterval = 500 * time.Millisecond
 // baseline VRAM level before the model is fully loaded.
 const vramBaselineSamples = 3
 
-// vramDurationBucketSec is the granularity used to bucket audio duration when
-// matching whole-song measurements. Chunked models are insensitive to total
-// duration, but whole-song models scale with it.
+// vramDurationBucketSec is kept only for backward compatibility with legacy
+// store keys. Duration is no longer part of the lookup key because chunked
+// inference does not grow VRAM with song length.
 const vramDurationBucketSec = 30
+
+// vramFlagNames enumerate the inference parameters that may be captured in a
+// measured VRAM record. Uncaptured values act as wildcards during lookup.
+const (
+	vramFlagSegmentSize   = "segment_size"
+	vramFlagChunkSize     = "chunk_size"
+	vramFlagBatchSize     = "batch_size"
+	vramFlagDemucsSegment = "demucs_segment"
+	vramFlagNumOverlap    = "num_overlap"
+	vramFlagShifts        = "shifts"
+	vramFlagJobs          = "jobs"
+)
+
+// VRAMFlags stores the values of the inference parameters that were in effect
+// when a measurement was taken. A field set to measuredParamUnused means the
+// parameter was not captured and acts as a wildcard.
+type VRAMFlags struct {
+	SegmentSize   int `json:"segment_size,omitempty"`
+	ChunkSize     int `json:"chunk_size,omitempty"`
+	BatchSize     int `json:"batch_size,omitempty"`
+	DemucsSegment int `json:"demucs_segment,omitempty"`
+	NumOverlap    int `json:"num_overlap,omitempty"`
+	Shifts        int `json:"shifts,omitempty"`
+	Jobs          int `json:"jobs,omitempty"`
+}
 
 // MeasuredVRAMRecord stores one measured VRAM footprint in the persistent
 // store. Both the historical maximum and the last observed peak are kept so
 // the calculator can report the conservative maximum while still tracking
 // recent values.
 type MeasuredVRAMRecord struct {
-	PeakMBMax int       `json:"peak_mb_max"`
-	PeakMBLast int      `json:"peak_mb_last"`
-	N         int       `json:"n"`
-	LastTS    time.Time `json:"last_ts"`
+	PeakMBMax  int            `json:"peak_mb_max"`
+	PeakMBLast int            `json:"peak_mb_last"`
+	N          int            `json:"n"`
+	LastTS     time.Time      `json:"last_ts"`
+	Duration   int            `json:"duration,omitempty"` // informational metadata only
+	Flags      VRAMFlags      `json:"flags,omitempty"`
+	Captured   map[string]bool `json:"captured,omitempty"` // empty = wildcard
 }
 
 // vramMeasuredStore persists measured VRAM peaks keyed by model, step type,
@@ -69,6 +96,7 @@ func getVRAMMeasuredStore() *vramMeasuredStore {
 		if vramMeasuredStoreInstance == nil {
 			vramMeasuredStoreInstance = newVRAMMeasuredStore(filepath.Join(mustConfigDir(), vramMeasuredFileName))
 			_ = vramMeasuredStoreInstance.load()
+			seedMeasuredVRAMPeaks(vramMeasuredStoreInstance)
 		}
 	})
 	return vramMeasuredStoreInstance
@@ -92,11 +120,23 @@ func (s *vramMeasuredStore) load() error {
 		}
 		return err
 	}
+	// The store file has always been a JSON object; legacy keys carried a flag
+	// hash and a duration bucket. Read it as the current type (the new fields
+	// are optional) and migrate legacy keys to the wildcard format.
 	var loaded map[string]MeasuredVRAMRecord
 	if err := json.Unmarshal(data, &loaded); err != nil {
 		return err
 	}
-	s.data = loaded
+	s.data = make(map[string]MeasuredVRAMRecord)
+	for oldKey, rec := range loaded {
+		newKey := migrateVRAMMeasuredKey(oldKey)
+		// Old records folded all flags into the hash, so we cannot know which
+		// flags were captured. Treat them as wildcards so they still match
+		// future lookups for the same model/step/device.
+		rec.Captured = nil
+		rec.Flags = VRAMFlags{}
+		s.data[newKey] = rec
+	}
 	return nil
 }
 
@@ -121,70 +161,193 @@ func (s *vramMeasuredStore) get(key string) (MeasuredVRAMRecord, bool) {
 	return r, ok
 }
 
-// record adds a new peak measurement for key, updating max/last counters,
-// sample count and timestamp. nSamples is the number of GPU readings that
-// contributed to the peak. It is safe for concurrent use.
+// findByPrefix returns all records whose key is exactly prefix or starts with
+// prefix followed by "|" (i.e. records for the same model/step/device with
+// additional captured flags).
+func (s *vramMeasuredStore) findByPrefix(prefix string) []MeasuredVRAMRecord {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	var res []MeasuredVRAMRecord
+	for k, v := range s.data {
+		if k == prefix || strings.HasPrefix(k, prefix+"|") {
+			res = append(res, v)
+		}
+	}
+	return res
+}
+
+// hasKey reports whether the store has any record under the exact key.
+func (s *vramMeasuredStore) hasKey(key string) bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	_, ok := s.data[key]
+	return ok
+}
+
+// record adds a new wildcard peak measurement for key. It is a convenience
+// wrapper for callers that do not track per-flag metadata (mainly tests).
 func (s *vramMeasuredStore) record(key string, peakMB, nSamples int) {
+	s.recordMeasured(key, MeasuredVRAMRecord{
+		PeakMBMax:  peakMB,
+		PeakMBLast: peakMB,
+		N:          nSamples,
+		LastTS:     time.Now().UTC(),
+	})
+}
+
+// recordMeasured adds or updates a peak measurement for key, preserving the
+// captured flags when the record already exists.
+func (s *vramMeasuredStore) recordMeasured(key string, rec MeasuredVRAMRecord) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r := s.data[key]
-	if peakMB > r.PeakMBMax {
-		r.PeakMBMax = peakMB
+	if rec.PeakMBMax > r.PeakMBMax {
+		r.PeakMBMax = rec.PeakMBMax
 	}
-	r.PeakMBLast = peakMB
-	r.N += nSamples
-	r.LastTS = time.Now().UTC()
+	if rec.PeakMBLast > 0 {
+		r.PeakMBLast = rec.PeakMBLast
+	} else if r.PeakMBLast == 0 {
+		r.PeakMBLast = rec.PeakMBMax
+	}
+	r.N += rec.N
+	if !rec.LastTS.IsZero() {
+		r.LastTS = rec.LastTS
+	}
+	if r.Captured == nil {
+		r.Captured = rec.Captured
+		r.Flags = rec.Flags
+		r.Duration = rec.Duration
+	}
 	s.data[key] = r
 }
 
-// vramMeasuredKey builds a stable lookup key for a model/step/device/flags/
-// duration combination.
-//
-// The flag hash is deterministic: known flag names are sorted and concatenated
-// with their integer values. The duration is rounded to a coarse bucket so
-// small differences in clip length do not fragment the cache.
-func vramMeasuredKey(modelName, stepType, device string, cfg VRAMConfig) string {
-	flagHash := vramFlagsHash(cfg)
-	return fmt.Sprintf("%s|%s|%s|%s|%d",
+// vramMeasuredKey builds a stable lookup key for a model/step/device
+// combination. Captured flags are appended deterministically so multiple
+// measurements for the same model can coexist at different specificity levels.
+// When captured is empty the key is a wildcard (model|step|device only).
+func vramMeasuredKey(modelName, stepType, device string, cfg VRAMConfig, captured map[string]bool) string {
+	base := fmt.Sprintf("%s|%s|%s",
 		strings.ToLower(modelName),
 		strings.ToLower(stepType),
 		strings.ToLower(device),
-		flagHash,
-		vramDurationBucket(cfg.Duration),
 	)
+	if len(captured) == 0 {
+		return base
+	}
+	names := make([]string, 0, len(captured))
+	for name := range captured {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	var b strings.Builder
+	b.WriteString(base)
+	for _, name := range names {
+		b.WriteString("|")
+		b.WriteString(name)
+		b.WriteString("=")
+		b.WriteString(strconv.Itoa(vramFlagValue(cfg, name)))
+	}
+	return b.String()
 }
 
-// vramFlagsHash returns a short, deterministic hash of the flags that affect
-// VRAM usage.
-func vramFlagsHash(cfg VRAMConfig) string {
-	pairs := map[string]int{
-		"dim_t":       cfg.SegmentSize,
-		"num_overlap": cfg.NumOverlap,
-		"batch_size":  cfg.BatchSize,
-		"chunk_size":  cfg.ChunkSize,
-		"shifts":      cfg.Shifts,
-		"segment":     cfg.DemucsSegment,
-		"jobs":        cfg.Jobs,
+// vramFlagValue returns the value of a named flag from a VRAMConfig.
+func vramFlagValue(cfg VRAMConfig, name string) int {
+	switch name {
+	case vramFlagSegmentSize:
+		return cfg.SegmentSize
+	case vramFlagChunkSize:
+		return cfg.ChunkSize
+	case vramFlagBatchSize:
+		return cfg.BatchSize
+	case vramFlagDemucsSegment:
+		return cfg.DemucsSegment
+	case vramFlagNumOverlap:
+		return cfg.NumOverlap
+	case vramFlagShifts:
+		return cfg.Shifts
+	case vramFlagJobs:
+		return cfg.Jobs
 	}
-	keys := make([]string, 0, len(pairs))
-	for k := range pairs {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	h := sha256.New()
-	for _, k := range keys {
-		fmt.Fprintf(h, "%s=%d;", k, pairs[k])
-	}
-	return hex.EncodeToString(h.Sum(nil))[:16]
+	return 0
 }
 
-// vramDurationBucket rounds seconds to the nearest coarse bucket. Zero means
-// "unknown/irrelevant".
-func vramDurationBucket(sec int) int {
-	if sec <= 0 {
-		return 0
+// vramFlagValueFromFlags returns the value of a named flag from a VRAMFlags.
+func vramFlagValueFromFlags(flags VRAMFlags, name string) int {
+	switch name {
+	case vramFlagSegmentSize:
+		return flags.SegmentSize
+	case vramFlagChunkSize:
+		return flags.ChunkSize
+	case vramFlagBatchSize:
+		return flags.BatchSize
+	case vramFlagDemucsSegment:
+		return flags.DemucsSegment
+	case vramFlagNumOverlap:
+		return flags.NumOverlap
+	case vramFlagShifts:
+		return flags.Shifts
+	case vramFlagJobs:
+		return flags.Jobs
 	}
-	return ((sec + vramDurationBucketSec - 1) / vramDurationBucketSec) * vramDurationBucketSec
+	return 0
+}
+
+// vramFlagsFromConfig converts a VRAMConfig to VRAMFlags.
+func vramFlagsFromConfig(cfg VRAMConfig) VRAMFlags {
+	return VRAMFlags{
+		SegmentSize:   cfg.SegmentSize,
+		ChunkSize:     cfg.ChunkSize,
+		BatchSize:     cfg.BatchSize,
+		DemucsSegment: cfg.DemucsSegment,
+		NumOverlap:    cfg.NumOverlap,
+		Shifts:        cfg.Shifts,
+		Jobs:          cfg.Jobs,
+	}
+}
+
+// vramFlagsCaptured decides which flags are relevant enough to be captured for
+// a given step type. Uncaptured flags act as wildcards when matching.
+func vramFlagsCaptured(cfg VRAMConfig, stepType string) map[string]bool {
+	captured := make(map[string]bool)
+	lowerStep := strings.ToLower(stepType)
+	switch lowerStep {
+	case "vocal", "roformer":
+		captured[vramFlagSegmentSize] = true
+		captured[vramFlagBatchSize] = true
+		captured[vramFlagChunkSize] = true
+	case "demucs":
+		captured[vramFlagDemucsSegment] = true
+		if cfg.Shifts > 0 {
+			captured[vramFlagShifts] = true
+		}
+		if cfg.Jobs > 0 {
+			captured[vramFlagJobs] = true
+		}
+	case "scnet":
+		captured[vramFlagChunkSize] = true
+		captured[vramFlagBatchSize] = true
+	case "mdx", "mdxnet":
+		captured[vramFlagSegmentSize] = true
+		captured[vramFlagBatchSize] = true
+	}
+	return captured
+}
+
+// migrateVRAMMeasuredKey converts a legacy key (model|step|device|hash|duration)
+// to the new wildcard key (model|step|device). Keys that already conform to the
+// new format (segments after the third one are "flag=value") are returned
+// unchanged.
+func migrateVRAMMeasuredKey(oldKey string) string {
+	parts := strings.Split(oldKey, "|")
+	if len(parts) < 3 {
+		return oldKey
+	}
+	// Legacy keys have exactly 5 segments and the last two are a hash and a
+	// duration bucket (no '='). New keys use "flag=value" segments.
+	if len(parts) == 5 && !strings.Contains(parts[3], "=") && !strings.Contains(parts[4], "=") {
+		return vramMeasuredKey(parts[0], parts[1], parts[2], VRAMConfig{}, nil)
+	}
+	return oldKey
 }
 
 // vramStepTypeForModel returns the canonical step type used for VRAM
@@ -194,15 +357,57 @@ func vramStepTypeForModel(modelName string) string {
 	return classifyModelType(modelName)
 }
 
-// findMeasuredVRAMPeakInStore returns the conservative maximum measured peak in
-// MiB for the exact configuration, or 0 when no measurement exists.
-func findMeasuredVRAMPeakInStore(modelName, device string, cfg VRAMConfig) int {
-	key := vramMeasuredKey(modelName, vramStepTypeForModel(modelName), device, cfg)
-	if r, ok := getVRAMMeasuredStore().get(key); ok && r.N > 0 {
-		return r.PeakMBMax
+// vramFlagsMatch reports whether a stored record matches the requested flags.
+// Captured flags must match exactly; uncaptured flags are wildcards.
+func vramFlagsMatch(rec MeasuredVRAMRecord, req VRAMFlags) bool {
+	if len(rec.Captured) == 0 {
+		return true
 	}
-	return 0
+	for name := range rec.Captured {
+		stored := vramFlagValueFromFlags(rec.Flags, name)
+		requested := vramFlagValueFromFlags(req, name)
+		if stored != requested {
+			return false
+		}
+	}
+	return true
 }
+
+// findMeasuredVRAMPeakInStore returns the conservative maximum measured peak
+// and its record for the requested configuration. The second result is false
+// when no measurement matches.
+func findMeasuredVRAMPeakInStore(modelName, device string, cfg VRAMConfig) (MeasuredVRAMRecord, bool) {
+	stepType := vramStepTypeForModel(modelName)
+	prefix := vramMeasuredKey(modelName, stepType, device, VRAMConfig{}, nil)
+	records := getVRAMMeasuredStore().findByPrefix(prefix)
+	if len(records) == 0 {
+		return MeasuredVRAMRecord{}, false
+	}
+	reqFlags := vramFlagsFromConfig(cfg)
+	var matches []MeasuredVRAMRecord
+	for _, r := range records {
+		if vramFlagsMatch(r, reqFlags) {
+			matches = append(matches, r)
+		}
+	}
+	if len(matches) == 0 {
+		return MeasuredVRAMRecord{}, false
+	}
+	// Prefer the most specific match (most captured flags), then the highest
+	// peak (conservative), then the most recent.
+	sort.SliceStable(matches, func(i, j int) bool {
+		si, sj := len(matches[i].Captured), len(matches[j].Captured)
+		if si != sj {
+			return si > sj
+		}
+		if matches[i].PeakMBMax != matches[j].PeakMBMax {
+			return matches[i].PeakMBMax > matches[j].PeakMBMax
+		}
+		return matches[i].LastTS.After(matches[j].LastTS)
+	})
+	return matches[0], true
+}
+
 
 // vramSampler samples GPU memory while a pipeline step runs.
 type vramSampler struct {
@@ -293,9 +498,19 @@ func recordMeasuredVRAMPeak(ctx context.Context, modelName, device string, cfg V
 		footprint = 0
 	}
 	stepType := vramStepTypeForModel(modelName)
-	key := vramMeasuredKey(modelName, stepType, device, cfg)
+	captured := vramFlagsCaptured(cfg, stepType)
+	key := vramMeasuredKey(modelName, stepType, device, cfg, captured)
+	rec := MeasuredVRAMRecord{
+		PeakMBMax:  footprint,
+		PeakMBLast: footprint,
+		N:          res.N,
+		LastTS:     time.Now().UTC(),
+		Duration:   cfg.Duration,
+		Flags:      vramFlagsFromConfig(cfg),
+		Captured:   captured,
+	}
 	store := getVRAMMeasuredStore()
-	store.record(key, footprint, res.N)
+	store.recordMeasured(key, rec)
 	if err := store.save(); err != nil {
 		Log("pipeline", "warn", fmt.Sprintf("Failed to save measured VRAM for %s: %v", modelName, err))
 	}
