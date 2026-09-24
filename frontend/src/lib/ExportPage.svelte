@@ -4,6 +4,7 @@
   import type { StemsResponse, AudioExportProfiles } from './api';
   import { IconDownload, IconRefresh, IconTrash } from './icons';
   import { removeGroup } from './exportHelpers';
+  import { expandExportName, groupBaseSong, groupPitch, groupDisplayName } from './exportName';
 
   // ── State ──
   let stemsResponse = $state<StemsResponse | null>(null);
@@ -77,7 +78,7 @@
     const baseSong = groupBaseSong(song);
     const pitch = groupPitch(song);
     const tpl = availableProfiles?.nameTemplate || '{song} ({pitches}) ({suffix})';
-    const outputName = expandTemplate(tpl, baseSong, pitch, suffix, format.toLowerCase());
+    const outputName = expandExportName(tpl, baseSong, pitch, suffix, format.toLowerCase());
     exporting = { ...exporting, [song]: true };
     try {
       const resp = await mergeStems(song, stems, format.toLowerCase(), outputName);
@@ -114,54 +115,13 @@
     return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
   }
 
-  function groupBaseSong(group: string): string {
-    return group.replace(/\s*\(pitch\s*[+-]?\d+\)\s*$/, '').trim();
-  }
-
-  function groupPitch(group: string): number {
-    const match = group.match(/\(pitch\s*([+-]?\d+)\)\s*$/);
-    return match ? Number(match[1]) : 0;
-  }
-
-  function signedPitch(pitch: number): string {
-    return pitch > 0 ? `+${pitch}` : String(pitch);
-  }
-
-  function groupDisplayName(group: string): string {
-    return `${groupBaseSong(group)} (${signedPitch(groupPitch(group))})`;
-  }
-
-  function expandTemplate(
-    tpl: string,
-    song: string,
-    pitch: number,
-    suffix: string,
-    format: string,
-  ): string {
-    const now = new Date();
-    const replacements: Record<string, string> = {
-      '{song}': song,
-      '{pitches}': signedPitch(pitch),
-      '{suffix}': suffix,
-      '{format}': format,
-      '{date}': now.toISOString().slice(0, 10),
-      '{time}': now.toTimeString().slice(0, 5).replace(':', '-'),
-    };
-    let out = tpl;
-    for (const [key, value] of Object.entries(replacements)) {
-      out = out.split(key).join(value);
-    }
-    out = out.replace(/\(\s*\)/g, '');
-    return out.trim();
-  }
-
   function previewFileName(group: string): string {
     const format = selectedFormats[group] || defaultFormat();
     const baseSong = groupBaseSong(group);
     const pitch = groupPitch(group);
     const suffix = (suffixes[group] || '').trim();
     const tpl = availableProfiles?.nameTemplate || '{song} ({pitches}) ({suffix})';
-    const base = expandTemplate(tpl, baseSong, pitch, suffix, format.toLowerCase());
+    const base = expandExportName(tpl, baseSong, pitch, suffix, format.toLowerCase());
     return `${base}.${format.toLowerCase()}`;
   }
 
