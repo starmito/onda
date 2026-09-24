@@ -157,10 +157,9 @@ func settingsFile() string {
 	return filepath.Join(appDir(), ".onda-settings.json")
 }
 
-// validateAbsoluteWritableDir enforces the common safety rules for a
-// user-chosen absolute directory. The name argument is used only in error
-// messages.
-func validateAbsoluteWritableDir(root, name string) error {
+// validateAbsoluteDir enforces the common syntactic/location safety rules for a
+// user-chosen absolute directory without requiring it to exist yet.
+func validateAbsoluteDir(root, name string) error {
 	if root == "" {
 		return fmt.Errorf("%s path is empty", name)
 	}
@@ -182,6 +181,16 @@ func validateAbsoluteWritableDir(root, name string) error {
 			return fmt.Errorf("in container mode, %s path must be under /app", name)
 		}
 	}
+	return nil
+}
+
+// validateAbsoluteWritableDir enforces the common safety rules for a
+// user-chosen absolute directory. The name argument is used only in error
+// messages.
+func validateAbsoluteWritableDir(root, name string) error {
+	if err := validateAbsoluteDir(root, name); err != nil {
+		return err
+	}
 
 	info, err := os.Stat(root)
 	if err != nil {
@@ -202,8 +211,40 @@ func validateStorageRoot(root string) error {
 }
 
 // validateExportDir enforces the safety rules for a user-chosen export directory.
+// If the directory does not exist yet, it is created automatically so the UI's
+// default export folder works without manual preparation.
 func validateExportDir(dir string) error {
-	return validateAbsoluteWritableDir(dir, "export dir")
+	if err := validateAbsoluteDir(dir, "export dir"); err != nil {
+		return err
+	}
+	cleaned := filepath.Clean(dir)
+	if err := ensureExportDir(cleaned); err != nil {
+		return err
+	}
+	if !isWritableDir(cleaned) {
+		return fmt.Errorf("export dir path is not writable")
+	}
+	return nil
+}
+
+// ensureExportDir creates the export directory if it is missing. It is kept
+// separate from the generic validation so the auto-create behaviour applies
+// only to the export folder.
+func ensureExportDir(dir string) error {
+	info, err := os.Stat(dir)
+	if err == nil {
+		if !info.IsDir() {
+			return fmt.Errorf("export dir path is not a directory")
+		}
+		return nil
+	}
+	if !os.IsNotExist(err) {
+		return fmt.Errorf("export dir path does not exist or cannot be accessed: %w", err)
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("export dir path does not exist or cannot be accessed: %w", err)
+	}
+	return nil
 }
 
 // validateConfigDir enforces that the user-chosen configuration directory is an

@@ -46,6 +46,10 @@
   let exportError = $state<string | null>(null);
   let exportSuccess = $state<string | null>(null);
   let savingExport = $state(false);
+
+  function defaultExportDir(root: string): string {
+    return root ? `${root}/exports` : '';
+  }
   let configInput = $state('');
   let configError = $state<string | null>(null);
   let configSuccess = $state<string | null>(null);
@@ -101,7 +105,7 @@
     try {
       config = await getStorageConfig();
       rootInput = config.current_root;
-      exportInput = config.export_dir;
+      exportInput = config.export_dir || defaultExportDir(config.current_root);
       configInput = config.config_dir;
     } catch (e: any) {
       rootError = e.message || 'No se pudo cargar la configuración del directorio de trabajo';
@@ -155,6 +159,12 @@
 
   function chooseExportCandidate(path: string) {
     exportInput = path;
+  }
+
+  function useDefaultExportDir() {
+    if (config) {
+      exportInput = defaultExportDir(config.current_root);
+    }
   }
 
   async function saveConfig() {
@@ -390,7 +400,7 @@
       <div class="root-summary">
         <div class="root-row">
           <span class="root-label">Carpeta actual</span>
-          <code class="root-path">{config.export_dir || '(ubicación por defecto)'}</code>
+          <code class="root-path">{config.export_dir || defaultExportDir(config.current_root) || '(ubicación por defecto)'}</code>
         </div>
         <div class="root-row">
           <span class="root-label">Origen</span>
@@ -400,7 +410,7 @@
           <span class="root-label">Estado</span>
           <span class="root-status">
             {#if config.export_dir === ''}
-              <span class="status-info">ℹ️ Por defecto: cada exportación se guarda en su ubicación habitual.</span>
+              <span class="status-info">ℹ️ Por defecto: <code>{defaultExportDir(config.current_root)}</code> (se creará al guardar). Si dejas el campo vacío y guardas, las exportaciones seguirán guardándose junto a los stems.</span>
             {:else if config.export_exists && config.export_writable}
               <span class="status-ok">✅ Existe y se puede escribir</span>
             {:else if config.export_exists}
@@ -414,6 +424,9 @@
 
       <div class="root-editor">
         <label for="export-dir-path" class="root-label">Nueva carpeta de exportaciones</label>
+        <p class="storage-hint">
+          Deja el campo vacío para volver al comportamiento anterior: cada exportación se guarda junto a los stems.
+        </p>
         <div class="root-input-row">
           <input
             id="export-dir-path"
@@ -421,7 +434,7 @@
             class="root-input"
             bind:value={exportInput}
             disabled={savingExport}
-            placeholder="/ruta/absoluta/de/exportaciones"
+            placeholder="{defaultExportDir(config.current_root)}"
           />
           <button class="btn-primary" onclick={saveExport} disabled={savingExport || exportInput === (config.export_dir || '')}>
             Guardar
@@ -447,6 +460,9 @@
               <option value={candidate}>{candidate}</option>
             {/each}
           </select>
+          <button class="btn-secondary" onclick={useDefaultExportDir} disabled={savingExport}>
+            Usar carpeta por defecto
+          </button>
           <p class="storage-hint">
             En la app empaquetada este selector se sustituirá por el explorador nativo.
             Desde navegador solo están disponibles las rutas visibles para el backend.

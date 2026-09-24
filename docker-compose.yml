@@ -17,7 +17,7 @@
 #                        (default: /app/data/.cache/huggingface)
 #
 # La raíz de datos se monta desde ./data del host y contiene:
-#   input/ output/ daw-data/ input_rubberband/ config/ logs/ models/ .cache/
+#   input/ output/ daw-data/ input_rubberband/ config/ logs/ models/ .cache/ exports/
 # El fichero de ajustes se monta aparte desde ./.onda-settings.json.
 
 services:
