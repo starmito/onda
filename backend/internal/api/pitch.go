@@ -246,7 +246,7 @@ func (s *Server) handleListPitchSubgroups(w http.ResponseWriter, r *http.Request
 
 		var files []FileEntry
 		for _, se := range subEntries {
-			if se.IsDir() || isExportFileName(se.Name()) {
+			if se.IsDir() || isExportFileNameForSong(song, se.Name()) {
 				continue
 			}
 			files = append(files, FileEntry{

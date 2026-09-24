@@ -67,6 +67,16 @@ func isExportFileName(name string) bool {
 	return false
 }
 
+// isExportFileNameForSong reports whether name is an export file for the given
+// song. It combines the legacy prefix/name filter with the persisted export
+// index, which tracks files whose names follow the configurable export template.
+func isExportFileNameForSong(song, name string) bool {
+	if isExportFileName(name) {
+		return true
+	}
+	return isRegisteredExport(song, name)
+}
+
 // handleListStems returns all audio stems under output/.
 // GET /api/daw/stems
 func (s *Server) handleListStems(w http.ResponseWriter, r *http.Request) {
@@ -106,7 +116,7 @@ func (s *Server) handleListStems(w http.ResponseWriter, r *http.Request) {
 					continue
 				}
 				name := filepath.Base(stemEntry.Name())
-				if !isAudioStem(name) || isExportFileName(name) {
+				if !isAudioStem(name) || isExportFileNameForSong(song, name) {
 					continue
 				}
 				stems = append(stems, name)
@@ -143,34 +153,34 @@ func (s *Server) handleListStems(w http.ResponseWriter, r *http.Request) {
 				if pitch == "" {
 					continue
 				}
-			pitchStemDir := filepath.Join(songDir, subName)
-			stemEntries, err := os.ReadDir(pitchStemDir)
-			if err != nil {
-				continue
-			}
-			var pitchStems []string
-			for _, stemEntry := range stemEntries {
-				if stemEntry.IsDir() {
+				pitchStemDir := filepath.Join(songDir, subName)
+				stemEntries, err := os.ReadDir(pitchStemDir)
+				if err != nil {
 					continue
 				}
-				name := filepath.Base(stemEntry.Name())
-				if !isAudioStem(name) || isExportFileName(name) {
-					continue
+				var pitchStems []string
+				for _, stemEntry := range stemEntries {
+					if stemEntry.IsDir() {
+						continue
+					}
+					name := filepath.Base(stemEntry.Name())
+					if !isAudioStem(name) || isExportFileNameForSong(song, name) {
+						continue
+					}
+					pitchStems = append(pitchStems, name)
+					resp.Pitch = append(resp.Pitch, PitchStemEntry{
+						Song:  song,
+						Pitch: pitch,
+						Stem:  name,
+					})
 				}
-				pitchStems = append(pitchStems, name)
-				resp.Pitch = append(resp.Pitch, PitchStemEntry{
-					Song:  song,
-					Pitch: pitch,
-					Stem:  name,
-				})
-			}
-			sort.Strings(pitchStems)
-			if len(pitchStems) > 0 {
-				resp.Output[song+" (pitch "+pitch+")"] = pitchStems
+				sort.Strings(pitchStems)
+				if len(pitchStems) > 0 {
+					resp.Output[song+" (pitch "+pitch+")"] = pitchStems
+				}
 			}
 		}
 	}
-}
 
 	sort.Slice(resp.Pitch, func(i, j int) bool {
 		if resp.Pitch[i].Song != resp.Pitch[j].Song {

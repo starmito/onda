@@ -182,6 +182,8 @@ func (s *Server) handleStemsMerge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	registerExportFile(safeSong, outputName)
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(MergeResponse{
