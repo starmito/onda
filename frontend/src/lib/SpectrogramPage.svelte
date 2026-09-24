@@ -76,11 +76,7 @@
     ws = instance;
   }
 
-  function handleFileSelect(e: Event) {
-    const input = e.target as HTMLInputElement;
-    const file = input.files?.[0];
-    if (!file) return;
-
+  function loadAudioFile(file: File) {
     error = '';
     detectedKey = null;
     selectedFile = file;
@@ -90,7 +86,31 @@
     }
     audioSrc = url;
     initWavesurfer(url);
+  }
+
+  function handleFileSelect(e: Event) {
+    const input = e.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) return;
+
+    loadAudioFile(file);
     input.value = '';
+  }
+
+  function handleDropZoneClick() {
+    fileInput?.click();
+  }
+
+  function handleDragOver(e: DragEvent) {
+    e.preventDefault();
+  }
+
+  function handleDrop(e: DragEvent) {
+    e.preventDefault();
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) {
+      loadAudioFile(files[0]);
+    }
   }
 
   function togglePlay() {
@@ -144,7 +164,7 @@
   });
 </script>
 
-<section class="spectrogram-page">
+<section class="spectrogram-page" role="application" aria-label="Espectrograma" ondragover={handleDragOver} ondrop={handleDrop}>
   <header class="page-header">
     <h2>Espectrograma + Key Detection</h2>
     <div class="header-actions">
@@ -212,10 +232,16 @@
       {/if}
     </div>
   {:else}
-    <div class="empty-state">
+    <div
+      class="empty-state"
+      onclick={handleDropZoneClick}
+      onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleDropZoneClick(); } }}
+      role="button"
+      tabindex="0"
+    >
       <span class="empty-icon">📊</span>
       <p class="empty-title">Carga un archivo de audio para ver el espectrograma</p>
-      <p class="empty-hint">Soporta la mayoría de formatos de audio</p>
+      <p class="empty-hint">Haz clic aquí o arrastra un audio</p>
     </div>
   {/if}
 </section>
