@@ -98,6 +98,9 @@ var measuredVRAMPeaks = []measuredVRAMPeak{
 	// SegmentSize was not captured; the calculator uses the analytical estimate
 	// so the number still moves when the user changes segment_size.
 	{ModelName: "BS_Roformer_SW_6stem", StepType: "vocal", PeakMB: 2803, SegmentSize: measuredParamUnused, ChunkSize: 485100, BatchSize: 1, Duration: 30},
+	// Same measurement indexed by the real step type derived from the model
+	// (the preset may still declare the step as "demucs").
+	{ModelName: "BS_Roformer_SW_6stem", StepType: "roformer", PeakMB: 2803, SegmentSize: measuredParamUnused, ChunkSize: 485100, BatchSize: 1, Duration: 30},
 	// Measured 2026-09-21: SCNet_MUSDB18 with chunk_size=0 (whole song),
 	// 296 s stereo 44.1 kHz, batch_size=1.
 	{ModelName: "SCNet_MUSDB18", StepType: "scnet", PeakMB: 6372, SegmentSize: measuredParamUnused, ChunkSize: 0, BatchSize: 1, Duration: 296},

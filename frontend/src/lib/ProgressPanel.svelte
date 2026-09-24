@@ -55,7 +55,15 @@
       {#each steps as s, index (s.id || index)}
         <div class={stepStatusClass(s.status)} data-testid="step-row">
           <div class="step-info">
-            <span class="step-name">{s.name || s.id || `Paso ${index + 1}`}</span>
+            <span class="step-name">
+              {#if s.name}
+                {s.name}
+              {:else if s.id && !s.id.startsWith('step-')}
+                Paso {index + 1} ({s.id})
+              {:else}
+                Paso {index + 1}
+              {/if}
+            </span>
             <span class={badgeClass(s.status)}>{STATUS_LABELS[s.status] || s.status}</span>
           </div>
           <div class="step-bar-wrap">

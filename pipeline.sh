@@ -129,6 +129,15 @@ _step_display_name() {
             vocal)       echo "Voz" ;;
             demucs)      echo "Demucs" ;;
             rubberband)  echo "Rubberband" ;;
+            step-*)
+                # Never expose the internal step- id; use the model name if the
+                # caller has set it, otherwise a plain human-readable label.
+                if [ -n "${CURRENT_STEP_MODEL:-}" ]; then
+                    echo "Paso $((idx+1)) (${CURRENT_STEP_MODEL})"
+                else
+                    echo "Paso $((idx+1))"
+                fi
+                ;;
             *)           echo "$id" ;;
         esac
     fi
@@ -475,8 +484,12 @@ with open(state_file, 'w') as f:
 PYEOF
 
     CURRENT_STEP_INDEX=$step_idx
-    local step_id
-    step_id=$(python3 -c "import json; steps=json.load(open('$STEPS_CONFIG_FILE')); print(steps[$step_idx].get('type',''))" 2>/dev/null || echo "")
+    # Use the resolved step id (possibly re-mapped to the real model family)
+    # so the published steps list never lies about the step type.
+    local step_id="${STEP_IDS[$step_idx]:-}"
+    if [ -z "$step_id" ]; then
+        step_id=$(python3 -c "import json; steps=json.load(open('$STEPS_CONFIG_FILE')); print(steps[$step_idx].get('type',''))" 2>/dev/null || echo "")
+    fi
 
     # The tracker is the single writer of the published ``steps`` list.
     _report_step "$step_status" "$step_id" "$progress_val"
@@ -655,6 +668,91 @@ is_onnx_model_dir() {
     fi
 
     return 1
+}
+
+# Resolve a bare model name to a directory for family detection.
+# Prints the directory path or nothing if not found.
+_resolve_model_dir_for_family() {
+    local name="$1"
+    if [ -z "$name" ]; then
+        return
+    fi
+    if [ -d "$name" ]; then
+        echo "$name"
+        return
+    fi
+    if [ -f "$name" ]; then
+        dirname "$name"
+        return
+    fi
+    local subdirs="VR_Models MDX_Net_Models RoFormer_Models Demucs_Models Demucs_ONNX"
+    for sub in $subdirs; do
+        local candidate="$MODELS_DIR/$sub/$name"
+        if [ -d "$candidate" ]; then
+            echo "$candidate"
+            return
+        fi
+    done
+}
+
+# Derive the real model family for a step, ignoring the preset's declared type.
+# Prints one of: demucs, mdx, scnet, polarformer, mdxnet, roformer, rubberband.
+_derive_step_family() {
+    local model_name="$1"
+    local declared_type="${2:-}"
+
+    if [ "$declared_type" = "rubberband" ]; then
+        echo "rubberband"
+        return
+    fi
+
+    local lower
+    lower=$(echo "$model_name" | tr '[:upper:]' '[:lower:]')
+    case "$lower" in
+        *htdemucs*|*demucs*)
+            echo "demucs"
+            return
+            ;;
+    esac
+
+    local model_dir
+    model_dir=$(_resolve_model_dir_for_family "$model_name")
+    if [ -n "$model_dir" ]; then
+        # Use the same detectors as run_vocal_step without polluting VOCAL_TYPE.
+        local saved_vocal_type="$VOCAL_TYPE"
+        VOCAL_TYPE="auto"
+        if is_mdx_model_dir "$model_dir"; then
+            echo "mdx"
+            VOCAL_TYPE="$saved_vocal_type"
+            return
+        fi
+        if is_scnet_model_dir "$model_dir"; then
+            echo "scnet"
+            VOCAL_TYPE="$saved_vocal_type"
+            return
+        fi
+        if is_polarformer_model_dir "$model_dir"; then
+            echo "polarformer"
+            VOCAL_TYPE="$saved_vocal_type"
+            return
+        fi
+        if is_onnx_model_dir "$model_dir"; then
+            echo "mdxnet"
+            VOCAL_TYPE="$saved_vocal_type"
+            return
+        fi
+        VOCAL_TYPE="$saved_vocal_type"
+    fi
+
+    # Final name-based fallback for paths / unknown layouts.
+    case "$lower" in
+        *mdx23c*|*mdx-c*) echo "mdx"; return ;;
+        *scnet*) echo "scnet"; return ;;
+        *polarformer*) echo "polarformer"; return ;;
+        *mdxnet*|*mdx_net*) echo "mdxnet"; return ;;
+    esac
+
+    echo "roformer"
 }
 
 # Resolve the effective model config source for a model name.
@@ -1778,31 +1876,91 @@ print(len(steps))
 " 2>/dev/null || echo 0)
 
     # Build per-step metadata so the tracker can publish the full steps list.
-    eval "$(python3 - "$STEPS_CONFIG_FILE" <<'PYEOF'
-import json, shlex, sys
+    # When the backend drives the chain it passes human-readable names; trust them.
+    if [ -n "${ONDA_STEP_IDS:-}" ] && [ -n "${ONDA_STEP_NAMES:-}" ]; then
+        IFS=',' read -r -a STEP_IDS <<< "$ONDA_STEP_IDS"
+        IFS=',' read -r -a STEP_NAMES <<< "$ONDA_STEP_NAMES"
+    else
+        eval "$(python3 - "$STEPS_CONFIG_FILE" "$MODELS_DIR" <<'PYEOF'
+import json, os, shlex, sys
 config_file = sys.argv[1]
+models_dir = sys.argv[2]
 with open(config_file) as f:
     steps = json.load(f)
+
+MODEL_SUBDIRS = ['VR_Models', 'MDX_Net_Models', 'RoFormer_Models', 'Demucs_Models', 'Demucs_ONNX']
+
+def family_from_manifest(model):
+    if not model:
+        return None
+    for sub in MODEL_SUBDIRS:
+        candidate = os.path.join(models_dir, sub, model, 'model.manifest.json')
+        if os.path.isfile(candidate):
+            try:
+                data = json.load(open(candidate))
+                mt = data.get('type', '').lower()
+                if mt in ('demucs', 'htdemucs'):
+                    return 'demucs'
+                if mt == 'mdx23c':
+                    return 'mdx'
+                if mt == 'mdx_net':
+                    return 'mdxnet'
+                if mt == 'scnet':
+                    return 'scnet'
+                if mt in ('bs_roformer', 'mel_band_roformer'):
+                    return 'roformer'
+            except Exception:
+                pass
+    return None
+
+def family_from_name(name):
+    lower = name.lower()
+    if 'htdemucs' in lower or lower == 'demucs':
+        return 'demucs'
+    if 'mdx23c' in lower or 'mdx-c' in lower:
+        return 'mdx'
+    if 'scnet' in lower:
+        return 'scnet'
+    if 'polarformer' in lower:
+        return 'polarformer'
+    if 'mdxnet' in lower or 'mdx_net' in lower or name.lower().endswith('.onnx'):
+        return 'mdxnet'
+    return 'roformer'
+
+def display_name(sid, model, family):
+    if sid == 'rubberband':
+        return 'Rubberband'
+    if family == 'demucs':
+        return f"Demucs ({model})" if model else 'Demucs'
+    if family == 'mdx':
+        return f"MDX-C ({model})" if model else 'MDX-C'
+    if family == 'scnet':
+        return f"SCNet ({model})" if model else 'SCNet'
+    if family == 'mdxnet':
+        return f"MDXNet ({model})" if model else 'MDXNet'
+    if family == 'polarformer':
+        return f"PolarFormer ({model})" if model else 'PolarFormer'
+    return f"Voz ({model})" if model else 'Voz'
+
 ids = []
 names = []
 for s in steps:
     sid = s.get('type', 'step')
     model = s.get('model', '')
+    family = family_from_manifest(model) or family_from_name(model)
     if sid in ('viperx', 'vocal'):
         sid = 'vocal'
-        name = f"Voz ({model})" if model else 'Voz'
-    elif sid == 'demucs':
-        name = f"Demucs ({model})" if model else 'Demucs'
-    elif sid == 'rubberband':
-        name = 'Rubberband'
-    else:
-        name = model if model else sid
+    # A preset saved as "demucs" may really be a multi-stem RoFormer/MDX/etc.
+    if sid == 'demucs' and family != 'demucs':
+        sid = 'vocal'
+    name = display_name(sid, model, family)
     ids.append(shlex.quote(sid))
     names.append(shlex.quote(name))
 print(f"STEP_IDS=({' '.join(ids)})")
 print(f"STEP_NAMES=({' '.join(names)})")
 PYEOF
 )"
+    fi
     export _STEP_IDS="$(printf '%s\n' "${STEP_IDS[@]}")"
     export _STEP_NAMES="$(printf '%s\n' "${STEP_NAMES[@]}")"
 
@@ -1842,6 +2000,13 @@ print('ENDSTEMS')
             exit 1
         fi
 
+        # The preset may lie about the step type (e.g. a RoFormer saved as
+        # "demucs"). Execute according to the real model family.
+        STEP_REAL_FAMILY=$(_derive_step_family "$STEP_MODEL" "$STEP_TYPE")
+        if [ "$STEP_TYPE" = "demucs" ] && [ "$STEP_REAL_FAMILY" != "demucs" ]; then
+            STEP_TYPE="vocal"
+        fi
+        CURRENT_STEP_MODEL="${STEP_MODEL}"
         CURRENT_STEP="${STEP_TYPE}"
         CURRENT_STEP_INDEX=$STEP_IDX
 
@@ -2118,6 +2283,20 @@ VOCAL_BATCH_SIZE=""
 VOCAL_CHUNK_SIZE="0"
 if $VOCAL; then
     MODEL_DIR="${VOCAL_MODEL}"
+    # Detect the real model family so legacy-mode logs do not announce RoFormer
+    # parameters while the model is actually MDX-C, SCNet, MDXNet ONNX, etc.
+    VOCAL_FAMILY="roformer"
+    if [ -d "$MODEL_DIR" ]; then
+        if is_mdx_model_dir "$MODEL_DIR"; then
+            VOCAL_FAMILY="mdx"
+        elif is_scnet_model_dir "$MODEL_DIR"; then
+            VOCAL_FAMILY="scnet"
+        elif is_polarformer_model_dir "$MODEL_DIR"; then
+            VOCAL_FAMILY="polarformer"
+        elif is_onnx_model_dir "$MODEL_DIR"; then
+            VOCAL_FAMILY="mdxnet"
+        fi
+    fi
     if [ -d "$MODEL_DIR" ]; then
         VOCAL_YAML=$(ls "${MODEL_DIR}"/*.yaml 2>/dev/null | head -1)
         if [ -n "$VOCAL_YAML" ]; then
@@ -2131,7 +2310,7 @@ if $VOCAL; then
         # This is the source of truth for UVR-style models and prevents using
         # training values such as dim_t=3105 at inference time.
         _apply_roformer_model_config_overrides "$MODEL_DIR"
-        if [ -n "${VOCAL_DIM_T:-}" ]; then
+        if [ "$VOCAL_FAMILY" = "roformer" ] && [ -n "${VOCAL_DIM_T:-}" ]; then
             echo "   ℹ️  RoFormer effective inference params: dim_t=${VOCAL_DIM_T}, overlap=${VOCAL_NUM_OVERLAP:-}, batch=${VOCAL_BATCH_SIZE:-}, chunk=${ONDA_CHUNK_SIZE:-${VOCAL_CHUNK_SIZE:-0}}"
         fi
     fi

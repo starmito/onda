@@ -1444,6 +1444,9 @@ func buildPipelineEnv(extra []string) []string {
 func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	// VRAM headroom check before launching.
 	stepType := stepTypeForSinglePipeline(job)
+	if len(job.Steps) == 1 {
+		stepType = deriveRealStepType(job.Steps[0])
+	}
 	modelName := job.Config.VocalModel
 	if modelName == "" {
 		modelName = job.Config.StemModel
@@ -1469,10 +1472,7 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 
 	stepName := "pipeline"
 	if len(job.Steps) == 1 {
-		stepName = job.Steps[0].ID
-		if stepName == "" {
-			stepName = job.Steps[0].Type
-		}
+		stepName = stepDisplayName(job.Steps[0])
 	}
 
 	songDir := filepath.Join(mustSub("output"), job.Song)
@@ -1535,7 +1535,7 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 		state.TotalSteps = 1
 	}
 	state.CurrentStep = 1
-	state.StepName = stepTypeDisplay(stepName)
+	state.StepName = stepName
 	state.Device = device
 	state.CurrentModel = modelName
 	state.CurrentFlags = compactFlags(pipelineArgs)
@@ -1634,7 +1634,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 			id = s.Type
 		}
 		stepIDs[i] = id
-		stepNames[i] = stepTypeDisplay(s.Type)
+		stepNames[i] = stepDisplayName(s)
 	}
 
 	for i, step := range steps {
@@ -1665,7 +1665,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 				Log("pipeline", "warn", fmt.Sprintf("Job blocked for %s at step %d: %s", job.Song, i+1, reason))
 				return
 			}
-			if ok, _, reason, warning := checkVramHeadroom(gpu.VRAMFreeMB, gpu.VRAMTotalMB, modelName, step.Type, vramCfg, step.Model); !ok {
+			if ok, _, reason, warning := checkVramHeadroom(gpu.VRAMFreeMB, gpu.VRAMTotalMB, modelName, deriveRealStepType(step), vramCfg, step.Model); !ok {
 				s.jobsMu.Lock()
 				if state, ok := s.jobs[job.Song]; ok {
 					state.Status = "blocked_no_gpu"
@@ -1683,7 +1683,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		}
 		if !job.Config.ForceRAM {
 			if _, availableMB, ok := hostMemoryProvider(); ok {
-				if ok, _, reason := checkRamHeadroom(availableMB, modelName, step.Type); !ok {
+				if ok, _, reason := checkRamHeadroom(availableMB, modelName, deriveRealStepType(step)); !ok {
 					Log("pipeline", "warn", fmt.Sprintf("Job %s at step %d: %s", job.Song, i+1, reason))
 				}
 			}
@@ -1716,7 +1716,7 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 			state.TotalSteps = len(steps)
 		}
 		state.CurrentStep = i + 1
-		state.StepName = stepTypeDisplay(step.Type)
+		state.StepName = stepDisplayName(step)
 		state.Device = device
 		state.CurrentModel = modelName
 		state.CurrentFlags = compactFlags(stepArgs)
@@ -1896,6 +1896,127 @@ func stepTypeDisplay(stepType string) string {
 		return "Demucs"
 	default:
 		return stepType
+	}
+}
+
+// isPolarformerModel reports whether a model name/path refers to a BS
+// PolarFormer ONNX model. It checks the name and inspects any YAML/JSON config
+// for the canonical ``model.use_pope: true`` flag.
+func isPolarformerModel(name string) bool {
+	if name == "" {
+		return false
+	}
+	lower := strings.ToLower(name)
+	if strings.Contains(lower, "polarformer") {
+		return true
+	}
+
+	modelDir := resolveModelDir(name)
+	if modelDir == "" || modelDir == name {
+		return false
+	}
+	entries, err := os.ReadDir(modelDir)
+	if err != nil {
+		return false
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		fn := strings.ToLower(entry.Name())
+		if strings.HasSuffix(fn, ".onnx") && strings.Contains(fn, "polarformer") {
+			return true
+		}
+		if strings.HasSuffix(fn, ".yaml") || strings.HasSuffix(fn, ".yml") || strings.HasSuffix(fn, ".json") {
+			data, err := os.ReadFile(filepath.Join(modelDir, entry.Name()))
+			if err != nil {
+				continue
+			}
+			var cfg map[string]interface{}
+			if strings.HasSuffix(fn, ".json") {
+				if err := json.Unmarshal(data, &cfg); err != nil {
+					continue
+				}
+			} else {
+				if err := yaml.Unmarshal(data, &cfg); err != nil {
+					continue
+				}
+			}
+			if model, ok := cfg["model"].(map[string]interface{}); ok {
+				if v, ok := model["use_pope"].(bool); ok && v {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+// deriveRealStepType returns the actual model family for a pipeline step,
+// ignoring the preset's declared step type. This prevents a preset saved as
+// "demucs" from being reported as Demucs when the model is really a RoFormer,
+// MDX, SCNet, etc.
+func deriveRealStepType(step cli.PipelineStep) string {
+	model := resolveModelAlias(step.Model)
+	switch step.Type {
+	case "demucs", "vocal":
+		if isDemucsModel(model) {
+			return "demucs"
+		}
+		if isMdxModel(model) {
+			return "mdx"
+		}
+		if isScnetModel(model) {
+			return "scnet"
+		}
+		if isPolarformerModel(model) {
+			return "polarformer"
+		}
+		if isOnnxModel(model) {
+			return "mdxnet"
+		}
+		return "roformer"
+	case "rubberband":
+		return "rubberband"
+	default:
+		return step.Type
+	}
+}
+
+// stepDisplayName returns a human-readable step name that includes the real
+// model family and model name, e.g. "Voz (BS_Roformer_SW_6stem)".
+func stepDisplayName(step cli.PipelineStep) string {
+	realType := deriveRealStepType(step)
+	model := step.Model
+	if model == "" {
+		switch realType {
+		case "demucs":
+			model = "htdemucs_ft"
+		case "rubberband":
+			return "Rubberband"
+		default:
+			model = "BS_Roformer_Viperx"
+		}
+	}
+	switch realType {
+	case "roformer", "vocal":
+		return fmt.Sprintf("Voz (%s)", model)
+	case "demucs":
+		return fmt.Sprintf("Demucs (%s)", model)
+	case "mdx":
+		return fmt.Sprintf("MDX-C (%s)", model)
+	case "mdxnet":
+		return fmt.Sprintf("MDXNet (%s)", model)
+	case "scnet":
+		return fmt.Sprintf("SCNet (%s)", model)
+	case "polarformer":
+		return fmt.Sprintf("PolarFormer (%s)", model)
+	case "rubberband":
+		return "Rubberband"
+	default:
+		return fmt.Sprintf("%s (%s)", realType, model)
 	}
 }
 
