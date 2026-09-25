@@ -493,7 +493,9 @@ func TestRecordMeasuredVRAMPeak_DiscardsZeroPeak(t *testing.T) {
 		BatchSize:   1,
 		NumOverlap:  4,
 	}
-	recordMeasuredVRAMPeak(ctx, "BS_Roformer_SW_6stem", "cuda", cfg)
+	successCh := make(chan bool, 1)
+	successCh <- true
+	recordMeasuredVRAMPeak(ctx, "BS_Roformer_SW_6stem", "cuda", cfg, successCh)
 
 	// Verify the wildcard measurement is untouched.
 	fresh := newVRAMMeasuredStore(storePath)
@@ -585,5 +587,236 @@ func TestHandleVRAMCalculator_MeasuredSource(t *testing.T) {
 	}
 	if m.VRAMMB != 2800 {
 		t.Errorf("vram_mb = %d, want 2800", m.VRAMMB)
+	}
+}
+
+// TestHandleVRAMCalculator_ExactFlagsBeatPoisonedModelLevel reproduces task 56:
+// a measurement with the exact requested flags exists, but a model-level
+// wildcard carries a higher peak from a failed job. The exact measurement must
+// win and the representative (last success) value must be returned.
+func TestHandleVRAMCalculator_ExactFlagsBeatPoisonedModelLevel(t *testing.T) {
+	setupTestLogStore(t)
+	root := setTestRoot(t, "vram-exact-beats-model-")
+
+	storeDir := filepath.Join(root, "config")
+	storePath := filepath.Join(storeDir, vramMeasuredFileName)
+	if err := os.MkdirAll(storeDir, 0o755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+	resetVRAMMeasuredStoreForTests()
+	vramMeasuredStoreInstance = newVRAMMeasuredStore(storePath)
+
+	// Exact measurement for BS_Roformer_Viperx with the real flags from the UI.
+	// First a successful job peaks at 10582 MB, then a failed job peaks at
+	// 15247 MB. The historical max becomes 15247 but the representative value
+	// must stay at 10582.
+	cfg := VRAMConfig{
+		SegmentSize: 2048,
+		ChunkSize:   0,
+		BatchSize:   2,
+		NumOverlap:  8,
+	}
+	captured := vramFlagsCaptured(cfg, "vocal")
+	key := vramMeasuredKey("BS_Roformer_Viperx", "vocal", "cuda", cfg, captured)
+	getVRAMMeasuredStore().recordMeasuredAttempt(key, MeasuredVRAMRecord{
+		PeakMBMax:  10582,
+		PeakMBLast: 10582,
+		N:          1578,
+		LastTS:     time.Now().UTC(),
+		Flags:      vramFlagsFromConfig(cfg),
+		Captured:   captured,
+	}, true)
+	getVRAMMeasuredStore().recordMeasuredAttempt(key, MeasuredVRAMRecord{
+		PeakMBMax:  15247,
+		PeakMBLast: 15247,
+		N:          8,
+		LastTS:     time.Now().UTC(),
+		Flags:      vramFlagsFromConfig(cfg),
+		Captured:   captured,
+	}, false)
+
+	// Model-level wildcard poisoned by a failed batch_size=8 job that peaked at
+	// 15247 MB. This value must not become the default for the model.
+	getVRAMMeasuredStore().record("bs_roformer_viperx|vocal|cuda", 15247, 31)
+
+	if err := getVRAMMeasuredStore().save(); err != nil {
+		t.Fatalf("save failed: %v", err)
+	}
+
+	origGPU := gpuInfoProvider
+	defer func() { gpuInfoProvider = origGPU }()
+	gpuInfoProvider = func() GPUInfoResponse {
+		return GPUInfoResponse{OK: true, VRAMTotalMB: 16000, VRAMFreeMB: 12000, VRAMUsedMB: 4000}
+	}
+
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/gpu/vram-calculator?models=BS_Roformer_Viperx&chunk_size=0&segment_size=2048&num_overlap=8&batch_size=2", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp VRAMCalculatorResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if len(resp.Models) != 1 {
+		t.Fatalf("expected 1 model, got %d", len(resp.Models))
+	}
+	m := resp.Models[0]
+	if m.Source != "measured" {
+		t.Errorf("source = %q, want measured", m.Source)
+	}
+	if m.VRAMMB != 10582 {
+		t.Errorf("vram_mb = %d, want 10582", m.VRAMMB)
+	}
+	if m.MeasuredMB != 10582 {
+		t.Errorf("measured_mb = %d, want 10582", m.MeasuredMB)
+	}
+	if m.MeasuredFlags == "" {
+		t.Error("measured_flags should describe the matched flags")
+	}
+	if m.MeasuredFlags == "a nivel modelo" {
+		t.Error("measured_flags should not be the model-level fallback")
+	}
+}
+
+// TestHandleVRAMCalculator_ExactFlagsForSW6Stem reproduces task 56: when the
+// UI asks for BS_Roformer_SW_6stem with its real flags, the exact measurement
+// must be returned instead of falling back to a model-level value.
+func TestHandleVRAMCalculator_ExactFlagsForSW6Stem(t *testing.T) {
+	setupTestLogStore(t)
+	root := setTestRoot(t, "vram-exact-sw6-")
+
+	storeDir := filepath.Join(root, "config")
+	storePath := filepath.Join(storeDir, vramMeasuredFileName)
+	if err := os.MkdirAll(storeDir, 0o755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+	resetVRAMMeasuredStoreForTests()
+	vramMeasuredStoreInstance = newVRAMMeasuredStore(storePath)
+
+	cfg := VRAMConfig{
+		SegmentSize: 1101,
+		ChunkSize:   0,
+		BatchSize:   1,
+		NumOverlap:  2,
+	}
+	captured := vramFlagsCaptured(cfg, "vocal")
+	key := vramMeasuredKey("BS_Roformer_SW_6stem", "vocal", "cuda", cfg, captured)
+	rec := MeasuredVRAMRecord{
+		PeakMBMax:         4965,
+		PeakMBLast:        4965,
+		PeakMBLastSuccess: 4965,
+		N:                 842,
+		SuccessCount:      1,
+		LastTS:            time.Now().UTC(),
+		LastSuccessTS:     time.Now().UTC(),
+		Flags:             vramFlagsFromConfig(cfg),
+		Captured:          captured,
+	}
+	getVRAMMeasuredStore().recordMeasuredAttempt(key, rec, true)
+
+	// A higher model-level wildcard that could shadow the exact measurement.
+	getVRAMMeasuredStore().record("bs_roformer_sw_6stem|vocal|cuda", 11681, 12)
+
+	if err := getVRAMMeasuredStore().save(); err != nil {
+		t.Fatalf("save failed: %v", err)
+	}
+
+	origGPU := gpuInfoProvider
+	defer func() { gpuInfoProvider = origGPU }()
+	gpuInfoProvider = func() GPUInfoResponse {
+		return GPUInfoResponse{OK: true, VRAMTotalMB: 16000, VRAMFreeMB: 12000, VRAMUsedMB: 4000}
+	}
+
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/gpu/vram-calculator?models=BS_Roformer_SW_6stem&chunk_size=0&segment_size=1101&num_overlap=2&batch_size=1", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp VRAMCalculatorResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if len(resp.Models) != 1 {
+		t.Fatalf("expected 1 model, got %d", len(resp.Models))
+	}
+	m := resp.Models[0]
+	if m.Source != "measured" {
+		t.Errorf("source = %q, want measured", m.Source)
+	}
+	if m.VRAMMB != 4965 {
+		t.Errorf("vram_mb = %d, want 4965", m.VRAMMB)
+	}
+}
+
+// TestRecordMeasuredVRAMPeak_FailedJobDoesNotPoisonRepresentativeValue verifies
+// that a failed job peaking high does not overwrite the representative value
+// used by the calculator.
+func TestRecordMeasuredVRAMPeak_FailedJobDoesNotPoisonRepresentativeValue(t *testing.T) {
+	setupTestLogStore(t)
+	root := setTestRoot(t, "vram-failed-no-poison-")
+
+	storeDir := filepath.Join(root, "config")
+	storePath := filepath.Join(storeDir, vramMeasuredFileName)
+	if err := os.MkdirAll(storeDir, 0o755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+	resetVRAMMeasuredStoreForTests()
+	vramMeasuredStoreInstance = newVRAMMeasuredStore(storePath)
+
+	cfg := VRAMConfig{
+		SegmentSize: 2048,
+		ChunkSize:   0,
+		BatchSize:   2,
+	}
+	captured := vramFlagsCaptured(cfg, "vocal")
+	key := vramMeasuredKey("BS_Roformer_Viperx", "vocal", "cuda", cfg, captured)
+
+	// Successful batch_size=2 measurement.
+	getVRAMMeasuredStore().recordMeasuredAttempt(key, MeasuredVRAMRecord{
+		PeakMBMax:    10582,
+		PeakMBLast:   10582,
+		N:            1578,
+		LastTS:       time.Now().UTC(),
+		Flags:        vramFlagsFromConfig(cfg),
+		Captured:     captured,
+	}, true)
+
+	// Failed batch_size=2 job that peaked at 15247 MB. The value is stored as
+	// the historical max, but the representative value must remain 10582.
+	getVRAMMeasuredStore().recordMeasuredAttempt(key, MeasuredVRAMRecord{
+		PeakMBMax:    15247,
+		PeakMBLast:   15247,
+		N:            8,
+		LastTS:       time.Now().UTC(),
+		Flags:        vramFlagsFromConfig(cfg),
+		Captured:     captured,
+	}, false)
+
+	if err := getVRAMMeasuredStore().save(); err != nil {
+		t.Fatalf("save failed: %v", err)
+	}
+
+	rec, ok := getVRAMMeasuredStore().get(key)
+	if !ok {
+		t.Fatal("record missing")
+	}
+	if rec.PeakMBMax != 15247 {
+		t.Errorf("PeakMBMax = %d, want 15247 (failed max kept for reference)", rec.PeakMBMax)
+	}
+	if measuredVRAMValue(rec) != 10582 {
+		t.Errorf("representative value = %d, want 10582", measuredVRAMValue(rec))
 	}
 }

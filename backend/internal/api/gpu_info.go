@@ -118,11 +118,15 @@ var measuredVRAMPeaks = []measuredVRAMPeak{
 
 // findMeasuredVRAMPeak returns the measured peak in MiB for a model/step
 // combination when a matching measurement exists in the unified store. It
-// returns 0 otherwise so the analytical estimator can run (and warn).
+// returns 0 otherwise so the analytical estimator can run (and warn). The
+// representative value (last success, then last, then max) is used so failed
+// jobs cannot inflate the returned peak.
 func findMeasuredVRAMPeak(modelName, stepType, device string, cfg VRAMConfig) int {
 	rec, ok, _ := findMeasuredVRAMPeakInStore(modelName, device, cfg)
 	if ok && rec.N > 0 {
-		return rec.PeakMBMax
+		if v := measuredVRAMValue(rec); v > 0 {
+			return v
+		}
 	}
 	return 0
 }
@@ -947,7 +951,7 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 		var fallbackReason string
 		var measuredFlags string
 		if hasMeasured && measuredRec.N > 0 {
-			vramMB = measuredRec.PeakMBMax
+			vramMB = measuredVRAMValue(measuredRec)
 			source = "measured"
 			if matchLevel == vramMeasuredMatchModel {
 				measuredFlags = "a nivel modelo"
@@ -981,7 +985,7 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 			MeasuredFlags:  measuredFlags,
 		}
 		if hasMeasured && measuredRec.N > 0 {
-			entry.MeasuredMB = measuredRec.PeakMBMax
+			entry.MeasuredMB = measuredVRAMValue(measuredRec)
 			entry.MeasuredN = measuredRec.N
 			if !measuredRec.LastTS.IsZero() {
 				entry.MeasuredTS = measuredRec.LastTS.UTC().Format(time.RFC3339)
