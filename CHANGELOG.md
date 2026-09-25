@@ -1,5 +1,12 @@
 # Changelog
 
+## [v3.5.14] - 2026-09-25
+
+### Fixed
+- **El boton «Probar» guarda la medida con las flags exactas de la pantalla**: hasta ahora, en los modelos Roformer la medida se registraba con `chunk_size` en otra unidad (tramas en vez del valor del deslizador), asi que al volver a mirar la VRAM no aparecia la medida recien hecha. Ahora `chunk_size=0` es un valor valido y la clave lleva exactamente las flags de la UI.
+- **Fuera las claves corruptas del almacen de medidas**: se descartan al cargar las entradas imposibles (`chunk_size` fuera del rango de la UI, `segment_size` negativo, `demucs_segment` en modelos que no son Demucs) y se han eliminado los valores corruptos sembrados del modelo de 6 stems que reaparecian solos.
+- **Un flag desconocido ya no se ignora en silencio**: el test de VRAM responde 400 con el nombre del flag y no lanza el trabajo.
+
 ## [v3.5.13] - 2026-09-25
 
 ### Added

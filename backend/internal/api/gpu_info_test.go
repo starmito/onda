@@ -302,10 +302,10 @@ func TestHandleVRAMCalculator_UsesAnalyticalEstimates(t *testing.T) {
 		reliable bool
 	}{
 		{
-			name:     "BS_Roformer_SW_6stem uses measured peak when flags match",
-			query:    "models=BS_Roformer_SW_6stem&chunk_size=485100&batch_size=1&duration=30",
-			wantVRAM: 2803, // seeded measured peak
-			reliable: false, // chunk_size is ignored by the vocal estimate
+			name:     "SCNet_MUSDB18 uses measured peak when flags match",
+			query:    "models=SCNet_MUSDB18&chunk_size=0&batch_size=1&duration=30",
+			wantVRAM: 6372, // seeded measured peak
+			reliable: true,
 		},
 		{
 			name:     "SCNet_MUSDB18 whole song uses measured peak regardless of duration",
@@ -384,11 +384,11 @@ func TestHandleVRAMCalculator_ViperxDurationAware(t *testing.T) {
 			reliable: false,
 		},
 		{
-			name:     "SW measured peak used when flags match even for long audio",
-			query:    "models=BS_Roformer_SW_6stem&chunk_size=485100&batch_size=1&duration=300",
-			wantVRAM: 2803,
+			name:     "SCNet measured peak used when flags match even for long audio",
+			query:    "models=SCNet_MUSDB18&chunk_size=0&batch_size=1&duration=296",
+			wantVRAM: 6372,
 			fits:     true,
-			reliable: false,
+			reliable: true,
 		},
 	}
 
