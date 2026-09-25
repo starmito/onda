@@ -460,6 +460,7 @@
               flags={pipelineFlags}
               progress={currentProgress}
               steps={processingSteps}
+              jobs={queueJobs}
               gpuInfo={processStatus?.gpu}
             />
           </div>
@@ -491,6 +492,7 @@
         model={pipelineModel}
         flags={pipelineFlags}
         steps={processingSteps}
+        jobs={queueJobs}
       />
     {/if}
   {/if}
@@ -509,23 +511,24 @@
       </button>
       <span class="stop-hint">Cancela el proceso en curso y limpia la cola de espera</span>
 
-      <div class="progress-card">
-        <ProgressPanel
-          status={pipelineStatus}
-          step={pipelineStep}
-          song={pipelineSong}
-          eta={pipelineEta}
-          device={inferenceDevice}
-          model={pipelineModel}
-          flags={pipelineFlags}
-          progress={currentProgress}
-          steps={processingSteps}
-          gpuInfo={processStatus?.gpu}
-        />
-      </div>
+          <div class="progress-card">
+            <ProgressPanel
+              status={pipelineStatus}
+              step={pipelineStep}
+              song={pipelineSong}
+              eta={pipelineEta}
+              device={inferenceDevice}
+              model={pipelineModel}
+              flags={pipelineFlags}
+              progress={currentProgress}
+              steps={processingSteps}
+              jobs={queueJobs}
+              gpuInfo={processStatus?.gpu}
+            />
+          </div>
+        </section>
+      {/if}
     </section>
-  {/if}
-</section>
 
 {#if blockedMsg && !vramDismissed}
   <div class="vram-modal-overlay" role="dialog" aria-modal="true">

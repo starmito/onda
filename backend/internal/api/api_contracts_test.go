@@ -251,11 +251,12 @@ func TestContract_QueueStatus(t *testing.T) {
 	s := newContractsTestServer(t)
 
 	// Seed one job so the response is populated.
+	zero := 0
 	s.jobs["testsong"] = &JobState{
 		Song:       "testsong",
 		Status:     "waiting",
 		Progress:   0,
-		ETA:        0,
+		ETA:        &zero,
 		Elapsed:    0,
 		Index:      0,
 		CurrentStep: 1,
@@ -276,6 +277,7 @@ func TestContract_QueueStatus(t *testing.T) {
 		t.Fatalf("failed to decode queue status: %v", err)
 	}
 	assertFieldExistsAndIs(t, resp, "jobs", "array")
+	assertFieldExistsAndIs(t, resp, "overall_progress", "number")
 
 	jobs := resp["jobs"].([]interface{})
 	if len(jobs) == 0 {

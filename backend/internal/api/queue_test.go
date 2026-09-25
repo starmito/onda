@@ -937,8 +937,8 @@ func TestHandleQueueStatus_PipelineETAAndElapsed(t *testing.T) {
 	if j.Progress != 58 {
 		t.Errorf("expected progress 58, got %d", j.Progress)
 	}
-	if j.ETA != 120 {
-		t.Errorf("expected eta 120, got %d", j.ETA)
+	if j.ETA == nil || *j.ETA != 120 {
+		t.Errorf("expected eta 120, got %v", j.ETA)
 	}
 	if j.Elapsed != 179 {
 		t.Errorf("expected elapsed 179, got %d", j.Elapsed)
@@ -981,8 +981,8 @@ func TestHandleQueueStatus_DoneJobETAZero(t *testing.T) {
 	if j.Progress != 100 {
 		t.Errorf("expected progress 100 for done job, got %d", j.Progress)
 	}
-	if j.ETA != 0 {
-		t.Errorf("expected eta 0 for done job, got %d", j.ETA)
+	if j.ETA == nil || *j.ETA != 0 {
+		t.Errorf("expected eta 0 for done job, got %v", j.ETA)
 	}
 	if j.Elapsed != 0 {
 		t.Errorf("expected elapsed 0 for done job, got %d", j.Elapsed)
@@ -1014,8 +1014,8 @@ func TestHandleQueueStatus_WaitingJobETAZero(t *testing.T) {
 	if j.Progress != 0 {
 		t.Errorf("expected progress 0 for waiting job, got %d", j.Progress)
 	}
-	if j.ETA != 0 {
-		t.Errorf("expected eta 0 for waiting job, got %d", j.ETA)
+	if j.ETA == nil || *j.ETA != 0 {
+		t.Errorf("expected eta 0 for waiting job, got %v", j.ETA)
 	}
 	if j.Elapsed != 0 {
 		t.Errorf("expected elapsed 0 for waiting job, got %d", j.Elapsed)
@@ -1047,8 +1047,8 @@ func TestHandleQueueStatus_MissingStatusFileDoesNotBreak(t *testing.T) {
 	if j.Progress != 0 {
 		t.Errorf("expected progress 0 when status file missing, got %d", j.Progress)
 	}
-	if j.ETA != 0 {
-		t.Errorf("expected eta 0 when status file missing, got %d", j.ETA)
+	if j.ETA == nil || *j.ETA != 0 {
+		t.Errorf("expected eta 0 when status file missing, got %v", j.ETA)
 	}
 	if j.Elapsed != 0 {
 		t.Errorf("expected elapsed 0 when status file missing, got %d", j.Elapsed)
@@ -1101,16 +1101,16 @@ func TestHandleQueueStatus_PerSongValuesDoNotBleed(t *testing.T) {
 	if !ok {
 		t.Fatal("song-a missing from response")
 	}
-	if a.Progress != 25 || a.ETA != 60 || a.Elapsed != 20 {
-		t.Errorf("song-a mismatch: progress=%d eta=%d elapsed=%d", a.Progress, a.ETA, a.Elapsed)
+	if a.Progress != 25 || a.ETA == nil || *a.ETA != 60 || a.Elapsed != 20 {
+		t.Errorf("song-a mismatch: progress=%d eta=%v elapsed=%d", a.Progress, a.ETA, a.Elapsed)
 	}
 
 	b, ok := bySong["song-b"]
 	if !ok {
 		t.Fatal("song-b missing from response")
 	}
-	if b.Progress != 75 || b.ETA != 15 || b.Elapsed != 45 {
-		t.Errorf("song-b mismatch: progress=%d eta=%d elapsed=%d", b.Progress, b.ETA, b.Elapsed)
+	if b.Progress != 75 || b.ETA == nil || *b.ETA != 15 || b.Elapsed != 45 {
+		t.Errorf("song-b mismatch: progress=%d eta=%v elapsed=%d", b.Progress, b.ETA, b.Elapsed)
 	}
 }
 
