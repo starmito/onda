@@ -1,5 +1,20 @@
 # Changelog
 
+## [v3.5.10] - 2026-09-25
+
+### Fixed
+- **La pantalla de modelos no encontraba las medidas de VRAM que sí existian**: la consulta del calculador se construia en otra unidad que la clave del almacen (`num_overlap` se mandaba como fraccion `1/n` en vez de como cuenta) y `chunk_size = 0` (el valor de los dos modelos RoFormer) se omitia por completo, asi que no coincidia nunca ninguna medida y la pantalla caia al estimado o a un valor del modelo. Ahora se manda la cuenta y el 0 se envia como un valor mas. Caso real: 6 stems mostraba «estimado» teniendo 4965 MB medidos.
+- **Un valor del modelo podia venir inflado por trabajos que fallaron**: al caer a la medida del modelo se mostraba el maximo de todos los trabajos, incluido uno que revento con `batch_size=8` (14593 MB). Ahora la pantalla indica de donde sale la cifra y con que flags se midio.
+- **Medidas falsas de 0 MB**: un trabajo que no llegaba a arrancar podia registrar un pico de 0 MB y machacar una medida buena. Ya no se registra ni se lee una medida sin trabajo real.
+- **El ETA mentia al arrancar**: publicaba `eta: 0` cuando todavia no habia datos suficientes (solo se ocultaba en la interfaz). Ahora no se publica ETA hasta tener muestras reales.
+
+### Added
+- **La carpeta de exportaciones sale en Almacenamiento**: aparece en el inventario con su tamano y un boton propio para vaciarla, sin tocar stems ni modelos.
+- **Borrar un trabajo concreto de la cola**: `DELETE /api/queue/{song}` y una X por fila con confirmacion. Antes la X borraba el fichero de la lista de seleccion y el boton «Limpiar» vaciaba la cola entera.
+
+### Changed
+- **Progreso global honesto con varias canciones o pasos**: los trabajos son consecutivos (nunca en paralelo), asi que el global deja de ser una media de pasos y pasa a ser la **suma proporcional al numero de trabajos** (con 2 canciones, la primera terminada = 50 %). Cada cancion tiene su **barra propia**, con el paso en curso y su ETA.
+
 ## [v3.5.9] - 2026-09-24
 
 ### Fixed
