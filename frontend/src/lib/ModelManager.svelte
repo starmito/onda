@@ -335,13 +335,17 @@
     if (entry.source === 'measured' && entry.measured_mb && entry.measured_mb > 0) {
       const n = entry.measured_n ?? 0;
       const date = entry.measured_ts ? new Date(entry.measured_ts).toLocaleDateString() : '';
+      const flags = entry.measured_flags ?? '';
+      let base = 'medido';
       if (n > 0 && date) {
-        return `medido (n=${n}, ${date})`;
+        base = `medido (n=${n}, ${date})`;
+      } else if (n > 0) {
+        base = `medido (n=${n})`;
       }
-      if (n > 0) {
-        return `medido (n=${n})`;
+      if (flags) {
+        return `${base} · ${flags}`;
       }
-      return 'medido';
+      return base;
     }
     return entry.fallback_reason ? `estimado · ${entry.fallback_reason}` : 'estimado';
   }
