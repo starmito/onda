@@ -46,6 +46,7 @@ func newQueueTestServer(t *testing.T) *Server {
 	s.mux.HandleFunc("POST /api/separate", s.handleSeparate)
 	s.mux.HandleFunc("GET /api/queue/status", s.handleQueueStatus)
 	s.mux.HandleFunc("DELETE /api/queue", s.handleQueueClear)
+	s.mux.HandleFunc("DELETE /api/queue/{song}", s.handleQueueRemoveSong)
 	s.mux.HandleFunc("POST /api/queue/cancel", s.handleQueueCancel)
 	s.mux.HandleFunc("DELETE /api/delete", s.handleDeleteFile)
 	return s
@@ -936,8 +937,8 @@ func TestHandleQueueStatus_PipelineETAAndElapsed(t *testing.T) {
 	if j.Progress != 58 {
 		t.Errorf("expected progress 58, got %d", j.Progress)
 	}
-	if j.ETA != 120 {
-		t.Errorf("expected eta 120, got %d", j.ETA)
+	if j.ETA == nil || *j.ETA != 120 {
+		t.Errorf("expected eta 120, got %v", j.ETA)
 	}
 	if j.Elapsed != 179 {
 		t.Errorf("expected elapsed 179, got %d", j.Elapsed)
@@ -980,8 +981,8 @@ func TestHandleQueueStatus_DoneJobETAZero(t *testing.T) {
 	if j.Progress != 100 {
 		t.Errorf("expected progress 100 for done job, got %d", j.Progress)
 	}
-	if j.ETA != 0 {
-		t.Errorf("expected eta 0 for done job, got %d", j.ETA)
+	if j.ETA == nil || *j.ETA != 0 {
+		t.Errorf("expected eta 0 for done job, got %v", j.ETA)
 	}
 	if j.Elapsed != 0 {
 		t.Errorf("expected elapsed 0 for done job, got %d", j.Elapsed)
@@ -1013,8 +1014,8 @@ func TestHandleQueueStatus_WaitingJobETAZero(t *testing.T) {
 	if j.Progress != 0 {
 		t.Errorf("expected progress 0 for waiting job, got %d", j.Progress)
 	}
-	if j.ETA != 0 {
-		t.Errorf("expected eta 0 for waiting job, got %d", j.ETA)
+	if j.ETA == nil || *j.ETA != 0 {
+		t.Errorf("expected eta 0 for waiting job, got %v", j.ETA)
 	}
 	if j.Elapsed != 0 {
 		t.Errorf("expected elapsed 0 for waiting job, got %d", j.Elapsed)
@@ -1046,8 +1047,8 @@ func TestHandleQueueStatus_MissingStatusFileDoesNotBreak(t *testing.T) {
 	if j.Progress != 0 {
 		t.Errorf("expected progress 0 when status file missing, got %d", j.Progress)
 	}
-	if j.ETA != 0 {
-		t.Errorf("expected eta 0 when status file missing, got %d", j.ETA)
+	if j.ETA == nil || *j.ETA != 0 {
+		t.Errorf("expected eta 0 when status file missing, got %v", j.ETA)
 	}
 	if j.Elapsed != 0 {
 		t.Errorf("expected elapsed 0 when status file missing, got %d", j.Elapsed)
@@ -1100,16 +1101,16 @@ func TestHandleQueueStatus_PerSongValuesDoNotBleed(t *testing.T) {
 	if !ok {
 		t.Fatal("song-a missing from response")
 	}
-	if a.Progress != 25 || a.ETA != 60 || a.Elapsed != 20 {
-		t.Errorf("song-a mismatch: progress=%d eta=%d elapsed=%d", a.Progress, a.ETA, a.Elapsed)
+	if a.Progress != 25 || a.ETA == nil || *a.ETA != 60 || a.Elapsed != 20 {
+		t.Errorf("song-a mismatch: progress=%d eta=%v elapsed=%d", a.Progress, a.ETA, a.Elapsed)
 	}
 
 	b, ok := bySong["song-b"]
 	if !ok {
 		t.Fatal("song-b missing from response")
 	}
-	if b.Progress != 75 || b.ETA != 15 || b.Elapsed != 45 {
-		t.Errorf("song-b mismatch: progress=%d eta=%d elapsed=%d", b.Progress, b.ETA, b.Elapsed)
+	if b.Progress != 75 || b.ETA == nil || *b.ETA != 15 || b.Elapsed != 45 {
+		t.Errorf("song-b mismatch: progress=%d eta=%v elapsed=%d", b.Progress, b.ETA, b.Elapsed)
 	}
 }
 
@@ -1290,5 +1291,136 @@ func TestHandleQueueStatus_StepNotDoneClampedFrom100(t *testing.T) {
 	}
 	if j.Progress >= 100 {
 		t.Errorf("expected unfinished job progress below 100, got %d", j.Progress)
+	}
+}
+
+func TestHandleQueueRemoveSong_RemovesOneJob(t *testing.T) {
+	setupQueueTestRoot(t)
+	s := newQueueTestServer(t)
+
+	s.jobsMu.Lock()
+	s.jobs["keep-song"] = &JobState{Song: "keep-song", Status: "waiting"}
+	s.jobs["remove-song"] = &JobState{Song: "remove-song", Status: "waiting"}
+	s.jobsMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/queue/remove-song", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp map[string]string
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp["status"] != "removed" {
+		t.Errorf("expected status removed, got %q", resp["status"])
+	}
+	if resp["song"] != "remove-song" {
+		t.Errorf("expected song remove-song, got %q", resp["song"])
+	}
+
+	s.jobsMu.RLock()
+	defer s.jobsMu.RUnlock()
+	if _, ok := s.jobs["remove-song"]; ok {
+		t.Error("remove-song should have been deleted")
+	}
+	if _, ok := s.jobs["keep-song"]; !ok {
+		t.Error("keep-song should still be in the queue")
+	}
+}
+
+func TestHandleQueueRemoveSong_CancelsProcessingJob(t *testing.T) {
+	setupQueueTestRoot(t)
+	s := newQueueTestServer(t)
+
+	var cancelled bool
+	s.currentCancel = func() { cancelled = true }
+	s.currentPID = 4242
+
+	origKillGroup := killProcessGroup
+	killProcessGroup = func(pgid int) error { return nil }
+	defer func() { killProcessGroup = origKillGroup }()
+
+	origKill := killProcess
+	killProcess = func(pid int) error { return nil }
+	defer func() { killProcess = origKill }()
+
+	s.jobsMu.Lock()
+	s.jobs["processing-song"] = &JobState{Song: "processing-song", Status: "processing"}
+	s.jobs["waiting-song"] = &JobState{Song: "waiting-song", Status: "waiting"}
+	s.jobsMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/queue/processing-song", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	if !cancelled {
+		t.Error("expected processing job to be cancelled")
+	}
+
+	s.jobsMu.RLock()
+	defer s.jobsMu.RUnlock()
+	if _, ok := s.jobs["processing-song"]; ok {
+		t.Error("processing-song should have been deleted")
+	}
+	if _, ok := s.jobs["waiting-song"]; !ok {
+		t.Error("waiting-song should still be in the queue")
+	}
+}
+
+func TestHandleQueueRemoveSong_DoesNotDeleteUserFiles(t *testing.T) {
+	root := setupQueueTestRoot(t)
+	s := newQueueTestServer(t)
+
+	songDir := filepath.Join(root, "output", "song")
+	if err := os.MkdirAll(songDir, 0o755); err != nil {
+		t.Fatalf("failed to create song dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(songDir, "vocals.wav"), []byte("stem"), 0o644); err != nil {
+		t.Fatalf("failed to create vocals.wav: %v", err)
+	}
+
+	s.jobsMu.Lock()
+	s.jobs["song"] = &JobState{
+		Song:   "song",
+		Status: "done",
+		Files:  []FileEntry{{Name: "vocals.wav", Path: "/api/files/song/vocals.wav"}},
+	}
+	s.jobsMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/queue/song", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	if _, err := os.Stat(filepath.Join(songDir, "vocals.wav")); err != nil {
+		t.Errorf("user file should not be deleted when removing queue entry")
+	}
+}
+
+func TestHandleQueueRemoveSong_MissingSong(t *testing.T) {
+	setupQueueTestRoot(t)
+	s := newQueueTestServer(t)
+
+	s.jobsMu.Lock()
+	s.jobs["song"] = &JobState{Song: "song", Status: "waiting"}
+	s.jobsMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/queue/missing", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNotFound {
+		t.Fatalf("expected 404, got %d: %s", rr.Code, rr.Body.String())
 	}
 }

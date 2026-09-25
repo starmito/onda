@@ -475,7 +475,7 @@ export interface QueueJob {
   current_step?: number;
   total_steps?: number;
   step_name?: string;
-  eta?: string;
+  eta?: number;
   device?: string;
   gpu_type?: string;
   ran_on_cpu?: boolean;
@@ -489,6 +489,7 @@ export interface QueueJob {
 
 export interface QueueStatusResponse {
   jobs: QueueJob[];
+  overall_progress?: number;
 }
 
 export async function getQueueStatus(): Promise<QueueStatusResponse> {
@@ -511,6 +512,16 @@ export async function clearQueue(): Promise<void> {
   if (!res.ok) {
     throw new Error(`Queue clear failed with status ${res.status}: ${res.statusText}`);
   }
+}
+
+export async function deleteQueueSong(song: string): Promise<{ status: string; song: string }> {
+  const res = await fetch(`${API_BASE}/api/queue/${encodeURIComponent(song)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    throw new Error(`Queue remove failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as { status: string; song: string };
 }
 
 export async function cancelQueue(): Promise<{ status: string }> {
@@ -1164,6 +1175,7 @@ export interface VRAMModelEntry {
   measured_mb?: number;
   measured_n?: number;
   measured_ts?: string;
+  measured_flags?: string;
   estimated_mb?: number;
   fallback_reason?: string;
 }
@@ -1204,11 +1216,11 @@ export function buildVRAMCalculatorParams(
   }
   if ('num_overlap' in values) {
     const v = Number(values['num_overlap']);
-    if (v > 0) params.overlap = 1 / v;
+    if (v > 0) params.overlap = v;
   }
   if ('chunk_size' in values) {
     const v = Number(values['chunk_size']);
-    if (v > 0) params.chunk_size = v;
+    if (v >= 0) params.chunk_size = v;
   }
   if ('batch_size' in values) {
     const v = Number(values['batch_size']);
@@ -1232,7 +1244,7 @@ export function buildVRAMCalculatorParams(
 export async function getVRAMCalculator(params: VRAMCalculatorParams): Promise<VRAMCalculatorResponse> {
   const qs = new URLSearchParams();
   qs.set('models', params.models);
-  if (params.chunk_size !== undefined && params.chunk_size > 0) {
+  if (params.chunk_size !== undefined && params.chunk_size >= 0) {
     qs.set('chunk_size', String(params.chunk_size));
   }
   if (params.shifts !== undefined && params.shifts > 0) {
@@ -1242,7 +1254,7 @@ export async function getVRAMCalculator(params: VRAMCalculatorParams): Promise<V
     qs.set('segment_size', String(params.segment_size));
   }
   if (params.overlap !== undefined && params.overlap > 0) {
-    qs.set('overlap', String(params.overlap));
+    qs.set('num_overlap', String(params.overlap));
   }
   if (params.batch_size !== undefined && params.batch_size > 0) {
     qs.set('batch_size', String(params.batch_size));
@@ -1546,6 +1558,12 @@ export async function setExportDir(exportDir: string): Promise<StorageConfig> {
   return (await res.json()) as StorageConfig;
 }
 
+export interface CleanResponse {
+  action: string;
+  files: number;
+  bytes: number;
+}
+
 export async function setConfigDir(configDir: string): Promise<StorageConfig> {
   const res = await fetch(`${API_BASE}/api/storage/config`, {
     method: 'POST',
@@ -1563,6 +1581,25 @@ export async function setConfigDir(configDir: string): Promise<StorageConfig> {
     throw new Error(detail);
   }
   return (await res.json()) as StorageConfig;
+}
+
+export async function cleanExports(): Promise<CleanResponse> {
+  const res = await fetch(`${API_BASE}/api/storage/exports/clean`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) {
+    let detail = `Request failed with status ${res.status}: ${res.statusText}`;
+    try {
+      const data = (await res.json()) as { error?: string };
+      if (data.error) detail = data.error;
+    } catch {
+      // keep default detail
+    }
+    throw new Error(detail);
+  }
+  return (await res.json()) as CleanResponse;
 }
 
 // ---- DAW EQ ----

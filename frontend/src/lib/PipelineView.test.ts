@@ -136,7 +136,7 @@ describe('PipelineView', () => {
     unmount(app);
   });
 
-  it('renders per-step progress bars when the active job exposes steps', () => {
+  it('renders per-song progress bars when jobs are provided', () => {
     const queueFiles: QueueFile[] = [
       {
         file: new File([], 'song.wav'),
@@ -167,18 +167,17 @@ describe('PipelineView', () => {
       queueJobs,
       separating: true,
       hidePresetSelector: true,
-      currentProgress: 0.8,
+      currentProgress: 0.5,
     });
 
-    const rows = target.querySelectorAll('[data-testid="step-row"]');
-    expect(rows.length).toBe(2);
+    const rows = target.querySelectorAll('[data-testid="job-row"]');
+    expect(rows.length).toBe(1);
 
-    const pcts = Array.from(target.querySelectorAll('.step-pct')).map((el) => el.textContent);
-    expect(pcts).toContain('100%');
-    expect(pcts).toContain('60%');
+    const pcts = Array.from(target.querySelectorAll('.job-pct')).map((el) => el.textContent);
+    expect(pcts).toContain('50%');
 
     const globalPct = target.querySelector('.progress-pct')?.textContent;
-    expect(globalPct).toBe('80%');
+    expect(globalPct).toBe('50%');
 
     unmount(app);
   });
@@ -210,37 +209,36 @@ describe('PipelineView', () => {
       currentProgress: 0.4,
     });
 
-    expect(target.querySelector('[data-testid="steps-list"]')).not.toBeNull();
-    const rows = target.querySelectorAll('[data-testid="step-row"]');
-    expect(rows.length).toBe(2);
+    expect(target.querySelector('[data-testid="jobs-list"]')).not.toBeNull();
+    const rows = target.querySelectorAll('[data-testid="job-row"]');
+    expect(rows.length).toBe(1);
 
-    const pcts = Array.from(target.querySelectorAll('.step-pct')).map((el) => el.textContent);
-    expect(pcts).toContain('80%');
-    expect(pcts).toContain('0%');
+    const pcts = Array.from(target.querySelectorAll('.job-pct')).map((el) => el.textContent);
+    expect(pcts).toContain('40%');
 
     unmount(app);
   });
 
-  it('keeps the legacy global bar when the active job has no steps', () => {
+  it('renders one bar per song when multiple jobs are active', () => {
     const queueFiles: QueueFile[] = [
       {
-        file: new File([], 'song.wav'),
-        id: 's1',
+        file: new File([], 'a.wav'),
+        id: 'a1',
         status: 'processing',
         checked: false,
-        path: 'uploads/song.wav',
+        path: 'uploads/a.wav',
+      },
+      {
+        file: new File([], 'b.wav'),
+        id: 'b1',
+        status: 'waiting',
+        checked: false,
+        path: 'uploads/b.wav',
       },
     ];
     const queueJobs: QueueJob[] = [
-      {
-        song: 'song',
-        status: 'processing',
-        progress: 55,
-        current_step: 1,
-        total_steps: 1,
-        step_name: 'Separando',
-        device: 'cuda',
-      },
+      { song: 'a', status: 'processing', progress: 50, current_step: 1, total_steps: 1, step_name: 'Voz', device: 'cuda' },
+      { song: 'b', status: 'waiting', progress: 0 },
     ];
 
     const { app } = render({
@@ -248,11 +246,60 @@ describe('PipelineView', () => {
       queueJobs,
       separating: true,
       hidePresetSelector: true,
-      currentProgress: 0.55,
+      currentProgress: 0.25,
     });
 
-    expect(target.querySelector('[data-testid="steps-list"]')).toBeNull();
-    expect(target.querySelector('.progress-pct')?.textContent).toBe('55%');
+    const rows = target.querySelectorAll('[data-testid="job-row"]');
+    expect(rows.length).toBe(2);
+
+    const names = Array.from(target.querySelectorAll('.job-name')).map((el) => el.textContent);
+    expect(names).toEqual(['a', 'b']);
+
+    expect(target.querySelector('.progress-count')?.textContent).toBe('0/2 canciones');
+
+    unmount(app);
+  });
+
+  it('clicking the row remove button calls DELETE /api/queue/{song}', async () => {
+    globalThis.fetch = vi.fn((url: RequestInfo | URL) => {
+      const path = typeof url === 'string' ? url : url.toString();
+      if (path.includes('/api/queue/song')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ status: 'removed', song: 'song' }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    });
+    vi.stubGlobal('confirm', vi.fn(() => true));
+
+    const queueFiles: QueueFile[] = [
+      {
+        file: new File([], 'song.wav'),
+        id: 's1',
+        status: 'waiting',
+        checked: false,
+        path: 'uploads/song.wav',
+      },
+    ];
+    const onQueueChange = vi.fn();
+
+    const { app } = render({ queueFiles, onQueueChange });
+    await new Promise((r) => setTimeout(r, 50));
+
+    const removeButton = target.querySelector('.btn-remove') as HTMLButtonElement;
+    expect(removeButton).not.toBeNull();
+
+    removeButton.click();
+    await new Promise((r) => setTimeout(r, 50));
+
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    const deleteCall = calls.find((call: any[]) =>
+      typeof call[0] === 'string' && call[0].includes('/api/queue/song')
+    );
+    expect(deleteCall).toBeTruthy();
+    expect(deleteCall![1]).toMatchObject({ method: 'DELETE' });
+    expect(onQueueChange).toHaveBeenCalled();
 
     unmount(app);
   });

@@ -770,22 +770,9 @@
         pipelineEta = '';
       }
 
-      // Calculate total progress across the active batch using the backend's
-      // per-job progress. The backend already aggregates step progress honestly,
-      // so the frontend must not recalculate it from current_step/total_steps.
-      const songsToCount = activeSongNames.size > 0 ? activeSongNames : new Set(jobs.map(j => j.song));
-      if (jobs.length > 0 && songsToCount.size > 0) {
-        let totalProgress = 0;
-        let count = 0;
-        for (const job of jobs) {
-          if (!songsToCount.has(job.song)) continue;
-          totalProgress += job.progress ?? 0;
-          count++;
-        }
-        if (count > 0) {
-          currentProgress = totalProgress / (count * 100);
-        }
-      }
+      // The backend computes the honest proportional global progress across
+      // all queued songs (consecutive, not averaged steps). Use it directly.
+      currentProgress = (status.overall_progress ?? 0) / 100;
 
       // Rebuild results from the current authoritative job.files and surface
       // per-job errors once per song.

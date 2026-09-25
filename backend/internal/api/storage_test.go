@@ -17,7 +17,7 @@ func setupStorageTestRoot(t *testing.T) string {
 	t.Helper()
 	root := setTestRoot(t, "storage-test-")
 
-	for _, dir := range []string{"input", "input_rubberband", "daw-data", "output", "models", "logs"} {
+	for _, dir := range []string{"input", "input_rubberband", "daw-data", "output", "models", "logs", "exports"} {
 		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
 			t.Fatalf("failed to create %s: %v", dir, err)
 		}
@@ -30,6 +30,7 @@ func newStorageTestServer(t *testing.T) *httptest.Server {
 	s := &Server{mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /api/storage/usage", s.handleStorageUsage)
 	s.mux.HandleFunc("POST /api/storage/clean", s.handleStorageClean)
+	s.mux.HandleFunc("POST /api/storage/exports/clean", s.handleStorageExportsClean)
 	srv := httptest.NewServer(s.mux)
 	t.Cleanup(srv.Close)
 	return srv
@@ -671,6 +672,126 @@ func TestStorageConfigPost_Traversal(t *testing.T) {
 	b, _ := io.ReadAll(resp.Body)
 	if !bytes.Contains(b, []byte("parent references")) && !bytes.Contains(b, []byte("..")) {
 		t.Errorf("expected clear traversal error, got %s", string(b))
+	}
+}
+
+func TestStorageUsage_IncludesExports(t *testing.T) {
+	root := setupStorageTestRoot(t)
+
+	writeTestFile(t, filepath.Join(root, "exports", "mix.wav"), []byte("mix"))
+	writeTestFile(t, filepath.Join(root, "exports", "midi"), []byte("midi"))
+
+	srv := newStorageTestServer(t)
+	resp, err := srv.Client().Get(srv.URL + "/api/storage/usage")
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(b))
+	}
+
+	var body struct {
+		Folders map[string]folderUsage `json:"folders"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+
+	if _, ok := body.Folders["exports"]; !ok {
+		t.Fatalf("missing exports folder key")
+	}
+	if body.Folders["exports"].Files != 2 {
+		t.Errorf("exports files: expected 2, got %d", body.Folders["exports"].Files)
+	}
+	if body.Folders["exports"].Bytes != 7 {
+		t.Errorf("exports bytes: expected 7, got %d", body.Folders["exports"].Bytes)
+	}
+}
+
+func TestStorageExportsClean_RemovesOnlyExports(t *testing.T) {
+	root := setupStorageTestRoot(t)
+
+	writeTestFile(t, filepath.Join(root, "exports", "mix.wav"), []byte("mixdown"))
+	writeTestFile(t, filepath.Join(root, "exports", "sub", "nested.flac"), []byte("nested"))
+	writeTestFile(t, filepath.Join(root, "output", "song", "vocals.wav"), []byte("vocals"))
+	writeTestFile(t, filepath.Join(root, "models", "model.pth"), []byte("model"))
+	writeTestFile(t, filepath.Join(root, "config", "presets.yaml"), []byte("preset"))
+	writeTestFile(t, filepath.Join(root, "logs", "onda.log"), []byte("log"))
+
+	srv := newStorageTestServer(t)
+	resp, err := srv.Client().Post(srv.URL+"/api/storage/exports/clean", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(resp.Body)
+		t.Fatalf("expected 200, got %d: %s", resp.StatusCode, string(b))
+	}
+
+	var result cleanResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if result.Action != "exports" {
+		t.Errorf("expected action exports, got %q", result.Action)
+	}
+	if result.Files != 2 {
+		t.Errorf("expected 2 files deleted, got %d", result.Files)
+	}
+	wantBytes := int64(len("mixdown") + len("nested"))
+	if result.Bytes != wantBytes {
+		t.Errorf("expected %d bytes deleted, got %d", wantBytes, result.Bytes)
+	}
+
+	for _, p := range []string{
+		filepath.Join(root, "output", "song", "vocals.wav"),
+		filepath.Join(root, "models", "model.pth"),
+		filepath.Join(root, "config", "presets.yaml"),
+		filepath.Join(root, "logs", "onda.log"),
+	} {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("exports clean should not delete: %s (%v)", p, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(root, "exports", "mix.wav")); !os.IsNotExist(err) {
+		t.Errorf("export file should have been deleted")
+	}
+	if _, err := os.Stat(filepath.Join(root, "exports", "sub", "nested.flac")); !os.IsNotExist(err) {
+		t.Errorf("nested export file should have been deleted")
+	}
+}
+
+func TestStorageExportsClean_RejectsOutsideDataRoot(t *testing.T) {
+	setupStorageTestRoot(t)
+
+	outside, err := os.MkdirTemp("", "onda-exports-outside-")
+	if err != nil {
+		t.Fatalf("failed to create outside dir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(outside) })
+
+	t.Setenv("ONDA_EXPORT_DIR", outside)
+
+	writeTestFile(t, filepath.Join(outside, "mix.wav"), []byte("mix"))
+
+	srv := newStorageTestServer(t)
+	resp, err := srv.Client().Post(srv.URL+"/api/storage/exports/clean", "application/json", strings.NewReader("{}"))
+	if err != nil {
+		t.Fatalf("request failed: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("expected 403, got %d", resp.StatusCode)
+	}
+
+	if _, err := os.Stat(filepath.Join(outside, "mix.wav")); err != nil {
+		t.Errorf("outside export file should not have been touched")
 	}
 }
 

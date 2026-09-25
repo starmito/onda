@@ -353,7 +353,64 @@ describe('ModelManager flags from API', () => {
     unmount(app);
   });
 
-  it('shows "medido" label with sample count when VRAM calculation is measured', async () => {
+  it('shows "medido" label with sample count and measured flags when VRAM calculation is measured', async () => {
+    const measuredCalc: VRAMCalculatorResponse = {
+      models: [{
+        name: 'BS-Rofo-SW-Fixed',
+        type: 'vocal',
+        vram_mb: 2441,
+        source: 'measured',
+        measured_mb: 2441,
+        measured_n: 128,
+        measured_ts: '2026-09-24T19:11:39Z',
+        measured_flags: 'batch_size=1, chunk_size=0, segment_size=1101',
+        estimated_mb: 2000,
+      }],
+      total_vram_mb: 2441,
+      available_vram_mb: 15475,
+      free_after_mb: 13034,
+      fits: true,
+      reliable: true,
+    };
+
+    globalThis.fetch = vi.fn().mockImplementation(async (url: string | URL) => {
+      const u = url.toString();
+      if (u.includes('/api/models/list')) {
+        return { ok: true, status: 200, json: async () => models } as Response;
+      }
+      if (u.includes('/api/gpu/info')) {
+        return { ok: true, status: 200, json: async () => gpuInfo } as Response;
+      }
+      if (u.includes('models') && u.includes('config')) {
+        return { ok: true, status: 200, json: async () => swFlags } as Response;
+      }
+      if (u.includes('/api/gpu/vram-calculator')) {
+        return { ok: true, status: 200, json: async () => measuredCalc } as Response;
+      }
+      throw new Error(`Unexpected fetch: ${u}`);
+    });
+
+    const app = mount(ModelManager, {
+      target,
+      props: { initialModel: 'BS-Rofo-SW-Fixed' },
+    });
+
+    await vi.waitFor(
+      () => expect(target.textContent).toContain('medido'),
+      { timeout: 2000 },
+    );
+
+    const text = target.textContent ?? '';
+    expect(text).toContain('n=128');
+    expect(text).toContain('batch_size=1');
+    expect(text).toContain('segment_size=1101');
+    expect(text).toContain('2.4 GB');
+    expect(text).not.toContain('estimado');
+
+    unmount(app);
+  });
+
+  it('shows "medido" label with model-level flags fallback when VRAM calculation uses cascade level 2', async () => {
     const measuredCalc: VRAMCalculatorResponse = {
       models: [{
         name: 'BS-Rofo-SW-Fixed',
@@ -363,6 +420,7 @@ describe('ModelManager flags from API', () => {
         measured_mb: 4137,
         measured_n: 92,
         measured_ts: '2026-09-24T19:11:39Z',
+        measured_flags: 'a nivel modelo',
         estimated_mb: 2000,
       }],
       total_vram_mb: 4137,
@@ -401,6 +459,7 @@ describe('ModelManager flags from API', () => {
 
     const text = target.textContent ?? '';
     expect(text).toContain('n=92');
+    expect(text).toContain('a nivel modelo');
     expect(text).toContain('4.0 GB');
     expect(text).not.toContain('estimado');
 

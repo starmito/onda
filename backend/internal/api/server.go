@@ -97,7 +97,7 @@ type JobState struct {
 	Song             string      `json:"song"`
 	Status           string      `json:"status"` // waiting, processing, done, error, blocked_no_gpu
 	Progress         int         `json:"progress"`
-	ETA              int         `json:"eta"`
+	ETA              *int        `json:"eta,omitempty"`
 	Elapsed          int         `json:"elapsed"`
 	Error            string                `json:"error,omitempty"`
 	FailureDetails   *FailureDiagnostics   `json:"failure_details,omitempty"`
@@ -230,6 +230,7 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("GET /api/queue/status", s.handleQueueStatus)
 	s.mux.HandleFunc("GET /api/processes/status", s.handleProcessStatus)
 	s.mux.HandleFunc("DELETE /api/queue", s.handleQueueClear)
+	s.mux.HandleFunc("DELETE /api/queue/{song}", s.handleQueueRemoveSong)
 	s.mux.HandleFunc("POST /api/queue/cancel", s.handleQueueCancel)
 	s.mux.HandleFunc("GET /api/results", s.handleResults)
 	s.mux.HandleFunc("GET /api/inputs", s.handleInputs)
@@ -249,6 +250,7 @@ func NewServer(addr string) *http.Server {
 	// Storage API
 	s.mux.HandleFunc("GET /api/storage/usage", s.handleStorageUsage)
 	s.mux.HandleFunc("POST /api/storage/clean", s.handleStorageClean)
+	s.mux.HandleFunc("POST /api/storage/exports/clean", s.handleStorageExportsClean)
 	s.mux.HandleFunc("GET /api/storage/config", s.handleStorageConfigGet)
 	s.mux.HandleFunc("POST /api/storage/config", s.handleStorageConfigPost)
 	s.mux.HandleFunc("GET /api/export/files/{file}", s.handleExportFileServe)
@@ -957,6 +959,40 @@ func computeJobProgress(steps []Step, liveProgress float64, jobStatus string) in
 	return progress
 }
 
+// computeQueueProgress returns the proportional global progress for the whole
+// queue. Every song weighs the same: finished jobs count as 100, waiting jobs
+// as 0, and the processing job contributes its current per-step progress.
+// The result is rounded to the nearest integer and clamped below 100 until all
+// jobs are done.
+func computeQueueProgress(jobs []*JobState) int {
+	if len(jobs) == 0 {
+		return 0
+	}
+	var sum int
+	allDone := true
+	for _, j := range jobs {
+		p := j.Progress
+		if p < 0 {
+			p = 0
+		}
+		if p > 100 {
+			p = 100
+		}
+		sum += p
+		if j.Status != "done" {
+			allDone = false
+		}
+	}
+	global := int(math.Round(float64(sum) / float64(len(jobs))))
+	if global < 0 {
+		global = 0
+	}
+	if !allDone && global >= 100 {
+		global = 99
+	}
+	return global
+}
+
 // collectQueueJobs returns the current list of jobs ordered by status priority.
 // It mirrors the internal logic of handleQueueStatus so it can be reused by
 // the real-time process status endpoint.
@@ -1057,27 +1093,38 @@ func (s *Server) collectQueueJobs() []*JobState {
 			if liveProgress > 1 {
 				liveProgress = 1
 			}
-			j.Progress = computeJobProgress(j.StepList, liveProgress, j.Status)
-			j.ETA = int(st.ETA)
-			j.Elapsed = int(st.Elapsed)
-			// Ensure total_steps is at least current_step
-			if j.TotalSteps < j.CurrentStep {
-				j.TotalSteps = j.CurrentStep
-			}
-		} else if j.Status == "done" {
-			j.Progress = 100
-			j.ETA = 0
-			j.Elapsed = 0
-			j.StepName = "Completado"
-			j.CurrentStep = j.TotalSteps
-		} else if j.Status == "error" {
-			j.FailureDetails = readFailureDiagnostics(outputDir, j.Song)
-			j.ETA = 0
-			j.Elapsed = 0
+		j.Progress = computeJobProgress(j.StepList, liveProgress, j.Status)
+		// Only publish an ETA once the tracker has a real estimate. A value of
+		// zero while the step is running means "not enough data yet"; omit the
+		// field so the API does not advertise a fake "almost done" ETA.
+		if st.ETA > 0 {
+			eta := int(st.ETA)
+			j.ETA = &eta
 		} else {
-			j.ETA = 0
-			j.Elapsed = 0
+			j.ETA = nil
 		}
+		j.Elapsed = int(st.Elapsed)
+		// Ensure total_steps is at least current_step
+		if j.TotalSteps < j.CurrentStep {
+			j.TotalSteps = j.CurrentStep
+		}
+	} else if j.Status == "done" {
+		j.Progress = 100
+		zero := 0
+		j.ETA = &zero
+		j.Elapsed = 0
+		j.StepName = "Completado"
+		j.CurrentStep = j.TotalSteps
+	} else if j.Status == "error" {
+		j.FailureDetails = readFailureDiagnostics(outputDir, j.Song)
+		zero := 0
+		j.ETA = &zero
+		j.Elapsed = 0
+	} else {
+		zero := 0
+		j.ETA = &zero
+		j.Elapsed = 0
+	}
 		j.Device = st.Device
 		j.GPUType = st.GPUType
 		j.RanOnCPU = strings.EqualFold(st.Device, "cpu")
@@ -1109,7 +1156,10 @@ func (s *Server) handleQueueStatus(w http.ResponseWriter, r *http.Request) {
 	jobList := s.collectQueueJobs()
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{"jobs": jobList})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"jobs":             jobList,
+		"overall_progress": computeQueueProgress(jobList),
+	})
 }
 
 // cancelCurrentJob stops the running pipeline subprocess and its whole process
@@ -1160,6 +1210,49 @@ func (s *Server) handleQueueClear(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "cleared"})
+}
+
+// handleQueueRemoveSong removes a single queued job by song name. If that song
+// is the one currently processing, its pipeline process is cancelled. No user
+// files are deleted.
+// DELETE /api/queue/{song}
+func (s *Server) handleQueueRemoveSong(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("method %s not allowed", r.Method),
+		})
+		return
+	}
+
+	song := r.PathValue("song")
+	if song == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "missing song"})
+		return
+	}
+
+	s.jobsMu.Lock()
+	defer s.jobsMu.Unlock()
+
+	job, ok := s.jobs[song]
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "song not found in queue"})
+		return
+	}
+
+	if job.Status == "processing" {
+		s.cancelCurrentJob()
+	}
+
+	delete(s.jobs, song)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "removed", "song": song})
 }
 
 // handleQueueCancel cancels the currently running job and removes it from the queue.

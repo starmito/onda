@@ -38,6 +38,7 @@ type VRAMModelEntry struct {
 	MeasuredMB     int    `json:"measured_mb,omitempty"`
 	MeasuredN      int    `json:"measured_n,omitempty"`
 	MeasuredTS     string `json:"measured_ts,omitempty"`
+	MeasuredFlags  string `json:"measured_flags,omitempty"`
 	EstimatedMB    int    `json:"estimated_mb,omitempty"`
 	FallbackReason string `json:"fallback_reason,omitempty"`
 }
@@ -119,7 +120,7 @@ var measuredVRAMPeaks = []measuredVRAMPeak{
 // combination when a matching measurement exists in the unified store. It
 // returns 0 otherwise so the analytical estimator can run (and warn).
 func findMeasuredVRAMPeak(modelName, stepType, device string, cfg VRAMConfig) int {
-	rec, ok := findMeasuredVRAMPeakInStore(modelName, device, cfg)
+	rec, ok, _ := findMeasuredVRAMPeakInStore(modelName, device, cfg)
 	if ok && rec.N > 0 {
 		return rec.PeakMBMax
 	}
@@ -938,17 +939,25 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 		// slider changes. The response always exposes source and, when
 		// estimated, a human-readable fallback reason.
 		estimatedMB := estimateVRAMMB(modelName, segmentSize, chunkSize, batchSize, demucsSegment, duration)
-		measuredRec, hasMeasured := findMeasuredVRAMPeakInStore(modelName, device, cfg)
+		measuredRec, hasMeasured, matchLevel := findMeasuredVRAMPeakInStore(modelName, device, cfg)
+		stepType := vramStepTypeForModel(modelName)
+		prefix := vramMeasuredKey(modelName, stepType, device, VRAMConfig{}, nil)
 		var vramMB int
 		var source string
 		var fallbackReason string
+		var measuredFlags string
 		if hasMeasured && measuredRec.N > 0 {
 			vramMB = measuredRec.PeakMBMax
 			source = "measured"
+			if matchLevel == vramMeasuredMatchModel {
+				measuredFlags = "a nivel modelo"
+			} else {
+				measuredFlags = formatVRAMMeasuredFlags(measuredRec)
+			}
 		} else {
 			vramMB = estimatedMB
 			source = "estimated"
-			if !getVRAMMeasuredStore().hasKey(vramMeasuredKey(modelName, modelType, device, VRAMConfig{}, nil)) {
+			if !getVRAMMeasuredStore().hasKey(prefix) {
 				fallbackReason = "no hay medición para este modelo y dispositivo"
 			} else {
 				fallbackReason = "no hay medición para estas flags"
@@ -969,6 +978,7 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 			Source:         source,
 			EstimatedMB:    estimatedMB,
 			FallbackReason: fallbackReason,
+			MeasuredFlags:  measuredFlags,
 		}
 		if hasMeasured && measuredRec.N > 0 {
 			entry.MeasuredMB = measuredRec.PeakMBMax

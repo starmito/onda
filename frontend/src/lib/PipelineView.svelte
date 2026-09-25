@@ -3,7 +3,7 @@
   import ProgressPanel from './ProgressPanel.svelte';
   import VramLaunchInfo from './VramLaunchInfo.svelte';
   import { validateExecutePreset } from './executeValidation';
-  import { uploadAudio, deleteInput, clearQueue, separateAudio, cancelQueue, getProcessesStatus } from './api';
+  import { uploadAudio, clearQueue, separateAudio, cancelQueue, getProcessesStatus, deleteQueueSong } from './api';
   import type { ProcessStatus, QueueJob, PipelineStep } from './api';
   import { IconUpload } from './icons';
   import { getDefaultChecked, withToggledCheck, withToggledAll } from './queueDefaults';
@@ -261,16 +261,21 @@
   async function handleRemoveQueueFile(id: string) {
     const qf = queueFiles.find((q) => q.id === id);
     if (!qf) return;
-    if (qf.path) {
+
+    const song = songNameForQueueFile(qf);
+    const confirmed = window.confirm(`¿Quitar "${qf.file.name}" de la cola? No se borrará el archivo original.`);
+    if (!confirmed) return;
+
+    if (song) {
       try {
-        await deleteInput(qf.file.name);
-        onQueueChange(queueFiles.filter((q) => q.id !== id));
+        await deleteQueueSong(song);
       } catch (err: any) {
-        // silently fail — caller may handle
+        showToast(`Error al quitar de la cola: ${err.message || 'unknown'}`, 'error');
+        return;
       }
-    } else {
-      onQueueChange(queueFiles.filter((q) => q.id !== id));
     }
+
+    onQueueChange(queueFiles.filter((q) => q.id !== id));
   }
 
   function statusBadgeClass(status: string): string {
@@ -455,6 +460,7 @@
               flags={pipelineFlags}
               progress={currentProgress}
               steps={processingSteps}
+              jobs={queueJobs}
               gpuInfo={processStatus?.gpu}
             />
           </div>
@@ -486,6 +492,7 @@
         model={pipelineModel}
         flags={pipelineFlags}
         steps={processingSteps}
+        jobs={queueJobs}
       />
     {/if}
   {/if}
@@ -504,23 +511,24 @@
       </button>
       <span class="stop-hint">Cancela el proceso en curso y limpia la cola de espera</span>
 
-      <div class="progress-card">
-        <ProgressPanel
-          status={pipelineStatus}
-          step={pipelineStep}
-          song={pipelineSong}
-          eta={pipelineEta}
-          device={inferenceDevice}
-          model={pipelineModel}
-          flags={pipelineFlags}
-          progress={currentProgress}
-          steps={processingSteps}
-          gpuInfo={processStatus?.gpu}
-        />
-      </div>
+          <div class="progress-card">
+            <ProgressPanel
+              status={pipelineStatus}
+              step={pipelineStep}
+              song={pipelineSong}
+              eta={pipelineEta}
+              device={inferenceDevice}
+              model={pipelineModel}
+              flags={pipelineFlags}
+              progress={currentProgress}
+              steps={processingSteps}
+              jobs={queueJobs}
+              gpuInfo={processStatus?.gpu}
+            />
+          </div>
+        </section>
+      {/if}
     </section>
-  {/if}
-</section>
 
 {#if blockedMsg && !vramDismissed}
   <div class="vram-modal-overlay" role="dialog" aria-modal="true">

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { API_BASE, getStorageConfig, setStorageConfig, setExportDir, setConfigDir, type StorageConfig } from './api';
+  import { API_BASE, getStorageConfig, setStorageConfig, setExportDir, setConfigDir, cleanExports, type StorageConfig } from './api';
   import { IconRefresh, IconTrash, IconFolder } from './icons';
 
   interface FolderUsage {
@@ -36,6 +36,7 @@
   let configLoading = $state(false);
   let loading = $state(false);
   let cleaning = $state(false);
+  let cleaningExports = $state(false);
   let message = $state<string | null>(null);
   let error = $state<string | null>(null);
   let rootInput = $state('');
@@ -55,7 +56,7 @@
   let configSuccess = $state<string | null>(null);
   let savingConfig = $state(false);
 
-  const folderOrder = ['input', 'input_rubberband', 'daw-data', 'output', 'models', 'cache', 'logs'];
+  const folderOrder = ['input', 'input_rubberband', 'daw-data', 'output', 'models', 'cache', 'exports', 'logs'];
   const folderLabels: Record<string, string> = {
     input: 'Cola / subidas',
     input_rubberband: 'Subidas de tono',
@@ -63,6 +64,7 @@
     output: 'Resultados',
     models: 'Modelos IA',
     cache: 'Caché de modelos',
+    exports: 'Exportaciones',
     logs: 'Registros',
   };
 
@@ -244,6 +246,25 @@
       error = e.message || 'Error al limpiar';
     } finally {
       cleaning = false;
+    }
+  }
+
+  async function cleanExportsAction() {
+    const confirmed = window.confirm('¿Vaciar la carpeta de exportaciones? Esta acción no se puede deshacer.');
+    if (!confirmed) return;
+
+    cleaningExports = true;
+    error = null;
+    message = null;
+    try {
+      const result = await cleanExports();
+      message = `Exportaciones vaciadas: se liberaron ${formatBytes(result.bytes)} en ${result.files} archivo(s).`;
+      await loadUsage();
+      await loadConfig();
+    } catch (e: any) {
+      error = e.message || 'Error al vaciar exportaciones';
+    } finally {
+      cleaningExports = false;
     }
   }
 
@@ -573,10 +594,23 @@
             {@const u = usage.folders[key] ?? { files: 0, bytes: 0 }}
             {@const isModels = key === 'models'}
             {@const isCache = key === 'cache'}
+            {@const isExports = key === 'exports'}
             {@const modelU = isModels && usage.models ? usage.models : null}
             {@const cacheU = isCache && usage.cache ? usage.cache : null}
             <tr>
-              <td>{folderLabels[key] ?? key}</td>
+              <td>
+                {folderLabels[key] ?? key}
+                {#if isExports}
+                  <button
+                    class="btn-inline-clean"
+                    onclick={cleanExportsAction}
+                    disabled={cleaningExports}
+                    title="Vaciar exportaciones"
+                  >
+                    {@html IconTrash} Vaciar
+                  </button>
+                {/if}
+              </td>
               <td>{cacheU ? cacheU.files : (modelU ? modelU.entries : u.files)}</td>
               <td>{formatBytes(cacheU ? cacheU.bytes : (modelU ? modelU.bytes : u.bytes))}</td>
             </tr>
@@ -892,6 +926,31 @@
   .storage-empty {
     color: var(--text-secondary);
     padding: 20px 0;
+  }
+
+  .btn-inline-clean {
+    margin-left: 10px;
+    padding: 4px 10px;
+    background: var(--accent-bg);
+    border: 1px solid var(--accent);
+    color: var(--accent-light);
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    transition: all 0.15s ease;
+  }
+
+  .btn-inline-clean:hover:not(:disabled) {
+    background: var(--accent);
+    color: #fff;
+  }
+
+  .btn-inline-clean:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
   }
 
   .btn-refresh {

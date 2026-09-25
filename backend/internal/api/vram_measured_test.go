@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -299,6 +300,219 @@ func TestHandleVRAMCalculator_MeasuredSource_RealStoreKey(t *testing.T) {
 	}
 	if m.MeasuredN != 92 {
 		t.Errorf("measured_n = %d, want 92", m.MeasuredN)
+	}
+}
+
+// TestHandleVRAMCalculator_MeasuredSource_CascadeLevel1 reproduces FALLO B from
+// task 53: the UI queries with all model flags, but the store record was saved
+// with a key that only contains batch/chunk/segment while its captured set also
+// includes overlap and shifts. The lookup must still return the measured value
+// because the queried flags that the record does capture match exactly.
+func TestHandleVRAMCalculator_MeasuredSource_CascadeLevel1(t *testing.T) {
+	setupTestLogStore(t)
+	root := setTestRoot(t, "vram-calc-cascade-l1-")
+
+	storeDir := filepath.Join(root, "config")
+	storePath := filepath.Join(storeDir, vramMeasuredFileName)
+	if err := os.MkdirAll(storeDir, 0o755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+	resetVRAMMeasuredStoreForTests()
+	vramMeasuredStoreInstance = newVRAMMeasuredStore(storePath)
+
+	// Store key with only batch/chunk/segment, but captured includes overlap/shifts
+	// as observed in the deployed store (task 53).
+	key := "bs_roformer_sw_6stem|vocal|cuda|batch_size=1|chunk_size=0|segment_size=1101"
+	rec := MeasuredVRAMRecord{
+		PeakMBMax:  2441,
+		PeakMBLast: 2441,
+		N:          128,
+		LastTS:     time.Date(2026, 9, 25, 10, 0, 0, 0, time.UTC),
+		Flags: VRAMFlags{
+			SegmentSize: 1101,
+			ChunkSize:   0,
+			BatchSize:   1,
+			NumOverlap:  2,
+			Shifts:      1,
+		},
+		Captured: map[string]bool{
+			vramFlagSegmentSize: true,
+			vramFlagChunkSize:   true,
+			vramFlagBatchSize:   true,
+			vramFlagNumOverlap:  true,
+			vramFlagShifts:      true,
+		},
+	}
+	getVRAMMeasuredStore().recordMeasured(key, rec)
+	if err := getVRAMMeasuredStore().save(); err != nil {
+		t.Fatalf("save failed: %v", err)
+	}
+
+	origGPU := gpuInfoProvider
+	defer func() { gpuInfoProvider = origGPU }()
+	gpuInfoProvider = func() GPUInfoResponse {
+		return GPUInfoResponse{OK: true, VRAMTotalMB: 16000, VRAMFreeMB: 12000, VRAMUsedMB: 4000}
+	}
+
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)
+
+	// Query exactly as the model settings UI does for BS_Roformer_SW_6stem.
+	req := httptest.NewRequest(http.MethodGet, "/api/gpu/vram-calculator?models=BS_Roformer_SW_6stem&segment_size=1101&batch_size=1&chunk_size=0&num_overlap=4", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp VRAMCalculatorResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if len(resp.Models) != 1 {
+		t.Fatalf("expected 1 model, got %d", len(resp.Models))
+	}
+	m := resp.Models[0]
+	if m.Source != "measured" {
+		t.Errorf("source = %q, want measured", m.Source)
+	}
+	if m.VRAMMB != 2441 {
+		t.Errorf("vram_mb = %d, want 2441", m.VRAMMB)
+	}
+	if m.MeasuredMB != 2441 {
+		t.Errorf("measured_mb = %d, want 2441", m.MeasuredMB)
+	}
+	if m.MeasuredN != 128 {
+		t.Errorf("measured_n = %d, want 128", m.MeasuredN)
+	}
+	if m.MeasuredFlags == "" {
+		t.Error("measured_flags should be non-empty for a flag-level match")
+	}
+}
+
+// TestHandleVRAMCalculator_MeasuredSource_CascadeLevel2 reproduces FALLO A from
+// task 53: there is a model-level wildcard measurement (4137 MB) and a more
+// specific measurement that does not match the queried flags. The calculator
+// must fall back to the model-level measurement and report it as measured.
+func TestHandleVRAMCalculator_MeasuredSource_CascadeLevel2(t *testing.T) {
+	setupTestLogStore(t)
+	root := setTestRoot(t, "vram-calc-cascade-l2-")
+
+	storeDir := filepath.Join(root, "config")
+	storePath := filepath.Join(storeDir, vramMeasuredFileName)
+	if err := os.MkdirAll(storeDir, 0o755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+	resetVRAMMeasuredStoreForTests()
+	vramMeasuredStoreInstance = newVRAMMeasuredStore(storePath)
+
+	// Wildcard measurement for the model.
+	getVRAMMeasuredStore().record("bs_roformer_sw_6stem|vocal|cuda", 4137, 92)
+	if err := getVRAMMeasuredStore().save(); err != nil {
+		t.Fatalf("save failed: %v", err)
+	}
+
+	origGPU := gpuInfoProvider
+	defer func() { gpuInfoProvider = origGPU }()
+	gpuInfoProvider = func() GPUInfoResponse {
+		return GPUInfoResponse{OK: true, VRAMTotalMB: 16000, VRAMFreeMB: 12000, VRAMUsedMB: 4000}
+	}
+
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/gpu/vram-calculator?models=BS_Roformer_SW_6stem&segment_size=1101&batch_size=1&chunk_size=0&num_overlap=4", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp VRAMCalculatorResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if len(resp.Models) != 1 {
+		t.Fatalf("expected 1 model, got %d", len(resp.Models))
+	}
+	m := resp.Models[0]
+	if m.Source != "measured" {
+		t.Errorf("source = %q, want measured", m.Source)
+	}
+	if m.VRAMMB != 4137 {
+		t.Errorf("vram_mb = %d, want 4137", m.VRAMMB)
+	}
+	if m.MeasuredMB != 4137 {
+		t.Errorf("measured_mb = %d, want 4137", m.MeasuredMB)
+	}
+	if m.MeasuredN != 92 {
+		t.Errorf("measured_n = %d, want 92", m.MeasuredN)
+	}
+}
+
+// TestRecordMeasuredVRAMPeak_DiscardsZeroPeak reproduces FALLO C from task 53:
+// a failed job that reports a footprint of 0 MB must not overwrite or shadow a
+// previously valid measurement.
+func TestRecordMeasuredVRAMPeak_DiscardsZeroPeak(t *testing.T) {
+	setupTestLogStore(t)
+	root := setTestRoot(t, "vram-zero-poison-")
+
+	storeDir := filepath.Join(root, "config")
+	storePath := filepath.Join(storeDir, vramMeasuredFileName)
+	if err := os.MkdirAll(storeDir, 0o755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+	resetVRAMMeasuredStoreForTests()
+	vramMeasuredStoreInstance = newVRAMMeasuredStore(storePath)
+
+	// Pre-existing valid measurement.
+	getVRAMMeasuredStore().record("bs_roformer_sw_6stem|vocal|cuda", 4137, 92)
+	if err := getVRAMMeasuredStore().save(); err != nil {
+		t.Fatalf("save failed: %v", err)
+	}
+
+	// Mock a job that exits immediately: GPU usage never changes.
+	origGPU := gpuInfoProvider
+	defer func() { gpuInfoProvider = origGPU }()
+	gpuInfoProvider = func() GPUInfoResponse {
+		return GPUInfoResponse{OK: true, VRAMTotalMB: 16000, VRAMFreeMB: 15600, VRAMUsedMB: 400}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		// Simulate a process that fails before doing any real work.
+		time.Sleep(200 * time.Millisecond)
+		cancel()
+	}()
+
+	cfg := VRAMConfig{
+		SegmentSize: 1101,
+		ChunkSize:   0,
+		BatchSize:   1,
+		NumOverlap:  4,
+	}
+	recordMeasuredVRAMPeak(ctx, "BS_Roformer_SW_6stem", "cuda", cfg)
+
+	// Verify the wildcard measurement is untouched.
+	fresh := newVRAMMeasuredStore(storePath)
+	if err := fresh.load(); err != nil {
+		t.Fatalf("load failed: %v", err)
+	}
+	r, ok := fresh.get("bs_roformer_sw_6stem|vocal|cuda")
+	if !ok {
+		t.Fatal("wildcard measurement disappeared")
+	}
+	if r.PeakMBMax != 4137 {
+		t.Errorf("PeakMBMax = %d, want 4137 (zero peak must not overwrite)", r.PeakMBMax)
+	}
+
+	// No zero-footprint record should have been created for the specific flags.
+	for k, v := range fresh.data {
+		if v.PeakMBMax == 0 {
+			t.Errorf("zero-footprint record created for %q", k)
+		}
 	}
 }
 
