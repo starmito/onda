@@ -1,5 +1,11 @@
 # Changelog
 
+## [v3.5.13] - 2026-09-25
+
+### Added
+- **Boton «Probar» en Ajustes -> Modelos**: mide la VRAM de verdad con las flags que tengas en los sliders, **sin guardarlas**. Lanza un trabajo real y corto con un clip de 45 s que trae la propia aplicacion (sintetico, sin licencias), guarda el pico medido en el almacen de medidas con esas flags exactas y **borra todo lo generado** al terminar. Si no cabe, lo dice claro: «no cabe: sin memoria» (un fallo no escribe ninguna medida). El test no aparece en la cola, ni en el listado de canciones, ni en el inventario de almacenamiento.
+- Indicador «Probando…» con progreso en el panel de VRAM mientras dura el test.
+
 ## [v3.5.12] - 2026-09-25
 
 ### Fixed
