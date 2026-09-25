@@ -288,6 +288,13 @@ export interface LocalModelsResponse {
   categories?: string[];
 }
 
+// Returns the canonical backend identifier for a model. The pipeline and the
+// VRAM calculator key measurements by the installed model name (directory
+// name); the bare file name is not enough.
+export function modelIdentifier(model: LocalModel): string {
+  return model.installed_name || model.display_name || model.name;
+}
+
 export async function getLocalModels(): Promise<LocalModelsResponse> {
   const res = await fetch(`${API_BASE}/api/models/list`);
   if (!res.ok) {

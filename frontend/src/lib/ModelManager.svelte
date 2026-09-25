@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getModelConfig, setModelConfig, getLocalModels, getGpuInfo, getVRAMCalculator, buildVRAMCalculatorParams, type ModelFlag, type ModelFlagsResponse, type LocalModel, type GpuInfo, type VRAMCalculatorResponse } from './api';
+  import { getModelConfig, setModelConfig, getLocalModels, getGpuInfo, getVRAMCalculator, buildVRAMCalculatorParams, modelIdentifier, type ModelFlag, type ModelFlagsResponse, type LocalModel, type GpuInfo, type VRAMCalculatorResponse } from './api';
 
   interface Props {
     onclose?: () => void;
@@ -64,7 +64,7 @@
   // Display name for the selected model
   let selectedModelDisplayName = $derived.by(() => {
     if (!selectedModel) return '';
-    const found = models.find(m => m.name === selectedModel);
+    const found = models.find(m => modelIdentifier(m) === selectedModel);
     return found?.display_name || found?.name || selectedModel;
   });
 
@@ -75,10 +75,14 @@
         const res = await getLocalModels();
         models = res.models || [];
 
-        if (initialModel && models.some(m => m.name === initialModel)) {
-          selectedModel = initialModel;
-          const found = models.find(m => m.name === initialModel);
-          selectedCategory = found?.category || '';
+        if (initialModel) {
+          const found = models.find(
+            m => m.name === initialModel || m.installed_name === initialModel || m.display_name === initialModel,
+          );
+          if (found) {
+            selectedModel = modelIdentifier(found);
+            selectedCategory = found.category || '';
+          }
         }
 
         // If nothing pre-selected, pick the first category that has models.
@@ -88,7 +92,7 @@
 
         // Auto-select the first model of the active category if none selected.
         if (!selectedModel && filteredModels.length > 0) {
-          selectedModel = filteredModels[0].name;
+          selectedModel = modelIdentifier(filteredModels[0]);
         }
 
         if (selectedModel) {
@@ -126,7 +130,7 @@
   // Keep selectedCategory in sync when the user changes the model directly.
   $effect(() => {
     if (selectedModel) {
-      const found = models.find(m => m.name === selectedModel);
+      const found = models.find(m => modelIdentifier(m) === selectedModel);
       if (found?.category && selectedCategory !== found.category) {
         selectedCategory = found.category;
       }
@@ -217,7 +221,7 @@
   function handleCategorySelect(category: string) {
     selectedCategory = category;
     const list = modelsByCategory[category] ?? [];
-    selectedModel = list.length > 0 ? list[0].name : '';
+    selectedModel = list.length > 0 ? modelIdentifier(list[0]) : '';
     if (selectedModel) {
       loadConfig(selectedModel);
     } else {
@@ -396,7 +400,7 @@
         <select id="model-select" value={selectedModel} onchange={handleModelSelect} disabled={filteredModels.length === 0}>
           <option value="">-- Seleccionar modelo --</option>
           {#each filteredModels as m}
-            <option value={m.name}>{m.display_name || m.name}</option>
+            <option value={modelIdentifier(m)}>{m.display_name || m.name}</option>
           {/each}
         </select>
         {#if filteredModels.length === 0}

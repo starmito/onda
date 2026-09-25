@@ -47,8 +47,8 @@ describe('ModelManager flags from API', () => {
       },
       {
         name: 'chunk_size',
-        value: 485100,
-        default: 485100,
+        value: 0,
+        default: 0,
         min: 0,
         max: 1000000,
         step: 1,
@@ -464,6 +464,223 @@ describe('ModelManager flags from API', () => {
     expect(text).not.toContain('estimado');
 
     unmount(app);
+  });
+
+  it('sends the backend model identifier and the model\'s own flags to the VRAM calculator', async () => {
+    const viperFlags: ModelFlagsResponse = {
+      model: 'BS_Roformer_Viperx',
+      flags: [
+        {
+          name: 'segment_size',
+          value: 2048,
+          default: 2048,
+          min: 64,
+          max: 2048,
+          step: 1,
+          editable: true,
+          type: 'int',
+          description: 'dim_t',
+          affects: ['quality', 'vram'],
+          better_side: 'quality',
+        },
+        {
+          name: 'num_overlap',
+          value: 8,
+          default: 8,
+          min: 1,
+          max: 16,
+          step: 1,
+          editable: true,
+          type: 'int',
+          description: 'overlap',
+          affects: ['quality', 'vram'],
+          better_side: 'quality',
+        },
+        {
+          name: 'chunk_size',
+          value: 0,
+          default: 0,
+          min: 0,
+          max: 600,
+          step: 1,
+          editable: true,
+          type: 'int',
+          description: 'chunk',
+          affects: ['quality', 'vram'],
+          better_side: 'quality',
+        },
+        {
+          name: 'batch_size',
+          value: 2,
+          default: 2,
+          min: 1,
+          max: 8,
+          step: 1,
+          editable: true,
+          type: 'int',
+          description: 'batch',
+          affects: ['vram', 'speed'],
+          better_side: 'vram',
+        },
+        {
+          name: 'device',
+          value: 'cuda',
+          default: 'cuda',
+          editable: true,
+          type: 'choice',
+          choices: ['cuda', 'cpu'],
+          description: 'device',
+          affects: [],
+          better_side: '',
+        },
+      ],
+    };
+
+    const demucsFlags: ModelFlagsResponse = {
+      model: 'htdemucs_ft',
+      flags: [
+        {
+          name: 'segment',
+          value: 7,
+          default: 7,
+          min: 0,
+          max: 7,
+          step: 1,
+          editable: true,
+          type: 'int',
+          description: 'demucs segment',
+          affects: ['quality', 'vram'],
+          better_side: 'quality',
+        },
+        {
+          name: 'shifts',
+          value: 10,
+          default: 10,
+          min: 1,
+          max: 20,
+          step: 1,
+          editable: true,
+          type: 'int',
+          description: 'shifts',
+          affects: ['quality', 'vram'],
+          better_side: 'quality',
+        },
+        {
+          name: 'jobs',
+          value: 8,
+          default: 8,
+          min: 1,
+          max: 16,
+          step: 1,
+          editable: true,
+          type: 'int',
+          description: 'jobs',
+          affects: ['speed'],
+          better_side: 'speed',
+        },
+        {
+          name: 'device',
+          value: 'cuda',
+          default: 'cuda',
+          editable: true,
+          type: 'choice',
+          choices: ['cuda', 'cpu'],
+          description: 'device',
+          affects: [],
+          better_side: '',
+        },
+      ],
+    };
+
+    const allModels: LocalModelsResponse = {
+      models: [
+        {
+          name: 'BS-Rofo-SW-Fixed',
+          installed_name: 'BS_Roformer_SW_6stem',
+          display_name: 'BS_Roformer_SW_6stem',
+          category: 'Roformer',
+          type: 'bs_roformer',
+          size_mb: 668,
+          path: 'models/VR_Models/BS_Roformer_SW_6stem/BS-Rofo-SW-Fixed.ckpt',
+        },
+        {
+          name: 'BS_Roformer_Viperx',
+          display_name: 'BS_Roformer_Viperx',
+          category: 'Vocal',
+          type: 'bs_roformer',
+          size_mb: 312,
+          path: 'models/VR_Models/BS_Roformer_Viperx/BS_Roformer_Viperx.ckpt',
+        },
+        {
+          name: 'htdemucs_ft',
+          display_name: 'htdemucs_ft',
+          category: 'Demucs',
+          type: 'demucs',
+          size_mb: 82,
+          path: 'models/Demucs_Models/htdemucs_ft/htdemucs_ft.th',
+        },
+      ],
+    };
+
+    function mockForModel(initialModel: string, captured: { model: string; url: string }[]) {
+      return vi.fn().mockImplementation(async (url: string | URL) => {
+        const u = url.toString();
+        if (u.includes('/api/models/list')) {
+          return { ok: true, status: 200, json: async () => allModels } as Response;
+        }
+        if (u.includes('/api/gpu/info')) {
+          return { ok: true, status: 200, json: async () => gpuInfo } as Response;
+        }
+        if (u.includes('models') && u.includes('config')) {
+          if (u.includes('BS_Roformer_Viperx')) return { ok: true, status: 200, json: async () => viperFlags } as Response;
+          if (u.includes('htdemucs_ft')) return { ok: true, status: 200, json: async () => demucsFlags } as Response;
+          return { ok: true, status: 200, json: async () => swFlags } as Response;
+        }
+        if (u.includes('/api/gpu/vram-calculator')) {
+          captured.push({ model: initialModel, url: u });
+          return { ok: true, status: 200, json: async () => vramCalc } as Response;
+        }
+        throw new Error(`Unexpected fetch: ${u}`);
+      });
+    }
+
+    for (const initialModel of ['BS_Roformer_SW_6stem', 'BS_Roformer_Viperx', 'htdemucs_ft']) {
+      const captured: { model: string; url: string }[] = [];
+      globalThis.fetch = mockForModel(initialModel, captured);
+
+      const app = mount(ModelManager, {
+        target,
+        props: { initialModel },
+      });
+
+      await vi.waitFor(() => expect(getFlagLabels().length).toBeGreaterThan(0), { timeout: 2000 });
+      // Wait for the debounced VRAM calculator call.
+      await vi.waitFor(() => expect(captured.length).toBeGreaterThan(0), { timeout: 2000 });
+
+      const call = captured[0];
+      expect(call.url).toContain(`models=${initialModel}`);
+
+      if (initialModel === 'BS_Roformer_SW_6stem') {
+        expect(call.url).toContain('segment_size=1101');
+        expect(call.url).toContain('num_overlap=2');
+        expect(call.url).toContain('chunk_size=0');
+        expect(call.url).toContain('batch_size=1');
+        expect(call.url).not.toContain('shifts=');
+      } else if (initialModel === 'BS_Roformer_Viperx') {
+        expect(call.url).toContain('segment_size=2048');
+        expect(call.url).toContain('num_overlap=8');
+        expect(call.url).toContain('chunk_size=0');
+        expect(call.url).toContain('batch_size=2');
+        expect(call.url).not.toContain('shifts=');
+      } else if (initialModel === 'htdemucs_ft') {
+        expect(call.url).toContain('demucs_segment=7');
+        expect(call.url).toContain('shifts=10');
+        expect(call.url).toContain('jobs=8');
+        expect(call.url).not.toContain('segment_size=');
+      }
+
+      unmount(app);
+    }
   });
 
   it('shows "estimado" label and fallback reason when VRAM calculation is estimated', async () => {
