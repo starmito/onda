@@ -21,6 +21,7 @@
     model = '',
     flags = '',
     steps = [] as QueueJobStep[],
+    jobs = [] as import('./api').QueueJob[],
   }: {
     presets?: {name: string, config: any}[];
     selectedPreset?: string;
@@ -40,6 +41,7 @@
     model?: string;
     flags?: string;
     steps?: QueueJobStep[];
+    jobs?: import('./api').QueueJob[];
   } = $props();
 </script>
 
@@ -85,6 +87,7 @@
         {flags}
         {progress}
         {steps}
+        {jobs}
       />
     </div>
   {/if}
