@@ -256,4 +256,48 @@ describe('PipelineView', () => {
 
     unmount(app);
   });
+
+  it('clicking the row remove button calls DELETE /api/queue/{song}', async () => {
+    globalThis.fetch = vi.fn((url: RequestInfo | URL) => {
+      const path = typeof url === 'string' ? url : url.toString();
+      if (path.includes('/api/queue/song')) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ status: 'removed', song: 'song' }),
+        } as Response);
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({}) } as Response);
+    });
+    vi.stubGlobal('confirm', vi.fn(() => true));
+
+    const queueFiles: QueueFile[] = [
+      {
+        file: new File([], 'song.wav'),
+        id: 's1',
+        status: 'waiting',
+        checked: false,
+        path: 'uploads/song.wav',
+      },
+    ];
+    const onQueueChange = vi.fn();
+
+    const { app } = render({ queueFiles, onQueueChange });
+    await new Promise((r) => setTimeout(r, 50));
+
+    const removeButton = target.querySelector('.btn-remove') as HTMLButtonElement;
+    expect(removeButton).not.toBeNull();
+
+    removeButton.click();
+    await new Promise((r) => setTimeout(r, 50));
+
+    const calls = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls;
+    const deleteCall = calls.find((call: any[]) =>
+      typeof call[0] === 'string' && call[0].includes('/api/queue/song')
+    );
+    expect(deleteCall).toBeTruthy();
+    expect(deleteCall![1]).toMatchObject({ method: 'DELETE' });
+    expect(onQueueChange).toHaveBeenCalled();
+
+    unmount(app);
+  });
 });
