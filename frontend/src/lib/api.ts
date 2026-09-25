@@ -475,7 +475,7 @@ export interface QueueJob {
   current_step?: number;
   total_steps?: number;
   step_name?: string;
-  eta?: string;
+  eta?: number;
   device?: string;
   gpu_type?: string;
   ran_on_cpu?: boolean;
@@ -489,6 +489,7 @@ export interface QueueJob {
 
 export interface QueueStatusResponse {
   jobs: QueueJob[];
+  overall_progress?: number;
 }
 
 export async function getQueueStatus(): Promise<QueueStatusResponse> {
@@ -1215,11 +1216,11 @@ export function buildVRAMCalculatorParams(
   }
   if ('num_overlap' in values) {
     const v = Number(values['num_overlap']);
-    if (v > 0) params.overlap = 1 / v;
+    if (v > 0) params.overlap = v;
   }
   if ('chunk_size' in values) {
     const v = Number(values['chunk_size']);
-    if (v > 0) params.chunk_size = v;
+    if (v >= 0) params.chunk_size = v;
   }
   if ('batch_size' in values) {
     const v = Number(values['batch_size']);
@@ -1243,7 +1244,7 @@ export function buildVRAMCalculatorParams(
 export async function getVRAMCalculator(params: VRAMCalculatorParams): Promise<VRAMCalculatorResponse> {
   const qs = new URLSearchParams();
   qs.set('models', params.models);
-  if (params.chunk_size !== undefined && params.chunk_size > 0) {
+  if (params.chunk_size !== undefined && params.chunk_size >= 0) {
     qs.set('chunk_size', String(params.chunk_size));
   }
   if (params.shifts !== undefined && params.shifts > 0) {
@@ -1253,7 +1254,7 @@ export async function getVRAMCalculator(params: VRAMCalculatorParams): Promise<V
     qs.set('segment_size', String(params.segment_size));
   }
   if (params.overlap !== undefined && params.overlap > 0) {
-    qs.set('overlap', String(params.overlap));
+    qs.set('num_overlap', String(params.overlap));
   }
   if (params.batch_size !== undefined && params.batch_size > 0) {
     qs.set('batch_size', String(params.batch_size));
