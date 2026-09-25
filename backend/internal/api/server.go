@@ -267,6 +267,8 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("DELETE /api/models/download", s.handleModelsDownloadCancel)
 	s.mux.HandleFunc("GET /api/models/{name}/config", s.handleModelsConfig)
 	s.mux.HandleFunc("POST /api/models/{name}/config", s.handleModelsConfig)
+	s.mux.HandleFunc("POST /api/models/{name}/vram-test", s.handleModelsVRAMTest)
+	s.mux.HandleFunc("GET /api/models/vram-test/status", s.handleVRAMTestStatus)
 	s.mux.HandleFunc("GET /api/models/catalog", s.handleModelsCatalog)
 	s.mux.HandleFunc("GET /api/models/catalog/hf", s.handleModelsCatalogHF)
 	s.mux.HandleFunc("GET /api/models/catalog/demucs", s.handleModelsCatalogDemucs)
@@ -1543,6 +1545,42 @@ func buildPipelineEnv(extra []string) []string {
 	return env
 }
 
+// runPipelineWithVRAMSampler waits for an already-started pipeline process,
+// samples VRAM during its lifetime and reports success/failure to the sampler.
+// startErr is the error returned by cmd.Start(); when it is non-nil the helper
+// returns it immediately without sampling. The caller is responsible for
+// creating cmd, passing its context, setting server-wide process tracking and
+// cancelling the pipeline context after this helper returns.
+func runPipelineWithVRAMSampler(ctx context.Context, cmd *exec.Cmd, startErr error, modelName, device string, cfg VRAMConfig) error {
+	samplerCtx, samplerCancel := context.WithCancel(context.Background())
+	defer samplerCancel()
+
+	var successCh chan bool
+	if startErr == nil {
+		successCh = make(chan bool, 1)
+		go func() {
+			recordMeasuredVRAMPeak(samplerCtx, modelName, device, cfg, successCh)
+		}()
+	}
+
+	var err error
+	if startErr != nil {
+		err = startErr
+	} else {
+		err = waitCmdResult(ctx, cmd)
+	}
+
+	stepSucceeded := err == nil
+	samplerCancel()
+	if successCh != nil {
+		select {
+		case successCh <- stepSucceeded:
+		case <-time.After(2 * time.Second):
+		}
+	}
+	return err
+}
+
 // runSinglePipeline executes a single pipeline.sh invocation.
 func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	// VRAM headroom check before launching.
@@ -1652,42 +1690,18 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 
-	samplerCtx, samplerCancel := context.WithCancel(context.Background())
-	defer func() {
-		if samplerCancel != nil {
-			samplerCancel()
-		}
-	}()
-
 	s.jobsMu.Lock()
 	s.currentCancel = cancel
 	s.currentCmd = cmd
-	var err error
-	var successCh chan bool
+	var startErr error
 	if sErr := cmd.Start(); sErr != nil {
-		err = sErr
+		startErr = sErr
 	} else {
 		s.currentPID = cmd.Process.Pid
-		successCh = make(chan bool, 1)
-		go func() {
-			recordMeasuredVRAMPeak(samplerCtx, modelName, device, vramCfg, successCh)
-		}()
 	}
 	s.jobsMu.Unlock()
 
-	if err == nil {
-		err = waitCmdResult(ctx, cmd)
-	}
-	stepSucceeded := err == nil
-	if samplerCancel != nil {
-		samplerCancel()
-	}
-	if successCh != nil {
-		select {
-		case successCh <- stepSucceeded:
-		case <-time.After(2 * time.Second):
-		}
-	}
+	err := runPipelineWithVRAMSampler(ctx, cmd, startErr, modelName, device, vramCfg)
 
 	s.jobsMu.Lock()
 	s.currentCancel = nil
@@ -1870,42 +1884,18 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		cmd.Stdout = &out
 		cmd.Stderr = &out
 
-		samplerCtx, samplerCancel := context.WithCancel(context.Background())
-		defer func() {
-			if samplerCancel != nil {
-				samplerCancel()
-			}
-		}()
-
 		s.jobsMu.Lock()
 		s.currentCancel = cancel
 		s.currentCmd = cmd
-		var err error
-		var successCh chan bool
+		var startErr error
 		if sErr := cmd.Start(); sErr != nil {
-			err = sErr
+			startErr = sErr
 		} else {
 			s.currentPID = cmd.Process.Pid
-			successCh = make(chan bool, 1)
-			go func() {
-				recordMeasuredVRAMPeak(samplerCtx, modelName, device, vramCfg, successCh)
-			}()
 		}
 		s.jobsMu.Unlock()
 
-		if err == nil {
-			err = waitCmdResult(ctx, cmd)
-		}
-		stepSucceeded := err == nil
-		if samplerCancel != nil {
-			samplerCancel()
-		}
-		if successCh != nil {
-			select {
-			case successCh <- stepSucceeded:
-			case <-time.After(2 * time.Second):
-			}
-		}
+		err := runPipelineWithVRAMSampler(ctx, cmd, startErr, modelName, device, vramCfg)
 
 		s.jobsMu.Lock()
 		s.currentCancel = nil
@@ -2680,6 +2670,22 @@ func keptStemNames(stems map[string]cli.StemRoute) []string {
 // The returned env slice contains any extra environment variables that must be
 // set for the step (e.g. ONDA_CHUNK_SIZE).
 func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device string) (args []string, env []string, err error) {
+	modelName := resolveModelAlias(step.Model)
+	if modelName == "" {
+		if step.Type == "demucs" {
+			modelName = "htdemucs_ft"
+		} else {
+			modelName = "BS_Roformer_Viperx"
+		}
+	}
+	cfg := readModelConfigFromYaml(modelName)
+	return buildStepPipelineArgsFromConfig(step, inputFile, outputDir, device, cfg)
+}
+
+// buildStepPipelineArgsFromConfig is the core of buildStepPipelineArgs. It uses
+// the supplied cfg instead of reading the saved model config, so callers such as
+// the VRAM test can override flags without persisting them.
+func buildStepPipelineArgsFromConfig(step cli.PipelineStep, inputFile, outputDir, device string, cfg ModelConfigResponse) (args []string, env []string, err error) {
 	switch step.Type {
 	case "vocal":
 		modelName := resolveModelAlias(step.Model)
@@ -2698,8 +2704,8 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 		} else if isScnetModel(modelName) {
 			args = append(args, "--vocal-type", "scnet")
 		}
-		if envVar := vocalChunkSizeEnv(modelName); envVar != "" {
-			env = append(env, envVar)
+		if cfg.ChunkSize > 0 {
+			env = append(env, fmt.Sprintf("ONDA_CHUNK_SIZE=%d", cfg.ChunkSize))
 		}
 		// Keep setting based on stem routing
 		if step.Stems != nil {
@@ -2729,8 +2735,7 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 			if len(keep) > 0 {
 				args = append(args, "--demucs-keep", strings.Join(keep, ","))
 			}
-			// Apply saved Demucs config when available.
-			cfg := readModelConfigFromYaml(stemModel)
+			// Apply supplied Demucs config.
 			if cfg.Shifts > 1 {
 				args = append(args, "--shifts", fmt.Sprintf("%d", cfg.Shifts))
 			}
@@ -2758,8 +2763,8 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 			} else if isScnetModel(stemModel) {
 				args = append(args, "--vocal-type", "scnet")
 			}
-			if envVar := vocalChunkSizeEnv(stemModel); envVar != "" {
-				env = append(env, envVar)
+			if cfg.ChunkSize > 0 {
+				env = append(env, fmt.Sprintf("ONDA_CHUNK_SIZE=%d", cfg.ChunkSize))
 			}
 			keep := keptStemNames(step.Stems)
 			if len(keep) == 0 {
@@ -2767,8 +2772,7 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 			} else {
 				args = append(args, "--vocal-keep", strings.Join(keep, ","))
 			}
-			vocalCfg := readModelConfigFromYaml(stemModel)
-			Log("backend", "info", fmt.Sprintf("Effective step multi-stem config for %s: dim_t=%d overlap=%.2f batch=%d chunk=%d", stemModel, vocalCfg.SegmentSize, vocalCfg.Overlap, vocalCfg.BatchSize, vocalCfg.ChunkSize))
+			Log("backend", "info", fmt.Sprintf("Effective step multi-stem config for %s: dim_t=%d overlap=%.2f batch=%d chunk=%d", stemModel, cfg.SegmentSize, cfg.Overlap, cfg.BatchSize, cfg.ChunkSize))
 		}
 	}
 
@@ -2779,8 +2783,7 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 
 	if step.Type == "vocal" {
 		if step.Model != "" {
-			vocalCfg := readModelConfigFromYaml(resolveModelAlias(step.Model))
-			Log("backend", "info", fmt.Sprintf("Effective step vocal config for %s: dim_t=%d overlap=%.2f batch=%d chunk=%d", step.Model, vocalCfg.SegmentSize, vocalCfg.Overlap, vocalCfg.BatchSize, vocalCfg.ChunkSize))
+			Log("backend", "info", fmt.Sprintf("Effective step vocal config for %s: dim_t=%d overlap=%.2f batch=%d chunk=%d", step.Model, cfg.SegmentSize, cfg.Overlap, cfg.BatchSize, cfg.ChunkSize))
 		}
 	}
 

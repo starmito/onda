@@ -1637,3 +1637,36 @@ export async function applyEQ(req: EqRequest): Promise<EqResponse> {
     body: JSON.stringify(req),
   });
 }
+
+// ---- VRAM Test button ----
+
+export interface VRAMTestStatus {
+  running: boolean;
+  model?: string;
+  step_type?: string;
+  progress: number;
+  status: 'running' | 'success' | 'oom' | 'error';
+  peak_mb: number;
+  n: number;
+  error?: string;
+}
+
+export async function startVRAMTest(model: string, flags: Record<string, number | string>): Promise<void> {
+  const res = await fetch(`${API_BASE}/api/models/${encodeURIComponent(model)}/vram-test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ flags }),
+  });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `VRAM test failed with status ${res.status}`);
+  }
+}
+
+export async function getVRAMTestStatus(): Promise<VRAMTestStatus> {
+  const res = await fetch(`${API_BASE}/api/models/vram-test/status`);
+  if (!res.ok) {
+    throw new Error(`VRAM test status failed with status ${res.status}`);
+  }
+  return (await res.json()) as VRAMTestStatus;
+}

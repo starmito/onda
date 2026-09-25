@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getModelConfig, setModelConfig, getLocalModels, getGpuInfo, getVRAMCalculator, buildVRAMCalculatorParams, modelIdentifier, type ModelFlag, type ModelFlagsResponse, type LocalModel, type GpuInfo, type VRAMCalculatorResponse } from './api';
+  import { getModelConfig, setModelConfig, getLocalModels, getGpuInfo, getVRAMCalculator, buildVRAMCalculatorParams, startVRAMTest, getVRAMTestStatus, modelIdentifier, type ModelFlag, type ModelFlagsResponse, type LocalModel, type GpuInfo, type VRAMCalculatorResponse, type VRAMTestStatus } from './api';
 
   interface Props {
     onclose?: () => void;
@@ -27,6 +27,15 @@
   let vramCalcResult = $state<VRAMCalculatorResponse | null>(null);
   let vramCalcLoading = $state(false);
   let vramCalcError = $state(false);
+  let vramCalcRefresh = $state(0);
+
+  // VRAM real-measurement test state
+  let vramTestRunning = $state(false);
+  let vramTestStatus = $state<VRAMTestStatus['status'] | ''>('');
+  let vramTestProgress = $state(0);
+  let vramTestPeak = $state(0);
+  let vramTestN = $state(0);
+  let vramTestFeedback = $state('');
 
   // Derived VRAM percentage bar
   let vramPercent = $derived.by(() => {
@@ -175,6 +184,7 @@
 
     // SNAPSHOT: read ALL reactive values synchronously so $effect tracks them
     const values = flagValues;
+    const refresh = vramCalcRefresh;
 
     // Debounce timer (avoid rapid-fire calls during slider drag)
     let cancelled = false;
@@ -251,6 +261,61 @@
     saving = false;
     setTimeout(() => (feedback = ''), 3000);
   }
+
+  async function handleTest() {
+    if (!selectedModel) return;
+    vramTestRunning = true;
+    vramTestStatus = 'running';
+    vramTestProgress = 0;
+    vramTestPeak = 0;
+    vramTestN = 0;
+    vramTestFeedback = '';
+    try {
+      await startVRAMTest(selectedModel, flagValues);
+    } catch (e: any) {
+      vramTestRunning = false;
+      vramTestStatus = 'error';
+      vramTestFeedback = `❌ ${e.message}`;
+      setTimeout(() => (vramTestFeedback = ''), 6000);
+    }
+  }
+
+  // Poll VRAM test status while a test is running.
+  $effect(() => {
+    if (!vramTestRunning) return;
+    let cancelled = false;
+    async function poll() {
+      while (!cancelled && vramTestRunning) {
+        try {
+          const st = await getVRAMTestStatus();
+          vramTestRunning = st.running;
+          vramTestStatus = st.status;
+          vramTestProgress = st.progress;
+          vramTestPeak = st.peak_mb;
+          vramTestN = st.n;
+          if (!st.running) {
+            if (st.status === 'success') {
+              vramTestFeedback = `✅ Medición real: ${formatGb(st.peak_mb)} (${st.n} muestras)`;
+              vramCalcRefresh++;
+            } else if (st.status === 'oom') {
+              vramTestFeedback = '❌ No cabe: sin memoria';
+            } else if (st.status === 'error') {
+              vramTestFeedback = `❌ ${st.error || 'El test falló'}`;
+            }
+            setTimeout(() => (vramTestFeedback = ''), 8000);
+            break;
+          }
+        } catch {
+          // Ignore transient polling errors.
+        }
+        await new Promise((resolve) => setTimeout(resolve, 1000));
+      }
+    }
+    poll();
+    return () => {
+      cancelled = true;
+    };
+  });
 
   function formatFlagValue(flag: ModelFlag): string {
     const v = flagValues[flag.name];
@@ -475,6 +540,32 @@
           {/if}
         {/each}
 
+        <!-- VRAM real-measurement test feedback -->
+        {#if vramTestRunning || vramTestFeedback}
+          <div class="vram-section">
+            {#if vramTestRunning}
+              <div class="vram-header">
+                <span>Probando...</span>
+                <span class="vram-pct">{vramTestProgress}%</span>
+              </div>
+              <div class="vram-bar-track">
+                <div
+                  class="vram-bar-fill"
+                  style="width: {Math.min(vramTestProgress, 100)}%; background: #3b82f6"
+                ></div>
+              </div>
+              <div class="vram-text muted">Inferencia real con clip interno de 45 s</div>
+            {:else}
+              <div
+                class="vram-text"
+                class:vram-test-error={vramTestStatus === 'oom' || vramTestStatus === 'error'}
+              >
+                {vramTestFeedback}
+              </div>
+            {/if}
+          </div>
+        {/if}
+
         <!-- VRAM Estimation (from backend calculator) -->
         {#if vramCalcLoading}
           <div class="vram-section">
@@ -523,9 +614,14 @@
           </div>
         {/if}
 
-        <button class="btn-apply" onclick={handleApply} disabled={saving}>
-          {saving ? 'Guardando...' : 'Aplicar'}
-        </button>
+        <div class="btn-row">
+          <button class="btn-apply" onclick={handleApply} disabled={saving || vramTestRunning}>
+            {saving ? 'Guardando...' : 'Aplicar'}
+          </button>
+          <button class="btn-test" onclick={handleTest} disabled={vramTestRunning || saving || !selectedModel}>
+            {vramTestRunning ? `Probando... ${vramTestProgress}%` : 'Probar'}
+          </button>
+        </div>
       </fieldset>
 
       {#if feedback}
@@ -702,6 +798,34 @@
     cursor: not-allowed;
   }
 
+  .btn-row {
+    display: flex;
+    gap: 0.75rem;
+  }
+  .btn-row .btn-apply {
+    flex: 1;
+  }
+
+  .btn-test {
+    padding: 0.6rem 1rem;
+    background: transparent;
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    color: var(--accent-light);
+    font-weight: 700;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .btn-test:hover {
+    background: var(--accent);
+    color: var(--text-primary);
+  }
+  .btn-test:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
   .feedback {
     text-align: center;
     font-size: 0.85rem;
@@ -780,6 +904,11 @@
     color: #ffb74d;
     margin-top: 0.35rem;
     line-height: 1.3;
+  }
+
+  .vram-test-error {
+    color: #e57373;
+    font-weight: 600;
   }
 
   /* Quality / VRAM scale */

@@ -710,13 +710,16 @@ func recordMeasuredVRAMPeak(ctx context.Context, modelName, device string, cfg V
 		Captured:   captured,
 	}
 	store := getVRAMMeasuredStore()
-	store.recordMeasuredAttempt(key, rec, success)
-	if err := store.save(); err != nil {
-		Log("pipeline", "warn", fmt.Sprintf("Failed to save measured VRAM for %s: %v", modelName, err))
-	}
 	status := "failed"
 	if success {
+		store.recordMeasuredAttempt(key, rec, true)
+		if err := store.save(); err != nil {
+			Log("pipeline", "warn", fmt.Sprintf("Failed to save measured VRAM for %s: %v", modelName, err))
+		}
 		status = "success"
+	} else {
+		Log("pipeline", "warn", fmt.Sprintf("VRAM measurement discarded for %s: pipeline step failed (footprint=%d MB n=%d)",
+			modelName, footprint, res.N))
 	}
 	Log("pipeline", "info", fmt.Sprintf("VRAM measured: model=%s step=%s device=%s baseline=%d MB peak=%d MB footprint=%d MB n=%d status=%s",
 		modelName, stepType, device, res.BaselineMB, res.PeakMB, footprint, res.N, status))
