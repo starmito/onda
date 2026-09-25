@@ -30,6 +30,16 @@ const vramBaselineSamples = 3
 // inference does not grow VRAM with song length.
 const vramDurationBucketSec = 30
 
+// vramMinimumMeasurableFootprintMB is the smallest VRAM footprint we consider
+// a real measurement. Anything below this is treated as a failed or empty job
+// and is discarded so it cannot poison the store.
+const vramMinimumMeasurableFootprintMB = 100
+
+// vramMinimumReliableSamples is the minimum number of GPU readings required
+// for a measurement to be trustworthy. A job that exits before this many
+// samples is assumed to have failed before executing.
+const vramMinimumReliableSamples = 2
+
 // vramFlagNames enumerate the inference parameters that may be captured in a
 // measured VRAM record. Uncaptured values act as wildcards during lookup.
 const (
@@ -196,11 +206,24 @@ func (s *vramMeasuredStore) record(key string, peakMB, nSamples int) {
 }
 
 // recordMeasured adds or updates a peak measurement for key, preserving the
-// captured flags when the record already exists.
+// captured flags when the record already exists. It never replaces a valid
+// measurement with a zero or near-zero footprint.
 func (s *vramMeasuredStore) recordMeasured(key string, rec MeasuredVRAMRecord) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r := s.data[key]
+	// Reject measurements that are below the measurable threshold. This guards
+	// against failed jobs that record a footprint of 0 MB and poison the store.
+	if rec.PeakMBMax > 0 && rec.PeakMBMax < vramMinimumMeasurableFootprintMB {
+		if r.PeakMBMax >= vramMinimumMeasurableFootprintMB {
+			Log("pipeline", "warn", fmt.Sprintf("VRAM measurement discarded for %s: would overwrite valid %d MB with %d MB", key, r.PeakMBMax, rec.PeakMBMax))
+			return
+		}
+		// If there is no previous valid measurement, still discard the invalid
+		// value rather than creating a zero-footprint entry.
+		Log("pipeline", "warn", fmt.Sprintf("VRAM measurement discarded for %s: footprint %d MB below threshold %d MB", key, rec.PeakMBMax, vramMinimumMeasurableFootprintMB))
+		return
+	}
 	if rec.PeakMBMax > r.PeakMBMax {
 		r.PeakMBMax = rec.PeakMBMax
 	}
@@ -358,12 +381,19 @@ func vramStepTypeForModel(modelName string) string {
 }
 
 // vramFlagsMatch reports whether a stored record matches the requested flags.
-// Captured flags must match exactly; uncaptured flags are wildcards.
-func vramFlagsMatch(rec MeasuredVRAMRecord, req VRAMFlags) bool {
-	if len(rec.Captured) == 0 {
+// Only the flags captured by the request are compared; any other flag acts as
+// a wildcard. This lets a measurement taken with a wider captured set still
+// match a query that only cares about a subset of flags.
+func vramFlagsMatch(rec MeasuredVRAMRecord, req VRAMFlags, reqCaptured map[string]bool) bool {
+	if len(reqCaptured) == 0 {
 		return true
 	}
-	for name := range rec.Captured {
+	for name := range reqCaptured {
+		// If the record did not capture this flag, it is a wildcard from the
+		// record's side and still compatible with the request.
+		if !rec.Captured[name] {
+			continue
+		}
 		stored := vramFlagValueFromFlags(rec.Flags, name)
 		requested := vramFlagValueFromFlags(req, name)
 		if stored != requested {
@@ -373,28 +403,19 @@ func vramFlagsMatch(rec MeasuredVRAMRecord, req VRAMFlags) bool {
 	return true
 }
 
-// findMeasuredVRAMPeakInStore returns the conservative maximum measured peak
-// and its record for the requested configuration. The second result is false
-// when no measurement matches.
-func findMeasuredVRAMPeakInStore(modelName, device string, cfg VRAMConfig) (MeasuredVRAMRecord, bool) {
-	stepType := vramStepTypeForModel(modelName)
-	prefix := vramMeasuredKey(modelName, stepType, device, VRAMConfig{}, nil)
-	records := getVRAMMeasuredStore().findByPrefix(prefix)
-	if len(records) == 0 {
-		return MeasuredVRAMRecord{}, false
-	}
-	reqFlags := vramFlagsFromConfig(cfg)
-	var matches []MeasuredVRAMRecord
-	for _, r := range records {
-		if vramFlagsMatch(r, reqFlags) {
-			matches = append(matches, r)
-		}
-	}
-	if len(matches) == 0 {
-		return MeasuredVRAMRecord{}, false
-	}
-	// Prefer the most specific match (most captured flags), then the highest
-	// peak (conservative), then the most recent.
+// vramMeasuredMatchLevel describes how a measurement was found in the store.
+type vramMeasuredMatchLevel string
+
+const (
+	// vramMeasuredMatchFlags means the measurement matched the queried flags.
+	vramMeasuredMatchFlags vramMeasuredMatchLevel = "flags"
+	// vramMeasuredMatchModel means only the model/step/device wildcard was found.
+	vramMeasuredMatchModel vramMeasuredMatchLevel = "model"
+)
+
+// sortVRAMMeasuredMatches orders matches by specificity (most captured flags),
+// then by conservative peak (highest), then by recency.
+func sortVRAMMeasuredMatches(matches []MeasuredVRAMRecord) {
 	sort.SliceStable(matches, func(i, j int) bool {
 		si, sj := len(matches[i].Captured), len(matches[j].Captured)
 		if si != sj {
@@ -405,7 +426,65 @@ func findMeasuredVRAMPeakInStore(modelName, device string, cfg VRAMConfig) (Meas
 		}
 		return matches[i].LastTS.After(matches[j].LastTS)
 	})
-	return matches[0], true
+}
+
+// formatVRAMMeasuredFlags returns a human-readable description of the flags
+// captured by a measurement. An empty captured set yields an empty string.
+func formatVRAMMeasuredFlags(rec MeasuredVRAMRecord) string {
+	if len(rec.Captured) == 0 {
+		return ""
+	}
+	names := make([]string, 0, len(rec.Captured))
+	for name := range rec.Captured {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	parts := make([]string, 0, len(names))
+	for _, name := range names {
+		parts = append(parts, fmt.Sprintf("%s=%d", name, vramFlagValueFromFlags(rec.Flags, name)))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// findMeasuredVRAMPeakInStore returns the conservative maximum measured peak
+// and its record for the requested configuration. The second result is false
+// when no measurement matches. The third result indicates the match level:
+// "flags" for a flag-compatible measurement, "model" for a model-level
+// wildcard fallback.
+//
+// Lookup cascade:
+//  1. Any measurement whose captured flags are compatible with the request
+//     (only request-captured flags are compared).
+//  2. The model|step|device wildcard measurement, if it exists.
+func findMeasuredVRAMPeakInStore(modelName, device string, cfg VRAMConfig) (MeasuredVRAMRecord, bool, vramMeasuredMatchLevel) {
+	stepType := vramStepTypeForModel(modelName)
+	prefix := vramMeasuredKey(modelName, stepType, device, VRAMConfig{}, nil)
+	records := getVRAMMeasuredStore().findByPrefix(prefix)
+	if len(records) == 0 {
+		return MeasuredVRAMRecord{}, false, ""
+	}
+	reqFlags := vramFlagsFromConfig(cfg)
+	reqCaptured := vramFlagsCaptured(cfg, stepType)
+
+	// Level 1: flag-compatible measurements.
+	var matches []MeasuredVRAMRecord
+	for _, r := range records {
+		if vramFlagsMatch(r, reqFlags, reqCaptured) {
+			matches = append(matches, r)
+		}
+	}
+	if len(matches) > 0 {
+		sortVRAMMeasuredMatches(matches)
+		return matches[0], true, vramMeasuredMatchFlags
+	}
+
+	// Level 2: model/step/device wildcard.
+	wildcard, ok := getVRAMMeasuredStore().get(prefix)
+	if ok && wildcard.N > 0 {
+		return wildcard, true, vramMeasuredMatchModel
+	}
+
+	return MeasuredVRAMRecord{}, false, ""
 }
 
 
@@ -490,12 +569,22 @@ func (s *vramSampler) sample(ctx context.Context) sampleResult {
 func recordMeasuredVRAMPeak(ctx context.Context, modelName, device string, cfg VRAMConfig) {
 	sampler := newVRAMSampler()
 	res := sampler.sample(ctx)
-	if !res.OK || res.N == 0 {
+	if !res.OK || res.N < vramMinimumReliableSamples {
+		reason := "insufficient samples"
+		if !res.OK {
+			reason = "GPU readings unavailable"
+		}
+		Log("pipeline", "warn", fmt.Sprintf("VRAM measurement discarded for %s: %s (n=%d)", modelName, reason, res.N))
 		return
 	}
 	footprint := res.PeakMB - res.BaselineMB
 	if footprint < 0 {
 		footprint = 0
+	}
+	if footprint < vramMinimumMeasurableFootprintMB {
+		Log("pipeline", "warn", fmt.Sprintf("VRAM measurement discarded for %s: footprint %d MB below threshold %d MB",
+			modelName, footprint, vramMinimumMeasurableFootprintMB))
+		return
 	}
 	stepType := vramStepTypeForModel(modelName)
 	captured := vramFlagsCaptured(cfg, stepType)
