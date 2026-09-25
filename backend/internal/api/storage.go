@@ -25,7 +25,9 @@ type cleanResult struct {
 }
 
 // storageFolders is the ordered list of project folders reported by usage.
-var storageFolders = []string{"input", "input_rubberband", "daw-data", "output", "models", "logs"}
+// "exports" is resolved through exportDir() instead of mustSub() so it works
+// when the user has configured a custom export directory.
+var storageFolders = []string{"input", "input_rubberband", "daw-data", "output", "models", "logs", "exports"}
 
 // dirUsage recursively counts regular files and their sizes under path.
 // It does not follow symbolic links and is tolerant with missing folders.
@@ -88,7 +90,12 @@ func (s *Server) handleStorageUsage(w http.ResponseWriter, r *http.Request) {
 	root := dataRoot()
 	folders := make(map[string]folderUsage, len(storageFolders))
 	for _, name := range storageFolders {
-		path := mustSub(name)
+		var path string
+		if name == "exports" {
+			path = exportDir()
+		} else {
+			path = mustSub(name)
+		}
 		files, bytes := dirUsage(path)
 		folders[name] = folderUsage{Files: files, Bytes: bytes}
 	}
@@ -168,6 +175,95 @@ func (s *Server) handleStorageClean(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(result)
+}
+
+// handleStorageExportsClean removes every regular file and empty subdirectory
+// inside the configured export directory. It refuses to run if the export
+// directory lies outside the current data root, and it never follows symbolic
+// links.
+// POST /api/storage/exports/clean
+func (s *Server) handleStorageExportsClean(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("method %s not allowed", r.Method),
+		})
+		return
+	}
+
+	root := dataRoot()
+	dir := exportDir()
+	if dir == "" {
+		writeErrorJSON(w, http.StatusBadRequest, "export directory not configured")
+		return
+	}
+	if !isDirInside(root, dir) {
+		writeErrorJSON(w, http.StatusForbidden, "export directory is outside the data root")
+		return
+	}
+
+	files, bytes, err := removeExportDirContents(dir)
+	if err != nil {
+		writeErrorJSON(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+
+	logDeletion(r, "storage-exports-clean", "exports", files, bytes)
+
+	result := cleanResult{Action: "exports", Files: files, Bytes: bytes}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(result)
+}
+
+// isDirInside reports whether child is the same directory as parent or is
+// strictly contained inside it. Both paths are cleaned before comparison.
+func isDirInside(parent, child string) bool {
+	parent = filepath.Clean(parent)
+	child = filepath.Clean(child)
+	if parent == child {
+		return true
+	}
+	sep := string(filepath.Separator)
+	return strings.HasPrefix(child, parent+sep)
+}
+
+// removeExportDirContents recursively deletes regular files and empty
+// subdirectories inside dir. It ignores symbolic links and returns the count
+// and total byte size of removed files.
+func removeExportDirContents(dir string) (int64, int64, error) {
+	var files, bytes int64
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return 0, 0, nil
+		}
+		return 0, 0, err
+	}
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if info.Mode()&os.ModeSymlink != 0 {
+			continue
+		}
+		path := filepath.Join(dir, entry.Name())
+		if entry.IsDir() {
+			sf, sb, _ := removeExportDirContents(path)
+			files += sf
+			bytes += sb
+			_ = os.Remove(path)
+			continue
+		}
+		if err := os.Remove(path); err != nil {
+			continue
+		}
+		files++
+		bytes += info.Size()
+	}
+	return files, bytes, nil
 }
 
 // removeFilesInDir deletes regular files inside dir and returns count/bytes.

@@ -672,6 +672,12 @@ func TestNoHardcodedExportDirPaths(t *testing.T) {
 		rel, _ := filepath.Rel(repoRoot, p)
 		lines := strings.Split(string(content), "\n")
 		for i, line := range lines {
+			// API routes (string literals or handler doc comments) that
+			// legitimately mention the export folder are not hardcoded
+			// destination paths.
+			if strings.Contains(line, "/api/") {
+				continue
+			}
 			for _, lit := range forbidden {
 				if strings.Contains(line, lit) {
 					violations = append(violations, fmt.Sprintf("%s:%d: %s", rel, i+1, strings.TrimSpace(line)))

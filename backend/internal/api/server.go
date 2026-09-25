@@ -230,6 +230,7 @@ func NewServer(addr string) *http.Server {
 	s.mux.HandleFunc("GET /api/queue/status", s.handleQueueStatus)
 	s.mux.HandleFunc("GET /api/processes/status", s.handleProcessStatus)
 	s.mux.HandleFunc("DELETE /api/queue", s.handleQueueClear)
+	s.mux.HandleFunc("DELETE /api/queue/{song}", s.handleQueueRemoveSong)
 	s.mux.HandleFunc("POST /api/queue/cancel", s.handleQueueCancel)
 	s.mux.HandleFunc("GET /api/results", s.handleResults)
 	s.mux.HandleFunc("GET /api/inputs", s.handleInputs)
@@ -249,6 +250,7 @@ func NewServer(addr string) *http.Server {
 	// Storage API
 	s.mux.HandleFunc("GET /api/storage/usage", s.handleStorageUsage)
 	s.mux.HandleFunc("POST /api/storage/clean", s.handleStorageClean)
+	s.mux.HandleFunc("POST /api/storage/exports/clean", s.handleStorageExportsClean)
 	s.mux.HandleFunc("GET /api/storage/config", s.handleStorageConfigGet)
 	s.mux.HandleFunc("POST /api/storage/config", s.handleStorageConfigPost)
 	s.mux.HandleFunc("GET /api/export/files/{file}", s.handleExportFileServe)
@@ -1160,6 +1162,49 @@ func (s *Server) handleQueueClear(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"status": "cleared"})
+}
+
+// handleQueueRemoveSong removes a single queued job by song name. If that song
+// is the one currently processing, its pipeline process is cancelled. No user
+// files are deleted.
+// DELETE /api/queue/{song}
+func (s *Server) handleQueueRemoveSong(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{
+			"error": fmt.Sprintf("method %s not allowed", r.Method),
+		})
+		return
+	}
+
+	song := r.PathValue("song")
+	if song == "" {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "missing song"})
+		return
+	}
+
+	s.jobsMu.Lock()
+	defer s.jobsMu.Unlock()
+
+	job, ok := s.jobs[song]
+	if !ok {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]string{"error": "song not found in queue"})
+		return
+	}
+
+	if job.Status == "processing" {
+		s.cancelCurrentJob()
+	}
+
+	delete(s.jobs, song)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{"status": "removed", "song": song})
 }
 
 // handleQueueCancel cancels the currently running job and removes it from the queue.
