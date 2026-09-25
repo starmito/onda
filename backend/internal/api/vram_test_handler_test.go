@@ -247,3 +247,138 @@ func TestHandleVRAMTestStatus(t *testing.T) {
 		t.Fatal("expected no running test")
 	}
 }
+
+func TestHandleModelsVRAMTest_UnknownFlag(t *testing.T) {
+	setTestRoot(t, "vram-test-")
+	srv := &Server{mux: http.NewServeMux()}
+
+	modelDir := filepath.Join(modelsBasePath(), "VR_Models", "test-roformer")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatalf("cannot create fake model dir: %v", err)
+	}
+	writeTestModelManifest(t, modelDir, "segment_size", "num_overlap", "chunk_size", "batch_size")
+	if err := os.WriteFile(filepath.Join(modelDir, "test-roformer.pth"), []byte("fake"), 0o644); err != nil {
+		t.Fatalf("cannot write fake checkpoint: %v", err)
+	}
+
+	activeVRAMTest.mu.Lock()
+	activeVRAMTest.running = false
+	activeVRAMTest.mu.Unlock()
+
+	body, _ := json.Marshal(map[string]interface{}{"flags": map[string]interface{}{
+		"batch_size":     1,
+		"chunk_size":     0,
+		"segment_size":   1101,
+		"num_overlap":    3,
+		"flag_inventado": 5,
+	}})
+	req := httptest.NewRequest(http.MethodPost, "/api/models/test-roformer/vram-test", bytes.NewReader(body))
+	req.SetPathValue("name", "test-roformer")
+	w := httptest.NewRecorder()
+	srv.handleModelsVRAMTest(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400, got %d: %s", w.Code, w.Body.String())
+	}
+	if !strings.Contains(w.Body.String(), "flag_inventado") {
+		t.Fatalf("expected error to name the unknown flag, got %s", w.Body.String())
+	}
+	if activeVRAMTest.running {
+		t.Fatal("test should not have been started")
+	}
+}
+
+// writeTestModelManifest writes a minimal model.manifest.json that declares
+// the supplied flag names as editable so the VRAM test accepts them.
+func writeTestModelManifest(t *testing.T, modelDir string, flagNames ...string) {
+	t.Helper()
+	flags := make(map[string]interface{}, len(flagNames))
+	for _, name := range flagNames {
+		flags[name] = map[string]interface{}{"editable": true}
+	}
+	manifest := map[string]interface{}{
+		"type":  "test",
+		"stems": map[string]interface{}{"stems": []string{"vocals", "instrumental"}},
+		"flags": flags,
+	}
+	data, _ := json.Marshal(manifest)
+	if err := os.WriteFile(filepath.Join(modelDir, "model.manifest.json"), data, 0o644); err != nil {
+		t.Fatalf("cannot write manifest: %v", err)
+	}
+}
+
+func TestHandleModelsVRAMTest_AcceptsValidFlagsPerFamily(t *testing.T) {
+	setTestRoot(t, "vram-test-")
+
+	cases := []struct {
+		name  string
+		flags map[string]interface{}
+	}{
+		{
+			name: "roformer",
+			flags: map[string]interface{}{
+				"batch_size":   1,
+				"chunk_size":   0,
+				"segment_size": 1101,
+				"num_overlap":  3,
+			},
+		},
+		{
+			name: "mdx23c",
+			flags: map[string]interface{}{
+				"batch_size":   1,
+				"segment_size": 256,
+				"num_overlap":  2,
+			},
+		},
+		{
+			name: "mdx_net",
+			flags: map[string]interface{}{
+				"batch_size":   1,
+				"segment_size": 256,
+				"num_overlap":  2,
+			},
+		},
+		{
+			name: "demucs",
+			flags: map[string]interface{}{
+				"shifts":  10,
+				"segment": 7,
+				"jobs":    8,
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			srv := &Server{mux: http.NewServeMux()}
+			modelName := "test-" + tc.name
+			modelDir := filepath.Join(modelsBasePath(), "VR_Models", modelName)
+			if err := os.MkdirAll(modelDir, 0o755); err != nil {
+				t.Fatalf("cannot create fake model dir: %v", err)
+			}
+			flagNames := make([]string, 0, len(tc.flags))
+			for k := range tc.flags {
+				flagNames = append(flagNames, k)
+			}
+			writeTestModelManifest(t, modelDir, flagNames...)
+			if err := os.WriteFile(filepath.Join(modelDir, modelName+".pth"), []byte("fake"), 0o644); err != nil {
+				t.Fatalf("cannot write fake checkpoint: %v", err)
+			}
+
+			activeVRAMTest.mu.Lock()
+			activeVRAMTest.running = false
+			activeVRAMTest.mu.Unlock()
+
+			body, _ := json.Marshal(map[string]interface{}{"flags": tc.flags})
+			req := httptest.NewRequest(http.MethodPost, "/api/models/"+modelName+"/vram-test", bytes.NewReader(body))
+			req.SetPathValue("name", modelName)
+			w := httptest.NewRecorder()
+			srv.handleModelsVRAMTest(w, req)
+
+			if w.Code != http.StatusAccepted {
+				t.Fatalf("expected 202, got %d: %s", w.Code, w.Body.String())
+			}
+		})
+	}
+}

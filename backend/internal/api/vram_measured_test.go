@@ -467,12 +467,11 @@ func TestHandleVRAMCalculator_MeasuredSource_RealStoreKey(t *testing.T) {
 	}
 }
 
-// TestHandleVRAMCalculator_MeasuredSource_CascadeLevel1 reproduces FALLO B from
-// task 53: the UI queries with all model flags, but the store record was saved
-// with a key that only contains batch/chunk/segment while its captured set also
-// includes overlap and shifts. The lookup must still return the measured value
-// because the queried flags that the record does capture match exactly.
-func TestHandleVRAMCalculator_MeasuredSource_CascadeLevel1(t *testing.T) {
+// TestHandleVRAMCalculator_MeasuredSource_ExactNumOverlap verifies that a
+// measurement captured with a specific num_overlap is returned only when the
+// calculator asks for the same num_overlap. With the fix the VRAM test stores
+// the exact UI flags, so num_overlap is part of the key.
+func TestHandleVRAMCalculator_MeasuredSource_ExactNumOverlap(t *testing.T) {
 	setupTestLogStore(t)
 	root := setTestRoot(t, "vram-calc-cascade-l1-")
 
@@ -521,8 +520,8 @@ func TestHandleVRAMCalculator_MeasuredSource_CascadeLevel1(t *testing.T) {
 	s := &Server{mux: http.NewServeMux()}
 	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)
 
-	// Query exactly as the model settings UI does for BS_Roformer_SW_6stem.
-	req := httptest.NewRequest(http.MethodGet, "/api/gpu/vram-calculator?models=BS_Roformer_SW_6stem&segment_size=1101&batch_size=1&chunk_size=0&num_overlap=4", nil)
+	// Query with the same num_overlap that was captured.
+	req := httptest.NewRequest(http.MethodGet, "/api/gpu/vram-calculator?models=BS_Roformer_SW_6stem&segment_size=1101&batch_size=1&chunk_size=0&num_overlap=2", nil)
 	rr := httptest.NewRecorder()
 	s.mux.ServeHTTP(rr, req)
 
@@ -922,6 +921,206 @@ func TestHandleVRAMCalculator_ExactFlagsForSW6Stem(t *testing.T) {
 	}
 	if m.VRAMMB != 4965 {
 		t.Errorf("vram_mb = %d, want 4965", m.VRAMMB)
+	}
+}
+
+// TestVramFlagsCaptured_RoformerUsesUIFlags verifies that the captured flag set
+// for a RoFormer/vocal model includes every slider the UI sends to the
+// calculator: segment_size, num_overlap, chunk_size and batch_size.
+func TestVramFlagsCaptured_RoformerUsesUIFlags(t *testing.T) {
+	cfg := VRAMConfig{
+		SegmentSize: 1101,
+		ChunkSize:   0,
+		BatchSize:   1,
+		NumOverlap:  3,
+		Shifts:      1,
+		Jobs:        1,
+	}
+	captured := vramFlagsCaptured(cfg, "vocal")
+	want := map[string]bool{
+		vramFlagSegmentSize: true,
+		vramFlagNumOverlap:  true,
+		vramFlagChunkSize:   true,
+		vramFlagBatchSize:   true,
+	}
+	if len(captured) != len(want) {
+		t.Fatalf("captured = %v, want %v", captured, want)
+	}
+	for name := range want {
+		if !captured[name] {
+			t.Errorf("missing captured flag %q", name)
+		}
+	}
+}
+
+// TestVramMeasuredKey_IncludesChunkSizeZeroAndNumOverlap verifies that the
+// measured key stores the UI values exactly, including chunk_size=0 and
+// num_overlap=3, and never omits them or substitutes internal resolved values.
+func TestVramMeasuredKey_IncludesChunkSizeZeroAndNumOverlap(t *testing.T) {
+	cfg := VRAMConfig{
+		SegmentSize: 1101,
+		ChunkSize:   0,
+		BatchSize:   1,
+		NumOverlap:  3,
+		Shifts:      1,
+		Jobs:        1,
+	}
+	captured := map[string]bool{
+		vramFlagSegmentSize: true,
+		vramFlagNumOverlap:  true,
+		vramFlagChunkSize:   true,
+		vramFlagBatchSize:   true,
+	}
+	key := vramMeasuredKey("BS_Roformer_SW_6stem", "vocal", "cuda", cfg, captured)
+	if !strings.Contains(key, "chunk_size=0") {
+		t.Errorf("key %q does not contain chunk_size=0", key)
+	}
+	if !strings.Contains(key, "num_overlap=3") {
+		t.Errorf("key %q does not contain num_overlap=3", key)
+	}
+	if strings.Contains(key, "demucs_segment") {
+		t.Errorf("key %q should not contain demucs_segment for a non-Demucs model", key)
+	}
+}
+
+// TestVramMeasuredStore_LoadDiscardsCorruptKeys verifies that keys with
+// internal resolved values (chunk_size=485100), negative segment_size or a
+// demucs_segment segment on non-Demucs models are discarded on load and never
+// become readable.
+func TestVramMeasuredStore_LoadDiscardsCorruptKeys(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, vramMeasuredFileName)
+
+	payload := map[string]MeasuredVRAMRecord{
+		"bs_roformer_sw_6stem|vocal|cuda|batch_size=1|chunk_size=485100|demucs_segment=0": {
+			PeakMBMax:  2803,
+			PeakMBLast: 2803,
+			N:          2,
+			LastTS:     time.Now().UTC(),
+		},
+		"bs_roformer_sw_6stem|roformer|cuda|batch_size=1|chunk_size=485100|demucs_segment=0": {
+			PeakMBMax:  2803,
+			PeakMBLast: 2803,
+			N:          2,
+			LastTS:     time.Now().UTC(),
+		},
+		"mdx23c|mdx|cuda|segment_size=-1|batch_size=1": {
+			PeakMBMax:  2500,
+			PeakMBLast: 2500,
+			N:          1,
+			LastTS:     time.Now().UTC(),
+		},
+		"bs_roformer_viperx|vocal|cuda|batch_size=1|chunk_size=0|num_overlap=3|segment_size=1101": {
+			PeakMBMax:  2475,
+			PeakMBLast: 2475,
+			N:          18,
+			LastTS:     time.Now().UTC(),
+			Flags: VRAMFlags{
+				SegmentSize: 1101,
+				ChunkSize:   0,
+				BatchSize:   1,
+				NumOverlap:  3,
+			},
+			Captured: map[string]bool{
+				vramFlagSegmentSize: true,
+				vramFlagChunkSize:   true,
+				vramFlagBatchSize:   true,
+				vramFlagNumOverlap:  true,
+			},
+		},
+	}
+	data, _ := json.Marshal(payload)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("failed to write store: %v", err)
+	}
+
+	store := newVRAMMeasuredStore(path)
+	if err := store.load(); err != nil {
+		t.Fatalf("load failed: %v", err)
+	}
+
+	for _, bad := range []string{
+		"bs_roformer_sw_6stem|vocal|cuda|batch_size=1|chunk_size=485100|demucs_segment=0",
+		"bs_roformer_sw_6stem|roformer|cuda|batch_size=1|chunk_size=485100|demucs_segment=0",
+		"mdx23c|mdx|cuda|segment_size=-1|batch_size=1",
+	} {
+		if _, ok := store.get(bad); ok {
+			t.Errorf("corrupt key %q should have been discarded", bad)
+		}
+	}
+	if _, ok := store.get("bs_roformer_viperx|vocal|cuda|batch_size=1|chunk_size=0|num_overlap=3|segment_size=1101"); !ok {
+		t.Errorf("valid key should have been preserved")
+	}
+}
+
+// TestHandleVRAMCalculator_MeasuredSource_ExactUIFlags verifies that a VRAM
+// measurement written with the exact UI flags (chunk_size=0, num_overlap=3) is
+// returned by the calculator for the same query.
+func TestHandleVRAMCalculator_MeasuredSource_ExactUIFlags(t *testing.T) {
+	setupTestLogStore(t)
+	root := setTestRoot(t, "vram-calc-exact-ui-")
+
+	storeDir := filepath.Join(root, "config")
+	storePath := filepath.Join(storeDir, vramMeasuredFileName)
+	if err := os.MkdirAll(storeDir, 0o755); err != nil {
+		t.Fatalf("failed to create config dir: %v", err)
+	}
+	resetVRAMMeasuredStoreForTests()
+	vramMeasuredStoreInstance = newVRAMMeasuredStore(storePath)
+
+	cfg := VRAMConfig{
+		SegmentSize: 1101,
+		ChunkSize:   0,
+		BatchSize:   1,
+		NumOverlap:  3,
+	}
+	captured := vramFlagsCaptured(cfg, "vocal")
+	key := vramMeasuredKey("BS_Roformer_SW_6stem", "vocal", "cuda", cfg, captured)
+	getVRAMMeasuredStore().recordMeasuredAttempt(key, MeasuredVRAMRecord{
+		PeakMBMax:    2475,
+		PeakMBLast:   2475,
+		N:            18,
+		LastTS:       time.Now().UTC(),
+		Flags:        vramFlagsFromConfig(cfg),
+		Captured:     captured,
+	}, true)
+	if err := getVRAMMeasuredStore().save(); err != nil {
+		t.Fatalf("save failed: %v", err)
+	}
+
+	origGPU := gpuInfoProvider
+	defer func() { gpuInfoProvider = origGPU }()
+	gpuInfoProvider = func() GPUInfoResponse {
+		return GPUInfoResponse{OK: true, VRAMTotalMB: 16000, VRAMFreeMB: 12000, VRAMUsedMB: 4000}
+	}
+
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/gpu/vram-calculator?models=BS_Roformer_SW_6stem&segment_size=1101&batch_size=1&chunk_size=0&num_overlap=3", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	var resp VRAMCalculatorResponse
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode failed: %v", err)
+	}
+	if len(resp.Models) != 1 {
+		t.Fatalf("expected 1 model, got %d", len(resp.Models))
+	}
+	m := resp.Models[0]
+	if m.Source != "measured" {
+		t.Errorf("source = %q, want measured", m.Source)
+	}
+	if m.VRAMMB != 2475 {
+		t.Errorf("vram_mb = %d, want 2475", m.VRAMMB)
+	}
+	if !strings.Contains(m.MeasuredFlags, "num_overlap=3") {
+		t.Errorf("measured_flags = %q, want it to contain num_overlap=3", m.MeasuredFlags)
 	}
 }
 

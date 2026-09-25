@@ -159,6 +159,17 @@ func (s *Server) handleModelsVRAMTest(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]string{"error": fmt.Sprintf("model %q not found", modelName)})
 		return
 	}
+
+	// Reject unknown flags before doing any work so the UI gets immediate
+	// feedback and no measurement is written with the wrong key.
+	validFlags := validVRAMTestFlags(modelName)
+	for flagName := range req.Flags {
+		if !validFlags[flagName] {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": fmt.Sprintf("unknown flag: %s", flagName)})
+			return
+		}
+	}
+
 	clipPath, err := ensureVRAMTestClip()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": fmt.Sprintf("failed to create test clip: %v", err)})
@@ -412,5 +423,21 @@ func isOOMPipelineError(err error, output string) bool {
 		}
 	}
 	return false
+}
+
+// validVRAMTestFlags returns the set of flag names accepted by the VRAM test
+// endpoint for the given model. It prefers the model manifest and falls back
+// to the family defaults so every model accepts exactly the flags the UI can
+// send.
+func validVRAMTestFlags(modelName string) map[string]bool {
+	defs, ok := loadModelManifestFlags(modelName)
+	if !ok {
+		defs = fallbackFlagsForModel(modelName)
+	}
+	valid := make(map[string]bool, len(defs))
+	for name := range defs {
+		valid[name] = true
+	}
+	return valid
 }
 

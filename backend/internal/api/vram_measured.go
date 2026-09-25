@@ -149,6 +149,13 @@ func (s *vramMeasuredStore) load() error {
 			continue
 		}
 		newKey := migrateVRAMMeasuredKey(oldKey)
+		// Discard keys that contain internal resolved values or flags that do
+		// not belong to the model family (e.g. demucs_segment on a RoFormer
+		// model, chunk_size in samples, or negative segment_size).
+		if !vramMeasuredKeyIsValid(newKey) {
+			Log("pipeline", "warn", fmt.Sprintf("Discarding corrupt measured VRAM key on load: %s", newKey))
+			continue
+		}
 		// Old records folded all flags into the hash, so we cannot know which
 		// flags were captured. Treat them as wildcards so they still match
 		// future lookups for the same model/step/device. New-format keys keep
@@ -302,6 +309,54 @@ func vramMeasuredKey(modelName, stepType, device string, cfg VRAMConfig, capture
 	return b.String()
 }
 
+// vramMeasuredKeyIsValid reports whether a key only contains flags and values
+// that can be produced by the UI. It rejects internal resolved values (e.g.
+// chunk_size in samples, segment_size=-1, demucs_segment on non-Demucs models)
+// so corrupt legacy keys cannot poison lookups.
+func vramMeasuredKeyIsValid(key string) bool {
+	parts := strings.Split(key, "|")
+	if len(parts) < 3 {
+		return false
+	}
+	stepType := strings.ToLower(parts[1])
+	for i := 3; i < len(parts); i++ {
+		kv := strings.SplitN(parts[i], "=", 2)
+		if len(kv) != 2 {
+			return false
+		}
+		name := kv[0]
+		val, err := strconv.Atoi(kv[1])
+		if err != nil {
+			return false
+		}
+		switch name {
+		case vramFlagSegmentSize:
+			if val < 0 {
+				return false
+			}
+		case vramFlagChunkSize:
+			// chunk_size is always in seconds in the UI, range [0, 600].
+			if val < 0 || val > 600 {
+				return false
+			}
+		case vramFlagBatchSize, vramFlagNumOverlap, vramFlagShifts, vramFlagJobs:
+			if val < 0 {
+				return false
+			}
+		case vramFlagDemucsSegment:
+			if stepType != "demucs" {
+				return false
+			}
+			if val < 0 {
+				return false
+			}
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // vramFlagValue returns the value of a named flag from a VRAMConfig.
 func vramFlagValue(cfg VRAMConfig, name string) int {
 	switch name {
@@ -358,28 +413,30 @@ func vramFlagsFromConfig(cfg VRAMConfig) VRAMFlags {
 }
 
 // vramFlagsCaptured decides which flags are relevant enough to be captured for
-// a given step type. Uncaptured flags act as wildcards when matching.
+// a given step type. The captured set matches exactly the sliders shown in the
+// UI for that family, so a measurement is stored and looked up with the same
+// names and values the user sees.
 func vramFlagsCaptured(cfg VRAMConfig, stepType string) map[string]bool {
 	captured := make(map[string]bool)
 	lowerStep := strings.ToLower(stepType)
 	switch lowerStep {
 	case "vocal", "roformer":
 		captured[vramFlagSegmentSize] = true
-		captured[vramFlagBatchSize] = true
+		captured[vramFlagNumOverlap] = true
 		captured[vramFlagChunkSize] = true
+		captured[vramFlagBatchSize] = true
 	case "demucs":
 		captured[vramFlagDemucsSegment] = true
-		if cfg.Shifts > 0 {
-			captured[vramFlagShifts] = true
-		}
-		if cfg.Jobs > 0 {
-			captured[vramFlagJobs] = true
-		}
+		captured[vramFlagShifts] = true
+		captured[vramFlagJobs] = true
 	case "scnet":
+		captured[vramFlagSegmentSize] = true
+		captured[vramFlagNumOverlap] = true
 		captured[vramFlagChunkSize] = true
 		captured[vramFlagBatchSize] = true
 	case "mdx", "mdxnet":
 		captured[vramFlagSegmentSize] = true
+		captured[vramFlagNumOverlap] = true
 		captured[vramFlagBatchSize] = true
 	}
 	return captured

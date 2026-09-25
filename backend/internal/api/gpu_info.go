@@ -103,14 +103,6 @@ var measuredVRAMPeaks = []measuredVRAMPeak{
 	// Measured 2026-09-19: htdemucs_ft with --shifts 20 --segment 7 -j 8
 	// stays around 1.5 GiB after the vocal model is released.
 	{ModelName: "htdemucs_ft", StepType: "demucs", PeakMB: 1500, DemucsSegment: 7},
-	// Measured 2026-09-21: BS_Roformer_SW_6stem, 30 s stereo 44.1 kHz,
-	// chunk_size=485100 samples, overlap=4 (step=121275), batch_size=1.
-	// SegmentSize was not captured; the calculator uses the analytical estimate
-	// so the number still moves when the user changes segment_size.
-	{ModelName: "BS_Roformer_SW_6stem", StepType: "vocal", PeakMB: 2803, SegmentSize: measuredParamUnused, ChunkSize: 485100, BatchSize: 1, Duration: 30},
-	// Same measurement indexed by the real step type derived from the model
-	// (the preset may still declare the step as "demucs").
-	{ModelName: "BS_Roformer_SW_6stem", StepType: "roformer", PeakMB: 2803, SegmentSize: measuredParamUnused, ChunkSize: 485100, BatchSize: 1, Duration: 30},
 	// Measured 2026-09-21: SCNet_MUSDB18 with chunk_size=0 (whole song),
 	// 296 s stereo 44.1 kHz, batch_size=1.
 	{ModelName: "SCNet_MUSDB18", StepType: "scnet", PeakMB: 6372, SegmentSize: measuredParamUnused, ChunkSize: 0, BatchSize: 1, Duration: 296},
@@ -815,10 +807,11 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Parse chunk_size query parameter (affects VRAM for SCNet and Roformer models).
+	// chunk_size=0 is a valid UI value (whole song) and must be matched exactly.
 	chunkSize := 0
 	chunkSizeParam := r.URL.Query().Get("chunk_size")
 	if chunkSizeParam != "" {
-		if cs, err := strconv.Atoi(chunkSizeParam); err == nil && cs > 0 {
+		if cs, err := strconv.Atoi(chunkSizeParam); err == nil && cs >= 0 {
 			chunkSize = cs
 		}
 	}
