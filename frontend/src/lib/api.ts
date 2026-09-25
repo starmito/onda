@@ -513,6 +513,16 @@ export async function clearQueue(): Promise<void> {
   }
 }
 
+export async function deleteQueueSong(song: string): Promise<{ status: string; song: string }> {
+  const res = await fetch(`${API_BASE}/api/queue/${encodeURIComponent(song)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    throw new Error(`Queue remove failed with status ${res.status}: ${res.statusText}`);
+  }
+  return (await res.json()) as { status: string; song: string };
+}
+
 export async function cancelQueue(): Promise<{ status: string }> {
   const res = await fetch(`${API_BASE}/api/queue/cancel`, {
     method: 'POST',
@@ -1164,6 +1174,7 @@ export interface VRAMModelEntry {
   measured_mb?: number;
   measured_n?: number;
   measured_ts?: string;
+  measured_flags?: string;
   estimated_mb?: number;
   fallback_reason?: string;
 }
@@ -1546,6 +1557,12 @@ export async function setExportDir(exportDir: string): Promise<StorageConfig> {
   return (await res.json()) as StorageConfig;
 }
 
+export interface CleanResponse {
+  action: string;
+  files: number;
+  bytes: number;
+}
+
 export async function setConfigDir(configDir: string): Promise<StorageConfig> {
   const res = await fetch(`${API_BASE}/api/storage/config`, {
     method: 'POST',
@@ -1563,6 +1580,25 @@ export async function setConfigDir(configDir: string): Promise<StorageConfig> {
     throw new Error(detail);
   }
   return (await res.json()) as StorageConfig;
+}
+
+export async function cleanExports(): Promise<CleanResponse> {
+  const res = await fetch(`${API_BASE}/api/storage/exports/clean`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  });
+  if (!res.ok) {
+    let detail = `Request failed with status ${res.status}: ${res.statusText}`;
+    try {
+      const data = (await res.json()) as { error?: string };
+      if (data.error) detail = data.error;
+    } catch {
+      // keep default detail
+    }
+    throw new Error(detail);
+  }
+  return (await res.json()) as CleanResponse;
 }
 
 // ---- DAW EQ ----
