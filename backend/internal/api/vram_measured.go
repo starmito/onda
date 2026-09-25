@@ -144,12 +144,19 @@ func (s *vramMeasuredStore) load() error {
 	}
 	s.data = make(map[string]MeasuredVRAMRecord)
 	for oldKey, rec := range loaded {
+		// Discard corrupt or empty measurements so they cannot poison lookups.
+		if rec.PeakMBMax <= 0 || rec.PeakMBMax < vramMinimumMeasurableFootprintMB {
+			continue
+		}
 		newKey := migrateVRAMMeasuredKey(oldKey)
 		// Old records folded all flags into the hash, so we cannot know which
 		// flags were captured. Treat them as wildcards so they still match
-		// future lookups for the same model/step/device.
-		rec.Captured = nil
-		rec.Flags = VRAMFlags{}
+		// future lookups for the same model/step/device. New-format keys keep
+		// their captured flags so exact-match lookup works.
+		if newKey != oldKey {
+			rec.Captured = nil
+			rec.Flags = VRAMFlags{}
+		}
 		s.data[newKey] = rec
 	}
 	return nil
@@ -435,20 +442,20 @@ const (
 	vramMeasuredMatchModel vramMeasuredMatchLevel = "model"
 )
 
-// measuredVRAMValue returns the representative peak to show for a record. It
-// prefers the last successful peak, then the last observed peak, and only
-// falls back to the historical maximum when no success metadata is available.
-// This prevents a single failed job that consumed a lot of VRAM from becoming
-// the default value for a model.
+// measuredVRAMValue returns the representative peak to show for a record.
+// When the record tracks successful attempts, the last successful peak is used
+// so a single failed job that consumed a lot of VRAM cannot poison the value.
+// For legacy records without success metadata the historical maximum is used
+// because there is no way to know which attempt succeeded.
 func measuredVRAMValue(rec MeasuredVRAMRecord) int {
 	if rec.SuccessCount > 0 && rec.PeakMBLastSuccess >= vramMinimumMeasurableFootprintMB {
 		return rec.PeakMBLastSuccess
 	}
-	if rec.PeakMBLast >= vramMinimumMeasurableFootprintMB {
-		return rec.PeakMBLast
-	}
 	if rec.PeakMBMax >= vramMinimumMeasurableFootprintMB {
 		return rec.PeakMBMax
+	}
+	if rec.PeakMBLast >= vramMinimumMeasurableFootprintMB {
+		return rec.PeakMBLast
 	}
 	return 0
 }
@@ -522,12 +529,12 @@ func findMeasuredVRAMPeakInStore(modelName, device string, cfg VRAMConfig) (Meas
 
 	var fullMatches []MeasuredVRAMRecord
 	var partialMatches []MeasuredVRAMRecord
-	var wildcard *MeasuredVRAMRecord
+	var wildcards []MeasuredVRAMRecord
 
 	for i := range records {
 		r := records[i]
 		if len(r.Captured) == 0 {
-			wildcard = &r
+			wildcards = append(wildcards, r)
 			continue
 		}
 		if !vramFlagsMatch(r, reqFlags, reqCaptured) {
@@ -544,21 +551,23 @@ func findMeasuredVRAMPeakInStore(modelName, device string, cfg VRAMConfig) (Meas
 		if len(matches) == 1 {
 			return matches[0]
 		}
-		// Prefer records with successful attempts, then the most recent, then
-		// the most specific capture.
+		// Prefer records with successful attempts, then the most recent success,
+		// then the most specific capture, then the most recent measurement.
+		// Never pick by peak: a failed job that peaked high must not hide a
+		// successful measurement.
 		sort.SliceStable(matches, func(i, j int) bool {
 			si := matches[i].SuccessCount > 0
 			sj := matches[j].SuccessCount > 0
 			if si != sj {
 				return si
 			}
-			if matches[i].LastSuccessTS.Equal(matches[j].LastSuccessTS) {
-				if len(matches[i].Captured) != len(matches[j].Captured) {
-					return len(matches[i].Captured) > len(matches[j].Captured)
-				}
-				return matches[i].LastTS.After(matches[j].LastTS)
+			if !matches[i].LastSuccessTS.Equal(matches[j].LastSuccessTS) {
+				return matches[i].LastSuccessTS.After(matches[j].LastSuccessTS)
 			}
-			return matches[i].LastSuccessTS.After(matches[j].LastSuccessTS)
+			if len(matches[i].Captured) != len(matches[j].Captured) {
+				return len(matches[i].Captured) > len(matches[j].Captured)
+			}
+			return matches[i].LastTS.After(matches[j].LastTS)
 		})
 		return matches[0]
 	}
@@ -569,8 +578,8 @@ func findMeasuredVRAMPeakInStore(modelName, device string, cfg VRAMConfig) (Meas
 	if len(partialMatches) > 0 {
 		return pick(partialMatches), true, vramMeasuredMatchFlags
 	}
-	if wildcard != nil && wildcard.N > 0 {
-		return *wildcard, true, vramMeasuredMatchModel
+	if len(wildcards) > 0 {
+		return pick(wildcards), true, vramMeasuredMatchModel
 	}
 
 	return MeasuredVRAMRecord{}, false, ""

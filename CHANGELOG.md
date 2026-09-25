@@ -1,5 +1,10 @@
 # Changelog
 
+## [v3.5.12] - 2026-09-25
+
+### Fixed
+- **La pantalla podia ensenar la VRAM de unas flags que no eran las de la configuracion activa**: al buscar la medida, el backend podia quedarse con una entrada cuyas flags no coincidian con la consulta (y etiquetarla como «a nivel modelo»), mostrando un valor inflado por un trabajo que revento. Caso real: el modelo de 6 stems mostraba 11.4 GB en vez de los 4965 MB medidos con sus flags exactas. Ahora gana **siempre** la entrada cuyas flags son identicas a la consulta; la medida del modelo se usa solo si no existe esa coincidencia y se identifica como tal.
+
 ## [v3.5.11] - 2026-09-25
 
 ### Fixed

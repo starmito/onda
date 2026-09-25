@@ -137,6 +137,170 @@ func TestVramMeasuredStore_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestVramMeasuredStore_LoadPreservesNewFormatFlags verifies that a store file
+// with modern "flag=value" keys keeps its captured flags and values on load.
+// Regression test for task 57: previously load() cleared every record's flags.
+func TestVramMeasuredStore_LoadPreservesNewFormatFlags(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, vramMeasuredFileName)
+
+	newKey := "bs_roformer_sw_6stem|vocal|cuda|batch_size=1|chunk_size=0|segment_size=1101"
+	payload := map[string]MeasuredVRAMRecord{
+		newKey: {
+			PeakMBMax:  4965,
+			PeakMBLast: 4965,
+			N:          345,
+			LastTS:     time.Now().UTC(),
+			Flags: VRAMFlags{
+				SegmentSize: 1101,
+				ChunkSize:   0,
+				BatchSize:   1,
+				NumOverlap:  2,
+				Shifts:      1,
+			},
+			Captured: map[string]bool{
+				vramFlagSegmentSize: true,
+				vramFlagChunkSize:   true,
+				vramFlagBatchSize:   true,
+			},
+		},
+	}
+	data, _ := json.Marshal(payload)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("failed to write store: %v", err)
+	}
+
+	store := newVRAMMeasuredStore(path)
+	if err := store.load(); err != nil {
+		t.Fatalf("load failed: %v", err)
+	}
+
+	r, ok := store.get(newKey)
+	if !ok {
+		t.Fatalf("record not found after load")
+	}
+	if len(r.Captured) != 3 {
+		t.Errorf("captured flags = %v, want 3 flags", r.Captured)
+	}
+	if r.Flags.SegmentSize != 1101 || r.Flags.BatchSize != 1 || r.Flags.ChunkSize != 0 {
+		t.Errorf("flags = %+v, want segment=1101 batch=1 chunk=0", r.Flags)
+	}
+}
+
+// TestVramMeasuredStore_LoadMigratesLegacyKeysToWildcard verifies that legacy
+// hash/duration keys are migrated to the wildcard key and lose their flags.
+func TestVramMeasuredStore_LoadMigratesLegacyKeysToWildcard(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, vramMeasuredFileName)
+
+	legacyKey := "bs_roformer_sw_6stem|vocal|cuda|fb6dc349e617a901|240"
+	wildcardKey := "bs_roformer_sw_6stem|vocal|cuda"
+	payload := map[string]MeasuredVRAMRecord{
+		legacyKey: {
+			PeakMBMax:  4137,
+			PeakMBLast: 4137,
+			N:          92,
+			LastTS:     time.Now().UTC(),
+			Flags: VRAMFlags{
+				SegmentSize: 1101,
+			},
+			Captured: map[string]bool{vramFlagSegmentSize: true},
+		},
+	}
+	data, _ := json.Marshal(payload)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("failed to write store: %v", err)
+	}
+
+	store := newVRAMMeasuredStore(path)
+	if err := store.load(); err != nil {
+		t.Fatalf("load failed: %v", err)
+	}
+
+	if _, ok := store.get(legacyKey); ok {
+		t.Errorf("legacy key %q should have been migrated", legacyKey)
+	}
+	r, ok := store.get(wildcardKey)
+	if !ok {
+		t.Fatalf("wildcard key %q not found after migration", wildcardKey)
+	}
+	if r.PeakMBMax != 4137 {
+		t.Errorf("PeakMBMax = %d, want 4137", r.PeakMBMax)
+	}
+	if len(r.Captured) != 0 {
+		t.Errorf("migrated record should have no captured flags, got %v", r.Captured)
+	}
+}
+
+// TestVramMeasuredStore_LoadFiltersLowPeaks verifies that entries with a peak
+// below the measurable threshold are discarded on load.
+func TestVramMeasuredStore_LoadFiltersLowPeaks(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, vramMeasuredFileName)
+
+	payload := map[string]MeasuredVRAMRecord{
+		"model|vocal|cuda": {
+			PeakMBMax:  50,
+			PeakMBLast: 50,
+			N:          5,
+			LastTS:     time.Now().UTC(),
+		},
+		"model|vocal|cuda|batch_size=1": {
+			PeakMBMax:  0,
+			PeakMBLast: 0,
+			N:          3,
+			LastTS:     time.Now().UTC(),
+		},
+		"model|vocal|cuda|batch_size=2": {
+			PeakMBMax:  500,
+			PeakMBLast: 500,
+			N:          10,
+			LastTS:     time.Now().UTC(),
+		},
+	}
+	data, _ := json.Marshal(payload)
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatalf("failed to write store: %v", err)
+	}
+
+	store := newVRAMMeasuredStore(path)
+	if err := store.load(); err != nil {
+		t.Fatalf("load failed: %v", err)
+	}
+
+	if len(store.data) != 1 {
+		t.Errorf("loaded %d records, want 1", len(store.data))
+	}
+	if _, ok := store.get("model|vocal|cuda|batch_size=2"); !ok {
+		t.Errorf("valid record should be preserved")
+	}
+}
+
+// TestMeasuredVRAMValue_PrefersMaxForLegacyRecords verifies that records
+// without success metadata use the historical maximum, while records with
+// successful attempts use the last successful peak.
+func TestMeasuredVRAMValue_PrefersMaxForLegacyRecords(t *testing.T) {
+	legacy := MeasuredVRAMRecord{
+		PeakMBMax:  10582,
+		PeakMBLast: 10439,
+		N:          1578,
+	}
+	if got := measuredVRAMValue(legacy); got != 10582 {
+		t.Errorf("legacy record value = %d, want 10582", got)
+	}
+
+	tracked := MeasuredVRAMRecord{
+		PeakMBMax:         15247,
+		PeakMBLast:        15247,
+		PeakMBLastSuccess: 10582,
+		SuccessCount:      1,
+		N:                 1586,
+	}
+	if got := measuredVRAMValue(tracked); got != 10582 {
+		t.Errorf("tracked record value = %d, want 10582", got)
+	}
+}
+
 // TestRecordMeasuredVRAMPeak_Integration verifies that a running pipeline step
 // is sampled, the peak is persisted, and the calculator later reports it as
 // "measured". This uses a fake pipeline and a mocked GPU provider so it does
