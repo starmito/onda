@@ -1,5 +1,12 @@
 # Changelog
 
+## [v3.5.11] - 2026-09-25
+
+### Fixed
+- **La medida de VRAM con las flags exactas vuelve a ganar**: la cascada de busqueda preferia la medida del modelo, asi que la pantalla mostraba el techo inflado por un trabajo que revento (Viperx: 14.9 GB / 93 % en vez de los 10.6 GB medidos con su configuracion real). Orden obligatorio: medida con esas flags -> medida del modelo (etiquetada e indicando con que flags se midio) -> estimado.
+- **Un trabajo fallido ya no envenena el valor del modelo**: el valor representativo del modelo excluye los trabajos que no terminaron y no es el maximo de todos.
+- **La pantalla pedia el modelo equivocado**: al seleccionar el modelo de 6 stems, el calculador recibia otro identificador (`BS-Rofo-SW-Fixed`) y flags ajenas (`batch_size=32`, `segment_size=2048`, `shifts=10`), de ahi el «estimado». Ahora se manda el modelo seleccionado con sus flags reales.
+
 ## [v3.5.10] - 2026-09-25
 
 ### Fixed
