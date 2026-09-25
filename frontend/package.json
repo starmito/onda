@@ -1,7 +1,7 @@
 {
   "name": "onda-frontend",
   "private": true,
-  "version": "v3.5.10",
+  "version": "v3.5.11",
   "type": "module",
   "scripts": {
     "dev": "vite",

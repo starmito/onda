@@ -68,15 +68,20 @@ type VRAMFlags struct {
 // MeasuredVRAMRecord stores one measured VRAM footprint in the persistent
 // store. Both the historical maximum and the last observed peak are kept so
 // the calculator can report the conservative maximum while still tracking
-// recent values.
+// recent values. Starting with v3.5.11 successful attempts are tracked
+// separately so a failed job that peaks high cannot poison the representative
+// value shown to the user.
 type MeasuredVRAMRecord struct {
-	PeakMBMax  int            `json:"peak_mb_max"`
-	PeakMBLast int            `json:"peak_mb_last"`
-	N          int            `json:"n"`
-	LastTS     time.Time      `json:"last_ts"`
-	Duration   int            `json:"duration,omitempty"` // informational metadata only
-	Flags      VRAMFlags      `json:"flags,omitempty"`
-	Captured   map[string]bool `json:"captured,omitempty"` // empty = wildcard
+	PeakMBMax         int             `json:"peak_mb_max"`
+	PeakMBLast        int             `json:"peak_mb_last"`
+	PeakMBLastSuccess int             `json:"peak_mb_last_success,omitempty"`
+	N                 int             `json:"n"`
+	SuccessCount      int             `json:"success_count,omitempty"`
+	LastTS            time.Time       `json:"last_ts"`
+	LastSuccessTS     time.Time       `json:"last_success_ts,omitempty"`
+	Duration          int             `json:"duration,omitempty"` // informational metadata only
+	Flags             VRAMFlags       `json:"flags,omitempty"`
+	Captured          map[string]bool `json:"captured,omitempty"` // empty = wildcard
 }
 
 // vramMeasuredStore persists measured VRAM peaks keyed by model, step type,
@@ -207,8 +212,18 @@ func (s *vramMeasuredStore) record(key string, peakMB, nSamples int) {
 
 // recordMeasured adds or updates a peak measurement for key, preserving the
 // captured flags when the record already exists. It never replaces a valid
-// measurement with a zero or near-zero footprint.
+// measurement with a zero or near-zero footprint. For backwards compatibility
+// it treats the incoming measurement as a successful attempt.
 func (s *vramMeasuredStore) recordMeasured(key string, rec MeasuredVRAMRecord) {
+	s.recordMeasuredAttempt(key, rec, true)
+}
+
+// recordMeasuredAttempt adds or updates a peak measurement for key. The
+// success flag tells the store whether the job that produced the peak finished
+// without errors; only successful attempts update PeakMBLastSuccess and
+// SuccessCount. A failed job that peaked high therefore cannot overwrite the
+// representative value shown to the user.
+func (s *vramMeasuredStore) recordMeasuredAttempt(key string, rec MeasuredVRAMRecord, success bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	r := s.data[key]
@@ -235,6 +250,13 @@ func (s *vramMeasuredStore) recordMeasured(key string, rec MeasuredVRAMRecord) {
 	r.N += rec.N
 	if !rec.LastTS.IsZero() {
 		r.LastTS = rec.LastTS
+	}
+	if success {
+		r.SuccessCount++
+		r.PeakMBLastSuccess = rec.PeakMBMax
+		if !rec.LastTS.IsZero() {
+			r.LastSuccessTS = rec.LastTS
+		}
 	}
 	if r.Captured == nil {
 		r.Captured = rec.Captured
@@ -409,9 +431,37 @@ type vramMeasuredMatchLevel string
 const (
 	// vramMeasuredMatchFlags means the measurement matched the queried flags.
 	vramMeasuredMatchFlags vramMeasuredMatchLevel = "flags"
-	// vramMeasuredMatchModel means only the model/step/device wildcard was found.
+	// vramMeasuredMatchModel means only the model|step|device wildcard was found.
 	vramMeasuredMatchModel vramMeasuredMatchLevel = "model"
 )
+
+// measuredVRAMValue returns the representative peak to show for a record. It
+// prefers the last successful peak, then the last observed peak, and only
+// falls back to the historical maximum when no success metadata is available.
+// This prevents a single failed job that consumed a lot of VRAM from becoming
+// the default value for a model.
+func measuredVRAMValue(rec MeasuredVRAMRecord) int {
+	if rec.SuccessCount > 0 && rec.PeakMBLastSuccess >= vramMinimumMeasurableFootprintMB {
+		return rec.PeakMBLastSuccess
+	}
+	if rec.PeakMBLast >= vramMinimumMeasurableFootprintMB {
+		return rec.PeakMBLast
+	}
+	if rec.PeakMBMax >= vramMinimumMeasurableFootprintMB {
+		return rec.PeakMBMax
+	}
+	return 0
+}
+
+// capturesAll reports whether captured contains every flag in required.
+func capturesAll(captured, required map[string]bool) bool {
+	for name := range required {
+		if !captured[name] {
+			return false
+		}
+	}
+	return true
+}
 
 // sortVRAMMeasuredMatches orders matches by specificity (most captured flags),
 // then by conservative peak (highest), then by recency.
@@ -446,16 +496,20 @@ func formatVRAMMeasuredFlags(rec MeasuredVRAMRecord) string {
 	return strings.Join(parts, ", ")
 }
 
-// findMeasuredVRAMPeakInStore returns the conservative maximum measured peak
-// and its record for the requested configuration. The second result is false
-// when no measurement matches. The third result indicates the match level:
-// "flags" for a flag-compatible measurement, "model" for a model-level
-// wildcard fallback.
+// findMeasuredVRAMPeakInStore returns the representative measured peak and its
+// record for the requested configuration. The second result is false when no
+// measurement matches. The third result indicates the match level: "flags" for
+// a flag-compatible measurement, "model" for a model-level wildcard fallback.
 //
 // Lookup cascade:
-//  1. Any measurement whose captured flags are compatible with the request
-//     (only request-captured flags are compared).
-//  2. The model|step|device wildcard measurement, if it exists.
+//  1. Measurements that capture every flag requested by the caller (full match).
+//  2. Measurements that capture some of the requested flags and are compatible
+//     with the rest (partial match).
+//  3. The model|step|device wildcard measurement, if it exists.
+//
+// Within each level the representative value (last success, then last, then
+// max) is used, and a failed job that peaked high can never hide a successful
+// measurement.
 func findMeasuredVRAMPeakInStore(modelName, device string, cfg VRAMConfig) (MeasuredVRAMRecord, bool, vramMeasuredMatchLevel) {
 	stepType := vramStepTypeForModel(modelName)
 	prefix := vramMeasuredKey(modelName, stepType, device, VRAMConfig{}, nil)
@@ -466,22 +520,57 @@ func findMeasuredVRAMPeakInStore(modelName, device string, cfg VRAMConfig) (Meas
 	reqFlags := vramFlagsFromConfig(cfg)
 	reqCaptured := vramFlagsCaptured(cfg, stepType)
 
-	// Level 1: flag-compatible measurements.
-	var matches []MeasuredVRAMRecord
-	for _, r := range records {
-		if vramFlagsMatch(r, reqFlags, reqCaptured) {
-			matches = append(matches, r)
+	var fullMatches []MeasuredVRAMRecord
+	var partialMatches []MeasuredVRAMRecord
+	var wildcard *MeasuredVRAMRecord
+
+	for i := range records {
+		r := records[i]
+		if len(r.Captured) == 0 {
+			wildcard = &r
+			continue
+		}
+		if !vramFlagsMatch(r, reqFlags, reqCaptured) {
+			continue
+		}
+		if capturesAll(r.Captured, reqCaptured) {
+			fullMatches = append(fullMatches, r)
+		} else {
+			partialMatches = append(partialMatches, r)
 		}
 	}
-	if len(matches) > 0 {
-		sortVRAMMeasuredMatches(matches)
-		return matches[0], true, vramMeasuredMatchFlags
+
+	pick := func(matches []MeasuredVRAMRecord) MeasuredVRAMRecord {
+		if len(matches) == 1 {
+			return matches[0]
+		}
+		// Prefer records with successful attempts, then the most recent, then
+		// the most specific capture.
+		sort.SliceStable(matches, func(i, j int) bool {
+			si := matches[i].SuccessCount > 0
+			sj := matches[j].SuccessCount > 0
+			if si != sj {
+				return si
+			}
+			if matches[i].LastSuccessTS.Equal(matches[j].LastSuccessTS) {
+				if len(matches[i].Captured) != len(matches[j].Captured) {
+					return len(matches[i].Captured) > len(matches[j].Captured)
+				}
+				return matches[i].LastTS.After(matches[j].LastTS)
+			}
+			return matches[i].LastSuccessTS.After(matches[j].LastSuccessTS)
+		})
+		return matches[0]
 	}
 
-	// Level 2: model/step/device wildcard.
-	wildcard, ok := getVRAMMeasuredStore().get(prefix)
-	if ok && wildcard.N > 0 {
-		return wildcard, true, vramMeasuredMatchModel
+	if len(fullMatches) > 0 {
+		return pick(fullMatches), true, vramMeasuredMatchFlags
+	}
+	if len(partialMatches) > 0 {
+		return pick(partialMatches), true, vramMeasuredMatchFlags
+	}
+	if wildcard != nil && wildcard.N > 0 {
+		return *wildcard, true, vramMeasuredMatchModel
 	}
 
 	return MeasuredVRAMRecord{}, false, ""
@@ -562,11 +651,14 @@ func (s *vramSampler) sample(ctx context.Context) sampleResult {
 	}
 }
 
-// recordMeasuredVRAMPeak samples VRAM during the lifetime of ctx and persists
-// the measured footprint (peak - baseline) for the given configuration. It is
-// intended to be called in a goroutine that starts right after the pipeline
-// process starts and is cancelled once the step finishes.
-func recordMeasuredVRAMPeak(ctx context.Context, modelName, device string, cfg VRAMConfig) {
+// recordMeasuredVRAMPeak samples VRAM during the lifetime of ctx. When the
+// sampler finishes, it waits for the caller to report whether the pipeline
+// step succeeded via successCh. Only successful steps update the
+// representative "last success" value, so a failed job that peaked high cannot
+// poison the model's default measurement. It is intended to be called in a
+// goroutine that starts right after the pipeline process starts and is
+// cancelled once the step finishes.
+func recordMeasuredVRAMPeak(ctx context.Context, modelName, device string, cfg VRAMConfig, successCh <-chan bool) {
 	sampler := newVRAMSampler()
 	res := sampler.sample(ctx)
 	if !res.OK || res.N < vramMinimumReliableSamples {
@@ -586,6 +678,16 @@ func recordMeasuredVRAMPeak(ctx context.Context, modelName, device string, cfg V
 			modelName, footprint, vramMinimumMeasurableFootprintMB))
 		return
 	}
+
+	success := false
+	if successCh != nil {
+		select {
+		case success = <-successCh:
+		case <-time.After(5 * time.Second):
+			Log("pipeline", "warn", fmt.Sprintf("VRAM measurement for %s: timeout waiting for success signal, treating as failed", modelName))
+		}
+	}
+
 	stepType := vramStepTypeForModel(modelName)
 	captured := vramFlagsCaptured(cfg, stepType)
 	key := vramMeasuredKey(modelName, stepType, device, cfg, captured)
@@ -599,10 +701,14 @@ func recordMeasuredVRAMPeak(ctx context.Context, modelName, device string, cfg V
 		Captured:   captured,
 	}
 	store := getVRAMMeasuredStore()
-	store.recordMeasured(key, rec)
+	store.recordMeasuredAttempt(key, rec, success)
 	if err := store.save(); err != nil {
 		Log("pipeline", "warn", fmt.Sprintf("Failed to save measured VRAM for %s: %v", modelName, err))
 	}
-	Log("pipeline", "info", fmt.Sprintf("VRAM measured: model=%s step=%s device=%s baseline=%d MB peak=%d MB footprint=%d MB n=%d",
-		modelName, stepType, device, res.BaselineMB, res.PeakMB, footprint, res.N))
+	status := "failed"
+	if success {
+		status = "success"
+	}
+	Log("pipeline", "info", fmt.Sprintf("VRAM measured: model=%s step=%s device=%s baseline=%d MB peak=%d MB footprint=%d MB n=%d status=%s",
+		modelName, stepType, device, res.BaselineMB, res.PeakMB, footprint, res.N, status))
 }

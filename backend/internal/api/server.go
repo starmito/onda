@@ -1663,18 +1663,30 @@ func (s *Server) runSinglePipeline(job JobRequest, state *JobState) {
 	s.currentCancel = cancel
 	s.currentCmd = cmd
 	var err error
+	var successCh chan bool
 	if sErr := cmd.Start(); sErr != nil {
 		err = sErr
 	} else {
 		s.currentPID = cmd.Process.Pid
+		successCh = make(chan bool, 1)
 		go func() {
-			recordMeasuredVRAMPeak(samplerCtx, modelName, device, vramCfg)
+			recordMeasuredVRAMPeak(samplerCtx, modelName, device, vramCfg, successCh)
 		}()
 	}
 	s.jobsMu.Unlock()
 
 	if err == nil {
 		err = waitCmdResult(ctx, cmd)
+	}
+	stepSucceeded := err == nil
+	if samplerCancel != nil {
+		samplerCancel()
+	}
+	if successCh != nil {
+		select {
+		case successCh <- stepSucceeded:
+		case <-time.After(2 * time.Second):
+		}
 	}
 
 	s.jobsMu.Lock()
@@ -1869,18 +1881,30 @@ func (s *Server) runMultiStepPipeline(job JobRequest, steps []cli.PipelineStep, 
 		s.currentCancel = cancel
 		s.currentCmd = cmd
 		var err error
+		var successCh chan bool
 		if sErr := cmd.Start(); sErr != nil {
 			err = sErr
 		} else {
 			s.currentPID = cmd.Process.Pid
-		go func() {
-			recordMeasuredVRAMPeak(samplerCtx, modelName, device, vramCfg)
-		}()
+			successCh = make(chan bool, 1)
+			go func() {
+				recordMeasuredVRAMPeak(samplerCtx, modelName, device, vramCfg, successCh)
+			}()
 		}
 		s.jobsMu.Unlock()
 
 		if err == nil {
 			err = waitCmdResult(ctx, cmd)
+		}
+		stepSucceeded := err == nil
+		if samplerCancel != nil {
+			samplerCancel()
+		}
+		if successCh != nil {
+			select {
+			case successCh <- stepSucceeded:
+			case <-time.After(2 * time.Second):
+			}
 		}
 
 		s.jobsMu.Lock()
