@@ -2572,6 +2572,7 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 		if envVar := vocalChunkSizeEnv(vocalModel); envVar != "" {
 			env = append(env, envVar)
 		}
+		env = append(env, vocalModelEnvVars(readModelConfigFromYaml(vocalModel))...)
 	}
 	stemModel := resolveModelAlias(req.StemModel)
 	if stemModel == "" {
@@ -2615,6 +2616,26 @@ func buildPipelineArgs(req *SeparateRequest) (song string, args []string, steps 
 	args = append(args, "--output", containerOutput)
 	args = append(args, req.Input)
 	return song, args, nil, env, nil
+}
+
+// vocalModelEnvVars returns environment variables that override the RoFormer/
+// vocal model inference parameters read by pipeline.sh. Values come from the
+// effective ModelConfigResponse so the VRAM test can use temporary overrides
+// without persisting them, while normal jobs pass the saved config values.
+func vocalModelEnvVars(cfg ModelConfigResponse) []string {
+	var env []string
+	if cfg.SegmentSize > 0 {
+		env = append(env, fmt.Sprintf("VOCAL_DIM_T=%d", cfg.SegmentSize))
+	}
+	if cfg.BatchSize > 0 {
+		env = append(env, fmt.Sprintf("VOCAL_BATCH_SIZE=%d", cfg.BatchSize))
+	}
+	if cfg.NumOverlap > 0 {
+		env = append(env, fmt.Sprintf("VOCAL_NUM_OVERLAP=%d", cfg.NumOverlap))
+	}
+	// chunk_size=0 is valid (whole song) and must be honored, so always emit it.
+	env = append(env, fmt.Sprintf("VOCAL_CHUNK_SIZE=%d", cfg.ChunkSize))
+	return env
 }
 
 // vocalChunkSizeEnv returns an ONDA_CHUNK_SIZE env var when the model has a
@@ -2686,8 +2707,10 @@ func buildStepPipelineArgs(step cli.PipelineStep, inputFile, outputDir, device s
 // the supplied cfg instead of reading the saved model config, so callers such as
 // the VRAM test can override flags without persisting them.
 func buildStepPipelineArgsFromConfig(step cli.PipelineStep, inputFile, outputDir, device string, cfg ModelConfigResponse) (args []string, env []string, err error) {
+	isVocal := false
 	switch step.Type {
 	case "vocal":
+		isVocal = true
 		modelName := resolveModelAlias(step.Model)
 		if modelName == "" {
 			modelName = "BS_Roformer_Viperx"
@@ -2751,6 +2774,7 @@ func buildStepPipelineArgsFromConfig(step cli.PipelineStep, inputFile, outputDir
 			}
 			Log("backend", "info", fmt.Sprintf("Effective step Demucs config for %s: shifts=%d segment=%d jobs=%d", stemModel, cfg.Shifts, int(segment), cfg.Jobs))
 		} else {
+			isVocal = true
 			modelDir, resolveErr := resolveModelDirRequired(stemModel)
 			if resolveErr != nil {
 				return nil, nil, resolveErr
@@ -2774,6 +2798,10 @@ func buildStepPipelineArgsFromConfig(step cli.PipelineStep, inputFile, outputDir
 			}
 			Log("backend", "info", fmt.Sprintf("Effective step multi-stem config for %s: dim_t=%d overlap=%.2f batch=%d chunk=%d", stemModel, cfg.SegmentSize, cfg.Overlap, cfg.BatchSize, cfg.ChunkSize))
 		}
+	}
+
+	if isVocal {
+		env = append(env, vocalModelEnvVars(cfg)...)
 	}
 
 	// Device override
