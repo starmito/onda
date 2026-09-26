@@ -812,6 +812,88 @@ describe('ModelManager flags from API', () => {
     unmount(app);
   });
 
+  it('ignores a stale finished status received before the POST and shows the new measurement', async () => {
+    let statusCallCount = 0;
+    let postResolve: ((value: { status: string; id: string }) => void) | undefined;
+    const postPromise = new Promise<{ status: string; id: string }>((resolve) => {
+      postResolve = resolve;
+    });
+
+    globalThis.fetch = vi.fn().mockImplementation(async (url: string | URL, init?: RequestInit) => {
+      const u = url.toString();
+      if (u.includes('/api/models/list')) {
+        return { ok: true, status: 200, json: async () => models } as Response;
+      }
+      if (u.includes('/api/gpu/info')) {
+        return { ok: true, status: 200, json: async () => gpuInfo } as Response;
+      }
+      if (u.includes('models') && u.includes('config')) {
+        return { ok: true, status: 200, json: async () => swFlags } as Response;
+      }
+      if (u.includes('/api/gpu/vram-calculator')) {
+        return { ok: true, status: 200, json: async () => vramCalc } as Response;
+      }
+      if (u.includes('/api/models/') && u.includes('/vram-test') && init?.method === 'POST') {
+        await postPromise;
+        return { ok: true, status: 202, json: async () => ({ status: 'started', id: 'test-nuevo' }) } as Response;
+      }
+      if (u.includes('/api/models/vram-test/status')) {
+        statusCallCount++;
+        if (statusCallCount === 1) {
+          // Stale finished status from a previous test, returned before POST resolves.
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ id: 'test-anterior', running: false, status: 'success', progress: 100, peak_mb: 9999, n: 1 }),
+          } as Response;
+        }
+        const progressByCall: Record<number, number> = { 2: 25, 3: 50, 4: 75 };
+        if (statusCallCount <= 4) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ id: 'test-nuevo', running: true, status: 'running', progress: progressByCall[statusCallCount], peak_mb: 0, n: 0 }),
+          } as Response;
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ id: 'test-nuevo', running: false, status: 'success', progress: 100, peak_mb: 2475, n: 33 }),
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch: ${u}`);
+    });
+
+    const app = mount(ModelManager, {
+      target,
+      props: { initialModel: 'BS-Rofo-SW-Fixed' },
+    });
+
+    await vi.waitFor(() => expect(getFlagLabels().length).toBeGreaterThan(0), { timeout: 2000 });
+
+    const testBtn = target.querySelector('.btn-test') as HTMLButtonElement;
+    testBtn.click();
+
+    // The indicator must appear immediately, even before the POST responds.
+    await vi.waitFor(() => expect(target.textContent).toContain('Probando...'), { timeout: 500 });
+
+    // Resolve the POST so the poll loop can identify our test.
+    if (!postResolve) throw new Error('postResolve not set');
+    postResolve({ status: 'started', id: 'test-nuevo' });
+
+    // Progress should advance through the new test.
+    await vi.waitFor(() => expect(target.textContent).toContain('25%'), { timeout: 5000 });
+    await vi.waitFor(() => expect(target.textContent).toContain('75%'), { timeout: 5000 });
+
+    // Final result must be from the new test, never from the stale previous one.
+    await vi.waitFor(() => expect(target.textContent).toContain('Medición real'), { timeout: 5000 });
+    expect(target.textContent).toContain('2.4 GB');
+    expect(target.textContent).toContain('33 muestras');
+    expect(target.textContent).not.toContain('9.8 GB');
+
+    unmount(app);
+  });
+
   it('shows the measured peak when the VRAM test succeeds', async () => {
     globalThis.fetch = mockFetchWithVRAMTest('success');
 

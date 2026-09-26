@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { getModelConfig, setModelConfig, getLocalModels, getGpuInfo, getVRAMCalculator, buildVRAMCalculatorParams, startVRAMTest, getVRAMTestStatus, modelIdentifier, type ModelFlag, type ModelFlagsResponse, type LocalModel, type GpuInfo, type VRAMCalculatorResponse, type VRAMTestStatus } from './api';
 
   interface Props {
@@ -268,16 +269,19 @@
   async function handleTest() {
     if (!selectedModel) return;
     vramTestFeedback = '';
+    // Show the indicator immediately, even before the POST responds. The poll
+    // loop will ignore any status that is not from our test id.
+    vramTestRunning = true;
+    vramTestStatus = 'running';
+    vramTestProgress = 0;
+    vramTestPeak = 0;
+    vramTestN = 0;
+    vramTestSawRunning = false;
+    vramTestStartTime = Date.now();
+    vramTestId = null;
     try {
       const res = await startVRAMTest(selectedModel, flagValues);
       vramTestId = res.id;
-      vramTestRunning = true;
-      vramTestStatus = 'running';
-      vramTestProgress = 0;
-      vramTestPeak = 0;
-      vramTestN = 0;
-      vramTestSawRunning = false;
-      vramTestStartTime = Date.now();
     } catch (e: any) {
       vramTestRunning = false;
       vramTestStatus = 'error';
@@ -286,10 +290,14 @@
     }
   }
 
-  // Poll VRAM test status while a test is running.
+  // Poll VRAM test status while a test is running. We start polling as soon
+  // as the user clicks «Probar» so the indicator is visible immediately. Until
+  // the POST returns our test id, every status response is ignored (it can be
+  // the residue of a previous test). Once we know our id, we keep polling until
+  // we see running:true with that id; only then do we accept running:false as
+  // the final result of our test.
   $effect(() => {
-    if (!vramTestRunning || !vramTestId || vramTestStartTime == null) return;
-    const testId = vramTestId;
+    if (!vramTestRunning || vramTestStartTime == null) return;
     const startTime = vramTestStartTime;
     const maxDurationMs = 3 * 60 * 1000;
     let cancelled = false;
@@ -305,9 +313,12 @@
         }
         try {
           const st = await getVRAMTestStatus();
-          if (st.id !== testId) {
-            // Ignore stale status from a previous test; keep polling until we
-            // see our own id.
+          // Read our id without re-triggering the effect: the same poll loop
+          // must stay alive while the POST resolves and simply start matching
+          // once the id is known.
+          const testId = untrack(() => vramTestId);
+          if (!testId || st.id !== testId) {
+            // POST not done yet or stale status from a previous test.
             await new Promise((resolve) => setTimeout(resolve, 1000));
             continue;
           }
@@ -320,8 +331,8 @@
           if (!st.running) {
             if (!vramTestSawRunning) {
               // Our id reported a terminal state before we ever saw it running.
-              // This is unexpected; treat it as a timeout-like failure so we
-              // never show a stale measurement as the result of this test.
+              // This is unexpected; treat it as a failure so we never show a
+              // stale measurement as the result of this test.
               vramTestRunning = false;
               vramTestStatus = 'error';
               vramTestFeedback = '❌ El test no se inició correctamente';
