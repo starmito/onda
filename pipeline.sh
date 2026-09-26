@@ -916,30 +916,39 @@ _apply_roformer_model_config_overrides() {
             ;;
     esac
 
+    # Environment variables set by the backend take precedence over every
+    # config file. This lets the VRAM test pass temporary overrides without
+    # touching the saved model configuration.
     local seg overlap batch chunk
-    seg=$(_read_model_config_value "$source" "inference.dim_t" "segment_size" "0")
-    overlap=$(_read_model_config_value "$source" "inference.num_overlap" "num_overlap" "0")
-    batch=$(_read_model_config_value "$source" "inference.batch_size" "batch_size" "0")
-    chunk=$(_read_model_config_value "$source" "inference.chunk_size" "chunk_size" "0")
-
-    # For model JSON overlap may be stored as a float; convert to integer factor.
-    if [ "$kind" = "uvr_json" ] || [ "$kind" = "model_json" ]; then
-        if [ -n "$overlap" ]; then
-            overlap=$(python3 -c "import sys; v=float('$overlap'); print(int(round(1.0/v))) if v>0 else sys.exit(1)" 2>/dev/null || echo "")
+    if [ -z "$VOCAL_DIM_T" ]; then
+        seg=$(_read_model_config_value "$source" "inference.dim_t" "segment_size" "0")
+        if [ -n "$seg" ] && [ "$seg" -gt 0 ] 2>/dev/null; then
+            VOCAL_DIM_T="$seg"
         fi
     fi
-
-    if [ -n "$seg" ] && [ "$seg" -gt 0 ] 2>/dev/null; then
-        VOCAL_DIM_T="$seg"
+    if [ -z "$VOCAL_NUM_OVERLAP" ]; then
+        overlap=$(_read_model_config_value "$source" "inference.num_overlap" "num_overlap" "0")
+        # For model JSON overlap may be stored as a float; convert to integer factor.
+        if [ "$kind" = "uvr_json" ] || [ "$kind" = "model_json" ]; then
+            if [ -n "$overlap" ]; then
+                overlap=$(python3 -c "import sys; v=float('$overlap'); print(int(round(1.0/v))) if v>0 else sys.exit(1)" 2>/dev/null || echo "")
+            fi
+        fi
+        if [ -n "$overlap" ] && [ "$overlap" -gt 0 ] 2>/dev/null; then
+            VOCAL_NUM_OVERLAP="$overlap"
+        fi
     fi
-    if [ -n "$overlap" ] && [ "$overlap" -gt 0 ] 2>/dev/null; then
-        VOCAL_NUM_OVERLAP="$overlap"
+    if [ -z "$VOCAL_BATCH_SIZE" ]; then
+        batch=$(_read_model_config_value "$source" "inference.batch_size" "batch_size" "0")
+        if [ -n "$batch" ] && [ "$batch" -gt 0 ] 2>/dev/null; then
+            VOCAL_BATCH_SIZE="$batch"
+        fi
     fi
-    if [ -n "$batch" ] && [ "$batch" -gt 0 ] 2>/dev/null; then
-        VOCAL_BATCH_SIZE="$batch"
-    fi
-    if [ -n "$chunk" ] && [ "$chunk" -ge 0 ] 2>/dev/null; then
-        VOCAL_CHUNK_SIZE="$chunk"
+    if [ -z "$VOCAL_CHUNK_SIZE" ]; then
+        chunk=$(_read_model_config_value "$source" "inference.chunk_size" "chunk_size" "0")
+        if [ -n "$chunk" ] && [ "$chunk" -ge 0 ] 2>/dev/null; then
+            VOCAL_CHUNK_SIZE="$chunk"
+        fi
     fi
 }
 
@@ -2277,10 +2286,10 @@ if [ ! -f "$INPUT" ]; then
 fi
 
 # ── Read model YAML for default inference parameters ──
-VOCAL_DIM_T=""
-VOCAL_NUM_OVERLAP=""
-VOCAL_BATCH_SIZE=""
-VOCAL_CHUNK_SIZE="0"
+VOCAL_DIM_T="${VOCAL_DIM_T:-}"
+VOCAL_NUM_OVERLAP="${VOCAL_NUM_OVERLAP:-}"
+VOCAL_BATCH_SIZE="${VOCAL_BATCH_SIZE:-}"
+VOCAL_CHUNK_SIZE="${VOCAL_CHUNK_SIZE:-}"
 if $VOCAL; then
     MODEL_DIR="${VOCAL_MODEL}"
     # Detect the real model family so legacy-mode logs do not announce RoFormer
@@ -2300,10 +2309,10 @@ if $VOCAL; then
     if [ -d "$MODEL_DIR" ]; then
         VOCAL_YAML=$(ls "${MODEL_DIR}"/*.yaml 2>/dev/null | head -1)
         if [ -n "$VOCAL_YAML" ]; then
-            VOCAL_DIM_T=$(python3 -c "import yaml; print(yaml.load(open('$VOCAL_YAML'), Loader=yaml.FullLoader)['inference']['dim_t'])" 2>/dev/null || echo "")
-            VOCAL_NUM_OVERLAP=$(python3 -c "import yaml; print(yaml.load(open('$VOCAL_YAML'), Loader=yaml.FullLoader)['inference']['num_overlap'])" 2>/dev/null || echo "")
-            VOCAL_BATCH_SIZE=$(python3 -c "import yaml; print(yaml.load(open('$VOCAL_YAML'), Loader=yaml.FullLoader)['inference']['batch_size'])" 2>/dev/null || echo "")
-            VOCAL_CHUNK_SIZE=$(python3 -c "import yaml; print(yaml.load(open('$VOCAL_YAML'), Loader=yaml.FullLoader).get('inference',{}).get('chunk_size',0))" 2>/dev/null || echo "0")
+            [ -z "$VOCAL_DIM_T" ] && VOCAL_DIM_T=$(python3 -c "import yaml; print(yaml.load(open('$VOCAL_YAML'), Loader=yaml.FullLoader)['inference']['dim_t'])" 2>/dev/null || echo "")
+            [ -z "$VOCAL_NUM_OVERLAP" ] && VOCAL_NUM_OVERLAP=$(python3 -c "import yaml; print(yaml.load(open('$VOCAL_YAML'), Loader=yaml.FullLoader)['inference']['num_overlap'])" 2>/dev/null || echo "")
+            [ -z "$VOCAL_BATCH_SIZE" ] && VOCAL_BATCH_SIZE=$(python3 -c "import yaml; print(yaml.load(open('$VOCAL_YAML'), Loader=yaml.FullLoader)['inference']['batch_size'])" 2>/dev/null || echo "")
+            [ -z "$VOCAL_CHUNK_SIZE" ] && VOCAL_CHUNK_SIZE=$(python3 -c "import yaml; print(yaml.load(open('$VOCAL_YAML'), Loader=yaml.FullLoader).get('inference',{}).get('chunk_size',0))" 2>/dev/null || echo "0")
             echo "   ℹ️  Model YAML: dim_t=${VOCAL_DIM_T}, overlap=${VOCAL_NUM_OVERLAP}, batch=${VOCAL_BATCH_SIZE}, chunk=${VOCAL_CHUNK_SIZE}"
         fi
         # User-saved/model config overrides YAML inference parameters.
