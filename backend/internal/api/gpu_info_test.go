@@ -611,6 +611,61 @@ func mustVRAMCalc(t *testing.T, s *Server, req *http.Request) VRAMCalculatorResp
 	return resp
 }
 
+func TestHandleVRAMCalculator_BaselineIncluded(t *testing.T) {
+	origGPU := gpuInfoProvider
+	defer func() { gpuInfoProvider = origGPU }()
+
+	s := &Server{mux: http.NewServeMux()}
+	s.mux.HandleFunc("GET /api/gpu/vram-calculator", s.handleVRAMCalculator)
+
+	gpuInfoProvider = func() GPUInfoResponse {
+		return GPUInfoResponse{OK: true, VRAMTotalMB: 16000, VRAMFreeMB: 3000, VRAMUsedMB: 13000}
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/gpu/vram-calculator?models=BS_Roformer_Viperx&segment_size=256&batch_size=1", nil)
+	rr := httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp VRAMCalculatorResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp.BaselineMB != vramCudaContextMB {
+		t.Errorf("baseline_mb = %d, want %d", resp.BaselineMB, vramCudaContextMB)
+	}
+	wantFreeAfter := resp.AvailableVRAMMB - resp.TotalVRAMMB - resp.BaselineMB
+	if resp.FreeAfterMB != wantFreeAfter {
+		t.Errorf("free_after_mb = %d, want %d", resp.FreeAfterMB, wantFreeAfter)
+	}
+	wantFits := resp.AvailableVRAMMB >= resp.TotalVRAMMB+resp.BaselineMB
+	if resp.Fits != wantFits {
+		t.Errorf("fits = %v, want %v", resp.Fits, wantFits)
+	}
+
+	// Reduce free VRAM so the model fits by itself but not with the baseline.
+	gpuInfoProvider = func() GPUInfoResponse {
+		return GPUInfoResponse{OK: true, VRAMTotalMB: 16000, VRAMFreeMB: resp.TotalVRAMMB + resp.BaselineMB - 1, VRAMUsedMB: 0}
+	}
+	rr = httptest.NewRecorder()
+	s.mux.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var resp2 VRAMCalculatorResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp2); err != nil {
+		t.Fatalf("failed to decode response: %v", err)
+	}
+	if resp2.Fits {
+		t.Errorf("fits = true, want false when only baseline does not fit")
+	}
+	if resp2.FreeAfterMB >= 0 {
+		t.Errorf("free_after_mb = %d, want negative when baseline does not fit", resp2.FreeAfterMB)
+	}
+}
+
 func TestHandleVRAMCalculator_NoGPUFailsClosed(t *testing.T) {
 	origGPU := gpuInfoProvider
 	defer func() { gpuInfoProvider = origGPU }()
