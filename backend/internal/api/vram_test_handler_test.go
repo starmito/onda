@@ -138,6 +138,45 @@ func TestVRAMTestStateMachine(t *testing.T) {
 	}
 }
 
+func TestVRAMTestIDsAreUnique(t *testing.T) {
+	setTestRoot(t, "vram-test-")
+	defer func() {
+		activeVRAMTest.mu.Lock()
+		activeVRAMTest.running = false
+		activeVRAMTest.id = ""
+		activeVRAMTest.model = ""
+		activeVRAMTest.stepType = ""
+		activeVRAMTest.status = ""
+		activeVRAMTest.progress = 0
+		activeVRAMTest.peakMB = 0
+		activeVRAMTest.n = 0
+		activeVRAMTest.errMsg = ""
+		activeVRAMTest.startedAt = time.Time{}
+		activeVRAMTest.finished = time.Time{}
+		activeVRAMTest.mu.Unlock()
+	}()
+
+	if !startVRAMTest("first-model", "vocal", VRAMConfig{}) {
+		t.Fatal("expected first startVRAMTest to succeed")
+	}
+	firstID := getVRAMTestStatus().ID
+	finishVRAMTest("success", 1000, 10, "")
+
+	activeVRAMTest.mu.Lock()
+	activeVRAMTest.running = false
+	activeVRAMTest.mu.Unlock()
+
+	if !startVRAMTest("second-model", "vocal", VRAMConfig{}) {
+		t.Fatal("expected second startVRAMTest to succeed")
+	}
+	secondID := getVRAMTestStatus().ID
+	finishVRAMTest("success", 1000, 10, "")
+
+	if firstID == "" || secondID == "" || firstID == secondID {
+		t.Fatalf("expected two different ids, got %q and %q", firstID, secondID)
+	}
+}
+
 func TestHandleModelsVRAMTest_NotFound(t *testing.T) {
 	setTestRoot(t, "vram-test-")
 	srv := &Server{mux: http.NewServeMux()}
