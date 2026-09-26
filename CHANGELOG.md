@@ -1,5 +1,11 @@
 # Changelog
 
+## [v3.5.17] - 2026-09-25
+
+### Fixed
+- **El indicador «Probando…» del test de VRAM, ahora si**: el sondeo arranca **al pulsar el boton** (no despues de que responda el POST), ignora cualquier estado «terminado» que no sea de su propio test (identificador) y ya no puede apagarse con el residuo de la prueba anterior — que era lo que dejaba el indicador invisible y enseñaba la medicion vieja como si fuera la recien hecha.
+- Identificadores **unicos por test** (verificado con prueba de backend: dos tests seguidos dan ids distintos) expuestos en el POST y en el estado.
+
 ## [v3.5.16] - 2026-09-25
 
 ### Fixed
