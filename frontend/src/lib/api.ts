@@ -1191,9 +1191,10 @@ export interface VRAMCalculatorResponse {
   models: VRAMModelEntry[];
   total_vram_mb: number;
   available_vram_mb: number;
+  baseline_mb: number;
   free_after_mb: number;
   fits: boolean;
-  reliable?: boolean;
+  reliable: boolean;
   warning?: string;
 }
 
@@ -1641,6 +1642,7 @@ export async function applyEQ(req: EqRequest): Promise<EqResponse> {
 // ---- VRAM Test button ----
 
 export interface VRAMTestStatus {
+  id?: string;
   running: boolean;
   model?: string;
   step_type?: string;
@@ -1651,7 +1653,7 @@ export interface VRAMTestStatus {
   error?: string;
 }
 
-export async function startVRAMTest(model: string, flags: Record<string, number | string>): Promise<void> {
+export async function startVRAMTest(model: string, flags: Record<string, number | string>): Promise<{ id: string }> {
   const res = await fetch(`${API_BASE}/api/models/${encodeURIComponent(model)}/vram-test`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1661,6 +1663,11 @@ export async function startVRAMTest(model: string, flags: Record<string, number 
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `VRAM test failed with status ${res.status}`);
   }
+  const data = (await res.json()) as { id?: string; status?: string };
+  if (!data.id) {
+    throw new Error('VRAM test started but did not return an id');
+  }
+  return { id: data.id };
 }
 
 export async function getVRAMTestStatus(): Promise<VRAMTestStatus> {

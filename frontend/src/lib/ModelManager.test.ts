@@ -179,7 +179,8 @@ describe('ModelManager flags from API', () => {
     models: [{ name: 'test', type: 'vocal', vram_mb: 1200 }],
     total_vram_mb: 1200,
     available_vram_mb: 15475,
-    free_after_mb: 14275,
+    baseline_mb: 400,
+    free_after_mb: 13875,
     fits: true,
     reliable: true,
   };
@@ -368,7 +369,8 @@ describe('ModelManager flags from API', () => {
       }],
       total_vram_mb: 2441,
       available_vram_mb: 15475,
-      free_after_mb: 13034,
+      baseline_mb: 400,
+      free_after_mb: 12634,
       fits: true,
       reliable: true,
     };
@@ -425,7 +427,8 @@ describe('ModelManager flags from API', () => {
       }],
       total_vram_mb: 4137,
       available_vram_mb: 15475,
-      free_after_mb: 11338,
+      baseline_mb: 400,
+      free_after_mb: 10938,
       fits: true,
       reliable: true,
     };
@@ -683,7 +686,7 @@ describe('ModelManager flags from API', () => {
     }
   });
 
-  function mockFetchWithVRAMTest(scenario: 'running' | 'success' | 'oom') {
+  function mockFetchWithVRAMTest(scenario: 'running' | 'success' | 'oom', testId = 'test-id') {
     let statusCallCount = 0;
     return vi.fn().mockImplementation(async (url: string | URL, init?: RequestInit) => {
       const u = url.toString();
@@ -700,7 +703,7 @@ describe('ModelManager flags from API', () => {
         return { ok: true, status: 200, json: async () => vramCalc } as Response;
       }
       if (u.includes('/api/models/') && u.includes('/vram-test') && init?.method === 'POST') {
-        return { ok: true, status: 202, json: async () => ({ status: 'started' }) } as Response;
+        return { ok: true, status: 202, json: async () => ({ status: 'started', id: testId }) } as Response;
       }
       if (u.includes('/api/models/vram-test/status')) {
         statusCallCount++;
@@ -708,27 +711,27 @@ describe('ModelManager flags from API', () => {
           return {
             ok: true,
             status: 200,
-            json: async () => ({ running: true, status: 'running', progress: 42, peak_mb: 0, n: 0 }),
+            json: async () => ({ id: testId, running: true, status: 'running', progress: 42, peak_mb: 0, n: 0 }),
           } as Response;
         }
         if (statusCallCount === 1) {
           return {
             ok: true,
             status: 200,
-            json: async () => ({ running: true, status: 'running', progress: 42, peak_mb: 0, n: 0 }),
+            json: async () => ({ id: testId, running: true, status: 'running', progress: 42, peak_mb: 0, n: 0 }),
           } as Response;
         }
         if (scenario === 'success') {
           return {
             ok: true,
             status: 200,
-            json: async () => ({ running: false, status: 'success', progress: 100, peak_mb: 2441, n: 128 }),
+            json: async () => ({ id: testId, running: false, status: 'success', progress: 100, peak_mb: 2441, n: 128 }),
           } as Response;
         }
         return {
           ok: true,
           status: 200,
-          json: async () => ({ running: false, status: 'oom', progress: 0, peak_mb: 0, n: 0, error: 'no cabe: sin memoria' }),
+          json: async () => ({ id: testId, running: false, status: 'oom', progress: 0, peak_mb: 0, n: 0, error: 'no cabe: sin memoria' }),
         } as Response;
       }
       throw new Error(`Unexpected fetch: ${u}`);
@@ -750,6 +753,61 @@ describe('ModelManager flags from API', () => {
 
     await vi.waitFor(() => expect(target.textContent).toContain('Probando...'), { timeout: 2000 });
     expect(target.textContent).toContain('42%');
+
+    unmount(app);
+  });
+
+  it('ignores a stale finished status and keeps showing Probando until it sees our running test', async () => {
+    let statusCallCount = 0;
+    globalThis.fetch = vi.fn().mockImplementation(async (url: string | URL, init?: RequestInit) => {
+      const u = url.toString();
+      if (u.includes('/api/models/list')) {
+        return { ok: true, status: 200, json: async () => models } as Response;
+      }
+      if (u.includes('/api/gpu/info')) {
+        return { ok: true, status: 200, json: async () => gpuInfo } as Response;
+      }
+      if (u.includes('models') && u.includes('config')) {
+        return { ok: true, status: 200, json: async () => swFlags } as Response;
+      }
+      if (u.includes('/api/gpu/vram-calculator')) {
+        return { ok: true, status: 200, json: async () => vramCalc } as Response;
+      }
+      if (u.includes('/api/models/') && u.includes('/vram-test') && init?.method === 'POST') {
+        return { ok: true, status: 202, json: async () => ({ status: 'started', id: 'new-id' }) } as Response;
+      }
+      if (u.includes('/api/models/vram-test/status')) {
+        statusCallCount++;
+        if (statusCallCount === 1) {
+          // Stale finished status from a previous test: must not close our polling.
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ id: 'old-id', running: false, status: 'success', progress: 100, peak_mb: 9999, n: 1 }),
+          } as Response;
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ id: 'new-id', running: true, status: 'running', progress: 50, peak_mb: 0, n: 0 }),
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch: ${u}`);
+    });
+
+    const app = mount(ModelManager, {
+      target,
+      props: { initialModel: 'BS-Rofo-SW-Fixed' },
+    });
+
+    await vi.waitFor(() => expect(getFlagLabels().length).toBeGreaterThan(0), { timeout: 2000 });
+
+    const testBtn = target.querySelector('.btn-test') as HTMLButtonElement;
+    testBtn.click();
+
+    await vi.waitFor(() => expect(target.textContent).toContain('Probando...'), { timeout: 3000 });
+    await vi.waitFor(() => expect(target.textContent).toContain('50%'), { timeout: 3000 });
+    expect(target.textContent).not.toContain('9.8 GB');
 
     unmount(app);
   });
@@ -792,6 +850,61 @@ describe('ModelManager flags from API', () => {
     unmount(app);
   });
 
+  it('times out with a clear message when running:true is never seen', async () => {
+    vi.useFakeTimers();
+    try {
+      globalThis.fetch = vi.fn().mockImplementation(async (url: string | URL, init?: RequestInit) => {
+        const u = url.toString();
+        if (u.includes('/api/models/list')) {
+          return { ok: true, status: 200, json: async () => models } as Response;
+        }
+        if (u.includes('/api/gpu/info')) {
+          return { ok: true, status: 200, json: async () => gpuInfo } as Response;
+        }
+        if (u.includes('models') && u.includes('config')) {
+          return { ok: true, status: 200, json: async () => swFlags } as Response;
+        }
+        if (u.includes('/api/gpu/vram-calculator')) {
+          return { ok: true, status: 200, json: async () => vramCalc } as Response;
+        }
+        if (u.includes('/api/models/') && u.includes('/vram-test') && init?.method === 'POST') {
+          return { ok: true, status: 202, json: async () => ({ status: 'started', id: 'new-id' }) } as Response;
+        }
+        if (u.includes('/api/models/vram-test/status')) {
+          // Stale finished status from a previous test: never our running test.
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ id: 'old-id', running: false, status: 'success', progress: 100, peak_mb: 9999, n: 1 }),
+          } as Response;
+        }
+        throw new Error(`Unexpected fetch: ${u}`);
+      });
+
+      const app = mount(ModelManager, {
+        target,
+        props: { initialModel: 'BS-Rofo-SW-Fixed' },
+      });
+
+      await vi.advanceTimersByTimeAsync(2000);
+
+      const testBtn = target.querySelector('.btn-test') as HTMLButtonElement;
+      testBtn.click();
+
+      // Wait for the POST to complete and polling to begin.
+      await vi.advanceTimersByTimeAsync(100);
+
+      // Advance past the 3-minute timeout.
+      await vi.advanceTimersByTimeAsync(3 * 60 * 1000 + 1000);
+
+      expect(target.textContent).toContain('no respondió');
+
+      unmount(app);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('shows "estimado" label and fallback reason when VRAM calculation is estimated', async () => {
     const estimatedCalc: VRAMCalculatorResponse = {
       models: [{
@@ -804,7 +917,8 @@ describe('ModelManager flags from API', () => {
       }],
       total_vram_mb: 2000,
       available_vram_mb: 15475,
-      free_after_mb: 13475,
+      baseline_mb: 400,
+      free_after_mb: 13075,
       fits: true,
       reliable: true,
     };

@@ -48,6 +48,7 @@ type VRAMCalculatorResponse struct {
 	Models          []VRAMModelEntry `json:"models"`
 	TotalVRAMMB     int              `json:"total_vram_mb"`
 	AvailableVRAMMB int              `json:"available_vram_mb"`
+	BaselineMB      int              `json:"baseline_mb"`
 	FreeAfterMB     int              `json:"free_after_mb"`
 	Fits            bool             `json:"fits"`
 	Reliable        bool             `json:"reliable"`
@@ -59,6 +60,12 @@ const defaultVRAMMB = 2000
 
 // vramHeadroomMargin is the safety margin applied on top of the model estimate.
 const vramHeadroomMargin = 1.20 // +20%
+
+// vramCudaContextMB is the fixed CUDA context footprint that is always
+// resident on the GPU even before the model is loaded. The calculator keeps
+// the stored measurement as the model footprint (delta over baseline) but
+// counts this baseline when deciding whether the model actually fits.
+const vramCudaContextMB = 400
 
 // VRAMConfig holds the inference parameters that influence VRAM usage. It is
 // used both for analytical estimates and for matching measured peaks.
@@ -994,19 +1001,22 @@ func (s *Server) handleVRAMCalculator(w http.ResponseWriter, r *http.Request) {
 	gpuInfo := gpuInfoProvider()
 	availableVRAM := 0
 	fits := false
+	baselineMB := vramCudaContextMB
 	if gpuInfo.OK {
 		availableVRAM = gpuInfo.VRAMFreeMB
-		fits = availableVRAM >= totalVRAM
+		fits = availableVRAM >= totalVRAM+baselineMB
 	} else {
 		warnings = append(warnings, "No se puede leer la VRAM del dispositivo; revisa el driver / nvidia-smi")
 		allReliable = false
+		baselineMB = 0
 	}
 
 	resp := VRAMCalculatorResponse{
 		Models:          models,
 		TotalVRAMMB:     totalVRAM,
 		AvailableVRAMMB: availableVRAM,
-		FreeAfterMB:     availableVRAM - totalVRAM,
+		BaselineMB:      baselineMB,
+		FreeAfterMB:     availableVRAM - totalVRAM - baselineMB,
 		Fits:            fits,
 		Reliable:        allReliable,
 	}

@@ -36,6 +36,9 @@
   let vramTestPeak = $state(0);
   let vramTestN = $state(0);
   let vramTestFeedback = $state('');
+  let vramTestId = $state<string | null>(null);
+  let vramTestSawRunning = $state(false);
+  let vramTestStartTime = $state<number | null>(null);
 
   // Derived VRAM percentage bar
   let vramPercent = $derived.by(() => {
@@ -264,14 +267,17 @@
 
   async function handleTest() {
     if (!selectedModel) return;
-    vramTestRunning = true;
-    vramTestStatus = 'running';
-    vramTestProgress = 0;
-    vramTestPeak = 0;
-    vramTestN = 0;
     vramTestFeedback = '';
     try {
-      await startVRAMTest(selectedModel, flagValues);
+      const res = await startVRAMTest(selectedModel, flagValues);
+      vramTestId = res.id;
+      vramTestRunning = true;
+      vramTestStatus = 'running';
+      vramTestProgress = 0;
+      vramTestPeak = 0;
+      vramTestN = 0;
+      vramTestSawRunning = false;
+      vramTestStartTime = Date.now();
     } catch (e: any) {
       vramTestRunning = false;
       vramTestStatus = 'error';
@@ -282,19 +288,44 @@
 
   // Poll VRAM test status while a test is running.
   $effect(() => {
-    if (!vramTestRunning) return;
+    if (!vramTestRunning || !vramTestId || vramTestStartTime == null) return;
+    const testId = vramTestId;
+    const startTime = vramTestStartTime;
+    const maxDurationMs = 3 * 60 * 1000;
     let cancelled = false;
     async function poll() {
       while (!cancelled && vramTestRunning) {
+        const elapsed = Date.now() - startTime;
+        if (elapsed > maxDurationMs) {
+          vramTestRunning = false;
+          vramTestStatus = 'error';
+          vramTestFeedback = '❌ El test no respondió en el tiempo esperado';
+          setTimeout(() => (vramTestFeedback = ''), 8000);
+          break;
+        }
         try {
           const st = await getVRAMTestStatus();
+          if (st.id !== testId) {
+            // Ignore stale status from a previous test; keep polling until we
+            // see our own id.
+            await new Promise((resolve) => setTimeout(resolve, 1000));
+            continue;
+          }
+          vramTestSawRunning = vramTestSawRunning || st.running;
           vramTestRunning = st.running;
           vramTestStatus = st.status;
           vramTestProgress = st.progress;
           vramTestPeak = st.peak_mb;
           vramTestN = st.n;
           if (!st.running) {
-            if (st.status === 'success') {
+            if (!vramTestSawRunning) {
+              // Our id reported a terminal state before we ever saw it running.
+              // This is unexpected; treat it as a timeout-like failure so we
+              // never show a stale measurement as the result of this test.
+              vramTestRunning = false;
+              vramTestStatus = 'error';
+              vramTestFeedback = '❌ El test no se inició correctamente';
+            } else if (st.status === 'success') {
               vramTestFeedback = `✅ Medición real: ${formatGb(st.peak_mb)} (${st.n} muestras)`;
               vramCalcRefresh++;
             } else if (st.status === 'oom') {
@@ -592,6 +623,9 @@
             </div>
             <div class="vram-text">
               {vramSourceLabel(vramCalcResult)}: {formatGb(vramCalcResult.total_vram_mb)}
+              {#if vramCalcResult.baseline_mb !== undefined}
+                · Contexto CUDA: +{formatGb(vramCalcResult.baseline_mb)}
+              {/if}
               {#if totalVramMb !== null} / {formatGb(totalVramMb)}{/if}
               {#if vramPercent !== null} ({vramPercent.toFixed(0)}%){/if}
               {#if vramCalcResult.free_after_mb !== undefined}

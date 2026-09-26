@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -27,6 +28,7 @@ const (
 // vramTestJob tracks the state of an in-flight or just-finished VRAM test.
 type vramTestJob struct {
 	mu        sync.RWMutex
+	id        string
 	model     string
 	stepType  string
 	running   bool
@@ -40,6 +42,11 @@ type vramTestJob struct {
 }
 
 var activeVRAMTest vramTestJob
+var vramTestIDCounter atomic.Int64
+
+func newVRAMTestID() string {
+	return fmt.Sprintf("%d-%d", time.Now().UnixNano(), vramTestIDCounter.Add(1))
+}
 
 func startVRAMTest(model, stepType string, cfg VRAMConfig) bool {
 	activeVRAMTest.mu.Lock()
@@ -47,6 +54,7 @@ func startVRAMTest(model, stepType string, cfg VRAMConfig) bool {
 	if activeVRAMTest.running {
 		return false
 	}
+	activeVRAMTest.id = newVRAMTestID()
 	activeVRAMTest.model = model
 	activeVRAMTest.stepType = stepType
 	activeVRAMTest.running = true
@@ -95,6 +103,7 @@ func vramTestIsRunning() bool {
 
 // VRAMTestStatusResponse is the JSON returned by GET /api/models/vram-test/status.
 type VRAMTestStatusResponse struct {
+	ID       string `json:"id,omitempty"`
 	Running  bool   `json:"running"`
 	Model    string `json:"model,omitempty"`
 	StepType string `json:"step_type,omitempty"`
@@ -109,6 +118,7 @@ func getVRAMTestStatus() VRAMTestStatusResponse {
 	activeVRAMTest.mu.RLock()
 	defer activeVRAMTest.mu.RUnlock()
 	return VRAMTestStatusResponse{
+		ID:       activeVRAMTest.id,
 		Running:  activeVRAMTest.running,
 		Model:    activeVRAMTest.model,
 		StepType: activeVRAMTest.stepType,
@@ -212,6 +222,7 @@ func (s *Server) handleModelsVRAMTest(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, map[string]interface{}{
 		"status": "started",
 		"model":  modelName,
+		"id":     getVRAMTestStatus().ID,
 	})
 }
 
