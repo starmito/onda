@@ -29,7 +29,8 @@ const vramCalc: VRAMCalculatorResponse = {
   models: [{ name: 'htdemucs_ft', type: 'demucs', vram_mb: 1800 }],
   total_vram_mb: 1800,
   available_vram_mb: 7168,
-  free_after_mb: 5368,
+  baseline_mb: 400,
+  free_after_mb: 4968,
   fits: true,
   reliable: true,
 };
