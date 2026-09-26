@@ -104,9 +104,10 @@ func TestVRAMTestStateMachine(t *testing.T) {
 		t.Fatal("expected startVRAMTest to succeed")
 	}
 	st := getVRAMTestStatus()
-	if !st.Running || st.Status != "running" || st.Model != "test-model" {
+	if !st.Running || st.Status != "running" || st.Model != "test-model" || st.ID == "" {
 		t.Fatalf("unexpected running status: %+v", st)
 	}
+	firstID := st.ID
 
 	setVRAMTestProgress(42)
 	st = getVRAMTestStatus()
@@ -120,8 +121,20 @@ func TestVRAMTestStateMachine(t *testing.T) {
 
 	finishVRAMTest("success", 2048, 12, "")
 	st = getVRAMTestStatus()
-	if st.Running || st.Status != "success" || st.PeakMB != 2048 || st.N != 12 {
+	if st.Running || st.Status != "success" || st.PeakMB != 2048 || st.N != 12 || st.ID != firstID {
 		t.Fatalf("unexpected finished status: %+v", st)
+	}
+
+	// A new test after the previous one finishes must get a different id.
+	activeVRAMTest.mu.Lock()
+	activeVRAMTest.running = false
+	activeVRAMTest.mu.Unlock()
+	if !startVRAMTest("second-model", "vocal", VRAMConfig{}) {
+		t.Fatal("expected startVRAMTest to succeed after finish")
+	}
+	st = getVRAMTestStatus()
+	if st.ID == "" || st.ID == firstID {
+		t.Fatalf("expected a new id, got %q (previous %q)", st.ID, firstID)
 	}
 }
 
@@ -216,6 +229,64 @@ func TestHandleModelsVRAMTest_AcceptsExistingModel(t *testing.T) {
 	if !strings.Contains(w.Body.String(), "started") {
 		t.Fatalf("expected started response, got %s", w.Body.String())
 	}
+	var respBody map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &respBody); err != nil {
+		t.Fatalf("invalid JSON response: %v", err)
+	}
+	if respBody["id"] == "" {
+		t.Fatalf("expected id in response, got %v", respBody)
+	}
+}
+
+func TestVRAMTestStatusKeepsID(t *testing.T) {
+	setTestRoot(t, "vram-test-")
+	// Reset any leftover running test from previous tests that spawn goroutines.
+	activeVRAMTest.mu.Lock()
+	activeVRAMTest.running = false
+	activeVRAMTest.id = ""
+	activeVRAMTest.model = ""
+	activeVRAMTest.stepType = ""
+	activeVRAMTest.status = ""
+	activeVRAMTest.progress = 0
+	activeVRAMTest.peakMB = 0
+	activeVRAMTest.n = 0
+	activeVRAMTest.errMsg = ""
+	activeVRAMTest.startedAt = time.Time{}
+	activeVRAMTest.finished = time.Time{}
+	activeVRAMTest.mu.Unlock()
+	defer func() {
+		activeVRAMTest.mu.Lock()
+		activeVRAMTest.running = false
+		activeVRAMTest.id = ""
+		activeVRAMTest.model = ""
+		activeVRAMTest.stepType = ""
+		activeVRAMTest.status = ""
+		activeVRAMTest.progress = 0
+		activeVRAMTest.peakMB = 0
+		activeVRAMTest.n = 0
+		activeVRAMTest.errMsg = ""
+		activeVRAMTest.startedAt = time.Time{}
+		activeVRAMTest.finished = time.Time{}
+		activeVRAMTest.mu.Unlock()
+	}()
+
+	if !startVRAMTest("keep-id-model", "vocal", VRAMConfig{}) {
+		t.Fatal("expected startVRAMTest to succeed")
+	}
+	st := getVRAMTestStatus()
+	id := st.ID
+	if id == "" {
+		t.Fatal("expected non-empty id while running")
+	}
+
+	finishVRAMTest("success", 1234, 7, "")
+	st = getVRAMTestStatus()
+	if st.ID != id {
+		t.Fatalf("expected id %q after finish, got %q", id, st.ID)
+	}
+	if st.Running || st.Status != "success" || st.PeakMB != 1234 || st.N != 7 {
+		t.Fatalf("unexpected finished status: %+v", st)
+	}
 }
 
 func TestHandleVRAMTestStatus(t *testing.T) {
@@ -248,6 +319,9 @@ func TestHandleVRAMTestStatus(t *testing.T) {
 	}
 	if st.Running {
 		t.Fatal("expected no running test")
+	}
+	if st.ID != "" {
+		t.Fatalf("expected empty id when no test has run, got %q", st.ID)
 	}
 }
 
