@@ -1,5 +1,11 @@
 # Changelog
 
+## [v3.5.16] - 2026-09-25
+
+### Fixed
+- **El indicador «Probando…» del test de VRAM ya se ve**: habia una carrera — la pantalla empezaba a sondear antes de que el backend registrara el test, recibia el estado terminado de la prueba anterior y se apagaba sola, sin indicador y ensenando la medicion vieja como si fuera la recien hecha. Ahora el test tiene identidad propia (`id`/`started_at`) tanto en la respuesta del POST como en el estado, la pantalla ignora cualquier «terminado» que no sea suyo y el sondeo tiene un maximo de 3 minutos con salida limpia.
+- **El veredicto de «cabe» cuenta el contexto CUDA**: la medida es la huella del modelo (exacta: coincide al megabyte con `nvidia-smi` pico − base) y para decidir si cabe hay que sumar la linea base (~0,4 GB), que ahora se expone como `baseline_mb`.
+
 ## [v3.5.15] - 2026-09-25
 
 ### Fixed
