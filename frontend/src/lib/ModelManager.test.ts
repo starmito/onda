@@ -683,6 +683,115 @@ describe('ModelManager flags from API', () => {
     }
   });
 
+  function mockFetchWithVRAMTest(scenario: 'running' | 'success' | 'oom') {
+    let statusCallCount = 0;
+    return vi.fn().mockImplementation(async (url: string | URL, init?: RequestInit) => {
+      const u = url.toString();
+      if (u.includes('/api/models/list')) {
+        return { ok: true, status: 200, json: async () => models } as Response;
+      }
+      if (u.includes('/api/gpu/info')) {
+        return { ok: true, status: 200, json: async () => gpuInfo } as Response;
+      }
+      if (u.includes('models') && u.includes('config')) {
+        return { ok: true, status: 200, json: async () => swFlags } as Response;
+      }
+      if (u.includes('/api/gpu/vram-calculator')) {
+        return { ok: true, status: 200, json: async () => vramCalc } as Response;
+      }
+      if (u.includes('/api/models/') && u.includes('/vram-test') && init?.method === 'POST') {
+        return { ok: true, status: 202, json: async () => ({ status: 'started' }) } as Response;
+      }
+      if (u.includes('/api/models/vram-test/status')) {
+        statusCallCount++;
+        if (scenario === 'running') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ running: true, status: 'running', progress: 42, peak_mb: 0, n: 0 }),
+          } as Response;
+        }
+        if (statusCallCount === 1) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ running: true, status: 'running', progress: 42, peak_mb: 0, n: 0 }),
+          } as Response;
+        }
+        if (scenario === 'success') {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ running: false, status: 'success', progress: 100, peak_mb: 2441, n: 128 }),
+          } as Response;
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ running: false, status: 'oom', progress: 0, peak_mb: 0, n: 0, error: 'no cabe: sin memoria' }),
+        } as Response;
+      }
+      throw new Error(`Unexpected fetch: ${u}`);
+    });
+  }
+
+  it('shows "Probando…" and progress while the VRAM test is running', async () => {
+    globalThis.fetch = mockFetchWithVRAMTest('running');
+
+    const app = mount(ModelManager, {
+      target,
+      props: { initialModel: 'BS-Rofo-SW-Fixed' },
+    });
+
+    await vi.waitFor(() => expect(getFlagLabels().length).toBeGreaterThan(0), { timeout: 2000 });
+
+    const testBtn = target.querySelector('.btn-test') as HTMLButtonElement;
+    testBtn.click();
+
+    await vi.waitFor(() => expect(target.textContent).toContain('Probando...'), { timeout: 2000 });
+    expect(target.textContent).toContain('42%');
+
+    unmount(app);
+  });
+
+  it('shows the measured peak when the VRAM test succeeds', async () => {
+    globalThis.fetch = mockFetchWithVRAMTest('success');
+
+    const app = mount(ModelManager, {
+      target,
+      props: { initialModel: 'BS-Rofo-SW-Fixed' },
+    });
+
+    await vi.waitFor(() => expect(getFlagLabels().length).toBeGreaterThan(0), { timeout: 2000 });
+
+    const testBtn = target.querySelector('.btn-test') as HTMLButtonElement;
+    testBtn.click();
+
+    await vi.waitFor(() => expect(target.textContent).toContain('Medición real'), { timeout: 3000 });
+    expect(target.textContent).toContain('2.4 GB');
+    expect(target.textContent).toContain('128 muestras');
+
+    unmount(app);
+  });
+
+  it('shows the OOM message when the VRAM test runs out of memory', async () => {
+    globalThis.fetch = mockFetchWithVRAMTest('oom');
+
+    const app = mount(ModelManager, {
+      target,
+      props: { initialModel: 'BS-Rofo-SW-Fixed' },
+    });
+
+    await vi.waitFor(() => expect(getFlagLabels().length).toBeGreaterThan(0), { timeout: 2000 });
+
+    const testBtn = target.querySelector('.btn-test') as HTMLButtonElement;
+    testBtn.click();
+
+    await vi.waitFor(() => expect(target.textContent).toContain('No cabe: sin memoria'), { timeout: 3000 });
+
+    unmount(app);
+  });
+
   it('shows "estimado" label and fallback reason when VRAM calculation is estimated', async () => {
     const estimatedCalc: VRAMCalculatorResponse = {
       models: [{
