@@ -1,5 +1,11 @@
 # Changelog
 
+## [v3.5.15] - 2026-09-25
+
+### Fixed
+- **Las flags del boton «Probar» llegan de verdad al modelo**: hasta ahora el test se ejecutaba con la configuracion guardada del modelo y las flags de los deslizadores solo servian para etiquetar la medida (medidas guardadas con etiquetas falsas). Ahora el backend emite las variables `VOCAL_*` y el pipeline las respeta por encima de la config guardada, asi que la medida corresponde a lo que el usuario tiene en pantalla.
+- **Indicador «Probando…» con progreso en el panel de VRAM** mientras el test corre, con su resultado (medido / «no cabe: sin memoria») al terminar.
+
 ## [v3.5.14] - 2026-09-25
 
 ### Fixed
