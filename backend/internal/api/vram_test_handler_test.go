@@ -8,11 +8,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/starmito/onda/internal/cli"
 )
 
 func TestIsOOMPipelineError(t *testing.T) {
@@ -305,6 +308,88 @@ func writeTestModelManifest(t *testing.T, modelDir string, flagNames ...string) 
 	if err := os.WriteFile(filepath.Join(modelDir, "model.manifest.json"), data, 0o644); err != nil {
 		t.Fatalf("cannot write manifest: %v", err)
 	}
+}
+
+// TestBuildStepPipelineArgsFromConfig_VRAMTestFlagsReachPipeline verifies that
+// the VRAM test passes its temporary flag overrides to pipeline.sh through the
+// same argument-building path used by normal jobs. With two different segment
+// sizes the generated environment (which pipeline.sh reads) must differ.
+func TestBuildStepPipelineArgsFromConfig_VRAMTestFlagsReachPipeline(t *testing.T) {
+	root := setTestRoot(t, "vram-flags-")
+	modelDir := filepath.Join(modelsBasePath(), "VR_Models", "TestRoformerVRAM")
+	if err := os.MkdirAll(modelDir, 0o755); err != nil {
+		t.Fatalf("cannot create fake model dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(modelDir, "TestRoformerVRAM.ckpt"), []byte("fake"), 0o644); err != nil {
+		t.Fatalf("cannot write fake checkpoint: %v", err)
+	}
+	// A model-shipped YAML with default values different from the overrides,
+	// so the test proves the override reaches the pipeline instead of the YAML.
+	if err := os.WriteFile(filepath.Join(modelDir, "TestRoformerVRAM.yaml"), []byte("model:\n  num_bands: 4\naudio:\n  hop_length: 512\ninference:\n  dim_t: 1101\n  num_overlap: 4\n  batch_size: 1\n  chunk_size: 600\ntraining:\n  instruments: [vocals, other]\n"), 0o644); err != nil {
+		t.Fatalf("cannot write fake yaml: %v", err)
+	}
+
+	step := cli.PipelineStep{
+		ID:      "vram-test",
+		Type:    "vocal",
+		Model:   "TestRoformerVRAM",
+		Enabled: true,
+		Stems: map[string]cli.StemRoute{
+			"vocals":       {Action: cli.StemSave, Target: "result"},
+			"instrumental": {Action: cli.StemSave, Target: "result"},
+		},
+	}
+
+	cfg2048 := ModelConfigResponse{
+		SegmentSize: 2048,
+		BatchSize:   2,
+		NumOverlap:  6,
+		ChunkSize:   0,
+		Overlap:     1.0 / 6.0,
+	}
+	args2048, env2048, err := buildStepPipelineArgsFromConfig(step, filepath.Join(root, "input.wav"), filepath.Join(root, "out"), "cuda", cfg2048)
+	if err != nil {
+		t.Fatalf("buildStepPipelineArgsFromConfig(2048) failed: %v", err)
+	}
+
+	cfg512 := cfg2048
+	cfg512.SegmentSize = 512
+	cfg512.Overlap = 1.0 / 6.0
+	args512, env512, err := buildStepPipelineArgsFromConfig(step, filepath.Join(root, "input.wav"), filepath.Join(root, "out"), "cuda", cfg512)
+	if err != nil {
+		t.Fatalf("buildStepPipelineArgsFromConfig(512) failed: %v", err)
+	}
+
+	mustContainEnv := func(t *testing.T, env []string, want string) {
+		t.Helper()
+		for _, e := range env {
+			if e == want {
+				return
+			}
+		}
+		t.Errorf("expected env to contain %q, got %v", want, env)
+	}
+
+	mustContainEnv(t, env2048, "VOCAL_DIM_T=2048")
+	mustContainEnv(t, env2048, "VOCAL_BATCH_SIZE=2")
+	mustContainEnv(t, env2048, "VOCAL_NUM_OVERLAP=6")
+	mustContainEnv(t, env2048, "VOCAL_CHUNK_SIZE=0")
+
+	mustContainEnv(t, env512, "VOCAL_DIM_T=512")
+	mustContainEnv(t, env512, "VOCAL_BATCH_SIZE=2")
+	mustContainEnv(t, env512, "VOCAL_NUM_OVERLAP=6")
+	mustContainEnv(t, env512, "VOCAL_CHUNK_SIZE=0")
+
+	// The two configurations must produce different argument/env output so the
+	// pipeline receives a different segment size.
+	if reflect.DeepEqual(args2048, args512) && reflect.DeepEqual(env2048, env512) {
+		t.Errorf("expected args/env to differ between segment_size 2048 and 512")
+	}
+
+	t.Logf("segment_size=2048 args: %v", args2048)
+	t.Logf("segment_size=2048 env:  %v", env2048)
+	t.Logf("segment_size=512 args:  %v", args512)
+	t.Logf("segment_size=512 env:   %v", env512)
 }
 
 func TestHandleModelsVRAMTest_AcceptsValidFlagsPerFamily(t *testing.T) {
