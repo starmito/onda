@@ -126,7 +126,7 @@
 			to right,
 			var(--accent) 0%,
 			var(--accent-bg) 35%,
-			var(--bg-primary) 80%
+			var(--bg-primary) 100%
 		);
 		overflow-x: hidden;
 		overflow-y: auto;
