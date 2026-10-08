@@ -326,6 +326,7 @@ export interface DownloadStatusResponse {
   repo: string;
   target: string;
   error?: string;
+  warning?: string;
   filename?: string;
   source: string;
 }

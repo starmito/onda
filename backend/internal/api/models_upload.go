@@ -39,6 +39,7 @@ type ModelUploadResponse struct {
 	NumStems        int      `json:"num_stems"`
 	ManifestMissing bool     `json:"manifest_missing"`
 	Inferred        bool     `json:"inferred"`
+	Warning         string   `json:"warning,omitempty"`
 }
 
 // sanitizeModelFilename validates and cleans a model upload filename. It rejects
@@ -235,6 +236,11 @@ func (s *Server) handleModelsUpload(w http.ResponseWriter, r *http.Request) {
 		inferred = manifest.Inferred
 	}
 
+	warning := validateModelConfigAgainstEngine(modelDir, safeName)
+	if warning != "" {
+		Log("backend", "warn", fmt.Sprintf("Model upload compatibility warning for %s: %s", modelName, warning))
+	}
+
 	resp := ModelUploadResponse{
 		Name:            modelName,
 		DisplayName:     displayName,
@@ -246,6 +252,7 @@ func (s *Server) handleModelsUpload(w http.ResponseWriter, r *http.Request) {
 		NumStems:        numStems,
 		ManifestMissing: manifestMissing,
 		Inferred:        inferred,
+		Warning:         warning,
 	}
 
 	Log("backend", "success", fmt.Sprintf("Model uploaded: %s -> %s", modelName, destPath))

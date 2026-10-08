@@ -397,7 +397,18 @@ func extractManifestInfoFromMap(root map[string]interface{}) (configManifestInfo
 // manually; if a sidecar config is present its declared type and stems are
 // used and the manifest is not marked as inferred.
 func generateModelManifest(modelDir, filename, origin string) error {
-	name := strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
+	return generateModelManifestWithName(modelDir, filename, origin, "")
+}
+
+// generateModelManifestWithName is like generateModelManifest but allows the
+// caller to override the display name stored in the manifest (e.g. the catalog
+// name for a downloaded UVR model). When nameOverride is empty the filename
+// base is used.
+func generateModelManifestWithName(modelDir, filename, origin, nameOverride string) error {
+	name := nameOverride
+	if name == "" {
+		name = strings.TrimSuffix(filepath.Base(filename), filepath.Ext(filename))
+	}
 
 	var modelType string
 	var stems modelManifestStems
@@ -446,6 +457,125 @@ func generateModelManifest(modelDir, filename, origin string) error {
 	}
 	data = append(data, '\n')
 	return os.WriteFile(filepath.Join(modelDir, "model.manifest.json"), data, 0644)
+}
+
+// valuesEqualForWarning compares two YAML/JSON parsed values for the purpose
+// of detecting engine mismatches. It handles the numeric type coercion that
+// yaml.v3 performs when unmarshalling into interface{}.
+func valuesEqualForWarning(a, b interface{}) bool {
+	switch av := a.(type) {
+	case int:
+		switch bv := b.(type) {
+		case int:
+			return av == bv
+		case int64:
+			return int64(av) == bv
+		case float64:
+			return float64(av) == bv
+		}
+	case int64:
+		switch bv := b.(type) {
+		case int:
+			return av == int64(bv)
+		case int64:
+			return av == bv
+		case float64:
+			return float64(av) == bv
+		}
+	case float64:
+		switch bv := b.(type) {
+		case int:
+			return av == float64(bv)
+		case int64:
+			return av == float64(bv)
+		case float64:
+			return av == bv
+		}
+	case bool:
+		if bv, ok := b.(bool); ok {
+			return av == bv
+		}
+	case string:
+		if bv, ok := b.(string); ok {
+			return av == bv
+		}
+	}
+	return false
+}
+
+// validateModelConfigAgainstEngine compares a downloaded model's sidecar config
+// with the parameters accepted by Onda's separation engine. It returns a
+// non-blocking warning when the config requests a value the engine does not use
+// by default. The warning is informational: installation is never blocked.
+func validateModelConfigAgainstEngine(modelDir, filename string) string {
+	entries, err := os.ReadDir(modelDir)
+	if err != nil {
+		return ""
+	}
+
+	base := strings.TrimSuffix(filename, filepath.Ext(filename))
+	var configPath string
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		ext := strings.ToLower(filepath.Ext(name))
+		if ext != ".yaml" && ext != ".yml" && ext != ".json" {
+			continue
+		}
+		cfgBase := strings.TrimSuffix(name, ext)
+		if cfgBase == base || strings.HasPrefix(cfgBase, "config_") || strings.HasPrefix(cfgBase, "model_") {
+			configPath = filepath.Join(modelDir, name)
+			break
+		}
+	}
+	if configPath == "" {
+		return ""
+	}
+
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return ""
+	}
+
+	var doc map[string]interface{}
+	if err := yaml.Unmarshal(data, &doc); err != nil {
+		return ""
+	}
+
+	modelSection, ok := doc["model"].(map[string]interface{})
+	if !ok {
+		return ""
+	}
+
+	// BSRoformer / MelBandRoformer share these engine defaults.
+	_, hasFreqsPerBands := modelSection["freqs_per_bands"]
+	_, hasNumBands := modelSection["num_bands"]
+	if !hasFreqsPerBands && !hasNumBands {
+		return ""
+	}
+
+	defaults := map[string]interface{}{
+		"mlp_expansion_factor": 4,
+		"use_torch_checkpoint": false,
+		"skip_connection":      false,
+		"use_pope":             false,
+	}
+
+	var warnings []string
+	for key, defaultVal := range defaults {
+		if val, present := modelSection[key]; present {
+			if !valuesEqualForWarning(val, defaultVal) {
+				warnings = append(warnings, fmt.Sprintf("este modelo pide «%s: %v», pero el motor usa %v", key, val, defaultVal))
+			}
+		}
+	}
+
+	if len(warnings) == 0 {
+		return ""
+	}
+	return "⚠️ " + strings.Join(warnings, "; ") + ". Puede fallar o dar un resultado incorrecto."
 }
 
 // findModelDirByBaseName searches the models tree for an existing model
@@ -737,11 +867,12 @@ type DownloadStatus struct {
 	Repo             string `json:"repo"`
 	Target           string `json:"target,omitempty"`
 	Progress         string `json:"progress,omitempty"`
-	Percentage       float64 `json:"percentage"` // 0.0 to 100.0 — real-time progress
+	Percentage       float64 `json:"percentage"` // 0.0 to 100.0 — real-time download progress
 	Total            int64   `json:"total_bytes"`
 	Downloaded       int64   `json:"downloaded_bytes"`
 	SpeedBytesPerSec float64 `json:"speed_bytes_per_sec"` // moving-average download speed
 	Error            string `json:"error,omitempty"`
+	Warning          string `json:"warning,omitempty"` // engine compatibility warning, non-blocking
 	Filename         string `json:"filename,omitempty"`
 	Source           string `json:"source"`
 	DestPath         string `json:"-"`
@@ -1187,19 +1318,31 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// Determine category from filename if not provided
-		category := req.Category
-		if category == "" {
-			category = detectCategoryFromFilename(req.Filename)
+		// Resolve the canonical model name from the UVR catalog when available.
+		// The catalog name (e.g. BS_Roformer_SW_6stem) is used as the on-disk
+		// directory name so presets and the model list can find the model.
+		modelName := strings.TrimSuffix(req.Filename, filepath.Ext(req.Filename))
+		if catalog, err := loadUVRCatalog(); err == nil {
+			for _, entry := range catalog {
+				if entry.Filename == req.Filename && entry.Name != "" {
+					modelName = entry.Name
+					break
+				}
+			}
 		}
-		targetDir := filepath.Join(modelsBasePath(), category)
+
+		// Determine the storage category from the filename (display category sent
+		// by the frontend is intentionally ignored; it does not match on-disk
+		// directories like VR_Models or MDX_Net_Models).
+		category := detectCategoryFromFilename(req.Filename)
+		targetDir := filepath.Join(modelsBasePath(), category, sanitizeName(modelName))
 
 		// Register the download job keyed by URL
 		status := &DownloadStatus{
 			ID:       nextDownloadID(),
 			Status:   "downloading",
 			Repo:     req.URL,
-			Target:   filepath.ToSlash(filepath.Join(modelsBasePath(), category)),
+			Target:   filepath.ToSlash(targetDir),
 			Filename: req.Filename,
 			Source:   "direct",
 		}
@@ -1211,15 +1354,14 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 		go runDirectDownload(req.URL, req.Filename, targetDir)
 
 		// Also download any dependency files (e.g., .yaml configs) that share
-		// the same base name as the model being downloaded.
+		// the same base name as the model being downloaded, placing them in the
+		// same model-specific directory as the weight file.
 		if catalog, err := loadUVRCatalog(); err == nil {
 			deps := findDependencies(req.Filename, catalog)
 			for _, dep := range deps {
 				if dep.DownloadURL == "" {
 					continue
 				}
-				depCategory := detectCategoryFromFilename(dep.Filename)
-				depDir := filepath.Join(modelsBasePath(), depCategory)
 
 				// Register a download job for this dependency.
 				// Use a composite key (filename + "@" + URL) to avoid collisions
@@ -1229,7 +1371,7 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 					ID:       nextDownloadID(),
 					Status:   "downloading",
 					Repo:     depKey,
-					Target:   filepath.ToSlash(filepath.Join(modelsBasePath(), depCategory)),
+					Target:   filepath.ToSlash(targetDir),
 					Filename: dep.Filename,
 					Source:   "direct",
 				}
@@ -1238,13 +1380,47 @@ func (s *Server) handleModelsDownload(w http.ResponseWriter, r *http.Request) {
 				if _, exists := downloadJobs[depKey]; !exists {
 					downloadJobs[depKey] = depStatus
 					downloadMu.Unlock()
-					go runDirectDownload(dep.DownloadURL, dep.Filename, depDir)
+					go runDirectDownload(dep.DownloadURL, dep.Filename, targetDir)
 					log.Printf("[models] also downloading dependency: %s → %s", dep.Filename, dep.DownloadURL)
 				} else {
 					downloadMu.Unlock()
 				}
 			}
 		}
+
+		// After the weight download finishes, generate a model.manifest.json so
+		// the model is listed with its real name, category and stems.
+		go func(targetDir, filename, modelName, url string) {
+			ticker := time.NewTicker(2 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					downloadMu.RLock()
+					status, ok := downloadJobs[url]
+					done := ok && status.Status == "done"
+					failed := ok && (status.Status == "error" || status.Status == "cancelled")
+					downloadMu.RUnlock()
+					if !ok || done || failed {
+						if done {
+							if err := generateModelManifestWithName(targetDir, filename, "uvr", modelName); err != nil {
+								log.Printf("[models] failed to generate manifest for %s: %v", filename, err)
+							}
+							warning := validateModelConfigAgainstEngine(targetDir, filename)
+							if warning != "" {
+								downloadMu.Lock()
+								if status, exists := downloadJobs[url]; exists {
+									status.Warning = warning
+								}
+								downloadMu.Unlock()
+								log.Printf("[models] compatibility warning for %s: %s", filename, warning)
+							}
+						}
+						return
+					}
+				}
+			}
+		}(targetDir, req.Filename, modelName, req.URL)
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusAccepted)
@@ -2058,12 +2234,29 @@ func isDirEmptyOrOnlyAux(dir string) bool {
 // streaming to disk and reporting real-time progress.
 func runDirectDownload(url, filename, targetDir string) {
 	destPath := filepath.Join(targetDir, filename)
+	key := directDownloadKey(url, filename)
+
+	// If the file already exists, skip the download and mark the job as done.
+	// This prevents accidental overwrites and duplicate models on disk.
+	if info, err := os.Stat(destPath); err == nil && info.Size() > 0 {
+		log.Printf("[models] %s already exists (%d bytes), skipping download", destPath, info.Size())
+		downloadMu.Lock()
+		if status, ok := downloadJobs[key]; ok {
+			status.Status = "done"
+			status.Progress = "Download complete (already on disk)"
+			status.Percentage = 100
+			status.Downloaded = info.Size()
+			status.Total = info.Size()
+		}
+		downloadMu.Unlock()
+		return
+	}
+
 	log.Printf("[models] downloading %s → %s", url, destPath)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Second)
 	defer cancel()
 
-	key := directDownloadKey(url, filename)
 	downloadMu.Lock()
 	if status, ok := downloadJobs[key]; ok {
 		status.Cancel = cancel

@@ -69,6 +69,7 @@
     pollByUrl?: Set<string>; // which pollKeys are direct URLs
     intervalId?: ReturnType<typeof setInterval>;
     error?: string;
+    warning?: string;
   }
   let downloadProgress = $state<Record<string, DownloadProgressInfo>>({});
   let downloadErrors = $state<Map<string, string>>(new Map());
@@ -428,6 +429,7 @@
         let completedCount = 0;
 
         let cancelledCount = 0;
+        let bestWarning = '';
         for (const pk of pollKeys) {
           try {
             const st = await getDownloadStatus(pk, { byUrl: pollByUrl.has(pk) });
@@ -435,6 +437,9 @@
             if (st.status === 'done') completedCount++;
             if (st.status === 'cancelled') {
               cancelledCount++;
+            }
+            if (st.warning && !bestWarning) {
+              bestWarning = st.warning;
             }
             if (st.status === 'error') {
               bestStatus = 'error';
@@ -458,7 +463,7 @@
 
         downloadProgress = {
           ...downloadProgress,
-          [key]: { ...downloadProgress[key], percentage: bestPct, status: finalStatus, intervalId, error: bestError }
+          [key]: { ...downloadProgress[key], percentage: bestPct, status: finalStatus, intervalId, error: bestError, warning: bestWarning }
         };
 
         if (finalStatus === 'done' || finalStatus === 'error' || finalStatus === 'cancelled') {
@@ -743,6 +748,9 @@
                         {/if}
                       {:else if prog.status === 'done'}
                         <span class="check-icon" title="Completado">✅</span>
+                        {#if prog.warning}
+                          <span class="download-warning" title={prog.warning}>⚠️</span>
+                        {/if}
                       {:else if prog.status === 'cancelled'}
                         <span class="download-cancelled" title="Descarga cancelada">🚫 Cancelada</span>
                       {:else}
@@ -1136,6 +1144,12 @@
     font-size: 0.7rem;
     color: #ffb74d;
     white-space: nowrap;
+  }
+
+  .download-warning {
+    font-size: 0.9rem;
+    cursor: help;
+    margin-left: 0.25rem;
   }
 
   .btn-cancel {
