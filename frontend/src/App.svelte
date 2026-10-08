@@ -19,7 +19,7 @@
   import { deriveQueueFileStatus, resolveOutputGroupName, songNameForQueueFile } from './lib/queueState';
   import { decideCompletion, hasActiveJob } from './lib/queueCompletion';
   import { formatEta } from './lib/time';
-  import { IconOnda, IconStar, IconVoiceRemove, IconSeparate, IconInstruments, IconUser } from './lib/icons';
+  import { IconOnda, IconStar, IconVoiceRemove, IconSeparate, IconInstruments, IconUser, IconSquare, IconZap, IconTriangleAlert, IconClose } from './lib/icons';
   import { getDefaultChecked, applyDefaultChecked, withToggledCheck, withToggledAll } from './lib/queueDefaults';
   import type { QueueFile } from './lib/queueDefaults';
 
@@ -746,7 +746,7 @@
       startQueuePolling();
     }
 
-    showToast('⏹ Proceso cancelado', 'success');
+    showToast('Proceso cancelado', 'success');
   }
 
   /** Fetch backend queue state and update the UI accordingly. */
@@ -1033,19 +1033,19 @@
         <span class="version">{appVersion || healthVersion || ''}</span>
         {#if gpuType}
           <span class="gpu-label" class:cpu={gpuType === 'cpu'}>
-            {#if gpuType === 'cuda'}⚡ CUDA{:else}⚠️ CPU{/if}
+            {#if gpuType === 'cuda'}{@html IconZap} CUDA{:else}{@html IconTriangleAlert} CPU{/if}
           </span>
         {/if}
       </header>
 
       {#if showCpuWarning}
         <div class="cpu-warning" role="alert">
-          <div class="cpu-warning-icon">⚠️</div>
+          <div class="cpu-warning-icon">{@html IconTriangleAlert}</div>
           <div class="cpu-warning-body">
             <strong>Ejecutando en CPU — la separación será mucho más lenta</strong>
             <span>{cpuWarningText}</span>
           </div>
-          <button class="cpu-warning-close" onclick={() => cpuWarningDismissed = true} aria-label="Cerrar aviso">✕</button>
+          <button class="cpu-warning-close" onclick={() => cpuWarningDismissed = true} aria-label="Cerrar aviso">{@html IconClose}</button>
         </div>
       {/if}
 
@@ -1161,7 +1161,7 @@
           </button>
         {/if}
         <button class="btn-icon" title="Copiar error" onclick={() => copyToClipboard(errorBanner!.message)}>Copiar</button>
-        <button class="btn-icon" title="Cerrar" onclick={() => { errorBanner = null; errorLogDetail = null; }}>✕</button>
+        <button class="btn-icon" title="Cerrar" onclick={() => { errorBanner = null; errorLogDetail = null; }}>{@html IconClose}</button>
       </div>
     </div>
     {#if errorLogDetail}
