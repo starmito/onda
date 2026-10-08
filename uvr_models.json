@@ -64,6 +64,22 @@
     "size_mb": 1639
   },
   {
+    "display_name": "BS-Roformer SW 6-stem (SW-Fixed) by Blakus",
+    "category": "Roformer",
+    "filename": "BS-Rofo-SW-Fixed.ckpt",
+    "download_url": "https://huggingface.co/Blakus/bs_roformer_sw_6stem/resolve/main/BS-Rofo-SW-Fixed.ckpt",
+    "name": "BS_Roformer_SW_6stem",
+    "size_mb": 699
+  },
+  {
+    "display_name": "BS-Roformer SW 6-stem (SW-Fixed) by Blakus",
+    "category": "Roformer",
+    "filename": "BS-Rofo-SW-Fixed.yaml",
+    "download_url": "https://huggingface.co/Blakus/bs_roformer_sw_6stem/resolve/main/BS-Rofo-SW-Fixed.yaml",
+    "name": "BS_Roformer_SW_6stem",
+    "size_mb": 0
+  },
+  {
     "display_name": "MDX23C_D1581",
     "category": "MDX",
     "filename": "MDX23C_D1581.ckpt",
