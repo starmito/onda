@@ -1,0 +1,20 @@
+{
+  "name": "Onda",
+  "short_name": "Onda",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#00b388",
+  "theme_color": "#00b388",
+  "icons": [
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
