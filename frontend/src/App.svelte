@@ -297,9 +297,9 @@
       const r = Math.min(255, Math.max(0, (num >> 16)));
       const g = Math.min(255, Math.max(0, ((num >> 8) & 0xff)));
       const b = Math.min(255, Math.max(0, (num & 0xff)));
-      const lightR = Math.min(255, r + 40);
-      const lightG = Math.min(255, g + 40);
-      const lightB = Math.min(255, b + 40);
+      const lightR = Math.min(255, r + 20);
+      const lightG = Math.min(255, g + 20);
+      const lightB = Math.min(255, b + 20);
       body.style.setProperty('--accent-light', `rgb(${lightR}, ${lightG}, ${lightB})`);
       body.style.setProperty('--accent-dark', `rgb(${Math.max(0, r - 30)}, ${Math.max(0, g - 30)}, ${Math.max(0, b - 30)})`);
       body.style.setProperty('--accent-glow', savedAccent + '4d');
@@ -971,7 +971,8 @@
     // If the file is already on the server (has a path), delete it physically
     if (qf.path) {
       try {
-        await deleteInput(qf.file.name);
+        const serverName = qf.path.split('/').pop() || qf.file.name;
+        await deleteInput(serverName);
         queueFiles = queueFiles.filter((q) => q.id !== id);
       } catch (err: any) {
         showToast('Error al borrar archivo: ' + (err.message || 'unknown'), 'error');
@@ -1438,7 +1439,7 @@
   }
   .queue-progress-bar-fill {
     height: 100%;
-    background: linear-gradient(90deg, var(--accent), var(--accent-light));
+    background: linear-gradient(90deg, var(--accent) 0%, var(--accent-light) 70%, var(--accent-bg) 100%);
     border-radius: 3px;
     transition: width 0.3s ease;
   }
@@ -1529,7 +1530,7 @@
   }
   .progress-bar-fill {
     height: 100%;
-    background: linear-gradient(90deg, var(--accent), var(--accent-light));
+    background: linear-gradient(90deg, var(--accent) 0%, var(--accent-light) 70%, var(--accent-bg) 100%);
     border-radius: 4px;
     transition: width 0.3s ease;
   }

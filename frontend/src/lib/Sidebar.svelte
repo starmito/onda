@@ -125,8 +125,8 @@
 		background: linear-gradient(
 			to right,
 			var(--accent) 0%,
-			var(--accent-bg) 20%,
-			var(--bg-primary) 60%
+			var(--accent-bg) 35%,
+			var(--bg-primary) 80%
 		);
 		overflow-x: hidden;
 		overflow-y: auto;
@@ -139,7 +139,7 @@
 				background: linear-gradient(
 					to right,
 					var(--accent) 0%,
-					var(--accent-bg) 30%,
+					var(--accent-bg) 45%,
 					var(--bg-primary) 100%
 				);
 	}
