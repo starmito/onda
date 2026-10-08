@@ -11,6 +11,7 @@
     type VRAMCalculatorResponse,
     type VRAMModelEntry,
   } from './api';
+  import { IconTriangleAlert, IconCheck, IconClose } from './icons';
 
   interface Props {
     steps?: PipelineStep[];
@@ -203,12 +204,12 @@
         <span class="vram-badge" class:fits class:tight>
           {#if fits}
             {#if tight}
-              ⚠️ Cabe justo
+              {@html IconTriangleAlert} Cabe justo
             {:else}
-              ✓ Cabe
+              {@html IconCheck} Cabe
             {/if}
           {:else}
-            ✗ Puede no caber
+            {@html IconClose} Puede no caber
           {/if}
         </span>
       </div>

@@ -6,7 +6,7 @@
   import InterfaceSettings from './InterfaceSettings.svelte';
   import ExportProfilesPanel from './ExportProfilesPanel.svelte';
   import StoragePanel from './StoragePanel.svelte';
-  import { IconModel, IconDownload, IconPresets, IconLogs, IconClose, IconRefresh, IconSettings, IconExport, IconTrash } from './icons';
+  import { IconModel, IconDownload, IconPresets, IconLogs, IconClose, IconRefresh, IconSettings, IconExport, IconTrash, IconCircle } from './icons';
   import { API_BASE } from './api';
 
   interface Props {
@@ -211,7 +211,7 @@
                 >
                   <span class="log-time">{new Date(log.nano / 1e6).toLocaleString()}</span>
                   <span class="log-service" style="color: {log.service === 'pipeline' ? '#ff9800' : log.service === 'inference' ? '#9c27b0' : '#6c757d'}">{log.service}</span>
-                  <span class="log-level">{log.level === 'error' ? '🔴' : log.level === 'success' ? '🟢' : '⚪'}</span>
+                  <span class="log-level"><span class="log-dot log-dot-{log.level}">{@html IconCircle}</span></span>
                   <span class="log-msg">{log.message.slice(0, 80)}{log.message.length > 80 ? '...' : ''}</span>
                 </div>
               {/each}
@@ -232,7 +232,7 @@
                 >
                   <span class="log-time">{new Date(log.nano / 1e6).toLocaleString()}</span>
                   <span class="log-service" style="color: {log.service === 'pipeline' ? '#ff9800' : log.service === 'backend' ? '#2196f3' : log.service === 'onda' ? '#9c27b0' : '#6c757d'}">{log.service}</span>
-                  <span class="log-level">{log.level === 'error' ? '🔴' : log.level === 'success' ? '🟢' : '⚪'}</span>
+                  <span class="log-level"><span class="log-dot log-dot-{log.level}">{@html IconCircle}</span></span>
                   <span class="log-msg">{log.message.slice(0, 100)}{log.message.length > 100 ? '...' : ''}</span>
                 </div>
               {/each}
@@ -266,14 +266,15 @@
       </div>
       <div class="log-detail-meta">
         <span class="log-detail-level" class:log-error={logDetail.level === 'error'} class:log-success={logDetail.level === 'success'}>
-          {logDetail.level === 'error' ? '🔴 Error' : logDetail.level === 'success' ? '🟢 Éxito' : '⚪ Info'}
+          <span class="log-dot log-dot-{logDetail.level}">{@html IconCircle}</span>
+          {logDetail.level === 'error' ? 'Error' : logDetail.level === 'success' ? 'Éxito' : 'Info'}
         </span>
         <span class="log-detail-service">Servicio: {logDetail.service}</span>
         <span class="log-detail-time">{new Date(logDetail.nano / 1e6).toLocaleString()}</span>
       </div>
       <pre class="log-detail-msg">{logDetail.message}</pre>
       <div class="log-detail-actions">
-        <button class="btn-icon" onclick={() => copyToClipboard(logDetail!.message)}>📋 Copiar</button>
+        <button class="btn-icon" onclick={() => copyToClipboard(logDetail!.message)}>{@html IconLogs} Copiar</button>
       </div>
     </div>
   </div>
@@ -497,6 +498,18 @@
     width: 20px;
     text-align: center;
   }
+
+  .log-dot {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 0.85em;
+    height: 0.85em;
+  }
+
+  .log-dot-error { color: #e53935; }
+  .log-dot-success { color: #43a047; }
+  .log-dot-info { color: #9e9e9e; }
 
   .log-msg {
     color: var(--text-primary);

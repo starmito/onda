@@ -16,7 +16,7 @@
     DAWAudioNotFoundError,
   } from './api';
   import type { TempoGridResponse, PitchStemEntry, InputEntry, DAWSongDeleteResult } from './api';
-  import { IconSkipBack, IconSkipForward } from './icons';
+  import { IconSkipBack, IconSkipForward, IconPlay, IconPause, IconSquare, IconChevronDown, IconTrash } from './icons';
   import { effectiveTrackVolume, anyTrackSolo } from './playerStore.svelte';
 
   type RegionLike = { start: number; end: number };
@@ -846,9 +846,9 @@
         <button class="ctrl-btn skip-btn" onclick={() => skipAll(-10)} disabled={!isReady} title="-10 segundos">
           {@html IconSkipBack}
         </button>
-        <button class="ctrl-btn play-btn" onclick={playAll} disabled={!isReady || isPlaying} title="Reproducir">▶</button>
-        <button class="ctrl-btn pause-btn" onclick={pauseAll} disabled={!isPlaying} title="Pausa">⏸</button>
-        <button class="ctrl-btn stop-btn" onclick={stopAll} disabled={!isPlaying} title="Parar">⏹</button>
+        <button class="ctrl-btn play-btn" onclick={playAll} disabled={!isReady || isPlaying} title="Reproducir">{@html IconPlay}</button>
+        <button class="ctrl-btn pause-btn" onclick={pauseAll} disabled={!isPlaying} title="Pausa">{@html IconPause}</button>
+        <button class="ctrl-btn stop-btn" onclick={stopAll} disabled={!isPlaying} title="Parar">{@html IconSquare}</button>
         <button class="ctrl-btn skip-btn" onclick={() => skipAll(10)} disabled={!isReady} title="+10 segundos">
           {@html IconSkipForward}
         </button>
@@ -951,7 +951,7 @@
                   disabled={!track.isReady}
                   title={track.isPlaying ? 'Pausa' : 'Reproducir'}
                 >
-                  {track.isPlaying ? '⏸' : '▶'}
+                  {@html track.isPlaying ? IconPause : IconPlay}
                 </button>
                 <button
                   class="btn-small"
@@ -1024,7 +1024,7 @@
                         class="song-toggle"
                         onclick={() => toggleExpandedSong(song)}
                       >
-                        <span class="toggle-icon">{expandedSongs[song] ? '▼' : '▶'}</span>
+                        <span class="toggle-icon">{@html expandedSongs[song] ? IconChevronDown : IconPlay}</span>
                         <span class="song-name">{song}</span>
                       </button>
                       <div class="song-actions">
@@ -1042,7 +1042,7 @@
                           title="Borrar canción"
                           aria-label="Borrar canción {song}"
                         >
-                          🗑
+                          {@html IconTrash}
                         </button>
                       </div>
                     </div>
@@ -1090,7 +1090,7 @@
                   class="processed-toggle"
                   onclick={() => (showProcessedInputs = !showProcessedInputs)}
                 >
-                  <span class="toggle-icon">{showProcessedInputs ? '▼' : '▶'}</span>
+                  <span class="toggle-icon">{@html showProcessedInputs ? IconChevronDown : IconPlay}</span>
                   <span class="processed-toggle-text">Procesados por el DAW</span>
                   <span class="processed-count">({processedInputs.length})</span>
                 </button>
@@ -1134,7 +1134,7 @@
                   class="song-toggle"
                   onclick={() => toggleExpandedSong(song)}
                 >
-                  <span class="toggle-icon">{expandedSongs[song] ? '▼' : '▶'}</span>
+                  <span class="toggle-icon">{@html expandedSongs[song] ? IconChevronDown : IconPlay}</span>
                   <span class="song-name">{song}</span>
                 </button>
                 {#if expandedSongs[song]}

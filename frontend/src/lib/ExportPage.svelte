@@ -2,7 +2,7 @@
   import { onDestroy } from 'svelte';
   import { listStems, mergeStems, getExportProfiles, downloadUrl, deleteSong } from './api';
   import type { StemsResponse, AudioExportProfiles } from './api';
-  import { IconDownload, IconRefresh, IconTrash } from './icons';
+  import { IconDownload, IconRefresh, IconTrash, IconFolder } from './icons';
   import { removeGroup, filterExportFileNames } from './exportHelpers';
   import { expandExportName, groupBaseSong, groupPitch, groupDisplayName } from './exportName';
 
@@ -163,7 +163,7 @@
         {#each Object.entries(stemsResponse.output) as [song, stems] (song)}
           <div class="export-group-card">
             <div class="export-group-header">
-              <span class="export-song-name">📁 {groupDisplayName(song)}</span>
+              <span class="export-song-name">{@html IconFolder} {groupDisplayName(song)}</span>
               <span class="export-stem-count">{stems.length} pistas</span>
             </div>
 

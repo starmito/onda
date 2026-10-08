@@ -3,7 +3,7 @@
   import { API_BASE, uploadPitchAudio, pitchInputDownloadUrl, pitchDownloadUrl, deletePitchUpload, pitchStems, pitchFile, downloadUrl, deleteStem as deleteStemApi, getPitchSubgroups, deletePitchSubgroup, deletePitchStem, getPitchUploads, deleteSong } from './api';
   import type { ResultStem } from './types';
   import { detectStemType, stemEmoji } from './types';
-  import { IconUpload, IconSkipBack, IconSkipForward } from './icons';
+  import { IconUpload, IconSkipBack, IconSkipForward, IconFolder, IconPlay, IconPause, IconSquare, IconDownload, IconTrash, IconHourglass, IconMusic, IconTriangleAlert } from './icons';
   import {
     playerState,
     stemStateKey,
@@ -1435,7 +1435,7 @@
             <div class="output-group-card">
               <!-- ── Group header with combined player ── -->
               <div class="output-group-header">
-                <span class="output-song-name">📁 {song}</span>
+                <span class="output-song-name">{@html IconFolder} {song}</span>
                 <span class="output-stem-count">{stems.length} pistas</span>
               </div>
 
@@ -1446,11 +1446,11 @@
                     disabled={!playerState.groupPlayers[song]?.loaded} title="-10 segundos">{@html IconSkipBack}</button>
                   <button class="ctrl-btn play-btn" onclick={() => playGroup(song)}
                     disabled={playerState.groupPlayers[song]?.playing && !playerState.groupPlayers[song]?.paused}
-                    title={playerState.groupPlayers[song]?.playing && !playerState.groupPlayers[song]?.paused ? 'Reproduciendo' : 'Reproducir todo'}>▶</button>
+                    title={playerState.groupPlayers[song]?.playing && !playerState.groupPlayers[song]?.paused ? 'Reproduciendo' : 'Reproducir todo'}>{@html IconPlay}</button>
                   <button class="ctrl-btn pause-btn" onclick={() => pauseGroup(song)}
-                    disabled={!playerState.groupPlayers[song]?.playing || playerState.groupPlayers[song]?.paused} title="Pausa">⏸</button>
+                    disabled={!playerState.groupPlayers[song]?.playing || playerState.groupPlayers[song]?.paused} title="Pausa">{@html IconPause}</button>
                   <button class="ctrl-btn stop-btn" onclick={() => stopGroup(song)}
-                    disabled={!playerState.groupPlayers[song]?.playing && !playerState.groupPlayers[song]?.paused} title="Parar">⏹</button>
+                    disabled={!playerState.groupPlayers[song]?.playing && !playerState.groupPlayers[song]?.paused} title="Parar">{@html IconSquare}</button>
                   <button class="ctrl-btn skip-btn" onclick={() => skipForward(song)}
                     disabled={!playerState.groupPlayers[song]?.loaded} title="+10 segundos">{@html IconSkipForward}</button>
                 </div>
@@ -1467,8 +1467,8 @@
                     class="vol-slider" title="Volumen general" />
                 </div>
                 <div class="group-actions">
-                  <button class="song-btn export-btn" onclick={() => handleExportGroup(song)} title="Descargar todo">⬇</button>
-                  <button class="song-btn delete-btn" onclick={() => handleDeleteGroup(song)} title="Eliminar grupo">🗑</button>
+                  <button class="song-btn export-btn" onclick={() => handleExportGroup(song)} title="Descargar todo">{@html IconDownload}</button>
+                  <button class="song-btn delete-btn" onclick={() => handleDeleteGroup(song)} title="Eliminar grupo">{@html IconTrash}</button>
                 </div>
               </div>
 
@@ -1512,8 +1512,8 @@
                       </div>
                     </div>
                     <div class="stem-actions">
-                      <a class="song-btn export-btn" href={outputDownloadUrl(stem)} download={stem.name} title="Descargar">⬇</a>
-                      <button class="song-btn delete-btn" onclick={() => deleteStem(song, stem.name)} title="Eliminar">🗑</button>
+                      <a class="song-btn export-btn" href={outputDownloadUrl(stem)} download={stem.name} title="Descargar">{@html IconDownload}</a>
+                      <button class="song-btn delete-btn" onclick={() => deleteStem(song, stem.name)} title="Eliminar">{@html IconTrash}</button>
                     </div>
                   </div>
                 {/each}
@@ -1529,7 +1529,7 @@
                 <span class="pitch-value">{getPitchValue(song) > 0 ? '+' : ''}{getPitchValue(song)}</span>
                 <button class="pitch-btn" onclick={() => handlePitch(song)}
                   disabled={playerState.pitchProcessing[song] || getPitchValue(song) === 0}>
-                  {playerState.pitchProcessing[song] ? '⏳' : '🎵 Cambiar tono'}
+                  {@html playerState.pitchProcessing[song] ? IconHourglass : IconMusic} Cambiar tono
                 </button>
               </div>
 
@@ -1545,7 +1545,7 @@
                       <div class="subgroup-header">
                         <span class="subgroup-pitch-label">Tono: {subs.pitch > 0 ? '+' : ''}{subs.pitch}</span>
                         <span class="output-stem-count">{subStems.length} pistas</span>
-                        <button class="song-btn export-btn" onclick={() => handleExportSubgroup(song, idx)} title="Descargar todo">⬇</button>
+                        <button class="song-btn export-btn" onclick={() => handleExportSubgroup(song, idx)} title="Descargar todo">{@html IconDownload}</button>
                       </div>
 
                       <!-- ── Subgroup player bar (same as main group) ── -->
@@ -1555,11 +1555,11 @@
                             disabled={!playerState.subgroupPlayers[subKey]?.loaded} title="-10 segundos">{@html IconSkipBack}</button>
                           <button class="ctrl-btn play-btn" onclick={() => playSubgroup(song, idx)}
                             disabled={playerState.subgroupPlayers[subKey]?.playing && !playerState.subgroupPlayers[subKey]?.paused}
-                            title={playerState.subgroupPlayers[subKey]?.playing && !playerState.subgroupPlayers[subKey]?.paused ? 'Reproduciendo' : 'Reproducir'}>▶</button>
+                            title={playerState.subgroupPlayers[subKey]?.playing && !playerState.subgroupPlayers[subKey]?.paused ? 'Reproduciendo' : 'Reproducir'}>{@html IconPlay}</button>
                           <button class="ctrl-btn pause-btn" onclick={() => pauseSubgroup(subKey)}
-                            disabled={!playerState.subgroupPlayers[subKey]?.playing || playerState.subgroupPlayers[subKey]?.paused} title="Pausa">⏸</button>
+                            disabled={!playerState.subgroupPlayers[subKey]?.playing || playerState.subgroupPlayers[subKey]?.paused} title="Pausa">{@html IconPause}</button>
                           <button class="ctrl-btn stop-btn" onclick={() => stopSubgroup(subKey)}
-                            disabled={!playerState.subgroupPlayers[subKey]?.playing && !playerState.subgroupPlayers[subKey]?.paused} title="Parar">⏹</button>
+                            disabled={!playerState.subgroupPlayers[subKey]?.playing && !playerState.subgroupPlayers[subKey]?.paused} title="Parar">{@html IconSquare}</button>
                           <button class="ctrl-btn skip-btn" onclick={() => subgroupSkipForward(subKey)}
                             disabled={!playerState.subgroupPlayers[subKey]?.loaded} title="+10 segundos">{@html IconSkipForward}</button>
                         </div>
@@ -1616,15 +1616,15 @@
                               </div>
                             </div>
                             <div class="stem-actions">
-                              <a class="song-btn export-btn" href={pitchDownloadUrl(song, subs.pitch, sstem.name)} download={sstem.name} title="Descargar">⬇</a>
-                              <button class="song-btn delete-btn" onclick={() => handleDeleteSubgroupStem(song, subs.pitch, sstem.name)} title="Eliminar">🗑</button>
+                              <a class="song-btn export-btn" href={pitchDownloadUrl(song, subs.pitch, sstem.name)} download={sstem.name} title="Descargar">{@html IconDownload}</a>
+                              <button class="song-btn delete-btn" onclick={() => handleDeleteSubgroupStem(song, subs.pitch, sstem.name)} title="Eliminar">{@html IconTrash}</button>
                             </div>
                           </div>
                         {/each}
                       </div>
                       <div class="subgroup-actions">
                         <button class="song-btn delete-btn" onclick={() => handleDeleteSubgroup(song, idx)}
-                          title="Eliminar este subgrupo">🗑 Eliminar grupo</button>
+                          title="Eliminar este subgrupo">{@html IconTrash} Eliminar grupo</button>
                       </div>
                     </div>
                   {/each}
@@ -1663,26 +1663,26 @@
           <div class="song-group" class:loading={p.status === 'uploading'}>
             {#if p.status === 'uploading'}
               <div class="song-header">
-                <h3 class="song-name">📤 {p.name}</h3>
+                <h3 class="song-name">{@html IconUpload} {p.name}</h3>
                 <span class="upload-status">Subiendo…</span>
               </div>
             {:else if p.status === 'error'}
               <div class="song-header">
-                <h3 class="song-name error">⚠️ {p.name}</h3>
+                <h3 class="song-name error">{@html IconTriangleAlert} {p.name}</h3>
                 <span class="upload-status error">Error: {p.errorMsg}</span>
-                <button class="song-btn delete-btn" onclick={() => handleDeleteUpload(p.id)} title="Eliminar">🗑</button>
+                <button class="song-btn delete-btn" onclick={() => handleDeleteUpload(p.id)} title="Eliminar">{@html IconTrash}</button>
               </div>
             {:else}
               <div class="song-header">
-                <h3 class="song-name">🎵 {p.name}</h3>
+                <h3 class="song-name">{@html IconMusic} {p.name}</h3>
                 <div class="playback-controls">
                   <button class="ctrl-btn play-btn" onclick={() => toggleUploadPlay(p.id)}
                     disabled={p.playing && !p.paused}
-                    title={p.playing && !p.paused ? 'Reproduciendo' : 'Reproducir'}>▶</button>
+                    title={p.playing && !p.paused ? 'Reproduciendo' : 'Reproducir'}>{@html IconPlay}</button>
                   <button class="ctrl-btn pause-btn" onclick={() => pauseUpload(p.id)}
-                    disabled={!p.playing || p.paused} title="Pausa">⏸</button>
+                    disabled={!p.playing || p.paused} title="Pausa">{@html IconPause}</button>
                   <button class="ctrl-btn stop-btn" onclick={() => stopUpload(p.id)}
-                    disabled={!p.playing && !p.paused} title="Parar">⏹</button>
+                    disabled={!p.playing && !p.paused} title="Parar">{@html IconSquare}</button>
                 </div>
                 <div class="seek-area">
                   <input type="range" min="0" max={p.duration || 100} step="0.1"
@@ -1694,8 +1694,8 @@
                   <span class="time-display">{fmtTime(p.currentTime)}/{fmtTime(p.duration)}</span>
                 </div>
                 <div class="song-actions">
-                  <a class="song-btn export-btn" href={pitchInputDownloadUrl(p.name)} download={p.name} title="Descargar">⬇</a>
-                  <button class="song-btn delete-btn" onclick={() => handleDeleteUpload(p.id)} title="Eliminar">🗑</button>
+                  <a class="song-btn export-btn" href={pitchInputDownloadUrl(p.name)} download={p.name} title="Descargar">{@html IconDownload}</a>
+                  <button class="song-btn delete-btn" onclick={() => handleDeleteUpload(p.id)} title="Eliminar">{@html IconTrash}</button>
                 </div>
               </div>
               <div class="stem-controls">
@@ -1717,7 +1717,7 @@
                 <span class="pitch-value">{getUploadPitchValue(p.name) > 0 ? '+' : ''}{getUploadPitchValue(p.name)}</span>
                 <button class="pitch-btn" onclick={() => handleUploadPitch(p.id)}
                   disabled={playerState.uploadPitchProcessing[p.name] || getUploadPitchValue(p.name) === 0}>
-                  {playerState.uploadPitchProcessing[p.name] ? '⏳' : '🎵 Cambiar tono'}
+                  {@html playerState.uploadPitchProcessing[p.name] ? IconHourglass : IconMusic} Cambiar tono
                 </button>
               </div>
 
@@ -1737,7 +1737,7 @@
                             <span class="stem-emoji">{stemEmoji(sstem.stemType)}</span>
                             <span class="stem-name" title={sstem.name}>{formatPitchStemName(sstem.name)}</span>
                             <div class="stem-actions">
-                              <a class="song-btn export-btn" href={`${API_BASE}${encodeURI(sstem.path)}`} download={sstem.name} title="Descargar">⬇</a>
+                              <a class="song-btn export-btn" href={`${API_BASE}${encodeURI(sstem.path)}`} download={sstem.name} title="Descargar">{@html IconDownload}</a>
                             </div>
                           </div>
                         {/each}

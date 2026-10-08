@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy } from 'svelte';
   import type { MidiNote } from './api';
+  import { IconPlay, IconSquare } from './icons';
 
   interface Props {
     notes: MidiNote[];
@@ -352,7 +353,7 @@
       disabled={readonly || notes.length === 0 || isPlaying}
       title="Reproducir secuencia MIDI"
     >
-      ▶ Play
+      {@html IconPlay} Play
     </button>
     <button
       class="btn-stop"
@@ -360,7 +361,7 @@
       disabled={!isPlaying}
       title="Detener reproducción"
     >
-      ■ Stop
+      {@html IconSquare} Stop
     </button>
     <span class="play-status">
       {#if isPlaying}Reproduciendo…{:else}{notes.length} notas{/if}

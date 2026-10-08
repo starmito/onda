@@ -1,7 +1,7 @@
 <script lang="ts">
   import { midiParse, midiExport, uploadAudioDAW, type MidiTrack, type MidiNote } from './api';
   import PianoRoll from './PianoRoll.svelte';
-  import { IconUpload, IconDownload } from './icons';
+  import { IconUpload, IconDownload, IconClose, IconPiano } from './icons';
 
   let tracks = $state<MidiTrack[]>([]);
   let bpm = $state(120);
@@ -137,7 +137,7 @@
   {#if error}
     <div class="midi-error">
       <span>{error}</span>
-      <button class="btn-close-error" onclick={() => (error = '')}>✕</button>
+      <button class="btn-close-error" onclick={() => (error = '')}>{@html IconClose}</button>
     </div>
   {/if}
 
@@ -181,7 +181,7 @@
       ondrop={handleDrop}
       ondragover={handleDragOver}
     >
-      <span class="empty-icon">🎹</span>
+      <span class="empty-icon">{@html IconPiano}</span>
       <p class="empty-title">Importa o arrastra un archivo MIDI para empezar</p>
       <p class="empty-hint">Soporta archivos .mid y .midi</p>
     </div>

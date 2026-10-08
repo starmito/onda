@@ -10,6 +10,7 @@
     applyNoiseGate,
     DAWAudioNotFoundError,
   } from './api';
+  import { IconChevronDown, IconPlay } from './icons';
 
   interface Props {
     activeFile: string | null;
@@ -238,7 +239,7 @@
           disabled={!activeFile}
         >
           <span class="effect-name">{effect.name}</span>
-          <span class="toggle-icon">{expanded[effect.id] ? '▼' : '▶'}</span>
+          <span class="toggle-icon">{@html expanded[effect.id] ? IconChevronDown : IconPlay}</span>
         </button>
 
         {#if expanded[effect.id]}

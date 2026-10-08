@@ -1,6 +1,7 @@
 <script lang="ts">
   import { untrack } from 'svelte';
   import { getModelConfig, setModelConfig, getLocalModels, getGpuInfo, getVRAMCalculator, buildVRAMCalculatorParams, startVRAMTest, getVRAMTestStatus, modelIdentifier, type ModelFlag, type ModelFlagsResponse, type LocalModel, type GpuInfo, type VRAMCalculatorResponse, type VRAMTestStatus } from './api';
+  import { IconSettings, IconClose, IconArrowDown, IconArrowUp, IconBrain, IconCheck, IconTriangleAlert } from './icons';
 
   interface Props {
     onclose?: () => void;
@@ -256,10 +257,10 @@
     saving = true;
     try {
       await setModelConfig(flagValues, selectedModel);
-      feedback = '✅ Configuración guardada';
+      feedback = 'Configuración guardada';
       feedbackType = 'success';
     } catch (e: any) {
-      feedback = `❌ Error: ${e.message}`;
+      feedback = `Error: ${e.message}`;
       feedbackType = 'error';
     }
     saving = false;
@@ -285,7 +286,7 @@
     } catch (e: any) {
       vramTestRunning = false;
       vramTestStatus = 'error';
-      vramTestFeedback = `❌ ${e.message}`;
+      vramTestFeedback = `${e.message}`;
       setTimeout(() => (vramTestFeedback = ''), 6000);
     }
   }
@@ -307,7 +308,7 @@
         if (elapsed > maxDurationMs) {
           vramTestRunning = false;
           vramTestStatus = 'error';
-          vramTestFeedback = '❌ El test no respondió en el tiempo esperado';
+          vramTestFeedback = 'El test no respondió en el tiempo esperado';
           setTimeout(() => (vramTestFeedback = ''), 8000);
           break;
         }
@@ -335,14 +336,14 @@
               // stale measurement as the result of this test.
               vramTestRunning = false;
               vramTestStatus = 'error';
-              vramTestFeedback = '❌ El test no se inició correctamente';
+              vramTestFeedback = 'El test no se inició correctamente';
             } else if (st.status === 'success') {
-              vramTestFeedback = `✅ Medición real: ${formatGb(st.peak_mb)} (${st.n} muestras)`;
+              vramTestFeedback = `Medición real: ${formatGb(st.peak_mb)} (${st.n} muestras)`;
               vramCalcRefresh++;
             } else if (st.status === 'oom') {
-              vramTestFeedback = '❌ No cabe: sin memoria';
+              vramTestFeedback = 'No cabe: sin memoria';
             } else if (st.status === 'error') {
-              vramTestFeedback = `❌ ${st.error || 'El test falló'}`;
+              vramTestFeedback = `${st.error || 'El test falló'}`;
             }
             setTimeout(() => (vramTestFeedback = ''), 8000);
             break;
@@ -471,8 +472,8 @@
 {#if loading}
   <div class="fullscreen">
     <div class="fullscreen-header">
-      <button class="btn-close" onclick={onclose}>✕</button>
-      <h2>⚙️ Configuración de Modelos</h2>
+      <button class="btn-close" onclick={onclose}>{@html IconClose}</button>
+      <h2>{@html IconSettings} Configuración de Modelos</h2>
       <div><!-- spacer --></div>
     </div>
     <div class="fullscreen-body loading-text">Cargando...</div>
@@ -480,8 +481,8 @@
 {:else}
   <div class="fullscreen">
     <div class="fullscreen-header">
-      <button class="btn-close" onclick={onclose}>✕</button>
-      <h2>⚙️ {selectedModelDisplayName || 'Configuración de Modelos'}</h2>
+      <button class="btn-close" onclick={onclose}>{@html IconClose}</button>
+      <h2>{@html IconSettings} {selectedModelDisplayName || 'Configuración de Modelos'}</h2>
       <div><!-- spacer --></div>
     </div>
     <div class="fullscreen-body">
@@ -519,8 +520,8 @@
       <div class="quality-scale">
         <div class="quality-scale-title">Calidad / VRAM</div>
         <div class="quality-scale-bar">
-          <span class="quality-scale-min">↓ Menos calidad</span>
-          <span class="quality-scale-max">↑ Más calidad</span>
+          <span class="quality-scale-min">{@html IconArrowDown} Menos calidad</span>
+          <span class="quality-scale-max">{@html IconArrowUp} Más calidad</span>
         </div>
         <div class="quality-scale-note">
           A la derecha: más calidad (o más VRAM si el flag no afecta la calidad).
@@ -616,14 +617,14 @@
         {:else if vramCalcResult !== null}
           <div class="vram-section">
             <div class="vram-header">
-              <span>🧠 VRAM Estimada</span>
+              <span>{@html IconBrain} VRAM Estimada</span>
               {#if vramPercent !== null}
                 <span class="vram-pct" style="color: {vramBarColor(vramPercent)}">{vramPercent.toFixed(0)}%</span>
               {/if}
               {#if vramCalcResult.fits}
-                <span class="vram-fits">✓ Cabe</span>
+                <span class="vram-fits">{@html IconCheck} Cabe</span>
               {:else}
-                <span class="vram-fits vram-fits-no">✗ No cabe</span>
+                <span class="vram-fits vram-fits-no">{@html IconClose} No cabe</span>
               {/if}
             </div>
             <div class="vram-bar-track">
@@ -645,7 +646,7 @@
             </div>
             {#if !vramReliable || vramWarning}
               <div class="vram-warning">
-                ⚠️ {vramWarning || 'Estimación aproximada: el consumo real puede variar.'}
+                {@html IconTriangleAlert} {vramWarning || 'Estimación aproximada: el consumo real puede variar.'}
               </div>
             {/if}
           </div>

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { loadUISettings, saveUISettings } from './api';
+  import { IconCheck, IconMoon, IconSun } from './icons';
 
   const sizes = [
     { label: 'Pequeño', value: 'small' },
@@ -178,7 +179,7 @@
           title={c.name}
         >
           {#if selectedAccent === c.value}
-            <span class="check">✓</span>
+            <span class="check">{@html IconCheck}</span>
           {/if}
         </button>
       {/each}
@@ -190,7 +191,7 @@
     <h3 class="group-title">Tema</h3>
     <p class="group-desc">Alterna entre tema oscuro y claro</p>
     <div class="theme-toggle-row">
-      <span class="theme-label">🌙 Oscuro</span>
+      <span class="theme-label">{@html IconMoon} Oscuro</span>
       <button
         class="toggle-switch"
         class:active={isLight}
@@ -201,7 +202,7 @@
       >
         <span class="toggle-knob"></span>
       </button>
-      <span class="theme-label">☀️ Claro</span>
+      <span class="theme-label">{@html IconSun} Claro</span>
     </div>
   </div>
 

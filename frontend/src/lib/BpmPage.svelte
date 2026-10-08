@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { uploadAudio, detectBpm, getInputs, deleteInput, type TempoResponse, type InputEntry } from './api';
-  import { IconUpload } from './icons';
+  import { IconUpload, IconClose, IconMusic } from './icons';
 
   type InputFile = { name: string; path: string };
 
@@ -132,7 +132,7 @@
   {#if error}
     <div class="page-error">
       <span>{error}</span>
-      <button class="btn-close-error" onclick={() => (error = '')}>✕</button>
+      <button class="btn-close-error" onclick={() => (error = '')}>{@html IconClose}</button>
     </div>
   {/if}
 
@@ -156,7 +156,7 @@
                 disabled={loading}
                 title="Borrar"
               >
-                ✕
+                {@html IconClose}
               </button>
             </li>
           {/each}
@@ -191,7 +191,7 @@
         ondrop={handleDrop}
         ondragover={handleDragOver}
       >
-        <span class="empty-icon">🎵</span>
+        <span class="empty-icon">{@html IconMusic}</span>
         <p class="empty-title">Sube o selecciona un audio para detectar el BPM</p>
         <p class="empty-hint">El backend usa aubio para calcular el tempo real</p>
       </div>

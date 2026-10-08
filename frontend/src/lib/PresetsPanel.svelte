@@ -1,6 +1,7 @@
 <script lang="ts">
   import ProgressPanel from './ProgressPanel.svelte';
   import type { QueueJobStep } from './api';
+  import { IconSliders, IconPlay, IconSquare } from './icons';
 
   let {
     presets = [] as {name: string, config: any}[],
@@ -46,7 +47,7 @@
 </script>
 
 <section class="presets-section">
-  <h3 class="presets-title">🎛 Presets</h3>
+  <h3 class="presets-title">{@html IconSliders} Presets</h3>
   
   <select class="preset-select-large" value={selectedPreset}
     onchange={(e) => onSelectPreset((e.target as HTMLSelectElement).value)}
@@ -58,7 +59,7 @@
   </select>
 
   <button class="btn-execute-large" onclick={onExecute} disabled={disabled || !hasFiles}>
-    ▶ Ejecutar
+    {@html IconPlay} Ejecutar
   </button>
 
   {#if errorMessage}
@@ -72,7 +73,7 @@
       title="Cancela el proceso en curso y limpia la cola de espera"
       aria-label="Cancela el proceso en curso y limpia la cola de espera"
     >
-      ⏹ Detener
+      {@html IconSquare} Detener
     </button>
     <span class="stop-hint">Cancela el proceso en curso y limpia la cola de espera</span>
 

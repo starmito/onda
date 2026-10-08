@@ -3,6 +3,7 @@
   import WaveSurfer from 'wavesurfer.js';
   import Spectrogram from 'wavesurfer.js/dist/plugins/spectrogram.js';
   import { detectKey } from './api';
+  import { IconClose, IconChartBar } from './icons';
 
   type KeyAlternative = {
     key: string;
@@ -184,7 +185,7 @@
   {#if error}
     <div class="page-error">
       <span>{error}</span>
-      <button class="btn-close-error" onclick={() => (error = '')}>✕</button>
+      <button class="btn-close-error" onclick={() => (error = '')}>{@html IconClose}</button>
     </div>
   {/if}
 
@@ -239,7 +240,7 @@
       role="button"
       tabindex="0"
     >
-      <span class="empty-icon">📊</span>
+      <span class="empty-icon">{@html IconChartBar}</span>
       <p class="empty-title">Carga un archivo de audio para ver el espectrograma</p>
       <p class="empty-hint">Haz clic aquí o arrastra un audio</p>
     </div>

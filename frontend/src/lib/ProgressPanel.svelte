@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { QueueJob, QueueJobStep } from './api';
   import { formatEta } from './time';
+  import { IconTimer, IconTriangleAlert } from './icons';
 
   let {
     status = '',
@@ -139,7 +140,7 @@
           <div class="job-meta">
             <span class="job-pct">{Math.round(job.progress ?? 0)}%</span>
             {#if jobStepText(job)}<span class="job-step">{jobStepText(job)}</span>{/if}
-            {#if job.eta && formatEta(job.eta)}<span class="job-eta">⏱ {formatEta(job.eta)}</span>{/if}
+            {#if job.eta && formatEta(job.eta)}<span class="job-eta">{@html IconTimer} {formatEta(job.eta)}</span>{/if}
             {#if jobDeviceLabel(job)}
               <span class="job-device" class:cpu={job.ran_on_cpu || job.device === 'cpu'}>
                 {jobDeviceLabel(job)}
@@ -178,7 +179,7 @@
           </div>
           <div class="step-meta">
             <span class="step-pct">{stepProgress(s)}%</span>
-            {#if s.eta}<span class="step-eta">⏱ {formatEta(s.eta)}</span>{/if}
+            {#if s.eta}<span class="step-eta">{@html IconTimer} {formatEta(s.eta)}</span>{/if}
           </div>
         </div>
       {/each}
@@ -197,10 +198,14 @@
       <div class="progress-meta">
         <span class="progress-pct">{globalPct}%</span>
         {#if song}<span class="progress-song">{song}</span>{/if}
-        {#if eta}<span class="progress-eta">⏱ {eta}</span>{/if}
+        {#if eta}<span class="progress-eta">{@html IconTimer} {eta}</span>{/if}
         {#if device}
           <span class="progress-device" class:cpu={device !== 'cuda' && device !== 'gpu'}>
-            {device === 'cuda' || device === 'gpu' ? 'GPU' : '⚠️ CPU'}
+            {#if device === 'cuda' || device === 'gpu'}
+              GPU
+            {:else}
+              {@html IconTriangleAlert} CPU
+            {/if}
           </span>
         {/if}
         {#if model}<span class="progress-model" title="Modelo en uso">model: {model}</span>{/if}

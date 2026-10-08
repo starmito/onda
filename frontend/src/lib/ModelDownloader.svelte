@@ -17,6 +17,7 @@
     type LocalModel,
     type ModelUploadResponse,
   } from './api';
+  import { IconClose, IconInbox, IconUpload, IconCircleCheck, IconDownload, IconHeart, IconCircleX, IconTriangleAlert, IconBan, IconTrash } from './icons';
 
   // Cleanup polling intervals on component destroy
   $effect(() => {
@@ -599,10 +600,10 @@
 
     uploadingModel = false;
     if (successCount > 0) {
-      uploadMessage = `✅ ${successCount} modelo(s) subido(s)${failCount > 0 ? `, ${failCount} fallo(s)` : ''}`;
+      uploadMessage = `${successCount} modelo(s) subido(s)${failCount > 0 ? `, ${failCount} fallo(s)` : ''}`;
       uploadMessageType = 'success';
     } else {
-      uploadMessage = '❌ Fallo al subir modelos';
+      uploadMessage = 'Fallo al subir modelos';
       uploadMessageType = 'error';
     }
     setTimeout(() => (uploadMessage = ''), 4000);
@@ -620,12 +621,12 @@
     try {
       await deleteModel(model.name);
       localModels = localModels.filter((m) => m.name !== model.name);
-      deleteFeedback = `✅ "${model.name}" eliminado`;
+      deleteFeedback = `"${model.name}" eliminado`;
       deleteFeedbackType = 'success';
       // Refresh catalog so the model shows as not-downloaded again
       await refreshCatalog();
     } catch (err: any) {
-      deleteFeedback = `❌ Error: ${err.message}`;
+      deleteFeedback = `Error: ${err.message}`;
       deleteFeedbackType = 'error';
     }
     setTimeout(() => (deleteFeedback = ''), 3000);
@@ -634,8 +635,8 @@
 
 <div class="fullscreen">
   <div class="fullscreen-header">
-    <button class="btn-close" onclick={onclose}>✕</button>
-    <h2>📥 Gestor de Modelos</h2>
+    <button class="btn-close" onclick={onclose}>{@html IconClose}</button>
+    <h2>{@html IconInbox} Gestor de Modelos</h2>
     <div></div>
   </div>
 
@@ -647,21 +648,21 @@
         class:active={tab === 'download'}
         onclick={() => { tab = 'download'; }}
       >
-        📥 Descargar
+        {@html IconInbox} Descargar
       </button>
       <button
         class="tab-btn"
         class:active={tab === 'upload'}
         onclick={() => { tab = 'upload'; }}
       >
-        📤 Subir
+        {@html IconUpload} Subir
       </button>
       <button
         class="tab-btn"
         class:active={tab === 'installed'}
         onclick={() => { tab = 'installed'; }}
       >
-        ✅ Instalados
+        {@html IconCircleCheck} Instalados
       </button>
     </div>
 
@@ -721,8 +722,8 @@
                     {#if model.source === 'demucs'}
                       <span class="model-desc">{model.repo}</span>
                       <span class="model-size">
-                        {#if model.downloads}↓ {model.downloads.toLocaleString()}{/if}
-                        {#if model.likes} · ♥ {model.likes.toLocaleString()}{/if}
+                        {#if model.downloads}{@html IconDownload} {model.downloads.toLocaleString()}{/if}
+                        {#if model.likes} · {@html IconHeart} {model.likes.toLocaleString()}{/if}
                       </span>
                     {:else}
                       {#if model.description}
@@ -736,23 +737,23 @@
                       {model.source === 'uvr' ? 'UVR' : model.source === 'hf' ? 'HF' : 'Demucs'}
                     </span>
                     {#if model.downloaded}
-                      <span class="check-icon" title="Ya instalado">✅</span>
+                      <span class="check-icon" title="Ya instalado">{@html IconCircleCheck}</span>
                     {:else if model.source === 'demucs'}
                       <!-- Official Demucs catalog is read-only; downloads use the existing flow -->
                     {:else if downloadProgress[model.filename || model.name]}
                       {@const prog = downloadProgress[model.filename || model.name]}
                       {#if prog.status === 'error'}
-                        <span class="download-error" title={prog.error}>❌</span>
+                        <span class="download-error" title={prog.error}>{@html IconCircleX}</span>
                         {#if prog.error}
                           <span class="error-detail" title={prog.error}>{prog.error}</span>
                         {/if}
                       {:else if prog.status === 'done'}
-                        <span class="check-icon" title="Completado">✅</span>
+                        <span class="check-icon" title="Completado">{@html IconCircleCheck}</span>
                         {#if prog.warning}
-                          <span class="download-warning" title={prog.warning}>⚠️</span>
+                          <span class="download-warning" title={prog.warning}>{@html IconTriangleAlert}</span>
                         {/if}
                       {:else if prog.status === 'cancelled'}
-                        <span class="download-cancelled" title="Descarga cancelada">🚫 Cancelada</span>
+                        <span class="download-cancelled" title="Descarga cancelada">{@html IconBan} Cancelada</span>
                       {:else}
                         <div class="progress-bar-wrap">
                           <div class="progress-bar">
@@ -763,7 +764,7 @@
                             class="btn-cancel"
                             onclick={() => cancelDownloadHandler(model)}
                             title="Cancelar descarga"
-                          >✕</button>
+                          >{@html IconClose}</button>
                         </div>
                       {/if}
                     {:else}
@@ -775,7 +776,7 @@
                         Descargar
                       </button>
                       {#if downloadErrors.has(model.filename || model.name)}
-                        <span class="download-error" title={downloadErrors.get(model.filename || model.name)}>❌</span>
+                        <span class="download-error" title={downloadErrors.get(model.filename || model.name)}>{@html IconCircleX}</span>
                       {/if}
                     {/if}
                   </div>
@@ -798,7 +799,7 @@
         role="button"
         tabindex="0"
       >
-        <span class="dropzone-icon">📤</span>
+        <span class="dropzone-icon">{@html IconUpload}</span>
         <span class="dropzone-text">
           {uploadingModel ? 'Subiendo...' : 'Arrastra archivos de modelo aquí o haz clic'}
         </span>
@@ -868,7 +869,7 @@
                 </span>
               </div>
               <button class="btn-delete" onclick={() => handleDeleteModel(model)} title="Eliminar modelo">
-                🗑️
+                {@html IconTrash}
               </button>
             </div>
           {/each}

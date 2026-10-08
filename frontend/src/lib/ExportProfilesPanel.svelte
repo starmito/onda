@@ -5,6 +5,7 @@
     saveExportProfiles,
     type AudioExportProfiles,
   } from './api';
+  import { IconArrowDown, IconArrowUp, IconZap, IconMusic, IconSettings, IconSnail } from './icons';
 
   const wavBitDepths = ['16', '24', '32f'];
   const flacBitDepths = ['16', '24'];
@@ -136,8 +137,8 @@
       <div class="quality-scale">
         <div class="quality-scale-title">Calidad / Profundidad de bits</div>
         <div class="quality-scale-bar">
-          <span class="quality-scale-min">↓ Menos calidad</span>
-          <span class="quality-scale-max">↑ Más calidad</span>
+          <span class="quality-scale-min">{@html IconArrowDown} Menos calidad</span>
+          <span class="quality-scale-max">{@html IconArrowUp} Más calidad</span>
         </div>
         <div class="quality-scale-note">
           A la derecha: más cabeza dinámica. 32f evita recorte al sumar stems.
@@ -164,8 +165,8 @@
           dinámica sin saturar.
         </p>
         <div class="slider-labels">
-          <span class="slider-min">16 — ⚡ Ligero / -Calidad</span>
-          <span class="slider-max">32f — 🎵 Máxima cabeza / +Calidad</span>
+          <span class="slider-min">16 — {@html IconZap} Ligero / -Calidad</span>
+          <span class="slider-max">32f — {@html IconMusic} Máxima cabeza / +Calidad</span>
         </div>
       </div>
 
@@ -185,11 +186,11 @@
       <div class="quality-scale">
         <div class="quality-scale-title">Compresión / Tamaño</div>
         <div class="quality-scale-bar">
-          <span class="quality-scale-min">↓ Más grande</span>
-          <span class="quality-scale-max">↑ Más pequeño</span>
+          <span class="quality-scale-min">{@html IconArrowDown} Más grande</span>
+          <span class="quality-scale-max">{@html IconArrowUp} Más pequeño</span>
         </div>
         <div class="quality-scale-note">
-          ⚙️ =Calidad · derecha = más pequeño/lento (FLAC es lossless).
+          {@html IconSettings} =Calidad · derecha = más pequeño/lento (FLAC es lossless).
         </div>
       </div>
 
@@ -210,8 +211,8 @@
           archivo pequeño. No altera la calidad, solo el tiempo de codificación.
         </p>
         <div class="slider-labels">
-          <span class="slider-min">0 — ⚡ Rápido / +Tamaño / =Calidad</span>
-          <span class="slider-max">8 — 🐌 Lento / -Tamaño / =Calidad</span>
+          <span class="slider-min">0 — {@html IconZap} Rápido / +Tamaño / =Calidad</span>
+          <span class="slider-max">8 — {@html IconSnail} Lento / -Tamaño / =Calidad</span>
         </div>
       </div>
 
@@ -235,8 +236,8 @@
           más reproductores pero descarta información.
         </p>
         <div class="slider-labels">
-          <span class="slider-min">16 — ⚡ Compatible / -Calidad</span>
-          <span class="slider-max">24 — 🎵 Estudio / +Calidad</span>
+          <span class="slider-min">16 — {@html IconZap} Compatible / -Calidad</span>
+          <span class="slider-max">24 — {@html IconMusic} Estudio / +Calidad</span>
         </div>
       </div>
     </section>
@@ -247,8 +248,8 @@
       <div class="quality-scale">
         <div class="quality-scale-title">Calidad / Transparencia</div>
         <div class="quality-scale-bar">
-          <span class="quality-scale-min">↓ Menos calidad</span>
-          <span class="quality-scale-max">↑ Más calidad</span>
+          <span class="quality-scale-min">{@html IconArrowDown} Menos calidad</span>
+          <span class="quality-scale-max">{@html IconArrowUp} Más calidad</span>
         </div>
         <div class="quality-scale-note">
           A la derecha: más calidad. 320k CBR = máxima transparencia.
@@ -275,8 +276,8 @@
           transparente.
         </p>
         <div class="slider-labels">
-          <span class="slider-min">128k — ⚡ Pequeño / -Calidad</span>
-          <span class="slider-max">320k — 🎵 Transparente / +Calidad</span>
+          <span class="slider-min">128k — {@html IconZap} Pequeño / -Calidad</span>
+          <span class="slider-max">320k — {@html IconMusic} Transparente / +Calidad</span>
         </div>
       </div>
 

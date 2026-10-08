@@ -3,7 +3,7 @@
   import { getLocalModels, getPresets, savePreset, deletePreset, setDefaultPreset, restoreDefaultPresets } from './api';
   import type { PresetData } from './api';
   import { stemDisplayName } from './types';
-  import { IconClose } from './icons';
+  import { IconClose, IconSliders, IconPlus, IconChevronDown, IconSave, IconTrash, IconCircleCheck, IconPencil, IconLock, IconFolderOpen, IconStar, IconFactory } from './icons';
 
   // ── Props ──
   interface Props {
@@ -420,7 +420,7 @@
 {#if show}
   <div class="fullscreen">
     <div class="fullscreen-header">
-      <h2>🎛 Editor de Pipeline</h2>
+      <h2>{@html IconSliders} Editor de Pipeline</h2>
       <button class="btn-close" onclick={handleClose} aria-label="Cerrar">{@html IconClose}</button>
     </div>
 
@@ -447,7 +447,7 @@
           <div class="label-row">
             <span class="label">Pasos del pipeline</span>
             <button class="btn-add-step" onclick={addStep}>
-              ➕ Añadir paso
+              {@html IconPlus} Añadir paso
             </button>
           </div>
 
@@ -470,7 +470,7 @@
                     />
                   </label>
                   <span class="step-number">Paso {steps.indexOf(step) + 1}</span>
-                  <button class="btn-remove-step" onclick={() => removeStep(step.id)} title="Eliminar paso">✕</button>
+                  <button class="btn-remove-step" onclick={() => removeStep(step.id)} title="Eliminar paso">{@html IconClose}</button>
                 </div>
               </div>
 
@@ -513,9 +513,9 @@
               <div class="routing-matrix">
                 <div class="routing-header">
                   <span class="routing-stem-label">Stem</span>
-                  <span class="routing-action-label">🔽 Siguiente</span>
-                  <span class="routing-action-label">💾 Resultado</span>
-                  <span class="routing-action-label">🗑 Descartar</span>
+                  <span class="routing-action-label">{@html IconChevronDown} Siguiente</span>
+                  <span class="routing-action-label">{@html IconSave} Resultado</span>
+                  <span class="routing-action-label">{@html IconTrash} Descartar</span>
                 </div>
                 {#if stemsForModel(step.model).length === 0}
                   <div class="routing-empty">
@@ -565,10 +565,10 @@
         <!-- ═══════════════════ -->
         <div class="save-section">
           <button class="btn-save" onclick={handleSavePreset} disabled={!presetNameInput.trim() || steps.length === 0}>
-            💾 Guardar Preset
+            {@html IconSave} Guardar Preset
           </button>
           {#if saveSuccess}
-            <div class="feedback-banner success">✅ Preset guardado correctamente</div>
+            <div class="feedback-banner success">{@html IconCircleCheck} Preset guardado correctamente</div>
           {/if}
         </div>
 
@@ -576,7 +576,7 @@
         <!--  GESTIÓN DE PRESETS              -->
         <!-- ═══════════════════════════════ -->
         <div class="management-section">
-          <h3 class="section-title">✏️ Gestión de Presets</h3>
+          <h3 class="section-title">{@html IconPencil} Gestión de Presets</h3>
 
           <!-- Preset selector -->
           <div class="section">
@@ -594,7 +594,7 @@
                 >
                   <option value="">-- Seleccionar preset --</option>
                   {#each savedPresets as p}
-                    <option value={p.name}>{p.name}{#if p.locked} 🔒{/if}</option>
+                    <option value={p.name}>{p.name}{#if p.locked} {@html IconLock}{/if}</option>
                   {/each}
                 </select>
                 <button
@@ -603,7 +603,7 @@
                   disabled={!selectedPreset}
                   title="Cargar preset en el editor"
                 >
-                  📂 Cargar
+                  {@html IconFolderOpen} Cargar
                 </button>
               </div>
             {:else if !presetsLoading && !presetsError}
@@ -614,17 +614,17 @@
           <!-- Set default -->
           <div class="section">
             <button class="btn-default" onclick={handleSetDefault} disabled={!selectedPreset}>
-              ⭐ Establecer como predeterminado
+              {@html IconStar} Establecer como predeterminado
             </button>
             {#if defaultSuccess}
-              <div class="feedback-banner success">✅ Establecido como predeterminado</div>
+              <div class="feedback-banner success">{@html IconCircleCheck} Establecido como predeterminado</div>
             {/if}
           </div>
 
           <!-- Delete preset -->
           <div class="section delete-section">
             <button class="btn-delete" onclick={handleDeletePresetConfirm} disabled={!selectedPreset}>
-              🗑 Eliminar Preset
+              {@html IconTrash} Eliminar Preset
             </button>
             {#if deleteConfirmVisible}
               <div class="delete-confirm">
@@ -640,10 +640,10 @@
           <!-- Restore factory presets -->
           <div class="section restore-section">
             <button class="btn-restore" onclick={handleRestoreDefaults}>
-              🏭 Restaurar presets de fábrica
+              {@html IconFactory} Restaurar presets de fábrica
             </button>
             {#if restoreSuccess}
-              <div class="feedback-banner success">✅ Presets de fábrica restaurados</div>
+              <div class="feedback-banner success">{@html IconCircleCheck} Presets de fábrica restaurados</div>
             {/if}
           </div>
         </div>

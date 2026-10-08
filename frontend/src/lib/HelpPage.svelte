@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
-  import { IconOnda, IconModel, IconUpload, IconLogs, IconHelp, IconSettings } from './icons';
+  import { IconOnda, IconModel, IconUpload, IconLogs, IconHelp, IconSettings, IconCheck, IconClose } from './icons';
   import { API_BASE } from './api';
 
   interface ServiceInfo {
@@ -100,7 +100,7 @@
         <span class="service-name">{svc.name}</span>
         <span class="service-version">{svc.version || '—'}</span>
         <span class="service-status" class:status-ok={svc.status === 'ok'} class:status-error={svc.status === 'error'} class:status-loading={svc.status === 'loading'}>
-          {svc.status === 'ok' ? '✓' : svc.status === 'error' ? '✗' : '⋯'}
+          {@html svc.status === 'ok' ? IconCheck : svc.status === 'error' ? IconClose : '⋯'}
         </span>
       </div>
     {/each}

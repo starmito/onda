@@ -4,6 +4,7 @@
   import type { ResultStem, ResultGroup } from './types';
   import type { PitchResponse, PitchSubgroup } from './api';
   import { stemEmoji, detectStemType } from './types';
+  import { IconDisc, IconMusic, IconPlay, IconPause, IconSquare, IconDownload, IconTrash, IconHourglass, IconRewind, IconFastForward, IconClose } from './icons';
   import {
     playerState,
     type PitchedSubgroup,
@@ -1257,14 +1258,14 @@
 
 {#if songGroups.length > 0}
   <div class="results-panel">
-    <h2 class="results-title">📀 Results</h2>
+    <h2 class="results-title">{@html IconDisc} Results</h2>
 
     {#each songGroups as group (group.song)}
       {@const player = playerState.resultsGroupPlayers[group.song]}
       <div class="song-group">
         <!-- Song header with transport controls -->
         <div class="song-header">
-          <h3 class="song-name">🎵 {group.song}</h3>
+          <h3 class="song-name">{@html IconMusic} {group.song}</h3>
 
           <div class="playback-controls">
             <button
@@ -1273,7 +1274,7 @@
               disabled={player?.playing && !player?.paused}
               title={player?.playing && !player?.paused ? 'Playing' : 'Play'}
             >
-              ▶
+              {@html IconPlay}
             </button>
             <button
               class="ctrl-btn pause-btn"
@@ -1281,7 +1282,7 @@
               disabled={!player?.playing || player?.paused}
               title="Pause"
             >
-              ⏸
+              {@html IconPause}
             </button>
             <button
               class="ctrl-btn stop-btn"
@@ -1289,7 +1290,7 @@
               disabled={!player?.playing && !player?.paused}
               title="Stop"
             >
-              ⏹
+              {@html IconSquare}
             </button>
           </div>
 
@@ -1317,14 +1318,14 @@
               onclick={() => handleExport(group.song)}
               title="Download all stems"
             >
-              ⬇ Export
+              {@html IconDownload} Export
             </button>
             <button
               class="song-btn delete-btn"
               onclick={() => handleDeleteSong(group.song)}
               title="Delete song"
             >
-              🗑
+              {@html IconTrash}
             </button>
           </div>
         </div>
@@ -1349,7 +1350,7 @@
             onclick={() => handleApplyPitch(group.song)}
             disabled={pitchProcessing[group.song] || !(pitchSliderValue[group.song] || 0)}
           >
-            {pitchProcessing[group.song] ? '⏳' : '🎵 Cambiar tono'}
+            {@html pitchProcessing[group.song] ? IconHourglass : IconMusic} Cambiar tono
           </button>
         </div>
 
@@ -1407,14 +1408,14 @@
                   download={stem.name}
                   title="Download"
                 >
-                  ⬇
+                  {@html IconDownload}
                 </a>
                 <button
                   class="stem-btn delete-stem-btn"
                   onclick={() => deleteStem(group.song, stem.name, stem.path)}
                   title="Delete stem"
                 >
-                  ✕
+                  {@html IconClose}
                 </button>
               </div>
             </div>
@@ -1433,23 +1434,23 @@
                 <h4 class="pitched-title">
                   {group.song} ({sg.pitch > 0 ? '+' : ''}{sg.pitch})
                 </h4>
-                <button class="pitched-delete-btn" onclick={() => handleDeletePitchSubgroup(group.song, sg.pitch)} title="Eliminar subgrupo">🗑</button>
+                <button class="pitched-delete-btn" onclick={() => handleDeletePitchSubgroup(group.song, sg.pitch)} title="Eliminar subgrupo">{@html IconTrash}</button>
               </div>
 
               <!-- Subgroup player bar (same as main group) -->
               <div class="song-header pitched-playback" style="flex-wrap:wrap">
                 <div class="playback-controls">
                   <button class="ctrl-btn skip-btn" onclick={() => pitchedSkipBack(group.song, sg.pitch)}
-                    disabled={!subPlayer?.loaded} title="-10s">⏪</button>
+                    disabled={!subPlayer?.loaded} title="-10s">{@html IconRewind}</button>
                   <button class="ctrl-btn play-btn" onclick={() => playSubgroup(group.song, sg.pitch)}
                     disabled={subPlayer?.playing && !subPlayer?.paused}
-                    title={subPlayer?.playing && !subPlayer?.paused ? 'Playing' : 'Play'}>▶</button>
+                    title={subPlayer?.playing && !subPlayer?.paused ? 'Playing' : 'Play'}>{@html IconPlay}</button>
                   <button class="ctrl-btn pause-btn" onclick={() => pauseSubgroup(group.song, sg.pitch)}
-                    disabled={!subPlayer?.playing || subPlayer?.paused} title="Pause">⏸</button>
+                    disabled={!subPlayer?.playing || subPlayer?.paused} title="Pause">{@html IconPause}</button>
                   <button class="ctrl-btn stop-btn" onclick={() => stopSubgroup(group.song, sg.pitch)}
-                    disabled={!subPlayer?.playing && !subPlayer?.paused} title="Stop">⏹</button>
+                    disabled={!subPlayer?.playing && !subPlayer?.paused} title="Stop">{@html IconSquare}</button>
                   <button class="ctrl-btn skip-btn" onclick={() => pitchedSkipForward(group.song, sg.pitch)}
-                    disabled={!subPlayer?.loaded} title="+10s">⏩</button>
+                    disabled={!subPlayer?.loaded} title="+10s">{@html IconFastForward}</button>
                 </div>
                 <div class="seek-area" style="max-width:160px">
                   <span class="time-display">{fmtTime(subPlayer?.currentTime)} / {fmtTime(subPlayer?.duration)}</span>
@@ -1510,9 +1511,9 @@
                         <div class="peak-bar-container"><div class="peak-bar peak-l" style="width:{dbToPct(rmsToDb(sLevel.l))}%"></div><div class="peak-marker" style="left:{dbToPct(rmsToDb(pLevel.l))}%"></div></div>
                         <div class="peak-bar-container"><div class="peak-bar peak-r" style="width:{dbToPct(rmsToDb(sLevel.r))}%"></div><div class="peak-marker" style="left:{dbToPct(rmsToDb(pLevel.r))}%"></div></div>
                       </div>
-                      <a class="stem-btn dl-btn" href={pitchDownloadUrl(group.song, sg.pitch, stem.name)} download={stem.name}>⬇</a>
+                      <a class="stem-btn dl-btn" href={pitchDownloadUrl(group.song, sg.pitch, stem.name)} download={stem.name}>{@html IconDownload}</a>
                       <button class="stem-btn delete-stem-btn"
-                        onclick={() => handleDeleteSubgroupStem(group.song, sg.pitch, stem.name)}>✕</button>
+                        onclick={() => handleDeleteSubgroupStem(group.song, sg.pitch, stem.name)}>{@html IconClose}</button>
                     </div>
                   </div>
                 {/each}

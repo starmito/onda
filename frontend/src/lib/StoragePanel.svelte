@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { API_BASE, getStorageConfig, setStorageConfig, setExportDir, setConfigDir, cleanExports, type StorageConfig } from './api';
-  import { IconRefresh, IconTrash, IconFolder } from './icons';
+  import { IconRefresh, IconTrash, IconFolder, IconCircleCheck, IconTriangleAlert, IconInfo } from './icons';
 
   interface FolderUsage {
     files: number;
@@ -324,11 +324,11 @@
           <span class="root-label">Estado</span>
           <span class="root-status">
             {#if config.exists && config.writable}
-              <span class="status-ok">✅ Existe y se puede escribir</span>
+              <span class="status-ok">{@html IconCircleCheck} Existe y se puede escribir</span>
             {:else if config.exists}
-              <span class="status-warn">⚠️ Existe pero no se puede escribir</span>
+              <span class="status-warn">{@html IconTriangleAlert} Existe pero no se puede escribir</span>
             {:else}
-              <span class="status-warn">⚠️ No existe o no es accesible</span>
+              <span class="status-warn">{@html IconTriangleAlert} No existe o no es accesible</span>
             {/if}
           </span>
         </div>
@@ -431,13 +431,13 @@
           <span class="root-label">Estado</span>
           <span class="root-status">
             {#if config.export_dir === ''}
-              <span class="status-info">ℹ️ Por defecto: <code>{defaultExportDir(config.current_root)}</code> (se creará al guardar). Las exportaciones se guardan fuera de la carpeta de stems para que no reaparezcan en los listados.</span>
+              <span class="status-info">{@html IconInfo} Por defecto: <code>{defaultExportDir(config.current_root)}</code> (se creará al guardar). Las exportaciones se guardan fuera de la carpeta de stems para que no reaparezcan en los listados.</span>
             {:else if config.export_exists && config.export_writable}
-              <span class="status-ok">✅ Existe y se puede escribir</span>
+              <span class="status-ok">{@html IconCircleCheck} Existe y se puede escribir</span>
             {:else if config.export_exists}
-              <span class="status-warn">⚠️ Existe pero no se puede escribir</span>
+              <span class="status-warn">{@html IconTriangleAlert} Existe pero no se puede escribir</span>
             {:else}
-              <span class="status-warn">⚠️ No existe o no es accesible</span>
+              <span class="status-warn">{@html IconTriangleAlert} No existe o no es accesible</span>
             {/if}
           </span>
         </div>
@@ -520,13 +520,13 @@
           <span class="root-label">Estado</span>
           <span class="root-status">
             {#if config.config_dir === ''}
-              <span class="status-info">ℹ️ Por defecto: se usa <code>{config.current_root}/config</code>.</span>
+              <span class="status-info">{@html IconInfo} Por defecto: se usa <code>{config.current_root}/config</code>.</span>
             {:else if config.config_exists && config.config_writable}
-              <span class="status-ok">✅ Existe y se puede escribir</span>
+              <span class="status-ok">{@html IconCircleCheck} Existe y se puede escribir</span>
             {:else if config.config_exists}
-              <span class="status-warn">⚠️ Existe pero no se puede escribir</span>
+              <span class="status-warn">{@html IconTriangleAlert} Existe pero no se puede escribir</span>
             {:else}
-              <span class="status-warn">⚠️ No existe o no es accesible</span>
+              <span class="status-warn">{@html IconTriangleAlert} No existe o no es accesible</span>
             {/if}
           </span>
         </div>

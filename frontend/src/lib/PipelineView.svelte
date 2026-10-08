@@ -5,7 +5,7 @@
   import { validateExecutePreset } from './executeValidation';
   import { uploadAudio, clearQueue, separateAudio, cancelQueue, getProcessesStatus, deleteQueueSong } from './api';
   import type { ProcessStatus, QueueJob, PipelineStep } from './api';
-  import { IconUpload } from './icons';
+  import { IconUpload, IconCheck, IconClose, IconPlay, IconSquare, IconBan } from './icons';
   import { getDefaultChecked, withToggledCheck, withToggledAll } from './queueDefaults';
   import type { QueueFile } from './queueDefaults';
 
@@ -387,7 +387,7 @@
                 <div class="mini-progress-fill" style="width: {qf.progress ?? 0}%"></div>
               </div>
             {:else if qf.status === 'done'}
-              <span class="step-label done">Completado ✓</span>
+              <span class="step-label done">{@html IconCheck} Completado</span>
               <div class="mini-progress-bar">
                 <div class="mini-progress-fill done" style="width:100%"></div>
               </div>
@@ -402,7 +402,7 @@
             {/if}
           </span>
           <span class={statusBadgeClass(qf.status)}>{qf.status}</span>
-          <button class="btn-remove" onclick={(e) => { e.stopPropagation(); handleRemoveQueueFile(qf.id); }}>✕</button>
+          <button class="btn-remove" onclick={(e) => { e.stopPropagation(); handleRemoveQueueFile(qf.id); }}>{@html IconClose}</button>
         {/snippet}
         {#each queueFiles as qf (qf.id)}
           {#if qf.status === 'done'}
@@ -435,7 +435,7 @@
         {/if}
 
         <button class="btn-execute-direct" onclick={handleExecute} disabled={separating || queueFiles.filter(q => q.checked).length === 0}>
-          ▶ Ejecutar {displayName || presetName}
+          {@html IconPlay} Ejecutar {displayName || presetName}
         </button>
 
         {#if separating}
@@ -445,7 +445,7 @@
             title="Cancela el proceso en curso y limpia la cola de espera"
             aria-label="Cancela el proceso en curso y limpia la cola de espera"
           >
-            ⏹ Detener
+            {@html IconSquare} Detener
           </button>
           <span class="stop-hint">Cancela el proceso en curso y limpia la cola de espera</span>
 
@@ -507,7 +507,7 @@
         title="Cancela el proceso en curso y limpia la cola de espera"
         aria-label="Cancela el proceso en curso y limpia la cola de espera"
       >
-        ⏹ Detener
+        {@html IconSquare} Detener
       </button>
       <span class="stop-hint">Cancela el proceso en curso y limpia la cola de espera</span>
 
@@ -534,8 +534,8 @@
   <div class="vram-modal-overlay" role="dialog" aria-modal="true">
     <div class="vram-modal-panel">
       <div class="vram-modal-header">
-        <h3>⛔ No hay memoria GPU suficiente</h3>
-        <button class="vram-modal-close" onclick={() => vramDismissed = true} aria-label="Cerrar aviso">✕</button>
+        <h3>{@html IconBan} No hay memoria GPU suficiente</h3>
+        <button class="vram-modal-close" onclick={() => vramDismissed = true} aria-label="Cerrar aviso">{@html IconClose}</button>
       </div>
       <p class="vram-modal-reason">{blockedMsg}</p>
       <p class="vram-modal-info">Si no haces nada, la tarea se cancelará automáticamente a los 120 segundos.</p>

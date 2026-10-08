@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { IconMenu, IconUser, IconTone, IconBPM, IconDAW, IconMIDI, IconSpectrogram, IconExport, IconHelp, IconSettings } from './icons';
+	import { IconMenu, IconUser, IconTone, IconBPM, IconDAW, IconMIDI, IconSpectrogram, IconExport, IconHelp, IconSettings, IconFlagES, IconFlagEN } from './icons';
 
 	/**
 	 * Sidebar.svelte — Sidebar vertical colapsable al estilo vocalremover.org
@@ -111,7 +111,7 @@
 
 	<!-- Selector de idioma -->
 	<div class="lang-selector">
-		<span class="icon-only">🇪🇸</span>
+		<span class="icon-only">{@html lang === 'es' ? IconFlagES : IconFlagEN}</span>
 		<span class="label-text">{lang === 'es' ? 'ES' : 'EN'}</span>
 	</div>
 </aside>
