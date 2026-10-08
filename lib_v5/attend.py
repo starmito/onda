@@ -2,6 +2,7 @@ from functools import wraps
 from packaging import version
 from collections import namedtuple
 
+import os
 import torch
 from torch import nn, einsum
 import torch.nn.functional as F
@@ -12,10 +13,25 @@ from einops import rearrange, reduce
 
 FlashAttentionConfig = namedtuple('FlashAttentionConfig', ['enable_flash', 'enable_math', 'enable_mem_efficient'])
 
+try:
+    from torch.nn.attention import sdpa_kernel, SDPBackend
+    INFERENCE_SDPA_BACKENDS = [
+        SDPBackend.CUDNN_ATTENTION,
+        SDPBackend.FLASH_ATTENTION,
+        SDPBackend.EFFICIENT_ATTENTION,
+        SDPBackend.MATH,
+    ]
+    _HAS_SDPA_KERNEL = True
+except ImportError:
+    _HAS_SDPA_KERNEL = False
+
 # helpers
 
 def exists(val):
     return val is not None
+
+def default(v, d):
+    return v if exists(v) else d
 
 def once(fn):
     called = False
@@ -36,9 +52,11 @@ class Attend(nn.Module):
     def __init__(
         self,
         dropout = 0.,
-        flash = False
+        flash = False,
+        scale = None
     ):
         super().__init__()
+        self.scale = scale
         self.dropout = dropout
         self.attn_dropout = nn.Dropout(dropout)
 
@@ -54,15 +72,31 @@ class Attend(nn.Module):
             return
 
         device_properties = torch.cuda.get_device_properties(torch.device('cuda'))
+        device_version = version.parse(f'{device_properties.major}.{device_properties.minor}')
 
-        if device_properties.major == 8 and device_properties.minor == 0:
-            print_once('A100 GPU detected, using flash attention if input tensor is on cuda')
-            self.cuda_config = FlashAttentionConfig(True, False, False)
+        if device_version >= version.parse('8.0'):
+            if os.name == 'nt':
+                print_once('Windows OS detected, using math or mem efficient attention if input tensor is on cuda')
+                self.cuda_config = FlashAttentionConfig(False, True, True)
+            else:
+                print_once('GPU Compute Capability equal or above 8.0, using flash attention if input tensor is on cuda')
+                self.cuda_config = FlashAttentionConfig(True, False, False)
         else:
+            print_once('GPU Compute Capability below 8.0, using math or mem efficient attention if input tensor is on cuda')
             self.cuda_config = FlashAttentionConfig(False, True, True)
 
     def flash_attn(self, q, k, v):
         _, heads, q_len, _, k_len, is_cuda, device = *q.shape, k.shape[-2], q.is_cuda, q.device
+
+        if exists(self.scale):
+            default_scale = q.shape[-1] ** -0.5
+            q = q * (self.scale / default_scale)
+
+        # inference on cuda: prefer cuDNN attention (available on Windows builds, ~1.9x faster than
+        # mem efficient kernel for long sequences on Ampere/Blackwell), fall back to the others if unsupported
+        if is_cuda and not self.training and _HAS_SDPA_KERNEL:
+            with sdpa_kernel(INFERENCE_SDPA_BACKENDS, set_priority=True):
+                return F.scaled_dot_product_attention(q, k, v)
 
         # Check if there is a compatible device for flash attention
 
@@ -89,7 +123,7 @@ class Attend(nn.Module):
 
         q_len, k_len, device = q.shape[-2], k.shape[-2], q.device
 
-        scale = q.shape[-1] ** -0.5
+        scale = default(self.scale, q.shape[-1] ** -0.5)
 
         if self.flash:
             return self.flash_attn(q, k, v)
