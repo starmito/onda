@@ -55,3 +55,20 @@ código ejecuto, se eliminó el bloque para mantener `lib_v5/` bajo licencias pe
 - `https://raw.githubusercontent.com/ZFTurbo/Music-Source-Separation-Training/main/LICENSE`
 - `https://api.github.com/repos/Anjok07/ultimatevocalremovergui` (licencia MIT según metadatos de GitHub; README confirma MIT)
 - `https://raw.githubusercontent.com/JusperLee/Apollo/main/LICENSE`
+
+## Norma de actualización (fijada 08-oct-2026)
+
+Al actualizar un fichero de motor desde el repositorio original (ZFTurbo):
+
+1. **Se REEMPLAZA el fichero completo, tal cual.** Nunca se edita a mano ni se
+   aplican cambios línea a línea: así es imposible que se cruce una línea de un
+   modelo con otro (fue la causa de que los Mel-Band dejasen de cargar).
+2. **Único cambio permitido**: la línea de import (`from models.bs_roformer.attend`
+   → `from .attend`), porque aquí los ficheros viven en `lib_v5/`.
+3. **Después de actualizar, se prueba** cada familia de modelo afectada
+   (BS-Roformer, Mel-Band) antes de dar por buena la actualización.
+
+Referencia comprobada el 08-oct-2026:
+- `lib_v5/mel_band_roformer.py` → `dims = (dim_in, *((dim_hidden,) * depth), dim_out)`
+- `lib_v5/bs_roformer.py`      → `dims = (dim_in, *((dim_hidden,) * (depth - 1)), dim_out)`
+  (son distintos a propósito: cada arquitectura usa su propia fórmula)

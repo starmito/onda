@@ -307,7 +307,7 @@ def MLP(
     dim_hidden = default(dim_hidden, dim_in)
 
     net = []
-    dims = (dim_in, *((dim_hidden,) * (depth - 1)), dim_out)
+    dims = (dim_in, *((dim_hidden,) * depth), dim_out)
 
     for ind, (layer_dim_in, layer_dim_out) in enumerate(zip(dims[:-1], dims[1:])):
         is_last = ind == (len(dims) - 2)
