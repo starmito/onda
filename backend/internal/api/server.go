@@ -32,6 +32,11 @@ import (
 
 //go:embed dist/index.html
 //go:embed dist/icon.png
+//go:embed dist/icon-*.png
+//go:embed dist/icon.svg
+//go:embed dist/favicon.ico
+//go:embed dist/apple-touch-icon.png
+//go:embed dist/manifest.webmanifest
 //go:embed dist/assets/*
 var frontendAssets embed.FS
 
