@@ -159,7 +159,7 @@ describe('PipelineEditor stems from model manifest', () => {
 
   function getStemNames() {
     return getStemRows().map((row) => {
-      const nameEl = row.querySelector('.routing-stem-name');
+      const nameEl = row.querySelector('.routing-stem-label');
       return (nameEl?.textContent ?? '').trim();
     });
   }
@@ -257,12 +257,12 @@ describe('PipelineEditor stems from model manifest', () => {
     await vi.waitFor(() => expect(getStemRows().length).toBe(6), { timeout: 2000 });
 
     expect(getStemNames()).toEqual([
-      '🎻 Bass',
-      '🥁 Drums',
-      '🎛️ Other',
-      '🎤 Vocals',
-      '🎸 Guitar',
-      '🎹 Piano',
+      'Bass',
+      'Drums',
+      'Other',
+      'Vocals',
+      'Guitar',
+      'Piano',
     ]);
   });
 
@@ -285,13 +285,13 @@ describe('PipelineEditor stems from model manifest', () => {
     await setStepCategory('Roformer');
     await selectModel('BS_Roformer_Viperx');
     await vi.waitFor(() => expect(getStemRows().length).toBe(2), { timeout: 2000 });
-    expect(getStemNames()).toEqual(['🎤 Vocals', '🎵 Instrumental']);
+    expect(getStemNames()).toEqual(['Vocals', 'Instrumental']);
 
     // Demucs model
     await setStepCategory('Demucs');
     await selectModel('htdemucs_ft');
     await vi.waitFor(() => expect(getStemRows().length).toBe(4), { timeout: 2000 });
-    expect(getStemNames()).toEqual(['🥁 Drums', '🎻 Bass', '🎛️ Other', '🎤 Vocals']);
+    expect(getStemNames()).toEqual(['Drums', 'Bass', 'Other', 'Vocals']);
   });
 
   it('shows a warning instead of inventing stems for a model without manifest', async () => {
@@ -355,12 +355,12 @@ describe('PipelineEditor stems from model manifest', () => {
     }, { timeout: 2000 });
 
     expect(getStemNames()).toEqual([
-      '🎻 Bass',
-      '🥁 Drums',
-      '🎛️ Other',
-      '🎤 Vocals',
-      '🎸 Guitar',
-      '🎹 Piano',
+      'Bass',
+      'Drums',
+      'Other',
+      'Vocals',
+      'Guitar',
+      'Piano',
     ]);
 
     expect(getActionRadio(0, 0, 'save')?.checked).toBe(true);
@@ -399,7 +399,7 @@ describe('PipelineEditor stems from model manifest', () => {
 
     await vi.waitFor(() => expect(getStemRows().length).toBe(4), { timeout: 2000 });
 
-    expect(getStemNames()).toEqual(['🥁 Drums', '🎻 Bass', '🎛️ Other', '🎤 Vocals']);
+    expect(getStemNames()).toEqual(['Drums', 'Bass', 'Other', 'Vocals']);
     expect(getActionRadio(0, 0, 'save')?.checked).toBe(true);
     expect(getActionRadio(0, 1, 'save')?.checked).toBe(true);
     expect(getActionRadio(0, 2, 'discard')?.checked).toBe(true);

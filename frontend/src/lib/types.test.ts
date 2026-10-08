@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { detectStemType, stemEmoji, stemDisplayName } from './types';
+import { detectStemType, stemIcon, stemDisplayName } from './types';
 
 describe('detectStemType', () => {
   it('extracts the exact stem name from a pipeline file name', () => {
@@ -24,31 +24,31 @@ describe('detectStemType', () => {
   });
 });
 
-describe('stemEmoji', () => {
-  it('returns a distinct emoji for each canonical stem', () => {
+describe('stemIcon', () => {
+  it('returns a distinct icon name for each canonical stem', () => {
     const icons = [
-      stemEmoji('drums'),
-      stemEmoji('bass'),
-      stemEmoji('guitar'),
-      stemEmoji('piano'),
-      stemEmoji('other'),
-      stemEmoji('vocals'),
-      stemEmoji('instrumental'),
+      stemIcon('drums'),
+      stemIcon('bass'),
+      stemIcon('guitar'),
+      stemIcon('piano'),
+      stemIcon('other'),
+      stemIcon('vocals'),
+      stemIcon('instrumental'),
     ];
     expect(new Set(icons).size).toBe(icons.length);
   });
 
-  it('returns an instrument emoji for known real instruments', () => {
-    expect(stemEmoji('guitar')).toBe('🎸');
-    expect(stemEmoji('piano')).toBe('🎹');
-    expect(stemEmoji('drums')).toBe('🥁');
+  it('returns an instrument icon name for known real instruments', () => {
+    expect(stemIcon('guitar')).toBe('guitar');
+    expect(stemIcon('piano')).toBe('piano');
+    expect(stemIcon('drums')).toBe('drum');
   });
 });
 
 describe('stemDisplayName', () => {
-  it('combines emoji and capitalized stem name', () => {
-    expect(stemDisplayName('vocals')).toBe('🎤 Vocals');
-    expect(stemDisplayName('drums')).toBe('🥁 Drums');
-    expect(stemDisplayName('guitar')).toBe('🎸 Guitar');
+  it('returns only the capitalized stem name (no emoji/icon)', () => {
+    expect(stemDisplayName('vocals')).toBe('Vocals');
+    expect(stemDisplayName('drums')).toBe('Drums');
+    expect(stemDisplayName('guitar')).toBe('Guitar');
   });
 });

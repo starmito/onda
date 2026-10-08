@@ -524,7 +524,10 @@
                 {:else}
                   {#each stemsForModel(step.model) as stemName}
                     <div class="routing-row">
-                      <span class="routing-stem-name">{@html icon(stemIcon(stemName))} {stemDisplayName(stemName)}</span>
+                      <span class="routing-stem-name">
+                        {@html icon(stemIcon(stemName))}
+                        <span class="routing-stem-label">{stemDisplayName(stemName)}</span>
+                      </span>
                       <label class="routing-radio" class:active={step.stems[stemName]?.action === 'route'}>
                         <input
                           type="radio"
