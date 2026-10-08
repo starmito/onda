@@ -9,7 +9,8 @@ en la sección "inference": dim_t, num_overlap, batch_size.
 Usage:
     python3 backend/scripts/import_uvr_defaults.py [--dry-run]
 
-Requiere acceso SSH a .87 para leer los YAML en /mnt/almacen/onda/models/VR_Models/.
+Requiere acceso SSH a .87 para leer los YAML en
+~/.docker/onda-produccion/data/models/VR_Models/ (configurable vía ONDA_MODELS_ROOT).
 """
 import json
 import os
@@ -18,7 +19,7 @@ import sys
 import yaml
 
 # ── Paths ──────────────────────────────────────────────────────────
-MODELS_ROOT = "/mnt/almacen/onda/models"
+MODELS_ROOT = os.environ.get("ONDA_MODELS_ROOT", "/home/starmito/.docker/onda-produccion/data/models")
 VR_MODELS = os.path.join(MODELS_ROOT, "VR_Models")
 PROJECT_ROOT = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "..", "..")
