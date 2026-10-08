@@ -11,6 +11,19 @@ Reglas OBLIGATORIAS para cualquier agente que trabaje en este repositorio. Incum
 - **NUNCA tocar `config/`** (config local con secretos) ni archivos `*.orig`.
 - **NUNCA usar `sudo`** ni instalar paquetes del sistema (el sandbox lo bloquea).
 
+## 🧪 BANCO DE PRUEBAS — la ÚNICA vía para probar de verdad (orden de Adri, 08-oct-2026)
+
+- **Comando único:** `./prueba.sh` desde la raíz del repo. Hace: construir la imagen `onda:prueba` del
+  árbol de trabajo actual (**sin crear tags de git**) → recrear SOLO el contenedor del banco de pruebas →
+  verificar su health. Opciones: `--build` (solo construir), `--health` (solo comprobar), `--logs`.
+- **Contenedor:** `onda-prueba`, puerto **3010**, con **GPU** (`runtime: nvidia`) y su backend CUDA propio.
+  La versión que reporta lleva el sufijo `-prueba` para no confundirla con producción.
+- **NUEVO PROHIBIDO:** crear tags de git para probar · contenedores temporales `onda-verif-*` ·
+  `docker compose down` · editar a mano el compose del banco de pruebas.
+- **GPU SIEMPRE:** el banco de pruebas corre con GPU. Nunca `--device cpu` (el paso vocal en CPU tarda
+  minutos u horas y puede agotar los 7,4 GB del host).
+- **Evidencia obligatoria** en el informe: el health del 3010 y el caso funcional concreto que probaste.
+
 ## ✅ SIEMPRE
 
 - Compilar y pasar TODOS los tests antes de commitear:
@@ -24,14 +37,38 @@ Reglas OBLIGATORIAS para cualquier agente que trabaje en este repositorio. Incum
   - Los tres guardianes se ejecutan automáticamente en la suite via `tests/unit/test_guards.py`.
 - Si un test necesita `aubio`/`sox` y no están instalados, usar el patrón `skipIfMissingBinary` ya existente (saltar limpiamente, no fallar).
 - Declarar una dependencia exige que alguien la importe en el código de Onda (repo + `lib_v5`) o que un paquete instalado la requiera (`pip show <pkg>` → `Required-by:`). Usar siempre ambas comprobaciones; no dejar dependencias muertas en los requirements.
-- Commits conventional (`feat:`, `fix:`, `test:`, `refactor:`, `docs:`, `chore:`) y push a la rama de trabajo actual (`origin/fix/v3.5.6` en este punto del ciclo de release).
+- Commits conventional (`feat:`, `fix:`, `test:`, `refactor:`, `docs:`, `chore:`) y **push de tu rama de trabajo** (`origin/trabajo/<tema>`). **NUNCA** cambies `VERSION` ni crees tags: eso es solo para publicar una versión, y lo decide Adri (ver la norma de abajo).
 - La versión sale del fichero `VERSION` en la raíz del repo. `build.sh` y `deploy.sh` leen `VERSION` y validan que `onda/_version.py`, `pyproject.toml` y `frontend/package.json` coincidan. NUNCA hardcodear versiones a mano ni duplicar la lógica de versionado.
 - Si necesitas helpers temporales de depuración: crearlos dentro del repo y borrarlos antes del commit.
+
+## 📌 ESTRUCTURA DE TRABAJO — norma fija (acordada con Adri el 08-oct-2026)
+
+**La idea:** el recetario (el código) se mejora hoja a hoja y **cada hoja sube a la nube** según se prueba, pero **no se
+saca edición nueva (versión) hasta que Adri lo diga**. Los cocineros (producción) siguen con la edición que ya tienen.
+
+1. **Todo lo terminado se sube a GitHub.** Al cerrar una tarea, su rama está subida y `main` está al día.
+   Verificación de cierre: **0 commits sin subir**.
+2. **Las ramas se llaman por lo que son**: `trabajo/<tema>` (p. ej. `trabajo/borrado-input`).
+   **Prohibido** poner el número de versión en el nombre (`fix/v3.5.6` ✗) — mezcla «qué cambias» con «qué edición es».
+3. **La versión NO se toca en el trabajo diario.** Nada de bumps, ni tags, ni entradas de CHANGELOG por cada cambio:
+   los cambios se **acumulan**. **Publicar una versión es decisión exclusiva de Adri**; solo entonces se hace:
+   subir `VERSION` (+ `onda/_version.py`, `pyproject.toml`, `frontend/package.json`), entrada en `CHANGELOG`,
+   tags `onda-vX.Y.Z` + `gui-vX.Y.Z`, push y despliegue a producción (con su OK).
+4. **Una versión publicada = un tag.** Nunca se crean tags para probar ni para marcar puntos intermedios.
+
+| Quién | Sí hace | No hace |
+|---|---|---|
+| **OpenCode** | trabajar en su rama `trabajo/<tema>`, commits convencionales, **subir su rama**, `./prueba.sh`, informe con evidencia real | no toca `main`, ni tags, ni `VERSION`, ni producción, ni `deploy.sh` |
+| **Manita** | preparar encargos, verificación independiente en el banco (:3010), contenedores por Arcane, **sincronizar GitHub** (`main` y tags) cuando Adri lo autoriza, vigilar que no haya desfase | no decide versiones ni publica |
+| **Adri** | decidir **qué se publica y cuándo** · autorizar el pase a producción | — |
+
+**Al publicar (semver):** arreglo → PATCH (v3.5.17 → v3.5.18) · mejora → MINOR (v3.5.17 → v3.6.0) · ruptura → MAJOR (v4.0.0).
+En caso de duda entre X e Y, **preguntar a Adri**.
 
 ## Contexto del proyecto
 
 - **Onda**: separador de fuentes musicales (Demucs, ViperX, MDX/SCNet/ONNX) + DAW ligero. Backend Go (`backend/`), frontend Svelte 5 (`frontend/`), pipeline Python (`onda/`).
-- **Rama de trabajo actual**: `fix/v3.5.6`. No tocar `main` ni tags salvo instrucción explícita.
+- **Ramas**: `main` es la versión buena y **siempre está al día en GitHub**. Cada tarea trabaja en una rama **`trabajo/<tema>`** (por lo que cambias, nunca con el número de versión). No tocar `main` ni los tags.
 - **Raíz de datos única**: todos los datos de usuario y configuración viven bajo la raíz configurada (`ONDA_DATA_DIR`, por defecto `/app/data` en el contenedor). El backend y `pipeline.sh` resuelven siempre rutas relativas a esa raíz. Las rutas fijas `/app/input/`, `/app/output/`, `/app/config/` y el bare `/input/` son **drift obsoleto**.
 - **Variables de entorno relevantes** (orden de precedencia: env > ajuste persistido > defecto):
   - `ONDA_DATA_DIR` — raíz de datos (contiene `input/`, `output/`, `daw-data/`, `input_rubberband/`, `config/`, `logs/`, `models/`).
