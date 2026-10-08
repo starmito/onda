@@ -2,8 +2,8 @@
   import type { LocalModel } from './api';
   import { getLocalModels, getPresets, savePreset, deletePreset, setDefaultPreset, restoreDefaultPresets } from './api';
   import type { PresetData } from './api';
-  import { stemDisplayName } from './types';
-  import { IconClose, IconSliders, IconPlus, IconChevronDown, IconSave, IconTrash, IconCircleCheck, IconPencil, IconLock, IconFolderOpen, IconStar, IconFactory } from './icons';
+  import { stemDisplayName, stemIcon } from './types';
+  import { icon, IconClose, IconSliders, IconPlus, IconChevronDown, IconSave, IconTrash, IconCircleCheck, IconPencil, IconLock, IconFolderOpen, IconStar, IconFactory } from './icons';
 
   // ── Props ──
   interface Props {
@@ -524,7 +524,7 @@
                 {:else}
                   {#each stemsForModel(step.model) as stemName}
                     <div class="routing-row">
-                      <span class="routing-stem-name">{stemDisplayName(stemName)}</span>
+                      <span class="routing-stem-name">{@html icon(stemIcon(stemName))} {stemDisplayName(stemName)}</span>
                       <label class="routing-radio" class:active={step.stems[stemName]?.action === 'route'}>
                         <input
                           type="radio"

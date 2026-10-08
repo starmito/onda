@@ -3,8 +3,8 @@
   import { downloadUrl, pitchDownloadUrl, deleteSong, deleteStem as deleteStemApi, pitchStems, getPitchSubgroups, deletePitchSubgroup, deletePitchStem } from './api';
   import type { ResultStem, ResultGroup } from './types';
   import type { PitchResponse, PitchSubgroup } from './api';
-  import { stemEmoji, detectStemType } from './types';
-  import { IconDisc, IconMusic, IconPlay, IconPause, IconSquare, IconDownload, IconTrash, IconHourglass, IconRewind, IconFastForward, IconClose } from './icons';
+  import { stemIcon, detectStemType } from './types';
+  import { icon, IconDisc, IconMusic, IconPlay, IconPause, IconSquare, IconDownload, IconTrash, IconHourglass, IconRewind, IconFastForward, IconClose } from './icons';
   import {
     playerState,
     type PitchedSubgroup,
@@ -1369,7 +1369,7 @@
               ></canvas>
 
               <!-- Stem info -->
-              <span class="stem-emoji">{stemEmoji(stem.stemType)}</span>
+              <span class="stem-emoji">{@html icon(stemIcon(stem.stemType))}</span>
               <span class="stem-name" title={stem.name}>{formatPitchStemName(stem.name)}</span>
 
               <!-- Controls -->
@@ -1493,7 +1493,7 @@
                   {@const sLevel = playerState.resultsPitchedLevels[stemId] || { l: 0, r: 0 }}
                   {@const pLevel = playerState.resultsPitchedPeaks[stemId] || { l: 0, r: 0 }}
                   <div class="stem-row pitched-stem" class:muted={subState.muted}>
-                    <span class="stem-emoji">{stemEmoji(stem.stemType)}</span>
+                    <span class="stem-emoji">{@html icon(stemIcon(stem.stemType))}</span>
                     <span class="stem-name" title={stem.name}>{formatPitchStemName(stem.name)}</span>
                     <div class="stem-controls">
                       <button class="stem-btn mute-btn" class:active={subState.muted}

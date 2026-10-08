@@ -11,58 +11,59 @@ export interface ResultGroup {
 }
 
 /**
- * Mapa de instrumentos a emojis propios.  Nunca se usa un icono genérico para
- * un instrumento real: cada stem tiene (o se le asigna) su propio icono.
+ * Mapa de instrumentos a nombres de icono de Lucide.  Nunca se usa un icono
+ * genérico para un instrumento real: cada stem tiene (o se le asigna) su
+ * propio icono.
  */
-const STEM_EMOJIS: Record<string, string> = {
-  drums: '🥁',
-  bass: '🎻',
-  guitar: '🎸',
-  piano: '🎹',
-  other: '🎛️',
-  vocals: '🎤',
-  instrumental: '🎵',
+const STEM_ICONS: Record<string, string> = {
+  drums: 'drum',
+  bass: 'clef-bass',
+  guitar: 'guitar',
+  piano: 'piano',
+  other: 'sliders-horizontal',
+  vocals: 'mic-vocal',
+  instrumental: 'music',
   // Instrumentos extra que pueden aparecer en modelos multi-stem.
-  keyboard: '🎹',
-  synth: '🎹',
-  strings: '🎻',
-  violin: '🎻',
-  cello: '🎻',
-  brass: '🎺',
-  trumpet: '🎺',
-  saxophone: '🎷',
-  sax: '🎷',
-  flute: '🪈',
-  woodwinds: '🪈',
-  organ: '🎹',
-  accordion: '🪗',
-  harmonica: '🎶',
-  choir: '👥',
-  voice: '🎤',
-  lead: '🎙️',
-  backing: '🎙️',
+  keyboard: 'piano',
+  synth: 'piano',
+  strings: 'clef-treble',
+  violin: 'violin',
+  cello: 'cello',
+  brass: 'trumpet',
+  trumpet: 'trumpet',
+  saxophone: 'saxophone',
+  sax: 'saxophone',
+  flute: 'music',
+  woodwinds: 'music',
+  organ: 'piano',
+  accordion: 'music',
+  harmonica: 'music',
+  choir: 'users',
+  voice: 'mic-vocal',
+  lead: 'mic',
+  backing: 'mic',
   // Fallbacks de nombres alternativos.
-  no_vocals: '🎵',
-  accompaniment: '🎵',
-  music: '🎵',
+  no_vocals: 'music',
+  accompaniment: 'music',
+  music: 'music',
 };
 
-function instrumentEmoji(name: string): string {
+function instrumentIcon(name: string): string {
   const key = name.toLowerCase();
-  if (STEM_EMOJIS[key]) return STEM_EMOJIS[key];
+  if (STEM_ICONS[key]) return STEM_ICONS[key];
   // Subcadena conocida dentro de nombres compuestos (p. ej. "lead_vocal").
-  for (const [stem, emoji] of Object.entries(STEM_EMOJIS)) {
-    if (key.includes(stem)) return emoji;
+  for (const [stem, icon] of Object.entries(STEM_ICONS)) {
+    if (key.includes(stem)) return icon;
   }
-  return '🎵';
+  return 'music';
 }
 
 /**
- * Devuelve el emoji propio del stem.  Si no hay uno específico, devuelve un
- * emoji de instrumento musical (nunca genérico para un instrumento real).
+ * Devuelve el nombre del icono propio del stem.  Si no hay uno específico,
+ * devuelve el icono genérico de música.
  */
-export function stemEmoji(type: string): string {
-  return instrumentEmoji(type);
+export function stemIcon(type: string): string {
+  return instrumentIcon(type);
 }
 
 /**
@@ -74,10 +75,10 @@ function capitalizeStem(name: string): string {
 }
 
 /**
- * Etiqueta visible para un stem: emoji + nombre capitalizado.
+ * Etiqueta visible para un stem: solo el nombre capitalizado (sin emoji).
  */
 export function stemDisplayName(name: string): string {
-  return `${stemEmoji(name)} ${capitalizeStem(name)}`;
+  return capitalizeStem(name);
 }
 
 /**

@@ -2,8 +2,8 @@
   import { onDestroy, onMount } from 'svelte';
   import { API_BASE, uploadPitchAudio, pitchInputDownloadUrl, pitchDownloadUrl, deletePitchUpload, pitchStems, pitchFile, downloadUrl, deleteStem as deleteStemApi, getPitchSubgroups, deletePitchSubgroup, deletePitchStem, getPitchUploads, deleteSong } from './api';
   import type { ResultStem } from './types';
-  import { detectStemType, stemEmoji } from './types';
-  import { IconUpload, IconSkipBack, IconSkipForward, IconFolder, IconPlay, IconPause, IconSquare, IconDownload, IconTrash, IconHourglass, IconMusic, IconTriangleAlert } from './icons';
+  import { detectStemType, stemIcon } from './types';
+  import { icon, IconUpload, IconSkipBack, IconSkipForward, IconFolder, IconPlay, IconPause, IconSquare, IconDownload, IconTrash, IconHourglass, IconMusic, IconTriangleAlert } from './icons';
   import {
     playerState,
     stemStateKey,
@@ -1492,7 +1492,7 @@
                   {@const sLevel = playerState.stemLevels[stemStateKey(song, stem.name)] || { l: 0, r: 0 }}
                   {@const pLevel = playerState.stemPeaks[stemStateKey(song, stem.name)] || { l: 0, r: 0 }}
                   <div class="stem-row" class:muted={state.muted}>
-                    <span class="stem-emoji">{stemEmoji(stem.stemType)}</span>
+                    <span class="stem-emoji">{@html icon(stemIcon(stem.stemType))}</span>
                     <div class="stem-left-controls">
                       <button class="stem-btn mute-btn" class:active={state.muted}
                         onclick={() => toggleMute(song, stem.name)} title="Silenciar">M</button>
@@ -1596,7 +1596,7 @@
                           {@const sLevel = playerState.subgroupLevels[subgroupStemKey(song, idx, sstem.name)] || { l: 0, r: 0 }}
                           {@const pLevel = playerState.subgroupPeaks[subgroupStemKey(song, idx, sstem.name)] || { l: 0, r: 0 }}
                           <div class="stem-row" class:muted={sgState.muted}>
-                            <span class="stem-emoji">{stemEmoji(sstem.stemType)}</span>
+                            <span class="stem-emoji">{@html icon(stemIcon(sstem.stemType))}</span>
                             <div class="stem-left-controls">
                               <button class="stem-btn mute-btn" class:active={sgState.muted}
                                 onclick={() => toggleSubgroupMute(song, idx, sstem.name)} title="Silenciar">M</button>
@@ -1734,7 +1734,7 @@
                       <div class="output-stems">
                         {#each subs.stems as sstem}
                           <div class="stem-row">
-                            <span class="stem-emoji">{stemEmoji(sstem.stemType)}</span>
+                            <span class="stem-emoji">{@html icon(stemIcon(sstem.stemType))}</span>
                             <span class="stem-name" title={sstem.name}>{formatPitchStemName(sstem.name)}</span>
                             <div class="stem-actions">
                               <a class="song-btn export-btn" href={`${API_BASE}${encodeURI(sstem.path)}`} download={sstem.name} title="Descargar">{@html IconDownload}</a>
